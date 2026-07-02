@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+pydantic
+numpy
+opencv-python
+ultralytics
+mediapipe>=0.10.9

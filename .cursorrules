@@ -1,0 +1,13 @@
+# Project Rules
+
+Be concise.
+
+Prefer minimal code changes.
+
+Do not refactor unrelated files.
+
+Do not reformat entire files unless asked.
+
+Ask before editing more than 3 files.
+
+Ask before adding new dependencies
