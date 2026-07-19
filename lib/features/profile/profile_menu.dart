@@ -34,19 +34,29 @@ class ProfileMenu {
             child: GestureDetector(
               onTap: dismiss,
               behavior: HitTestBehavior.opaque,
-              child: Container(color: const Color(0x66000000)),
+              child: Container(color: Colors.black.withValues(alpha: 0.45)),
             ),
           ),
           Positioned(
-            left: offset.dx,
+            left: offset.dx.clamp(8.0, screenSize.width - 300),
             bottom: screenSize.height - offset.dy + AppSpacing.sm,
-            width: 280,
-            child: _ProfileMenuCard(
-              onDismiss: dismiss,
-              onLogout: () {
-                dismiss();
-                onLogout();
-              },
+            width: 300,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) => Transform.scale(
+                scale: 0.92 + (0.08 * value),
+                alignment: Alignment.bottomLeft,
+                child: Opacity(opacity: value, child: child),
+              ),
+              child: _ProfileMenuCard(
+                onDismiss: dismiss,
+                onLogout: () {
+                  dismiss();
+                  onLogout();
+                },
+              ),
             ),
           ),
         ],
@@ -58,10 +68,7 @@ class ProfileMenu {
 }
 
 class _ProfileMenuCard extends StatelessWidget {
-  const _ProfileMenuCard({
-    required this.onDismiss,
-    required this.onLogout,
-  });
+  const _ProfileMenuCard({required this.onDismiss, required this.onLogout});
 
   final VoidCallback onDismiss;
   final VoidCallback onLogout;
@@ -84,20 +91,24 @@ class _ProfileMenuCard extends StatelessWidget {
     final name = user?.fullName ?? 'User';
     final role = user?.role ?? 'Trainee';
     final initials = _initials(name);
+    final isDark = context.isDarkTheme;
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF2B2B30),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: context.elixBorder.withValues(alpha: isDark ? 0.6 : 1),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.12),
+            blurRadius: 32,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -108,32 +119,40 @@ class _ProfileMenuCard extends StatelessWidget {
             imagePath: user?.profilePicturePath,
             onTap: () => _openSettings(context, ProfileSettingsSection.account),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            child: _ProfileMenuItem(
+              icon: FluentIcons.settings,
+              label: 'Settings',
+              description: 'Preferences & appearance',
+              onTap: () => _openSettings(
+                context,
+                ProfileSettingsSection.preferences,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
           const _MenuDivider(),
-          _ProfileMenuItem(
-            icon: FluentIcons.contact,
-            label: 'Profile',
-            onTap: () => _openSettings(context, ProfileSettingsSection.profile),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.xs,
+            ),
+            child: _ProfileMenuItem(
+              icon: FluentIcons.sign_out,
+              label: 'Log out',
+              onTap: onLogout,
+              isDestructive: true,
+            ),
           ),
-          _ProfileMenuItem(
-            icon: FluentIcons.settings,
-            label: 'Settings',
-            onTap: () =>
-                _openSettings(context, ProfileSettingsSection.preferences),
-          ),
-          const _MenuDivider(),
-          _ProfileMenuItem(
-            icon: FluentIcons.sign_out,
-            label: 'Log out',
-            onTap: onLogout,
-            isDestructive: true,
-          ),
+          const SizedBox(height: AppSpacing.xs),
         ],
       ),
     );
   }
 }
 
-class _ProfileMenuHeader extends StatelessWidget {
+class _ProfileMenuHeader extends StatefulWidget {
   const _ProfileMenuHeader({
     required this.name,
     required this.subtitle,
@@ -149,50 +168,86 @@ class _ProfileMenuHeader extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_ProfileMenuHeader> createState() => _ProfileMenuHeaderState();
+}
+
+class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: onTap,
+        onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.md,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(AppSpacing.md + 2),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primary.withValues(alpha: _hovered ? 0.18 : 0.12),
+                AppColors.primarySoft.withValues(alpha: _hovered ? 0.1 : 0.06),
+              ],
+            ),
           ),
           child: Row(
             children: [
-              ProfileAvatarWidget(
-                imagePath: imagePath,
-                initials: initials,
-                radius: 18,
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.primarySoft],
+                  ),
+                ),
+                child: ProfileAvatarWidget(
+                  imagePath: widget.imagePath,
+                  initials: widget.initials,
+                  radius: 22,
+                ),
               ),
-              const SizedBox(width: AppSpacing.sm + 4),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name,
+                      widget.name,
                       style: AppTheme.body.copyWith(
                         fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                        fontSize: 15,
+                        color: context.elixTextPrimary,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: AppTheme.caption.copyWith(fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        widget.subtitle,
+                        style: AppTheme.caption.copyWith(
+                          fontSize: 11,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const Icon(
-                FluentIcons.chevron_right,
-                size: 14,
-                color: AppColors.textSecondary,
               ),
             ],
           ),
@@ -207,11 +262,13 @@ class _ProfileMenuItem extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.description,
     this.isDestructive = false,
   });
 
   final IconData icon;
   final String label;
+  final String? description;
   final VoidCallback onTap;
   final bool isDestructive;
 
@@ -224,8 +281,12 @@ class _ProfileMenuItemState extends State<_ProfileMenuItem> {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        widget.isDestructive ? AppColors.error : AppColors.textPrimary;
+    final color = widget.isDestructive
+        ? AppColors.error
+        : context.elixTextPrimary;
+    final iconBg = widget.isDestructive
+        ? AppColors.error.withValues(alpha: 0.12)
+        : context.elixBorder.withValues(alpha: 0.35);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -234,23 +295,56 @@ class _ProfileMenuItemState extends State<_ProfileMenuItem> {
       child: GestureDetector(
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
-        child: Container(
-          color: _hovered
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.transparent,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin: const EdgeInsets.symmetric(vertical: 2),
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm + 4,
+            horizontal: AppSpacing.sm + 4,
+            vertical: AppSpacing.sm + 2,
+          ),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? (widget.isDestructive
+                      ? AppColors.error.withValues(alpha: 0.08)
+                      : context.elixBorder.withValues(alpha: 0.25))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 18, color: color),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(widget.icon, size: 17, color: color),
+              ),
               const SizedBox(width: AppSpacing.sm + 4),
-              Text(
-                widget.label,
-                style: AppTheme.body.copyWith(
-                  fontSize: 14,
-                  color: color,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.label,
+                      style: AppTheme.body.copyWith(
+                        fontSize: 14,
+                        color: color,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (widget.description != null) ...[
+                      const SizedBox(height: 1),
+                      Text(
+                        widget.description!,
+                        style: AppTheme.caption.copyWith(
+                          fontSize: 11,
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -268,7 +362,8 @@ class _MenuDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 1,
-      color: AppColors.border.withValues(alpha: 0.5),
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      color: context.elixBorder.withValues(alpha: 0.5),
     );
   }
 }

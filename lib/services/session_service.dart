@@ -7,7 +7,7 @@ import '../data/repositories/session_repository.dart';
 
 class SessionService extends ChangeNotifier {
   SessionService({SessionRepository? repository})
-      : _repository = repository ?? SessionRepository();
+    : _repository = repository ?? SessionRepository();
 
   final SessionRepository _repository;
 

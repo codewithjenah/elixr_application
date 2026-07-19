@@ -5,6 +5,9 @@ abstract final class AppColors {
   static const cardSurface = Color(0xFF1A1A1F);
   static const primary = Color(0xFFFF4D8D);
   static const primarySoft = Color(0xFFFF7EB3);
+  static const accent = Color(0xFF8B5CF6);
+  static const accentSoft = Color(0xFFA78BFA);
+  static const panelSurface = Color(0xFF16121F);
   static const textPrimary = Color(0xFFF5F5F5);
   static const textSecondary = Color(0xFFA0A0A8);
   static const success = Color(0xFF6EE7B7);

@@ -1,12 +1,13 @@
 from typing import Optional
 
+from config import POSE_STALL_PROXIMITY
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
-    check_shoulder_alignment,
+    check_hands_visible,
     check_stall_proximity,
-    check_stance_stability,
-    dominant_wrist,
+    pose_wrist_point,
+    track_bottle_stability,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
 
@@ -22,26 +23,39 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    shoulder_check = check_shoulder_alignment(pose)
-    if shoulder_check:
-        return shoulder_check, prev_hip_center, movement_state
+    state, stable = track_bottle_stability(movement_state, bottle)
 
-    stance_check, hip_center = check_stance_stability(pose, prev_hip_center)
-
-    target: Optional[Point2D] = None
-    if hands and bottle:
-        target = hands.nearest_palm_to(bottle.center_normalized(640, 480))
-    if target is None and pose:
-        target = dominant_wrist(pose)
-
-    stall = check_stall_proximity(
-        bottle,
-        target,
-        success_message="Good hand stall position.",
-    )
-
+    # Prefer the pose wrist joint; fall back to the hand palm if pose is missing.
+    wrist = pose_wrist_point(pose, bottle)
+    if wrist is not None:
+        stall = check_stall_proximity(
+            bottle,
+            wrist,
+            success_message="Good hand stall position.",
+            threshold=POSE_STALL_PROXIMITY,
+        )
+    else:
+        hands_check = check_hands_visible(hands)
+        if hands_check:
+            return hands_check, prev_hip_center, state
+        palm = hands.nearest_palm_to(bottle.center_normalized(640, 480))
+        stall = check_stall_proximity(
+            bottle,
+            palm,
+            success_message="Good hand stall position.",
+        )
     if stall.feedback_type != "positive":
-        return stall, hip_center, movement_state
-    if stance_check:
-        return stance_check, hip_center, movement_state
-    return stall, hip_center, movement_state
+        return stall, prev_hip_center, state
+
+    if not stable:
+        return (
+            RuleResult(
+                feedback="Hold the bottle steady on your palm.",
+                feedback_type="warning",
+                posture_status="unstable",
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    return stall, prev_hip_center, state

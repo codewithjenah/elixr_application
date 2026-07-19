@@ -4,8 +4,7 @@ from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_basket_hold,
     check_bottle_visible,
-    check_shoulder_alignment,
-    check_stance_stability,
+    check_hands_visible,
     nearest_hand_to_bottle,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
@@ -22,22 +21,9 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    shoulder_check = check_shoulder_alignment(pose)
-    if shoulder_check:
-        return shoulder_check, prev_hip_center, movement_state
-
-    stance_check, hip_center = check_stance_stability(pose, prev_hip_center)
-
-    if hands is None or bottle is None:
-        return (
-            RuleResult(
-                feedback="Keep your cupped hand in frame for the basket catch.",
-                feedback_type="warning",
-                posture_status="unknown",
-            ),
-            hip_center,
-            movement_state,
-        )
+    hands_check = check_hands_visible(hands)
+    if hands_check:
+        return hands_check, prev_hip_center, movement_state
 
     hand, _ = nearest_hand_to_bottle(hands, bottle)
     if hand is None:
@@ -47,13 +33,9 @@ def evaluate(
                 feedback_type="warning",
                 posture_status="unknown",
             ),
-            hip_center,
+            prev_hip_center,
             movement_state,
         )
 
     basket = check_basket_hold(hand, bottle)
-    if basket.feedback_type != "positive":
-        return basket, hip_center, movement_state
-    if stance_check:
-        return stance_check, hip_center, movement_state
-    return basket, hip_center, movement_state
+    return basket, prev_hip_center, movement_state

@@ -97,10 +97,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     setState(() => _savingProfile = true);
     try {
       await context.read<AuthService>().updateProfile(
-            fullName: name,
-            email: email,
-            profilePicturePath: _pickedImagePath,
-          );
+        fullName: name,
+        email: email,
+        profilePicturePath: _pickedImagePath,
+      );
       if (mounted) {
         setState(() => _editingEmail = false);
         _showSuccess('Profile updated successfully.');
@@ -133,9 +133,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     setState(() => _savingPassword = true);
     try {
       await context.read<AuthService>().updatePassword(
-            currentPassword: current,
-            newPassword: newPass,
-          );
+        currentPassword: current,
+        newPassword: newPass,
+      );
       if (mounted) {
         _currentPasswordController.clear();
         _newPasswordController.clear();
@@ -165,33 +165,33 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
     return Center(
       child: Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: context.elixCardSurface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: context.elixBorder.withValues(alpha: 0.6)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 32,
-                offset: const Offset(0, 16),
+        width: width,
+        height: height,
+        decoration: AppTheme.cardDecoration(context).copyWith(
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: context.isDarkTheme ? 0.5 : 0.12,
               ),
-            ],
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Row(
-            children: [
-              _buildSidebar(),
-              Expanded(child: _buildContent()),
-            ],
-          ),
+              blurRadius: 40,
+              offset: const Offset(0, 20),
+            ),
+          ],
         ),
+        clipBehavior: Clip.antiAlias,
+        child: Row(
+          children: [
+            _buildSidebar(),
+            Expanded(child: _buildContent()),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildSidebar() {
-    const sidebarWidth = 220.0;
+    const sidebarWidth = 230.0;
 
     return Container(
       width: sidebarWidth,
@@ -205,29 +205,53 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: IconButton(
-              icon: const Icon(FluentIcons.cancel, size: 16),
-              onPressed: () => Navigator.pop(context),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.lg,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Settings',
+                  style: AppTheme.headingMedium.copyWith(
+                    fontSize: 20,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Manage your account',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: AppSpacing.sm),
           _SidebarNavItem(
             icon: FluentIcons.contact,
             label: 'Account',
             isSelected: _section == ProfileSettingsSection.account,
-            onTap: () => setState(() => _section = ProfileSettingsSection.account),
+            onTap: () =>
+                setState(() => _section = ProfileSettingsSection.account),
           ),
           _SidebarNavItem(
             icon: FluentIcons.photo2,
             label: 'Profile',
             isSelected: _section == ProfileSettingsSection.profile,
-            onTap: () => setState(() => _section = ProfileSettingsSection.profile),
+            onTap: () =>
+                setState(() => _section = ProfileSettingsSection.profile),
           ),
           _SidebarNavItem(
             icon: FluentIcons.lock,
             label: 'Security',
             isSelected: _section == ProfileSettingsSection.security,
-            onTap: () => setState(() => _section = ProfileSettingsSection.security),
+            onTap: () =>
+                setState(() => _section = ProfileSettingsSection.security),
           ),
           _SidebarNavItem(
             icon: FluentIcons.settings,
@@ -241,15 +265,54 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     );
   }
 
+  String get _sectionTitle => switch (_section) {
+    ProfileSettingsSection.account => 'Account',
+    ProfileSettingsSection.profile => 'Profile',
+    ProfileSettingsSection.security => 'Security',
+    ProfileSettingsSection.preferences => 'Preferences',
+  };
+
   Widget _buildContent() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+          ),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: context.elixBorder.withValues(alpha: 0.4),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _sectionTitle,
+                  style: AppTheme.headingMedium.copyWith(
+                    fontSize: 22,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(FluentIcons.cancel, size: 16),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.xl,
-              AppSpacing.xl,
+              AppSpacing.lg,
               AppSpacing.xl,
               AppSpacing.lg,
             ),
@@ -268,69 +331,76 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   Widget _buildAccountSection() {
     final user = context.watch<AuthService>().currentUser;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Account', style: AppTheme.headingMedium.copyWith(fontSize: 22)),
-        const SizedBox(height: AppSpacing.lg),
-        const _SectionDivider(),
-        const SizedBox(height: AppSpacing.lg),
-        _AccountRow(
-          label: 'Name',
-          child: Text(
-            user?.fullName ?? '',
-            style: AppTheme.body.copyWith(fontSize: 14),
+    return _SettingsCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Account details',
+            style: AppTheme.body.copyWith(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: context.elixTextPrimary,
+            ),
           ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _AccountRow(
-          label: 'Email',
-          child: _editingEmail
-              ? SizedBox(
-                  width: 280,
-                  child: TextBox(
-                    controller: _emailController,
-                    style: AppTheme.body,
-                  ),
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      user?.email ?? '',
-                      style: AppTheme.body.copyWith(fontSize: 14),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    const Icon(
-                      FluentIcons.chevron_right,
-                      size: 12,
-                      color: AppColors.textSecondary,
-                    ),
-                  ],
-                ),
-          onTap: () => setState(() => _editingEmail = !_editingEmail),
-        ),
-        if (_editingEmail) ...[
           const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            width: 200,
-            child: FilledButton(
-              onPressed: _savingProfile ? null : _saveProfile,
-              child: _savingProfile
-                  ? const ProgressRing(strokeWidth: 2)
-                  : const Text('Save email'),
+          _AccountRow(
+            label: 'Name',
+            child: Text(
+              user?.fullName ?? '',
+              style: AppTheme.body.copyWith(fontSize: 14),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _AccountRow(
+            label: 'Email',
+            child: _editingEmail
+                ? SizedBox(
+                    width: 280,
+                    child: TextBox(
+                      controller: _emailController,
+                      style: AppTheme.body,
+                    ),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        user?.email ?? '',
+                        style: AppTheme.body.copyWith(fontSize: 14),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      const Icon(
+                        FluentIcons.chevron_right,
+                        size: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ],
+                  ),
+            onTap: () => setState(() => _editingEmail = !_editingEmail),
+          ),
+          if (_editingEmail) ...[
+            const SizedBox(height: AppSpacing.lg),
+            SizedBox(
+              width: 200,
+              child: FilledButton(
+                onPressed: _savingProfile ? null : _saveProfile,
+                child: _savingProfile
+                    ? const ProgressRing(strokeWidth: 2)
+                    : const Text('Save email'),
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          _AccountRow(
+            label: 'Role',
+            child: Text(
+              user?.role ?? 'Trainee',
+              style: AppTheme.body.copyWith(fontSize: 14),
             ),
           ),
         ],
-        const SizedBox(height: AppSpacing.lg),
-        _AccountRow(
-          label: 'Role',
-          child: Text(
-            user?.role ?? 'Trainee',
-            style: AppTheme.body.copyWith(fontSize: 14),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -338,82 +408,82 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Profile', style: AppTheme.headingMedium.copyWith(fontSize: 22)),
-        const SizedBox(height: AppSpacing.sm),
         Text(
           'Update your profile photo and display name.',
-          style: AppTheme.bodySecondary,
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
+          ),
         ),
-        const SizedBox(height: AppSpacing.xl),
-        const _SectionDivider(),
-        const SizedBox(height: AppSpacing.xl),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            GestureDetector(
-              onTap: _pickImage,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Stack(
-                  children: [
-                    _ProfileAvatar(
-                      imagePath: _pickedImagePath,
-                      radius: 48,
-                      initials: _initials(_nameController.text),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: const Color(0xFF1A1A1F),
-                            width: 2,
+        const SizedBox(height: AppSpacing.lg),
+        _SettingsCard(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: _pickImage,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Stack(
+                    children: [
+                      _ProfileAvatar(
+                        imagePath: _pickedImagePath,
+                        radius: 48,
+                        initials: _initials(_nameController.text),
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF1A1A1F),
+                              width: 2,
+                            ),
+                          ),
+                          child: const Icon(
+                            FluentIcons.camera,
+                            size: 14,
+                            color: AppColors.textPrimary,
                           ),
                         ),
-                        child: const Icon(
-                          FluentIcons.camera,
-                          size: 14,
-                          color: AppColors.textPrimary,
-                        ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xl),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildField(
+                      label: 'Full Name',
+                      controller: _nameController,
+                      icon: FluentIcons.contact,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _buildField(
+                      label: 'Email',
+                      controller: _emailController,
+                      icon: FluentIcons.mail,
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    FilledButton(
+                      onPressed: _savingProfile ? null : _saveProfile,
+                      child: _savingProfile
+                          ? const ProgressRing(strokeWidth: 2)
+                          : const Text('Save changes'),
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.xl),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildField(
-                    label: 'Full Name',
-                    controller: _nameController,
-                    icon: FluentIcons.contact,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _buildField(
-                    label: 'Email',
-                    controller: _emailController,
-                    icon: FluentIcons.mail,
-                    keyboardType: TextInputType.emailAddress,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  FilledButton(
-                    onPressed: _savingProfile ? null : _saveProfile,
-                    child: _savingProfile
-                        ? const ProgressRing(strokeWidth: 2)
-                        : const Text('Save changes'),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -425,41 +495,46 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Preferences', style: AppTheme.headingMedium.copyWith(fontSize: 22, color: context.elixTextPrimary)),
-        const SizedBox(height: AppSpacing.sm),
         Text(
           'Customize your practice experience.',
-          style: AppTheme.bodySecondary.copyWith(color: context.elixTextSecondary),
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        const _SectionDivider(),
-        const SizedBox(height: AppSpacing.xl),
-        _PreferenceRow(
-          label: 'Dark mode',
-          description: 'Use a dark color scheme across the app.',
-          child: ToggleSwitch(
-            checked: settings.darkMode,
-            onChanged: (value) => settings.setDarkMode(value),
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
           ),
         ),
-        const SizedBox(height: AppSpacing.xl),
-        _PreferenceRow(
-          label: 'Mirror camera feed',
-          description:
-              'Flip the camera preview horizontally, like a mirror.',
-          child: ToggleSwitch(
-            checked: settings.cameraMirrored,
-            onChanged: (value) => settings.setCameraMirrored(value),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        _PreferenceRow(
-          label: 'Enable bottle detection',
-          description:
-              'Automatically detect and track bottles during your practice.',
-          child: ToggleSwitch(
-            checked: settings.bottleDetectionEnabled,
-            onChanged: (value) => settings.setBottleDetectionEnabled(value),
+        const SizedBox(height: AppSpacing.lg),
+        _SettingsCard(
+          child: Column(
+            children: [
+              _PreferenceRow(
+                label: 'Dark mode',
+                description: 'Use a dark color scheme across the app.',
+                child: ToggleSwitch(
+                  checked: settings.darkMode,
+                  onChanged: (value) => settings.setDarkMode(value),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _PreferenceRow(
+                label: 'Mirror camera feed',
+                description:
+                    'Flip the camera preview horizontally, like a mirror.',
+                child: ToggleSwitch(
+                  checked: settings.cameraMirrored,
+                  onChanged: (value) => settings.setCameraMirrored(value),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _PreferenceRow(
+                label: 'Enable bottle detection',
+                description:
+                    'Automatically detect and track bottles during your practice.',
+                child: ToggleSwitch(
+                  checked: settings.bottleDetectionEnabled,
+                  onChanged: (value) =>
+                      settings.setBottleDetectionEnabled(value),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -470,47 +545,47 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Security', style: AppTheme.headingMedium.copyWith(fontSize: 22)),
-        const SizedBox(height: AppSpacing.sm),
         Text(
           'Change your password to keep your account secure.',
-          style: AppTheme.bodySecondary,
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
+          ),
         ),
-        const SizedBox(height: AppSpacing.xl),
-        const _SectionDivider(),
-        const SizedBox(height: AppSpacing.xl),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            children: [
-              _buildField(
-                label: 'Current password',
-                controller: _currentPasswordController,
-                icon: FluentIcons.lock,
-                obscure: true,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _buildField(
-                label: 'New password',
-                controller: _newPasswordController,
-                icon: FluentIcons.lock_solid,
-                obscure: true,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _buildField(
-                label: 'Confirm new password',
-                controller: _confirmPasswordController,
-                icon: FluentIcons.lock_solid,
-                obscure: true,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              FilledButton(
-                onPressed: _savingPassword ? null : _savePassword,
-                child: _savingPassword
-                    ? const ProgressRing(strokeWidth: 2)
-                    : const Text('Update password'),
-              ),
-            ],
+        const SizedBox(height: AppSpacing.lg),
+        _SettingsCard(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              children: [
+                _buildField(
+                  label: 'Current password',
+                  controller: _currentPasswordController,
+                  icon: FluentIcons.lock,
+                  obscure: true,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _buildField(
+                  label: 'New password',
+                  controller: _newPasswordController,
+                  icon: FluentIcons.lock_solid,
+                  obscure: true,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _buildField(
+                  label: 'Confirm new password',
+                  controller: _confirmPasswordController,
+                  icon: FluentIcons.lock_solid,
+                  obscure: true,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                FilledButton(
+                  onPressed: _savingPassword ? null : _savePassword,
+                  child: _savingPassword
+                      ? const ProgressRing(strokeWidth: 2)
+                      : const Text('Update password'),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -527,19 +602,22 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: AppTheme.caption),
+        Text(
+          label,
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
         const SizedBox(height: 6),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF141418),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.border),
+            color: context.elixBackground,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: context.elixBorder),
           ),
           child: Row(
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Icon(icon, size: 18, color: AppColors.textSecondary),
+                child: Icon(icon, size: 18, color: context.elixTextSecondary),
               ),
               Expanded(
                 child: TextBox(
@@ -581,9 +659,20 @@ class _PreferenceRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: AppTheme.body.copyWith(fontSize: 14, color: context.elixTextPrimary)),
+              Text(
+                label,
+                style: AppTheme.body.copyWith(
+                  fontSize: 14,
+                  color: context.elixTextPrimary,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(description, style: AppTheme.caption.copyWith(color: context.elixTextSecondary)),
+              Text(
+                description,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
             ],
           ),
         ),
@@ -633,20 +722,33 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
             ),
             decoration: BoxDecoration(
               color: widget.isSelected
-                  ? Colors.white.withValues(alpha: 0.08)
+                  ? AppColors.primary.withValues(alpha: 0.12)
                   : _hovered
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
+                  ? context.elixBorder.withValues(alpha: 0.25)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              border: widget.isSelected
+                  ? Border.all(color: AppColors.primary.withValues(alpha: 0.2))
+                  : null,
             ),
             child: Row(
               children: [
-                Icon(
-                  widget.icon,
-                  size: 16,
-                  color: active
-                      ? AppColors.textPrimary
-                      : AppColors.textSecondary,
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: widget.isSelected
+                        ? AppColors.primary.withValues(alpha: 0.18)
+                        : context.elixBorder.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    widget.icon,
+                    size: 15,
+                    color: active
+                        ? AppColors.primary
+                        : context.elixTextSecondary,
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.sm + 4),
                 Text(
@@ -654,10 +756,13 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
                   style: AppTheme.body.copyWith(
                     fontSize: 14,
                     color: active
-                        ? AppColors.textPrimary
-                        : AppColors.textSecondary,
-                    fontWeight:
-                        widget.isSelected ? FontWeight.w600 : FontWeight.normal,
+                        ? (widget.isSelected
+                              ? AppColors.primary
+                              : context.elixTextPrimary)
+                        : context.elixTextSecondary,
+                    fontWeight: widget.isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                   ),
                 ),
               ],
@@ -670,11 +775,7 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
 }
 
 class _AccountRow extends StatefulWidget {
-  const _AccountRow({
-    required this.label,
-    required this.child,
-    this.onTap,
-  });
+  const _AccountRow({required this.label, required this.child, this.onTap});
 
   final String label;
   final Widget? child;
@@ -731,14 +832,22 @@ class _AccountRowState extends State<_AccountRow> {
   }
 }
 
-class _SectionDivider extends StatelessWidget {
-  const _SectionDivider();
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({required this.child});
+
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 1,
-      color: AppColors.border.withValues(alpha: 0.5),
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: context.elixBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.5)),
+      ),
+      child: child,
     );
   }
 }

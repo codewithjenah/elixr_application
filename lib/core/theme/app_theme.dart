@@ -17,7 +17,8 @@ extension ElixThemeContext on BuildContext {
   Color get elixTextSecondary =>
       isDarkTheme ? AppColors.textSecondary : AppColors.textSecondaryLight;
 
-  Color get elixBorder => isDarkTheme ? AppColors.border : AppColors.borderLight;
+  Color get elixBorder =>
+      isDarkTheme ? AppColors.border : AppColors.borderLight;
 }
 
 abstract final class AppTheme {
@@ -68,23 +69,14 @@ abstract final class AppTheme {
           fontSize: 20,
           fontWeight: FontWeight.w600,
         ),
-        body: TextStyle(
-          color: textPrimary,
-          fontSize: 16,
-        ),
-        bodyLarge: TextStyle(
-          color: textSecondary,
-          fontSize: 14,
-        ),
+        body: TextStyle(color: textPrimary, fontSize: 16),
+        bodyLarge: TextStyle(color: textSecondary, fontSize: 14),
         bodyStrong: TextStyle(
           color: textPrimary,
           fontSize: 16,
           fontWeight: FontWeight.w600,
         ),
-        caption: TextStyle(
-          color: textSecondary,
-          fontSize: 12,
-        ),
+        caption: TextStyle(color: textSecondary, fontSize: 12),
       ),
     );
   }
@@ -99,7 +91,9 @@ abstract final class AppTheme {
       ),
       boxShadow: [
         BoxShadow(
-          color: const Color(0xFF000000).withValues(alpha: isDark ? 0.25 : 0.08),
+          color: const Color(
+            0xFF000000,
+          ).withValues(alpha: isDark ? 0.25 : 0.08),
           blurRadius: 12,
           offset: const Offset(0, 4),
         ),
@@ -107,25 +101,57 @@ abstract final class AppTheme {
     );
   }
 
-  static TextStyle get headingLarge => const TextStyle(
-        fontSize: 28,
-        fontWeight: FontWeight.bold,
-      );
+  static BoxDecoration panelDecoration(
+    BuildContext context, {
+    Color? color,
+    Color? glow,
+    bool highlighted = false,
+  }) {
+    final isDark = context.isDarkTheme;
+    final surface =
+        color ?? (isDark ? AppColors.panelSurface : context.elixCardSurface);
+    final borderColor = highlighted
+        ? AppColors.primary.withValues(alpha: 0.55)
+        : (isDark
+              ? AppColors.accent.withValues(alpha: 0.18)
+              : context.elixBorder);
+    final glowColor = glow ?? AppColors.primary;
+    return BoxDecoration(
+      color: surface,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: borderColor),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFF000000).withValues(alpha: isDark ? 0.28 : 0.08),
+          blurRadius: 14,
+          offset: const Offset(0, 6),
+        ),
+        if (highlighted)
+          BoxShadow(
+            color: glowColor.withValues(alpha: 0.22),
+            blurRadius: 24,
+            spreadRadius: -4,
+          ),
+      ],
+    );
+  }
 
-  static TextStyle get headingMedium => const TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.w600,
-      );
+  static TextStyle brandTitle({double fontSize = 28, Color? color}) => TextStyle(
+    fontSize: fontSize,
+    fontWeight: FontWeight.w900,
+    letterSpacing: 1.5,
+    color: color ?? AppColors.primary,
+  );
 
-  static TextStyle get body => const TextStyle(
-        fontSize: 16,
-      );
+  static TextStyle get headingLarge =>
+      const TextStyle(fontSize: 28, fontWeight: FontWeight.bold);
 
-  static TextStyle get bodySecondary => const TextStyle(
-        fontSize: 14,
-      );
+  static TextStyle get headingMedium =>
+      const TextStyle(fontSize: 20, fontWeight: FontWeight.w600);
 
-  static TextStyle get caption => const TextStyle(
-        fontSize: 12,
-      );
+  static TextStyle get body => const TextStyle(fontSize: 16);
+
+  static TextStyle get bodySecondary => const TextStyle(fontSize: 14);
+
+  static TextStyle get caption => const TextStyle(fontSize: 12);
 }

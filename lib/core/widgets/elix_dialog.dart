@@ -119,9 +119,7 @@ class ElixDialog extends StatelessWidget {
         decoration: BoxDecoration(
           color: context.elixCardSurface,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.2),
-          ),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
           boxShadow: [
             BoxShadow(
               color: AppColors.primary.withValues(alpha: 0.08),
@@ -164,8 +162,9 @@ class ElixDialog extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(AppSpacing.sm),
                         decoration: BoxDecoration(
-                          color: (iconColor ?? AppColors.primary)
-                              .withValues(alpha: 0.15),
+                          color: (iconColor ?? AppColors.primary).withValues(
+                            alpha: 0.15,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(

@@ -4,8 +4,7 @@ from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     bottle_hand_distance,
     check_bottle_visible,
-    check_shoulder_alignment,
-    check_stance_stability,
+    check_hands_visible,
     detect_tap_pulse,
     nearest_hand_to_bottle,
 )
@@ -24,22 +23,9 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    shoulder_check = check_shoulder_alignment(pose)
-    if shoulder_check:
-        return shoulder_check, prev_hip_center, movement_state
-
-    stance_check, hip_center = check_stance_stability(pose, prev_hip_center)
-
-    if hands is None or bottle is None:
-        return (
-            RuleResult(
-                feedback="Keep your hand in frame to tap the bottle.",
-                feedback_type="warning",
-                posture_status="unknown",
-            ),
-            hip_center,
-            movement_state,
-        )
+    hands_check = check_hands_visible(hands)
+    if hands_check:
+        return hands_check, prev_hip_center, movement_state
 
     _, palm = nearest_hand_to_bottle(hands, bottle)
     if palm is None:
@@ -49,7 +35,7 @@ def evaluate(
                 feedback_type="warning",
                 posture_status="unknown",
             ),
-            hip_center,
+            prev_hip_center,
             movement_state,
         )
 
@@ -82,6 +68,4 @@ def evaluate(
             posture_status="unstable",
         )
 
-    if result.feedback_type != "positive" and stance_check:
-        return stance_check, hip_center, state
-    return result, hip_center, state
+    return result, prev_hip_center, state

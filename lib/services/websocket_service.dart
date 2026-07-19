@@ -131,7 +131,19 @@ class WebSocketService extends ChangeNotifier {
 
   @override
   void dispose() {
-    disconnect();
+    // Tear down without notifying listeners (notifying after dispose throws).
+    _sessionActive = false;
+    if (_channel != null && isConnected) {
+      try {
+        _channel!.sink.add(jsonEncode({'action': 'stop'}));
+      } catch (_) {
+        // Ignore: socket may already be closing.
+      }
+    }
+    _subscription?.cancel();
+    _channel?.sink.close();
+    _channel = null;
+    _connectionState = WebSocketConnectionState.disconnected;
     _feedbackController.close();
     super.dispose();
   }

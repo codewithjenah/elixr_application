@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class FeedbackMessage(BaseModel):
     bottle_detected: bool
+    bottle_count: int = 0
     movement: str
     score: int
     feedback: str

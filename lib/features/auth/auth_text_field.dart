@@ -13,6 +13,7 @@ class AuthTextField extends StatefulWidget {
     this.obscureText = false,
     this.keyboardType,
     this.onSubmitted,
+    this.helperText,
   });
 
   final TextEditingController controller;
@@ -21,6 +22,7 @@ class AuthTextField extends StatefulWidget {
   final bool obscureText;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onSubmitted;
+  final String? helperText;
 
   @override
   State<AuthTextField> createState() => _AuthTextFieldState();
@@ -38,58 +40,77 @@ class _AuthTextFieldState extends State<AuthTextField> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (v) => setState(() => _focused = v),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: _focused
-                ? AppColors.primary.withValues(alpha: 0.6)
-                : context.elixBorder.withValues(alpha: 0.8),
-            width: _focused ? 1.5 : 1,
-          ),
-          boxShadow: _focused
-              ? [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    blurRadius: 8,
-                  ),
-                ]
-              : null,
-        ),
-        child: TextBox(
-          controller: widget.controller,
-          placeholder: widget.placeholder,
-          obscureText: _obscured,
-          keyboardType: widget.keyboardType,
-          onSubmitted: widget.onSubmitted,
-          padding: const EdgeInsets.all(AppSpacing.md),
-          prefix: Padding(
-            padding: const EdgeInsets.only(left: AppSpacing.md),
-            child: Icon(
-              widget.icon,
-              color: _focused ? AppColors.primary : AppColors.textSecondary,
-              size: 20,
+    final isDark = context.isDarkTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Focus(
+          onFocusChange: (v) => setState(() => _focused = v),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: isDark
+                  ? Colors.white.withValues(alpha: _focused ? 0.05 : 0.025)
+                  : Colors.black.withValues(alpha: _focused ? 0.025 : 0.015),
+              border: Border.all(
+                color: _focused
+                    ? AppColors.primary.withValues(alpha: 0.55)
+                    : context.elixBorder.withValues(alpha: isDark ? 0.55 : 0.8),
+              ),
+            ),
+            child: TextBox(
+              controller: widget.controller,
+              placeholder: widget.placeholder,
+              obscureText: _obscured,
+              keyboardType: widget.keyboardType,
+              onSubmitted: widget.onSubmitted,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: 11,
+              ),
+              prefix: Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
+                child: Icon(
+                  widget.icon,
+                  color: _focused
+                      ? AppColors.primary
+                      : context.elixTextSecondary,
+                  size: 16,
+                ),
+              ),
+              suffix: widget.obscureText
+                  ? IconButton(
+                      icon: Icon(
+                        _obscured ? FluentIcons.view : FluentIcons.hide,
+                        size: 15,
+                        color: context.elixTextSecondary,
+                      ),
+                      onPressed: () => setState(() => _obscured = !_obscured),
+                    )
+                  : null,
+              style: AppTheme.body.copyWith(
+                color: context.elixTextPrimary,
+                fontSize: 14,
+              ),
             ),
           ),
-          suffix: widget.obscureText
-              ? Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.sm),
-                  child: IconButton(
-                    icon: Icon(
-                      _obscured ? FluentIcons.view : FluentIcons.hide,
-                      size: 18,
-                      color: AppColors.textSecondary,
-                    ),
-                    onPressed: () => setState(() => _obscured = !_obscured),
-                  ),
-                )
-              : null,
-          style: AppTheme.body,
         ),
-      ),
+        if (widget.helperText != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Text(
+              widget.helperText!,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

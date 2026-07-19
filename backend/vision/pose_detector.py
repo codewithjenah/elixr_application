@@ -12,21 +12,6 @@ from vision.types import Point2D, PoseLandmarks
 
 logger = logging.getLogger(__name__)
 
-POSE_LANDMARK_INDICES = (
-    11,  # left shoulder
-    12,  # right shoulder
-    13,  # left elbow
-    14,  # right elbow
-    15,  # left wrist
-    16,  # right wrist
-    23,  # left hip
-    24,  # right hip
-    25,  # left knee
-    26,  # right knee
-    27,  # left ankle
-    28,  # right ankle
-)
-
 
 class PoseDetector:
     def __init__(self):
@@ -50,14 +35,12 @@ class PoseDetector:
         if not result.pose_landmarks:
             return None
 
+        landmarks = result.pose_landmarks[0]
         points: dict[int, Point2D] = {}
         visibility: dict[int, float] = {}
-        landmarks = result.pose_landmarks[0]
-
-        for idx in POSE_LANDMARK_INDICES:
-            lm = landmarks[idx]
+        for idx, lm in enumerate(landmarks):
             points[idx] = Point2D(x=lm.x, y=lm.y)
-            visibility[idx] = getattr(lm, "visibility", getattr(lm, "presence", 1.0))
+            visibility[idx] = float(getattr(lm, "visibility", 1.0) or 0.0)
 
         return PoseLandmarks(points=points, visibility=visibility)
 

@@ -5,18 +5,11 @@ from assessment.rules import (
     arm_stall,
     bartenders_grip,
     basket,
-    clip,
     coming_soon,
     elbow_stall,
-    elbow_tap,
-    front_flip,
     hand_stall,
     normal_grip,
-    quick_chest_pass,
     reverse_grip,
-    side_flip,
-    staggered_switch,
-    switching,
     tap,
 )
 from assessment.rules.base import RuleResult
@@ -41,15 +34,8 @@ _RULES: dict[str, EvaluateFn] = {
     "Hand Stall": hand_stall.evaluate,
     "Arm Stall": arm_stall.evaluate,
     "Elbow Stall": elbow_stall.evaluate,
-    "Clip": clip.evaluate,
     "Tap": tap.evaluate,
     "Basket": basket.evaluate,
-    "Switching": switching.evaluate,
-    "Front Flip": front_flip.evaluate,
-    "Side Flip": side_flip.evaluate,
-    "Quick Chest Pass": quick_chest_pass.evaluate,
-    "Staggered Switch": staggered_switch.evaluate,
-    "Elbow Tap": elbow_tap.evaluate,
 }
 
 
@@ -58,6 +44,13 @@ def movement_requires_hands(movement: str) -> bool:
     if cfg is None:
         return True
     return bool(cfg.get("requires_hands", True))
+
+
+def movement_requires_pose(movement: str) -> bool:
+    cfg = MOVEMENT_CONFIG.get(movement)
+    if cfg is None:
+        return False
+    return bool(cfg.get("requires_pose", False))
 
 
 def movement_is_easy(movement: str) -> bool:

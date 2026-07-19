@@ -5,6 +5,7 @@ import '../../features/auth/register_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/movements/movements_screen.dart';
+import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../features/progress/progress_screen.dart';
 import '../../services/auth_service.dart';
@@ -58,6 +59,13 @@ class AppRouter {
               ),
             );
           },
+        ),
+        GoRoute(
+          path: '/live-practice',
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: const LivePracticeScreen(),
+          ),
         ),
         ShellRoute(
           builder: (context, state, child) => AppShell(child: child),

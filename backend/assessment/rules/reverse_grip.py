@@ -3,11 +3,9 @@ from typing import Optional
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
-    check_grip_angle,
-    check_shoulder_alignment,
-    check_stance_stability,
+    check_hand_bottle_proximity,
+    check_hands_visible,
 )
-from config import REVERSE_GRIP_ANGLE_MAX, REVERSE_GRIP_ANGLE_MIN
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
 
 
@@ -22,22 +20,32 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    shoulder_check = check_shoulder_alignment(pose)
-    if shoulder_check:
-        return shoulder_check, prev_hip_center, movement_state
+    hands_check = check_hands_visible(hands)
+    if hands_check:
+        return hands_check, prev_hip_center, movement_state
 
-    stance_check, hip_center = check_stance_stability(pose, prev_hip_center)
+    bottle_center = bottle.center_normalized(640, 480)
+    palm = hands.nearest_palm_to(bottle_center)
 
-    grip = check_grip_angle(
-        pose,
-        min_angle=REVERSE_GRIP_ANGLE_MIN,
-        max_angle=REVERSE_GRIP_ANGLE_MAX,
-        success_message="Correct underhand reverse grip.",
-        fail_message="Rotate wrist for an underhand reverse grip.",
+    proximity = check_hand_bottle_proximity(
+        bottle,
+        palm,
+        far_message="Wrap your hand onto the bottle for a reverse grip.",
+        near_message="Correct underhand reverse grip.",
     )
+    if proximity.feedback_type != "positive":
+        return proximity, prev_hip_center, movement_state
 
-    if grip.feedback_type != "positive":
-        return grip, hip_center, movement_state
-    if stance_check:
-        return stance_check, hip_center, movement_state
-    return grip, hip_center, movement_state
+    # Underhand check: the hand should sit below the bottle center.
+    if palm is not None and palm.y < bottle_center.y - 0.02:
+        return (
+            RuleResult(
+                feedback="Rotate to an underhand (reverse) grip.",
+                feedback_type="warning",
+                posture_status="unstable",
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    return proximity, prev_hip_center, movement_state

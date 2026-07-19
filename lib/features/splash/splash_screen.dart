@@ -24,7 +24,8 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
   late final AnimationController _logoController;
-  late final AnimationController _pulseController;
+  late final AnimationController _ambientController;
+  late final AnimationController _shimmerController;
   late final Animation<double> _logoScale;
   late final Animation<double> _logoOpacity;
   late final Animation<double> _taglineOpacity;
@@ -37,14 +38,18 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _logoController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 1600),
     );
-    _pulseController = AnimationController(
+    _ambientController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
+      duration: const Duration(seconds: 12),
+    )..repeat();
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    )..repeat();
 
-    _logoScale = Tween<double>(begin: 0.6, end: 1.0).animate(
+    _logoScale = Tween<double>(begin: 0.7, end: 1.0).animate(
       CurvedAnimation(
         parent: _logoController,
         curve: const Interval(0.0, 0.7, curve: Curves.easeOutBack),
@@ -62,15 +67,13 @@ class _SplashScreenState extends State<SplashScreen>
         curve: const Interval(0.45, 0.85, curve: Curves.easeOut),
       ),
     );
-    _taglineSlide = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _logoController,
-        curve: const Interval(0.45, 0.85, curve: Curves.easeOut),
-      ),
-    );
+    _taglineSlide =
+        Tween<Offset>(begin: const Offset(0, 0.4), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _logoController,
+            curve: const Interval(0.45, 0.85, curve: Curves.easeOutCubic),
+          ),
+        );
 
     _logoController.forward().then((_) {
       if (mounted) setState(() => _animationDone = true);
@@ -88,7 +91,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _tryFinish() {
     if (_animationDone && widget.authReady) {
-      Future.delayed(const Duration(milliseconds: 400), () {
+      Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) widget.onFinished();
       });
     }
@@ -97,7 +100,8 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void dispose() {
     _logoController.dispose();
-    _pulseController.dispose();
+    _ambientController.dispose();
+    _shimmerController.dispose();
     super.dispose();
   }
 
@@ -110,46 +114,57 @@ class _SplashScreenState extends State<SplashScreen>
         content: Stack(
           fit: StackFit.expand,
           children: [
-            Container(
-              decoration: const BoxDecoration(
+            const DecoratedBox(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
                     Color(0xFF0A0A0C),
                     AppColors.background,
-                    Color(0xFF151018),
+                    Color(0xFF17101B),
                   ],
                 ),
               ),
             ),
+            // Floating ambient orbs.
             AnimatedBuilder(
-              animation: _pulseController,
+              animation: _ambientController,
               builder: (context, _) {
-                final pulse = 0.85 + _pulseController.value * 0.15;
-                return Center(
-                  child: Container(
-                    width: 200 * pulse,
-                    height: 200 * pulse,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.primary.withValues(alpha: 0.06),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary
-                              .withValues(alpha: 0.15 * _pulseController.value),
-                          blurRadius: 80,
-                          spreadRadius: 30,
-                        ),
-                      ],
+                final t = _ambientController.value * 2 * math.pi;
+                return Stack(
+                  children: [
+                    _orb(
+                      dx: math.sin(t) * 40,
+                      dy: math.cos(t) * 60,
+                      alignment: const Alignment(-0.8, -0.7),
+                      size: 320,
+                      color: AppColors.primary.withValues(alpha: 0.18),
                     ),
-                  ),
+                    _orb(
+                      dx: math.cos(t) * 50,
+                      dy: math.sin(t) * 40,
+                      alignment: const Alignment(0.9, 0.8),
+                      size: 380,
+                      color: AppColors.primarySoft.withValues(alpha: 0.14),
+                    ),
+                    _orb(
+                      dx: math.sin(t + 1.5) * 30,
+                      dy: math.cos(t + 1.5) * 30,
+                      alignment: const Alignment(0.8, -0.9),
+                      size: 240,
+                      color: const Color(0xFF7B5CFF).withValues(alpha: 0.12),
+                    ),
+                  ],
                 );
               },
             ),
             Center(
               child: AnimatedBuilder(
-                animation: _logoController,
+                animation: Listenable.merge([
+                  _logoController,
+                  _shimmerController,
+                ]),
                 builder: (context, _) {
                   return Opacity(
                     opacity: _logoOpacity.value,
@@ -158,54 +173,9 @@ class _SplashScreenState extends State<SplashScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            width: 88,
-                            height: 88,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(24),
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  AppColors.primary,
-                                  AppColors.primarySoft,
-                                ],
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.primary
-                                      .withValues(alpha: 0.4),
-                                  blurRadius: 24,
-                                  offset: const Offset(0, 8),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              FluentIcons.brightness,
-                              size: 44,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.lg),
-                          ShaderMask(
-                            shaderCallback: (bounds) =>
-                                const LinearGradient(
-                              colors: [
-                                AppColors.primary,
-                                AppColors.primarySoft,
-                                Colors.white,
-                              ],
-                            ).createShader(bounds),
-                            child: Text(
-                              AppConstants.appName,
-                              style: AppTheme.headingLarge.copyWith(
-                                fontSize: 42,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 6,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
+                          _buildLogoMark(),
+                          const SizedBox(height: AppSpacing.lg + AppSpacing.sm),
+                          _buildTitle(),
                           const SizedBox(height: AppSpacing.sm),
                           SlideTransition(
                             position: _taglineSlide,
@@ -214,7 +184,7 @@ class _SplashScreenState extends State<SplashScreen>
                               child: Text(
                                 'Bottle flair training, reimagined',
                                 style: AppTheme.bodySecondary.copyWith(
-                                  letterSpacing: 0.5,
+                                  letterSpacing: 1.2,
                                 ),
                               ),
                             ),
@@ -226,31 +196,141 @@ class _SplashScreenState extends State<SplashScreen>
                 },
               ),
             ),
-            Positioned(
-              bottom: AppSpacing.xxl,
-              left: 0,
-              right: 0,
-              child: AnimatedBuilder(
-                animation: _logoController,
-                builder: (context, _) {
-                  return Opacity(
-                    opacity: _taglineOpacity.value,
-                    child: Center(
-                      child: SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: Transform.rotate(
-                          angle: _logoController.value * 2 * math.pi,
-                          child: const ProgressRing(strokeWidth: 2.5),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+            _buildLoader(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _orb({
+    required double dx,
+    required double dy,
+    required Alignment alignment,
+    required double size,
+    required Color color,
+  }) {
+    return Align(
+      alignment: alignment,
+      child: Transform.translate(
+        offset: Offset(dx, dy),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [color, color.withValues(alpha: 0)],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoMark() {
+    final glow = 0.5 + math.sin(_shimmerController.value * 2 * math.pi) * 0.25;
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, AppColors.primarySoft],
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.18),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: glow.clamp(0.0, 1.0)),
+            blurRadius: 40,
+            spreadRadius: 2,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: const Icon(
+        FluentIcons.brightness,
+        size: 48,
+        color: Colors.white,
+      ),
+    );
+  }
+
+  Widget _buildTitle() {
+    final shimmer = _shimmerController.value;
+    final pulse = (1 - (shimmer - 0.5).abs() * 2).clamp(0.0, 1.0);
+    final color = Color.lerp(AppColors.primary, AppColors.primarySoft, pulse)!;
+    return Text(
+      AppConstants.appName,
+      style: AppTheme.headingLarge.copyWith(
+        fontSize: 46,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 8,
+        color: color,
+        shadows: [
+          Shadow(
+            color: AppColors.primary.withValues(alpha: 0.4 + pulse * 0.3),
+            blurRadius: 24,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoader() {
+    return Positioned(
+      bottom: AppSpacing.xxl,
+      left: 0,
+      right: 0,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_logoController, _shimmerController]),
+        builder: (context, _) {
+          return Opacity(
+            opacity: _taglineOpacity.value,
+            child: Center(
+              child: SizedBox(
+                width: 160,
+                height: 3,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: Stack(
+                    children: [
+                      Container(
+                        color: AppColors.border.withValues(alpha: 0.5),
+                      ),
+                      Align(
+                        alignment: Alignment(
+                          -1 + _shimmerController.value * 2,
+                          0,
+                        ),
+                        child: FractionallySizedBox(
+                          widthFactor: 0.4,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  AppColors.primary.withValues(alpha: 0),
+                                  AppColors.primary,
+                                  AppColors.primarySoft,
+                                  AppColors.primary.withValues(alpha: 0),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

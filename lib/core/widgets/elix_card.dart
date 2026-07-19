@@ -28,10 +28,7 @@ class ElixCard extends StatelessWidget {
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: card,
-      ),
+      child: GestureDetector(onTap: onTap, child: card),
     );
   }
 }

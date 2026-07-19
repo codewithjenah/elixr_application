@@ -2,9 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
@@ -66,74 +64,61 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return AuthScaffold(
+      formOnLeft: true,
       title: 'Create Account',
       subtitle: 'Start your flair training journey',
-      child: AuthFormCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Register as Trainee', style: AppTheme.headingMedium),
-            const SizedBox(height: AppSpacing.lg),
-            AuthTextField(
-              controller: _fullNameController,
-              placeholder: 'Full name',
-              icon: FluentIcons.contact_card,
-            ),
+      formTitle: 'Register',
+      formSubtitle: 'Set up your trainee profile',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuthTextField(
+            controller: _fullNameController,
+            placeholder: 'Full name',
+            icon: FluentIcons.contact,
+          ),
+          const SizedBox(height: AppSpacing.sm + 4),
+          AuthTextField(
+            controller: _emailController,
+            placeholder: 'Email address',
+            icon: FluentIcons.mail_solid,
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: AppSpacing.sm + 4),
+          AuthTextField(
+            controller: _passwordController,
+            placeholder: 'Password',
+            icon: FluentIcons.lock_solid,
+            obscureText: true,
+            helperText: 'At least 6 characters',
+          ),
+          const SizedBox(height: AppSpacing.sm + 4),
+          AuthTextField(
+            controller: _confirmController,
+            placeholder: 'Confirm password',
+            icon: FluentIcons.shield_solid,
+            obscureText: true,
+            onSubmitted: (_) => _register(),
+          ),
+          if (_error != null) ...[
             const SizedBox(height: AppSpacing.md),
-            AuthTextField(
-              controller: _emailController,
-              placeholder: 'Email address',
-              icon: FluentIcons.mail_solid,
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            AuthTextField(
-              controller: _passwordController,
-              placeholder: 'Password',
-              icon: FluentIcons.lock_solid,
-              obscureText: true,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            AuthTextField(
-              controller: _confirmController,
-              placeholder: 'Confirm password',
-              icon: FluentIcons.shield_solid,
-              obscureText: true,
-              onSubmitted: (_) => _register(),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: AppSpacing.md),
-              AuthErrorBanner(message: _error!),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            ElixPrimaryButton(
-              label: 'Create Account',
-              isLoading: _isLoading,
-              onPressed: _register,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Center(
-              child: GestureDetector(
-                onTap: () => context.go('/login'),
-                child: RichText(
-                  text: TextSpan(
-                    style: AppTheme.bodySecondary,
-                    children: const [
-                      TextSpan(text: 'Already have an account? '),
-                      TextSpan(
-                        text: 'Sign In',
-                        style: TextStyle(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            AuthErrorBanner(message: _error!),
           ],
-        ),
+          const SizedBox(height: AppSpacing.lg),
+          ElixPrimaryButton(
+            label: 'Create Account',
+            isLoading: _isLoading,
+            onPressed: _register,
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Center(
+            child: AuthFooterLink(
+              prompt: 'Already have an account?',
+              action: 'Sign in',
+              onTap: () => context.go('/login'),
+            ),
+          ),
+        ],
       ),
     );
   }

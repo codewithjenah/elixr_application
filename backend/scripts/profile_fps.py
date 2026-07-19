@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import TARGET_FPS, YOLO_FRAME_SKIP
 from vision.bottle_detector import BottleDetector
 from vision.camera import CameraCapture
-from vision.pose_detector import PoseDetector
+from vision.hands_detector import HandsDetector
 
 
 def main() -> None:
@@ -19,7 +19,7 @@ def main() -> None:
         sys.exit(1)
 
     bottle = BottleDetector()
-    pose = PoseDetector()
+    hands = HandsDetector()
     frame_index = 0
     timings: list[float] = []
     duration = 10.0
@@ -37,7 +37,7 @@ def main() -> None:
             frame_index += 1
             if frame_index % YOLO_FRAME_SKIP == 0:
                 bottle.detect(frame)
-            pose.detect(frame)
+            hands.detect(frame)
 
             elapsed = time.perf_counter() - loop_start
             target = 1.0 / TARGET_FPS
@@ -47,7 +47,7 @@ def main() -> None:
             timings.append(time.perf_counter() - loop_start)
     finally:
         camera.release()
-        pose.close()
+        hands.close()
 
     if not timings:
         print("No frames captured.")
