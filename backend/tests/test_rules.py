@@ -289,6 +289,25 @@ def test_bartenders_grip_accepts_reference_like_side_hold(hand):
     )
 
 
+def test_bartenders_grip_prefers_in_zone_recovered_hand_over_nearer_outsider():
+    valid_recovered_hand = _bartender_hand(x_offset=0.032)
+    unrelated_primary_hand = _bartender_hand(y_offset=0.0601667)
+
+    result, _, _ = evaluate_movement(
+        "Bartender's Grip",
+        _bottle(),
+        None,
+        HandsResult(hands=[valid_recovered_hand, unrelated_primary_hand]),
+        None,
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == (
+        "Good bartender's grip on the neck and shoulder."
+    )
+
+
 def test_bartenders_grip_rejects_body_hold():
     result = _evaluate_bartenders_grip(
         _bartender_hand(y_offset=0.10)

@@ -10,6 +10,7 @@ from config import FRAME_HEIGHT, FRAME_WIDTH
 from vision.grip_geometry import (
     BARTENDER_CONTACT_BOTTOM_FRACTION,
     BARTENDER_WRAP_BOTTOM_FRACTION,
+    ContactZone,
     bartender_contact_zone,
     bartender_control_anchor,
     bartender_control_point,
@@ -40,20 +41,29 @@ def _pixel_distance(a: Point2D, b: Point2D) -> float:
 def _nearest_hand_to_control_anchor(
     hands: HandsResult,
     anchor: Point2D,
+    contact_zone: ContactZone,
 ) -> Optional[HandLandmarks]:
-    nearest: Optional[HandLandmarks] = None
-    nearest_distance = float("inf")
+    nearest_in_zone: Optional[HandLandmarks] = None
+    nearest_in_zone_distance = float("inf")
+    nearest_overall: Optional[HandLandmarks] = None
+    nearest_overall_distance = float("inf")
 
     for hand in hands.hands:
         control = bartender_control_point(hand)
         if control is None:
             continue
         distance = _pixel_distance(control, anchor)
-        if distance < nearest_distance:
-            nearest = hand
-            nearest_distance = distance
+        if distance < nearest_overall_distance:
+            nearest_overall = hand
+            nearest_overall_distance = distance
+        if (
+            point_in_zone(control, contact_zone)
+            and distance < nearest_in_zone_distance
+        ):
+            nearest_in_zone = hand
+            nearest_in_zone_distance = distance
 
-    return nearest
+    return nearest_in_zone if nearest_in_zone is not None else nearest_overall
 
 
 def _index_extension(hand: HandLandmarks) -> Optional[float]:
@@ -98,6 +108,12 @@ def evaluate(
     assert bottle is not None
     assert hands is not None
 
+    contact_zone = bartender_contact_zone(
+        bottle,
+        frame_width=FRAME_WIDTH,
+        frame_height=FRAME_HEIGHT,
+        bottom_fraction=BARTENDER_CONTACT_BOTTOM_FRACTION,
+    )
     hand = _nearest_hand_to_control_anchor(
         hands,
         bartender_control_anchor(
@@ -105,6 +121,7 @@ def evaluate(
             frame_width=FRAME_WIDTH,
             frame_height=FRAME_HEIGHT,
         ),
+        contact_zone,
     )
     if hand is None:
         return (
@@ -158,12 +175,6 @@ def evaluate(
     control = bartender_control_point(hand)
     assert control is not None
 
-    contact_zone = bartender_contact_zone(
-        bottle,
-        frame_width=FRAME_WIDTH,
-        frame_height=FRAME_HEIGHT,
-        bottom_fraction=BARTENDER_CONTACT_BOTTOM_FRACTION,
-    )
     if not point_in_zone(control, contact_zone):
         return (
             _warning(
