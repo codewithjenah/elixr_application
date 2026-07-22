@@ -57,7 +57,8 @@ class VisionSession:
         self.camera = CameraCapture()
         self.bottle_detector = BottleDetector(enabled=bottle_detection_enabled)
         self.hands_detector = HandsDetector(
-            rotated_fallback=movement == "Normal Grip"
+            rotated_fallback=movement == "Normal Grip",
+            bartender_roi_fallback=movement == "Bartender's Grip",
         )
         # Pose is only used for stall movements (hand/arm/elbow).
         self.pose_detector = (
@@ -137,7 +138,10 @@ class VisionSession:
         # Do not use previous hand landmarks when the current frame has no hand.
         # This prevents "naiiwan yung daliri" / ghost hand dots.
         if movement_requires_hands(self.movement):
-            hands = self.hands_detector.detect(frame)
+            hands = self.hands_detector.detect(
+                frame,
+                bottle=bottle,
+            )
         else:
             hands = None
 

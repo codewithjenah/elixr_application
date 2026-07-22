@@ -870,12 +870,19 @@ def test_bartender_crop_rejects_zero_width_bottle():
     )
 
 
-def test_only_normal_grip_session_enables_rotated_fallback(monkeypatch):
+def test_session_enables_only_its_grip_fallback(monkeypatch):
     fallback_settings = []
 
     class RecordingHandsDetector:
-        def __init__(self, *, rotated_fallback: bool = False):
-            fallback_settings.append(rotated_fallback)
+        def __init__(
+            self,
+            *,
+            rotated_fallback: bool = False,
+            bartender_roi_fallback: bool = False,
+        ):
+            fallback_settings.append(
+                (rotated_fallback, bartender_roi_fallback)
+            )
 
     monkeypatch.setattr(
         websocket_api,
@@ -884,9 +891,82 @@ def test_only_normal_grip_session_enables_rotated_fallback(monkeypatch):
     )
 
     websocket_api.VisionSession("Normal Grip")
+    websocket_api.VisionSession("Bartender's Grip")
     websocket_api.VisionSession("Reverse Grip")
 
-    assert fallback_settings == [True, False]
+    assert fallback_settings == [
+        (True, False),
+        (False, True),
+        (False, False),
+    ]
+
+
+def test_session_passes_primary_bottle_to_hand_detector(
+    monkeypatch,
+):
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    bottle = _bottle()
+    seen_bottles = []
+
+    class StubCamera:
+        def read(self):
+            return frame
+
+        def release(self):
+            pass
+
+    class StubBottleDetector:
+        def __init__(self, *, enabled: bool):
+            self.enabled = enabled
+
+        def ensure_ready(self):
+            pass
+
+        def detect(self, current_frame):
+            assert current_frame is frame
+            return [bottle]
+
+    class StubHandsDetector:
+        def __init__(self, **kwargs):
+            pass
+
+        def detect(self, current_frame, bottle=None):
+            assert current_frame is frame
+            seen_bottles.append(bottle)
+            return _hands_near()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        websocket_api,
+        "CameraCapture",
+        StubCamera,
+    )
+    monkeypatch.setattr(
+        websocket_api,
+        "BottleDetector",
+        StubBottleDetector,
+    )
+    monkeypatch.setattr(
+        websocket_api,
+        "HandsDetector",
+        StubHandsDetector,
+    )
+    monkeypatch.setattr(
+        websocket_api,
+        "annotate_frame",
+        lambda current_frame, *args, **kwargs: current_frame,
+    )
+
+    session = websocket_api.VisionSession("Bartender's Grip")
+    try:
+        message = session.process_frame()
+    finally:
+        session.close()
+
+    assert message is not None
+    assert seen_bottles == [bottle]
 
 
 def test_movement_requires_hands():
