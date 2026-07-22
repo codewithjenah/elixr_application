@@ -37,6 +37,37 @@ def _hands_near() -> HandsResult:
     return HandsResult(hands=[_hand_near()])
 
 
+def _grip_hand(
+    *,
+    wrist: Point2D,
+    middle_mcp: Point2D,
+    fingertips: tuple[Point2D, Point2D, Point2D, Point2D],
+    thumb_tip: Point2D | None = None,
+    handedness: str = "Right",
+) -> HandLandmarks:
+    points = {0: wrist, 9: middle_mcp}
+    points.update(
+        {
+            index: point
+            for index, point in zip((8, 12, 16, 20), fingertips)
+        }
+    )
+    if thumb_tip is not None:
+        points[4] = thumb_tip
+    return HandLandmarks(points=points, handedness=handedness)
+
+
+def _evaluate_normal_grip(hand: HandLandmarks):
+    result, _, _ = evaluate_movement(
+        "Normal Grip",
+        _bottle(),
+        None,
+        HandsResult(hands=[hand]),
+        None,
+    )
+    return result
+
+
 def test_bottle_not_visible():
     result = check_bottle_visible(None)
     assert result is not None
@@ -108,6 +139,119 @@ def test_scorer_clamps():
     for _ in range(15):
         scorer.record("error")
     assert scorer.score == 0
+
+
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _grip_hand(
+            wrist=Point2D(0.43, 0.49),
+            middle_mcp=Point2D(0.47, 0.43),
+            fingertips=(
+                Point2D(0.48, 0.44),
+                Point2D(0.50, 0.45),
+                Point2D(0.52, 0.47),
+                Point2D(0.54, 0.48),
+            ),
+            handedness="Right",
+        ),
+        _grip_hand(
+            wrist=Point2D(0.57, 0.49),
+            middle_mcp=Point2D(0.53, 0.43),
+            fingertips=(
+                Point2D(0.52, 0.44),
+                Point2D(0.50, 0.45),
+                Point2D(0.48, 0.47),
+                Point2D(0.46, 0.48),
+            ),
+            handedness="Left",
+        ),
+    ],
+    ids=["right-side", "left-side"],
+)
+def test_normal_grip_accepts_reference_like_full_wrap(hand):
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == (
+        "Bottle held securely with a full overhand neck grip."
+    )
+
+
+def test_normal_grip_rejects_hand_around_bottle_body():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.60),
+        middle_mcp=Point2D(0.47, 0.54),
+        fingertips=(
+            Point2D(0.48, 0.55),
+            Point2D(0.50, 0.56),
+            Point2D(0.52, 0.58),
+            Point2D(0.54, 0.59),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == "Move your hand to the upper bottle neck."
+
+
+def test_normal_grip_rejects_reverse_wrist_orientation():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.43),
+        middle_mcp=Point2D(0.47, 0.49),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == "Rotate your wrist into an overhand grip."
+
+
+def test_normal_grip_rejects_two_finger_pinch():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.49, 0.44),
+        fingertips=(
+            Point2D(0.50, 0.44),
+            Point2D(0.70, 0.65),
+            Point2D(0.72, 0.70),
+            Point2D(0.75, 0.75),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Wrap at least three fingers around the bottle neck."
+    )
+
+
+def test_normal_grip_handles_missing_palm_landmarks():
+    hand = HandLandmarks(
+        points={0: Point2D(0.43, 0.49)},
+        handedness="Right",
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == (
+        "Keep your full hand visible around the bottle neck."
+    )
 
 
 def test_movement_requires_hands():
