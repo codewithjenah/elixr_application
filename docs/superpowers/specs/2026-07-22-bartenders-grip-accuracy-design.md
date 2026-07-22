@@ -42,8 +42,10 @@ pinches that are not on the bottle.
 
 ## Bartender-Specific Rule
 
-`backend/assessment/rules/bartenders_grip.py` will own the rule instead of
-calling the shared generic pinch helper.
+`backend/vision/grip_geometry.py` will own the pure bottle-relative control
+point, anchor, contact-zone, and point-in-zone helpers shared by classification
+and fallback triggering. `backend/assessment/rules/bartenders_grip.py` will own
+the remaining rule logic instead of calling the generic pinch helper.
 
 ### Candidate selection
 
@@ -122,6 +124,9 @@ uses `unstable`; success uses positive feedback and `stable`.
 
 The whole-frame video scan remains the primary path. The existing clockwise
 fallback remains exclusive to Normal Grip.
+
+The detector imports the same pure contact-zone helper used by the rule, so
+fallback triggering cannot drift from classification thresholds.
 
 `HandsDetector` will add a `bartender_roi_fallback: bool = False` constructor
 option and an optional bottle argument to
@@ -205,8 +210,9 @@ cannot be claimed without the project's untracked `best.pt` bottle model.
 
 ## Implementation Scope
 
-The approved implementation may modify these four files:
+The approved implementation may modify these files:
 
+- `backend/vision/grip_geometry.py` (new shared pure geometry helper)
 - `backend/assessment/rules/bartenders_grip.py`
 - `backend/vision/hands_detector.py`
 - `backend/api/websocket.py`

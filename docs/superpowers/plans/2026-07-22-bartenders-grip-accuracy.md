@@ -19,7 +19,8 @@
 - Do not add dependencies or modify `requirements.txt`.
 - Do not change Flutter/Dart files, scoring, hold timing, or the WebSocket response schema.
 - Do not commit supplied personal photos or extracted photo landmarks.
-- Modify only the four approved implementation files:
+- Modify only the five approved implementation files:
+  - `backend/vision/grip_geometry.py` (new)
   - `backend/assessment/rules/bartenders_grip.py`
   - `backend/vision/hands_detector.py`
   - `backend/api/websocket.py`
@@ -28,7 +29,8 @@
 
 ## File Map
 
-- `backend/assessment/rules/bartenders_grip.py`: own all bartender-specific neck/shoulder zones, frame-scaled hand geometry, candidate selection, and feedback.
+- `backend/vision/grip_geometry.py`: own pure bartender control-point, anchor, contact-zone, and point-in-zone geometry shared by the rule and detector.
+- `backend/assessment/rules/bartenders_grip.py`: own frame-scaled hand-shape checks, candidate selection, and feedback.
 - `backend/vision/hands_detector.py`: own primary inference, Normal Grip rotation fallback, bartender bottle-ROI fallback, coordinate restoration, and result merging.
 - `backend/api/websocket.py`: enable movement-specific fallback flags and pass the current primary bottle into hand detection.
 - `backend/tests/test_rules.py`: hold deterministic rule, detector orchestration, coordinate, and session-wiring tests.
@@ -41,10 +43,12 @@
 **Files:**
 - Modify: `backend/tests/test_rules.py:64-73`
 - Add tests after: `backend/tests/test_rules.py:168`
+- Create: `backend/vision/grip_geometry.py`
 - Replace: `backend/assessment/rules/bartenders_grip.py:1-41`
 
 **Interfaces:**
 - Consumes: `BottleDetection`, `HandLandmarks`, `HandsResult`, `Point2D`, and configured `FRAME_WIDTH`/`FRAME_HEIGHT`.
+- Produces shared pure helpers `bartender_control_point`, `bartender_control_anchor`, `bartender_contact_zone`, and `point_in_zone`.
 - Produces: unchanged `bartenders_grip.evaluate(...) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]`.
 - Produces exact feedback:
   - success: `Good bartender's grip on the neck and shoulder.`
@@ -277,53 +281,33 @@ python -m pytest tests/test_rules.py -k "bartenders_grip" -q
 
 Expected: 11 failures. The current fixed pinch rule rejects both valid wide, hand-relative grips and does not produce the new location, orientation, index-extension, wrapping, or incomplete-landmark feedback.
 
-- [ ] **Step 4: Replace the generic pinch rule with bartender geometry**
+- [ ] **Step 4: Create the shared pure bartender geometry**
 
-Replace `backend/assessment/rules/bartenders_grip.py` with:
+Create `backend/vision/grip_geometry.py` with:
 
 ```python
-import math
 from typing import Optional
 
-from assessment.rules.base import RuleResult
-from assessment.rules.common_checks import (
-    check_bottle_visible,
-    check_hands_visible,
-)
-from config import FRAME_HEIGHT, FRAME_WIDTH
 from vision.types import (
     BottleDetection,
     HandLandmarks,
-    HandsResult,
     Point2D,
-    PoseLandmarks,
 )
 
-_CONTROL_ANCHOR_FRACTION = 0.35
-_CONTACT_BOTTOM_FRACTION = 0.60
-_WRAP_BOTTOM_FRACTION = 0.75
+BARTENDER_CONTROL_ANCHOR_FRACTION = 0.35
+BARTENDER_CONTACT_BOTTOM_FRACTION = 0.60
+BARTENDER_WRAP_BOTTOM_FRACTION = 0.75
 _HORIZONTAL_MARGIN_FRACTION = 0.25
 _TOP_MARGIN_FRACTION = 0.05
 _MIN_HORIZONTAL_MARGIN = 0.03
 _MIN_TOP_MARGIN = 0.02
-_MAX_CONTROL_GAP_RATIO = 0.45
-_MIN_SIDEWAYS_RATIO = 1.10
-_MIN_INDEX_EXTENSION = 0.70
-_INDEX_CHAIN = (5, 6, 7, 8)
-_OTHER_FINGERTIPS = (12, 16, 20)
-_REQUIRED_OTHER_FINGERTIPS = 2
 
 ContactZone = tuple[float, float, float, float]
 
 
-def _pixel_distance(a: Point2D, b: Point2D) -> float:
-    return math.hypot(
-        (a.x - b.x) * FRAME_WIDTH,
-        (a.y - b.y) * FRAME_HEIGHT,
-    )
-
-
-def _control_point(hand: HandLandmarks) -> Optional[Point2D]:
+def bartender_control_point(
+    hand: HandLandmarks,
+) -> Optional[Point2D]:
     thumb = hand.points.get(4)
     index = hand.points.get(8)
     if thumb is None or index is None:
@@ -334,27 +318,34 @@ def _control_point(hand: HandLandmarks) -> Optional[Point2D]:
     )
 
 
-def _control_anchor(bottle: BottleDetection) -> Point2D:
+def bartender_control_anchor(
+    bottle: BottleDetection,
+    *,
+    frame_width: int,
+    frame_height: int,
+) -> Point2D:
     bottle_height = bottle.y2 - bottle.y1
     return Point2D(
-        x=((bottle.x1 + bottle.x2) / 2.0) / FRAME_WIDTH,
+        x=((bottle.x1 + bottle.x2) / 2.0) / frame_width,
         y=(
             bottle.y1
-            + bottle_height * _CONTROL_ANCHOR_FRACTION
-        ) / FRAME_HEIGHT,
+            + bottle_height * BARTENDER_CONTROL_ANCHOR_FRACTION
+        ) / frame_height,
     )
 
 
-def _contact_zone(
+def bartender_contact_zone(
     bottle: BottleDetection,
     *,
-    bottom_fraction: float,
+    frame_width: int,
+    frame_height: int,
+    bottom_fraction: float = BARTENDER_CONTACT_BOTTOM_FRACTION,
 ) -> ContactZone:
-    left = bottle.x1 / FRAME_WIDTH
-    top = bottle.y1 / FRAME_HEIGHT
-    right = bottle.x2 / FRAME_WIDTH
-    bottle_width = (bottle.x2 - bottle.x1) / FRAME_WIDTH
-    bottle_height = (bottle.y2 - bottle.y1) / FRAME_HEIGHT
+    left = bottle.x1 / frame_width
+    top = bottle.y1 / frame_height
+    right = bottle.x2 / frame_width
+    bottle_width = (bottle.x2 - bottle.x1) / frame_width
+    bottle_height = (bottle.y2 - bottle.y1) / frame_height
 
     horizontal_margin = max(
         _MIN_HORIZONTAL_MARGIN,
@@ -374,7 +365,7 @@ def _contact_zone(
     )
 
 
-def _is_in_zone(
+def point_in_zone(
     point: Optional[Point2D],
     zone: ContactZone,
 ) -> bool:
@@ -382,7 +373,51 @@ def _is_in_zone(
         return False
     left, top, right, bottom = zone
     return left <= point.x <= right and top <= point.y <= bottom
+```
 
+- [ ] **Step 5: Replace the generic pinch rule with bartender geometry**
+
+Replace `backend/assessment/rules/bartenders_grip.py` with:
+
+```python
+import math
+from typing import Optional
+
+from assessment.rules.base import RuleResult
+from assessment.rules.common_checks import (
+    check_bottle_visible,
+    check_hands_visible,
+)
+from config import FRAME_HEIGHT, FRAME_WIDTH
+from vision.grip_geometry import (
+    BARTENDER_CONTACT_BOTTOM_FRACTION,
+    BARTENDER_WRAP_BOTTOM_FRACTION,
+    bartender_contact_zone,
+    bartender_control_anchor,
+    bartender_control_point,
+    point_in_zone,
+)
+from vision.types import (
+    BottleDetection,
+    HandLandmarks,
+    HandsResult,
+    Point2D,
+    PoseLandmarks,
+)
+
+_MAX_CONTROL_GAP_RATIO = 0.45
+_MIN_SIDEWAYS_RATIO = 1.10
+_MIN_INDEX_EXTENSION = 0.70
+_INDEX_CHAIN = (5, 6, 7, 8)
+_OTHER_FINGERTIPS = (12, 16, 20)
+_REQUIRED_OTHER_FINGERTIPS = 2
+
+
+def _pixel_distance(a: Point2D, b: Point2D) -> float:
+    return math.hypot(
+        (a.x - b.x) * FRAME_WIDTH,
+        (a.y - b.y) * FRAME_HEIGHT,
+    )
 
 def _nearest_hand_to_control_anchor(
     hands: HandsResult,
@@ -392,7 +427,7 @@ def _nearest_hand_to_control_anchor(
     nearest_distance = float("inf")
 
     for hand in hands.hands:
-        control = _control_point(hand)
+        control = bartender_control_point(hand)
         if control is None:
             continue
         distance = _pixel_distance(control, anchor)
@@ -447,7 +482,11 @@ def evaluate(
 
     hand = _nearest_hand_to_control_anchor(
         hands,
-        _control_anchor(bottle),
+        bartender_control_anchor(
+            bottle,
+            frame_width=FRAME_WIDTH,
+            frame_height=FRAME_HEIGHT,
+        ),
     )
     if hand is None:
         return (
@@ -498,14 +537,16 @@ def evaluate(
             movement_state,
         )
 
-    control = _control_point(hand)
+    control = bartender_control_point(hand)
     assert control is not None
 
-    contact_zone = _contact_zone(
+    contact_zone = bartender_contact_zone(
         bottle,
-        bottom_fraction=_CONTACT_BOTTOM_FRACTION,
+        frame_width=FRAME_WIDTH,
+        frame_height=FRAME_HEIGHT,
+        bottom_fraction=BARTENDER_CONTACT_BOTTOM_FRACTION,
     )
-    if not _is_in_zone(control, contact_zone):
+    if not point_in_zone(control, contact_zone):
         return (
             _warning(
                 "Grip the bottle at the upper neck and shoulder.",
@@ -549,12 +590,14 @@ def evaluate(
             movement_state,
         )
 
-    wrap_zone = _contact_zone(
+    wrap_zone = bartender_contact_zone(
         bottle,
-        bottom_fraction=_WRAP_BOTTOM_FRACTION,
+        frame_width=FRAME_WIDTH,
+        frame_height=FRAME_HEIGHT,
+        bottom_fraction=BARTENDER_WRAP_BOTTOM_FRACTION,
     )
     wrapped_fingers = sum(
-        _is_in_zone(point, wrap_zone)
+        point_in_zone(point, wrap_zone)
         for point in other_tips
     )
     if wrapped_fingers < _REQUIRED_OTHER_FINGERTIPS:
@@ -578,7 +621,7 @@ def evaluate(
     )
 ```
 
-- [ ] **Step 5: Run focused tests and verify GREEN**
+- [ ] **Step 6: Run focused tests and verify GREEN**
 
 Run from `backend/`:
 
@@ -588,7 +631,7 @@ python -m pytest tests/test_rules.py -k "bartenders_grip" -q
 
 Expected: `11 passed`.
 
-- [ ] **Step 6: Run the complete backend rule test module**
+- [ ] **Step 7: Run the complete backend rule test module**
 
 Run from `backend/`:
 
@@ -598,16 +641,16 @@ python -m pytest tests/test_rules.py -q
 
 Expected: `45 passed`.
 
-- [ ] **Step 7: Commit the rule and tests**
+- [ ] **Step 8: Commit the rule and tests**
 
 Run from the repository root:
 
 ```powershell
-git add backend/assessment/rules/bartenders_grip.py backend/tests/test_rules.py
+git add backend/vision/grip_geometry.py backend/assessment/rules/bartenders_grip.py backend/tests/test_rules.py
 git commit -m "feat: validate bartender neck grip"
 ```
 
-Expected: one commit containing only the bartender rule and its deterministic tests.
+Expected: one commit containing only shared bartender geometry, the rule, and its deterministic tests.
 
 ---
 
@@ -619,6 +662,7 @@ Expected: one commit containing only the bartender rule and its deterministic te
 - Replace: `backend/vision/hands_detector.py:1-124`
 
 **Interfaces:**
+- Consumes the shared `bartender_control_point`, `bartender_contact_zone`, and `point_in_zone` helpers from Task 1.
 - Produces: `HandsDetector(max_num_hands: int = 2, rotated_fallback: bool = False, bartender_roi_fallback: bool = False)`.
 - Produces: `HandsDetector.detect(frame: np.ndarray, bottle: Optional[BottleDetection] = None) -> Optional[HandsResult]`.
 - Preserves: `_detect_primary(frame)` and `_detect_rotated(frame)` behavior.
@@ -833,6 +877,12 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from vision.grip_geometry import (
+    BARTENDER_CONTACT_BOTTOM_FRACTION,
+    bartender_contact_zone,
+    bartender_control_point,
+    point_in_zone,
+)
 from vision.model_assets import ensure_hand_model
 from vision.types import (
     BottleDetection,
@@ -843,16 +893,10 @@ from vision.types import (
 
 logger = logging.getLogger(__name__)
 
-_CONTACT_BOTTOM_FRACTION = 0.60
-_HORIZONTAL_MARGIN_FRACTION = 0.25
-_TOP_MARGIN_FRACTION = 0.05
-_MIN_HORIZONTAL_MARGIN = 0.03
-_MIN_TOP_MARGIN = 0.02
 _BARTENDER_CROP_WIDTH_FACTOR = 2.5
 _BARTENDER_CROP_TOP_FRACTION = 0.05
 _BARTENDER_CROP_BOTTOM_FRACTION = 0.65
 
-ContactZone = tuple[float, float, float, float]
 CropBounds = tuple[int, int, int, int]
 
 
@@ -885,51 +929,6 @@ def _counterclockwise_crop_point_to_frame(
     )
 
 
-def _control_point(hand: HandLandmarks) -> Optional[Point2D]:
-    thumb = hand.points.get(4)
-    index = hand.points.get(8)
-    if thumb is None or index is None:
-        return None
-    return Point2D(
-        x=(thumb.x + index.x) / 2.0,
-        y=(thumb.y + index.y) / 2.0,
-    )
-
-
-def _bartender_contact_zone(
-    bottle: BottleDetection,
-    *,
-    frame_width: int,
-    frame_height: int,
-) -> ContactZone:
-    left = bottle.x1 / frame_width
-    top = bottle.y1 / frame_height
-    right = bottle.x2 / frame_width
-    bottle_width = (bottle.x2 - bottle.x1) / frame_width
-    bottle_height = (bottle.y2 - bottle.y1) / frame_height
-
-    horizontal_margin = max(
-        _MIN_HORIZONTAL_MARGIN,
-        bottle_width * _HORIZONTAL_MARGIN_FRACTION,
-    )
-    top_margin = max(
-        _MIN_TOP_MARGIN,
-        bottle_height * _TOP_MARGIN_FRACTION,
-    )
-
-    return (
-        left - horizontal_margin,
-        top - top_margin,
-        right + horizontal_margin,
-        top + bottle_height * _CONTACT_BOTTOM_FRACTION,
-    )
-
-
-def _is_in_zone(point: Point2D, zone: ContactZone) -> bool:
-    left, top, right, bottom = zone
-    return left <= point.x <= right and top <= point.y <= bottom
-
-
 def _has_bartender_candidate(
     hands: Optional[HandsResult],
     bottle: BottleDetection,
@@ -940,15 +939,16 @@ def _has_bartender_candidate(
     if hands is None:
         return False
 
-    zone = _bartender_contact_zone(
+    zone = bartender_contact_zone(
         bottle,
         frame_width=frame_width,
         frame_height=frame_height,
+        bottom_fraction=BARTENDER_CONTACT_BOTTOM_FRACTION,
     )
     return any(
-        control is not None and _is_in_zone(control, zone)
+        control is not None and point_in_zone(control, zone)
         for hand in hands.hands
-        for control in [_control_point(hand)]
+        for control in [bartender_control_point(hand)]
     )
 
 
@@ -1445,6 +1445,7 @@ Expected: one commit containing only session wiring and its tests.
 ### Task 4: Reference validation and final verification
 
 **Files:**
+- Verify only: `backend/vision/grip_geometry.py`
 - Verify only: `backend/assessment/rules/bartenders_grip.py`
 - Verify only: `backend/vision/hands_detector.py`
 - Verify only: `backend/api/websocket.py`
