@@ -1,4 +1,8 @@
+import numpy as np
 import pytest
+
+from api import websocket as websocket_api
+from vision import hands_detector as hands_detector_module
 
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -66,6 +70,27 @@ def _evaluate_normal_grip(hand: HandLandmarks):
         None,
     )
     return result
+
+
+class _StubHandsDetector(hands_detector_module.HandsDetector):
+    def __init__(
+        self,
+        *,
+        rotated_fallback: bool,
+        primary_result,
+        fallback_result,
+    ):
+        self._rotated_fallback = rotated_fallback
+        self._primary_result = primary_result
+        self._fallback_result = fallback_result
+        self.fallback_calls = 0
+
+    def _detect_primary(self, frame):
+        return self._primary_result
+
+    def _detect_rotated(self, frame):
+        self.fallback_calls += 1
+        return self._fallback_result
 
 
 def test_bottle_not_visible():
@@ -252,6 +277,75 @@ def test_normal_grip_handles_missing_palm_landmarks():
     assert result.feedback == (
         "Keep your full hand visible around the bottle neck."
     )
+
+
+def test_clockwise_point_is_restored_to_original_coordinates():
+    restored = hands_detector_module._clockwise_point_to_original(
+        Point2D(0.20, 0.25)
+    )
+
+    assert restored.x == pytest.approx(0.25)
+    assert restored.y == pytest.approx(0.80)
+
+
+def test_hand_detector_uses_rotated_fallback_after_primary_miss():
+    expected = _hands_near()
+    detector = _StubHandsDetector(
+        rotated_fallback=True,
+        primary_result=None,
+        fallback_result=expected,
+    )
+
+    result = detector.detect(np.zeros((2, 3, 3), dtype=np.uint8))
+
+    assert result is expected
+    assert detector.fallback_calls == 1
+
+
+def test_hand_detector_does_not_fallback_after_primary_hit():
+    expected = _hands_near()
+    detector = _StubHandsDetector(
+        rotated_fallback=True,
+        primary_result=expected,
+        fallback_result=None,
+    )
+
+    result = detector.detect(np.zeros((2, 3, 3), dtype=np.uint8))
+
+    assert result is expected
+    assert detector.fallback_calls == 0
+
+
+def test_hand_detector_skips_rotated_fallback_when_disabled():
+    detector = _StubHandsDetector(
+        rotated_fallback=False,
+        primary_result=None,
+        fallback_result=_hands_near(),
+    )
+
+    result = detector.detect(np.zeros((2, 3, 3), dtype=np.uint8))
+
+    assert result is None
+    assert detector.fallback_calls == 0
+
+
+def test_only_normal_grip_session_enables_rotated_fallback(monkeypatch):
+    fallback_settings = []
+
+    class RecordingHandsDetector:
+        def __init__(self, *, rotated_fallback: bool = False):
+            fallback_settings.append(rotated_fallback)
+
+    monkeypatch.setattr(
+        websocket_api,
+        "HandsDetector",
+        RecordingHandsDetector,
+    )
+
+    websocket_api.VisionSession("Normal Grip")
+    websocket_api.VisionSession("Reverse Grip")
+
+    assert fallback_settings == [True, False]
 
 
 def test_movement_requires_hands():

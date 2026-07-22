@@ -56,7 +56,9 @@ class VisionSession:
 
         self.camera = CameraCapture()
         self.bottle_detector = BottleDetector(enabled=bottle_detection_enabled)
-        self.hands_detector = HandsDetector()
+        self.hands_detector = HandsDetector(
+            rotated_fallback=movement == "Normal Grip"
+        )
         # Pose is only used for stall movements (hand/arm/elbow).
         self.pose_detector = (
             PoseDetector() if movement_requires_pose(movement) else None
