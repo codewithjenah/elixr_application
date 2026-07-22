@@ -71,10 +71,77 @@ def _evaluate_normal_grip(hand: HandLandmarks):
     )
     return result
 
-
 def _evaluate_reverse_grip(hand: HandLandmarks):
     result, _, _ = evaluate_movement(
         "Reverse Grip",
+        _bottle(),
+        None,
+        HandsResult(hands=[hand]),
+        None,
+    )
+    return result
+
+
+def _bartender_hand(
+    *,
+    mirrored: bool = False,
+    x_offset: float = 0.0,
+    y_offset: float = 0.0,
+    overrides: dict[int, Point2D] | None = None,
+    missing: tuple[int, ...] = (),
+) -> HandLandmarks:
+    points = {
+        0: Point2D(0.32, 0.48),
+        1: Point2D(0.37, 0.47),
+        2: Point2D(0.40, 0.46),
+        3: Point2D(0.44, 0.455),
+        4: Point2D(0.465, 0.455),
+        5: Point2D(0.45, 0.45),
+        6: Point2D(0.478, 0.453),
+        7: Point2D(0.507, 0.456),
+        8: Point2D(0.535, 0.46),
+        9: Point2D(0.49, 0.47),
+        10: Point2D(0.495, 0.475),
+        11: Point2D(0.505, 0.482),
+        12: Point2D(0.51, 0.49),
+        13: Point2D(0.485, 0.485),
+        14: Point2D(0.50, 0.495),
+        15: Point2D(0.51, 0.503),
+        16: Point2D(0.52, 0.51),
+        17: Point2D(0.48, 0.50),
+        18: Point2D(0.49, 0.51),
+        19: Point2D(0.51, 0.52),
+        20: Point2D(0.53, 0.53),
+    }
+
+    if mirrored:
+        points = {
+            index: Point2D(1.0 - point.x, point.y)
+            for index, point in points.items()
+        }
+
+    points = {
+        index: Point2D(
+            point.x + x_offset,
+            point.y + y_offset,
+        )
+        for index, point in points.items()
+    }
+
+    if overrides:
+        points.update(overrides)
+    for index in missing:
+        points.pop(index, None)
+
+    return HandLandmarks(
+        points=points,
+        handedness="Left" if mirrored else "Right",
+    )
+
+
+def _evaluate_bartenders_grip(hand: HandLandmarks):
+    result, _, _ = evaluate_movement(
+        "Bartender's Grip",
         _bottle(),
         None,
         HandsResult(hands=[hand]),
@@ -175,6 +242,140 @@ def test_scorer_clamps():
     for _ in range(15):
         scorer.record("error")
     assert scorer.score == 0
+
+
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _bartender_hand(),
+        _bartender_hand(mirrored=True),
+    ],
+    ids=["right-side", "left-side"],
+)
+def test_bartenders_grip_accepts_reference_like_side_hold(hand):
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == (
+        "Good bartender's grip on the neck and shoulder."
+    )
+
+
+def test_bartenders_grip_rejects_body_hold():
+    result = _evaluate_bartenders_grip(
+        _bartender_hand(y_offset=0.10)
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Grip the bottle at the upper neck and shoulder."
+    )
+
+
+def test_bartenders_grip_rejects_off_bottle_pinch():
+    result = _evaluate_bartenders_grip(
+        _bartender_hand(x_offset=0.10)
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Grip the bottle at the upper neck and shoulder."
+    )
+
+
+def test_bartenders_grip_rejects_overly_open_thumb_index_control():
+    hand = _bartender_hand(
+        overrides={
+            4: Point2D(0.43, 0.455),
+            7: Point2D(0.53, 0.456),
+            8: Point2D(0.57, 0.46),
+        }
+    )
+
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Secure the neck between your thumb and index finger."
+    )
+
+
+def test_bartenders_grip_rejects_normal_clenched_index():
+    hand = _bartender_hand(
+        overrides={
+            4: Point2D(0.49, 0.455),
+            6: Point2D(0.50, 0.45),
+            7: Point2D(0.48, 0.46),
+            8: Point2D(0.49, 0.455),
+        }
+    )
+
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Extend your index finger along the bottle neck."
+    )
+
+
+def test_bartenders_grip_rejects_vertical_normal_grip():
+    hand = _bartender_hand(
+        overrides={
+            0: Point2D(0.49, 0.56),
+            4: Point2D(0.49, 0.455),
+            8: Point2D(0.51, 0.46),
+            9: Point2D(0.50, 0.47),
+        }
+    )
+
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Turn your hand sideways for a bartender's grip."
+    )
+
+
+def test_bartenders_grip_requires_two_other_fingers_on_shoulder():
+    hand = _bartender_hand(
+        overrides={
+            12: Point2D(0.70, 0.70),
+            16: Point2D(0.72, 0.72),
+        }
+    )
+
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Wrap your other fingers around the bottle shoulder."
+    )
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        (4,),
+        (6,),
+        (16, 20),
+    ],
+    ids=["thumb", "index-chain", "other-fingertips"],
+)
+def test_bartenders_grip_handles_incomplete_landmarks(missing):
+    result = _evaluate_bartenders_grip(
+        _bartender_hand(missing=missing)
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == "Keep your full gripping hand visible."
 
 
 @pytest.mark.parametrize(
