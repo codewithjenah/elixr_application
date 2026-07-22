@@ -198,6 +198,22 @@ def evaluate(
             movement_state,
         )
 
+    palm = hand.palm_center()
+    assert palm is not None
+    bottle_center = bottle.center_normalized(FRAME_WIDTH, FRAME_HEIGHT)
+    if palm.y > bottle_center.y:
+        return (
+            _warning(
+                (
+                    "Raise your palm above the bottle center for "
+                    "a bartender's grip."
+                ),
+                "unstable",
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
     if index_extension < _MIN_INDEX_EXTENSION:
         return (
             _warning(

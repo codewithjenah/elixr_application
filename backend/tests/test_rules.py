@@ -342,6 +342,23 @@ def test_bartenders_grip_rejects_vertical_normal_grip():
     )
 
 
+def test_bartenders_grip_rejects_sideways_underhand_hold():
+    hand = _bartender_hand(
+        overrides={
+            0: Point2D(0.32, 0.54),
+            9: Point2D(0.49, 0.52),
+        }
+    )
+
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Raise your palm above the bottle center for a bartender's grip."
+    )
+
+
 def test_bartenders_grip_requires_two_other_fingers_on_shoulder():
     hand = _bartender_hand(
         overrides={
