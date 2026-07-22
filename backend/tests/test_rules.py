@@ -302,7 +302,7 @@ def test_hand_detector_uses_rotated_fallback_after_primary_miss():
     assert detector.fallback_calls == 1
 
 
-def test_hand_detector_does_not_fallback_after_primary_hit():
+def test_hand_detector_does_not_use_rotated_fallback_after_primary_hit():
     expected = _hands_near()
     detector = _StubHandsDetector(
         rotated_fallback=True,
