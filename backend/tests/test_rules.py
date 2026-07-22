@@ -72,6 +72,17 @@ def _evaluate_normal_grip(hand: HandLandmarks):
     return result
 
 
+def _evaluate_reverse_grip(hand: HandLandmarks):
+    result, _, _ = evaluate_movement(
+        "Reverse Grip",
+        _bottle(),
+        None,
+        HandsResult(hands=[hand]),
+        None,
+    )
+    return result
+
+
 class _StubHandsDetector(hands_detector_module.HandsDetector):
     def __init__(
         self,
@@ -271,6 +282,166 @@ def test_normal_grip_handles_missing_palm_landmarks():
     )
 
     result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == (
+        "Keep your full hand visible around the bottle neck."
+    )
+
+
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _grip_hand(
+            wrist=Point2D(0.43, 0.43),
+            middle_mcp=Point2D(0.47, 0.49),
+            thumb_tip=Point2D(0.46, 0.49),
+            fingertips=(
+                Point2D(0.48, 0.48),
+                Point2D(0.50, 0.46),
+                Point2D(0.52, 0.44),
+                Point2D(0.54, 0.42),
+            ),
+            handedness="Right",
+        ),
+        _grip_hand(
+            wrist=Point2D(0.57, 0.43),
+            middle_mcp=Point2D(0.53, 0.49),
+            thumb_tip=Point2D(0.54, 0.49),
+            fingertips=(
+                Point2D(0.52, 0.48),
+                Point2D(0.50, 0.46),
+                Point2D(0.48, 0.44),
+                Point2D(0.46, 0.42),
+            ),
+            handedness="Left",
+        ),
+    ],
+    ids=["right-side", "left-side"],
+)
+def test_reverse_grip_accepts_reference_like_full_wrap(hand):
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == (
+        "Bottle held securely with a full reverse neck grip."
+    )
+
+
+def test_reverse_grip_rejects_hand_around_bottle_body():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.58),
+        middle_mcp=Point2D(0.47, 0.64),
+        thumb_tip=Point2D(0.46, 0.64),
+        fingertips=(
+            Point2D(0.48, 0.63),
+            Point2D(0.50, 0.61),
+            Point2D(0.52, 0.59),
+            Point2D(0.54, 0.57),
+        ),
+    )
+
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == "Move your hand to the upper bottle neck."
+
+
+def test_reverse_grip_rejects_normal_overhand_wrap():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.46, 0.42),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == "Rotate your wrist into a reverse grip."
+
+
+def test_reverse_grip_rejects_wrong_pinky_thumb_order():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.43),
+        middle_mcp=Point2D(0.47, 0.49),
+        thumb_tip=Point2D(0.46, 0.42),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Point your pinky toward the bottle mouth and thumb toward the base."
+    )
+
+
+def test_reverse_grip_rejects_two_finger_pinch():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.43),
+        middle_mcp=Point2D(0.47, 0.49),
+        thumb_tip=Point2D(0.46, 0.49),
+        fingertips=(
+            Point2D(0.48, 0.48),
+            Point2D(0.70, 0.65),
+            Point2D(0.72, 0.70),
+            Point2D(0.54, 0.42),
+        ),
+    )
+
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Wrap at least three fingers around the bottle neck."
+    )
+
+
+def test_reverse_grip_handles_missing_palm_landmarks():
+    hand = HandLandmarks(
+        points={0: Point2D(0.43, 0.43)},
+        handedness="Right",
+    )
+
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == (
+        "Keep your full hand visible around the bottle neck."
+    )
+
+
+def test_reverse_grip_handles_missing_pinky_or_thumb():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.43),
+        middle_mcp=Point2D(0.47, 0.49),
+        fingertips=(
+            Point2D(0.48, 0.48),
+            Point2D(0.50, 0.46),
+            Point2D(0.52, 0.44),
+            Point2D(0.54, 0.42),
+        ),
+    )
+
+    result = _evaluate_reverse_grip(hand)
 
     assert result.feedback_type == "warning"
     assert result.posture_status == "unknown"
