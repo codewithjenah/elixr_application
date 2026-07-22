@@ -159,6 +159,8 @@ class _StubHandsDetector(hands_detector_module.HandsDetector):
         fallback_result,
     ):
         self._rotated_fallback = rotated_fallback
+        self._bartender_roi_fallback = False
+        self._max_num_hands = 2
         self._primary_result = primary_result
         self._fallback_result = fallback_result
         self.fallback_calls = 0
@@ -167,6 +169,31 @@ class _StubHandsDetector(hands_detector_module.HandsDetector):
         return self._primary_result
 
     def _detect_rotated(self, frame):
+        self.fallback_calls += 1
+        return self._fallback_result
+
+
+class _StubBartenderHandsDetector(
+    hands_detector_module.HandsDetector
+):
+    def __init__(
+        self,
+        *,
+        primary_result,
+        fallback_result,
+        max_num_hands: int = 2,
+    ):
+        self._rotated_fallback = False
+        self._bartender_roi_fallback = True
+        self._max_num_hands = max_num_hands
+        self._primary_result = primary_result
+        self._fallback_result = fallback_result
+        self.fallback_calls = 0
+
+    def _detect_primary(self, frame):
+        return self._primary_result
+
+    def _detect_bartender_roi(self, frame, bottle):
         self.fallback_calls += 1
         return self._fallback_result
 
@@ -716,6 +743,131 @@ def test_hand_detector_skips_rotated_fallback_when_disabled():
 
     assert result is None
     assert detector.fallback_calls == 0
+
+
+def test_counterclockwise_crop_point_is_restored_to_frame():
+    restored = (
+        hands_detector_module
+        ._counterclockwise_crop_point_to_frame(
+            Point2D(0.20, 0.25),
+            (100, 50, 300, 250),
+            frame_width=640,
+            frame_height=480,
+        )
+    )
+
+    assert restored.x == pytest.approx(0.390625)
+    assert restored.y == pytest.approx(0.1875)
+
+
+def test_bartender_roi_skips_near_primary_hand():
+    expected = _hands_near()
+    detector = _StubBartenderHandsDetector(
+        primary_result=expected,
+        fallback_result=None,
+    )
+
+    result = detector.detect(
+        np.zeros((480, 640, 3), dtype=np.uint8),
+        _bottle(),
+    )
+
+    assert result is expected
+    assert detector.fallback_calls == 0
+
+
+def test_bartender_roi_runs_after_primary_miss():
+    expected = _hands_near()
+    detector = _StubBartenderHandsDetector(
+        primary_result=None,
+        fallback_result=expected,
+    )
+
+    result = detector.detect(
+        np.zeros((480, 640, 3), dtype=np.uint8),
+        _bottle(),
+    )
+
+    assert result is not None
+    assert result.hands[0] is expected.hands[0]
+    assert detector.fallback_calls == 1
+
+
+def test_bartender_roi_prioritizes_recovery_and_caps_hands():
+    primary = HandsResult(
+        hands=[
+            _hand_near(0.80, 0.80),
+            _hand_near(0.20, 0.80),
+        ]
+    )
+    recovered = _hands_near()
+    detector = _StubBartenderHandsDetector(
+        primary_result=primary,
+        fallback_result=recovered,
+        max_num_hands=2,
+    )
+
+    result = detector.detect(
+        np.zeros((480, 640, 3), dtype=np.uint8),
+        _bottle(),
+    )
+
+    assert result is not None
+    assert len(result.hands) == 2
+    assert result.hands[0] is recovered.hands[0]
+    assert result.hands[1] is primary.hands[0]
+    assert detector.fallback_calls == 1
+
+
+def test_bartender_roi_skips_fallback_without_bottle():
+    primary = HandsResult(hands=[_hand_near(0.80, 0.80)])
+    detector = _StubBartenderHandsDetector(
+        primary_result=primary,
+        fallback_result=_hands_near(),
+    )
+
+    result = detector.detect(
+        np.zeros((480, 640, 3), dtype=np.uint8),
+        None,
+    )
+
+    assert result is primary
+    assert detector.fallback_calls == 0
+
+
+def test_bartender_roi_miss_preserves_primary_result():
+    primary = HandsResult(hands=[_hand_near(0.80, 0.80)])
+    detector = _StubBartenderHandsDetector(
+        primary_result=primary,
+        fallback_result=None,
+    )
+
+    result = detector.detect(
+        np.zeros((480, 640, 3), dtype=np.uint8),
+        _bottle(),
+    )
+
+    assert result is primary
+    assert detector.fallback_calls == 1
+
+
+def test_bartender_crop_rejects_zero_width_bottle():
+    invalid = BottleDetection(
+        x1=100,
+        y1=100,
+        x2=100,
+        y2=200,
+        confidence=0.9,
+    )
+
+    assert (
+        hands_detector_module._bartender_crop_bounds(
+            invalid,
+            frame_width=640,
+            frame_height=480,
+        )
+        is None
+    )
 
 
 def test_only_normal_grip_session_enables_rotated_fallback(monkeypatch):
