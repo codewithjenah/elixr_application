@@ -1,0 +1,32 @@
+---
+description: FastAPI, OpenCV, YOLO, MediaPipe, camera lifecycle, assessment rules, and scoring
+globs: ["backend/**/*.py", "backend/requirements*.txt", "backend/run.ps1"]
+alwaysApply: false
+---
+# Python vision backend
+
+- Use Python 3.11 for the current pinned dependency set unless dependency compatibility is deliberately changed and verified.
+- Keep FastAPI route code focused on transport/session orchestration.
+- Keep camera and detector work in `backend/vision` and movement logic in `backend/assessment/rules`.
+- Run blocking OpenCV, YOLO, and MediaPipe processing outside the asyncio event loop.
+- Preserve task cancellation ordering: await in-flight frame work before closing detectors or releasing the camera.
+- Maintain a bounded real-time pipeline. Do not create unbounded queues or accumulate stale frames.
+- Preserve the shared-camera lock, Windows backend fallback, black-frame rejection, and debounced release unless a tested replacement is introduced.
+- `backend/best.pt` is the custom flair-bottle model. Do not download, replace, or reinterpret its classes silently.
+- Distinguish model-load failure from ordinary no-detection behavior.
+- Do not cache hand landmarks across frames; stale landmarks cause ghost-hand artifacts.
+- Keep per-session movement state explicit, not in mutable module globals.
+- Add synthetic positive, boundary, and negative tests for movement threshold changes.
+- Keep score output within 0..100 and test weight/window changes.
+- Use machine-readable error codes for fatal client-visible failures.
+- Log stack traces internally while keeping client messages safe and actionable.
+- When dependency pins change, validate clean installation and imports for NumPy, OpenCV, MediaPipe, and Ultralytics before claiming compatibility.
+
+Verification:
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest -q backend\tests
+backend\.venv\Scripts\python.exe -m compileall backend\api backend\assessment backend\schemas backend\vision backend\main.py backend\config.py
+```
+
+Real camera/model checks are manual integration tests and must be reported separately.

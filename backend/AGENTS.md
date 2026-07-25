@@ -1,0 +1,105 @@
+# Python Vision Backend Instructions
+
+These instructions apply to `backend/**` and supplement the repository root `AGENTS.md`.
+
+## Current backend stack
+
+Use Python 3.11 for the current pinned dependency set unless the dependency pins are intentionally reconciled and validated in a clean environment.
+
+
+- FastAPI and Uvicorn.
+- Pydantic response schemas.
+- OpenCV camera capture and JPEG encoding.
+- Ultralytics YOLO with `backend/best.pt`.
+- MediaPipe Hand and Pose landmarker task assets.
+- Movement-specific rule modules.
+- Pytest rule-engine tests. (`pytest` is not currently listed in `backend/requirements.txt`.)
+
+## Runtime ownership
+
+The backend owns:
+
+- The physical webcam.
+- CV model loading and inference.
+- Landmark extraction.
+- Movement evaluation.
+- Session scoring.
+- Frame annotation.
+- WebSocket feedback production.
+
+Keep Flutter independent of these implementation details except for the documented transport schema.
+
+## Async and concurrency
+
+- Never run blocking OpenCV, YOLO, or MediaPipe work directly on the FastAPI event loop.
+- Preserve cancellation behavior for the per-session frame task.
+- Ensure a cancelled frame operation is awaited before releasing detectors or camera resources.
+- Keep one controlled shared-camera owner and respect the existing lock/debounced release behavior.
+- Avoid unbounded task creation, queues, or frame accumulation. Prefer dropping/skipping work to increasing latency.
+- If changing target FPS or frame skipping, measure processing time and confirm teardown remains responsive.
+
+## Camera lifecycle
+
+- Run the backend with `backend/` as the working directory unless model paths are made explicit and tested.
+- Preserve Windows backend fallback behavior and usable-frame checks.
+- A camera that opens but returns black frames is not considered healthy.
+- Any new camera setting must have a clear source: environment variable, config constant, or explicit request field.
+- Release the camera on stop, disconnect, fatal initialization failure, and application teardown.
+
+## Model and detector behavior
+
+- `best.pt` is the custom bottle detector and currently expects class `0` as the flair bottle.
+- Keep model load failures distinguishable from ordinary “no bottle detected” results.
+- Do not download or replace model assets silently.
+- Avoid caching fast-changing hand landmarks; stale landmarks create ghost-hand artifacts.
+- Cached bottle detections are permitted only within the deliberate YOLO frame-skip strategy.
+- Close MediaPipe task objects deterministically.
+
+## Assessment rules
+
+- Put movement-specific logic in `assessment/rules/<movement>.py`.
+- Reuse geometry and posture helpers from shared modules rather than copying threshold math.
+- Return a typed `RuleResult` with a valid feedback type and posture status.
+- Keep state explicit through the movement-state dictionary or a new typed structure; do not use hidden module globals for per-session state.
+- Add a movement to all required registries/configuration layers, including Flutter's catalog when it is user-selectable.
+- Threshold changes require positive, boundary, and negative synthetic tests.
+
+## Scoring
+
+- Keep score output within `0..100`.
+- Treat feedback classifications as part of the scoring contract.
+- Test window rollover, reset, and bounds when changing weights or window size.
+- Do not derive score from UI-only state.
+
+## WebSocket schema
+
+`schemas.feedback.FeedbackMessage` is a public cross-language contract.
+
+When it changes:
+
+- Update every creation site in the backend.
+- Update Dart parsing and defaults.
+- Preserve error payloads that may not contain frame bytes.
+- Use stable machine-readable `error_code` values for fatal conditions.
+- Keep human feedback suitable for display but do not require clients to parse human text to identify errors.
+
+## Error handling and logging
+
+- Log internal exceptions with stack traces on the backend.
+- Send safe, actionable client messages without leaking local paths, credentials, or sensitive internals.
+- Do not transform model failure into an empty detection result when session startup depends on the model.
+- Avoid broad exception swallowing in the frame loop.
+- Keep expected cancellation separate from operational failure.
+
+## Testing
+
+Prefer deterministic tests with synthetic detections and landmarks.
+
+From the repository root:
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest -q backend\tests
+backend\.venv\Scripts\python.exe -m compileall backend\api backend\assessment backend\schemas backend\vision backend\main.py backend\config.py
+```
+
+A physical camera and model inference belong in a documented manual integration check, not ordinary unit tests.

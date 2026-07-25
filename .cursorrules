@@ -1,13 +1,10 @@
-# Project Rules
+# Legacy Cursor compatibility
+# Canonical instructions live in AGENTS.md and .cursor/rules/*.mdc.
 
-Be concise.
-
-Prefer minimal code changes.
-
-Do not refactor unrelated files.
-
-Do not reformat entire files unless asked.
-
-Ask before editing more than 3 files.
-
-Ask before adding new dependencies
+Read the nearest AGENTS.md before editing.
+Inspect the implementation before proposing changes.
+Prefer the smallest coherent change and avoid unrelated refactors.
+Keep Flutter, WebSocket, Firebase, and Python contract participants synchronized.
+Never let Flutter own the webcam; the Python backend owns camera capture and CV.
+Run relevant verification and report commands actually executed, failures, and unverified behavior.
+Never claim a test passed unless it was run and observed.

@@ -1,0 +1,30 @@
+---
+description: ELIXR architecture boundaries and cross-layer invariants
+alwaysApply: false
+---
+# Project architecture
+
+ELIXR has two runtime processes:
+
+1. Flutter Windows client for UI, Firebase auth/data, navigation, audio, and WebSocket consumption.
+2. Local FastAPI backend for webcam ownership, CV inference, movement assessment, scoring, annotation, and WebSocket production.
+
+Preserve these boundaries:
+
+- `lib/features` is presentation and interaction.
+- `lib/services` is app/runtime orchestration.
+- `lib/data/repositories` and `lib/data/database` own persistence access.
+- `lib/core` contains shared application infrastructure and reusable UI.
+- `backend/api` owns transport orchestration, not movement math.
+- `backend/vision` owns camera/models/landmarks/annotation.
+- `backend/assessment/rules` owns movement-specific evaluation.
+- `backend/schemas` defines transport contracts.
+
+Critical invariants:
+
+- Python owns the webcam; never add a competing Flutter camera owner.
+- Movement names must remain aligned across Flutter catalog, Python config, and rule registry.
+- WebSocket and Firestore schema changes require coordinated updates to every producer, parser, mapper, index/rule, test, and relevant documentation.
+- Preserve deterministic cleanup for cameras, detectors, sockets, timers, subscriptions, controllers, and audio.
+- Keep blocking CV work off the asyncio event loop.
+- Do not introduce a second router, state-management framework, persistence layer, or backend transport without an explicit migration requirement.

@@ -1,0 +1,28 @@
+---
+description: Flutter, Fluent UI, Provider, GoRouter, lifecycle, and client architecture guidance
+globs: ["lib/**/*.dart", "pubspec.yaml", "analysis_options.yaml"]
+alwaysApply: false
+---
+# Flutter client
+
+- Preserve Flutter Windows, Fluent UI, Provider/ChangeNotifier, and GoRouter patterns.
+- Keep feature UI in `lib/features`; use services for shared orchestration and repositories for persistence/auth access.
+- Follow nearby code before extracting a new abstraction. Do not force a repository-wide architecture rewrite during a local feature.
+- Use existing colors, spacing, theme, and reusable ELIXR widgets before creating parallel design tokens.
+- Handle loading, empty, disconnected, error, active, and completed states explicitly.
+- Capture context-dependent objects before async teardown; check `mounted` before UI updates after async gaps.
+- Dispose owned timers, subscriptions, listeners, controllers, services, WebSockets, and audio resources.
+- Do not perform repository/network/model work inside `build`.
+- Keep Dart parsing tolerant where backward compatibility requires defaults, but do not hide contract bugs without observability.
+- Prefer immutable models, `const` constructors, focused methods, and `flutter_lints` compliance.
+- Never add direct camera capture to Flutter. Display the JPEG bytes supplied by the backend.
+
+Verification for Dart changes:
+
+```powershell
+dart format --output=none --set-exit-if-changed lib
+flutter analyze
+flutter test
+```
+
+Run `flutter build windows` for startup, asset, dependency, Firebase configuration, native, or Windows lifecycle changes.

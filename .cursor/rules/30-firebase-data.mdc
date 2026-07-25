@@ -1,0 +1,20 @@
+---
+description: Firebase Authentication, Firestore mappings, rules, indexes, and persisted data compatibility
+globs: ["lib/data/**/*.dart", "lib/services/auth_service.dart", "firestore.rules", "firestore.indexes.json", "firebase.json", ".firebaserc", "lib/firebase_options.dart"]
+alwaysApply: false
+---
+# Firebase and persisted data
+
+- Firebase Authentication UID is the user identity and user document ID.
+- Keep Firebase operations behind the existing repository/Firestore adapter boundaries for new code.
+- Preserve snake_case fields used by existing documents: examples include `full_name`, `user_id`, `movement_name`, `duration_seconds`, `feedback_type`, and `created_at`.
+- Treat server timestamps as nullable or pending when reading immediately after writes.
+- A model change must consider Dart models, Firestore mapping, repository queries, security rules, indexes, existing documents, and README/API documentation.
+- A new compound query must be reconciled with `firestore.indexes.json`.
+- UI visibility is not authorization. Keep ownership checks in `firestore.rules`.
+- Never store passwords, auth tokens, service-account keys, raw frames, or unnecessary sensitive data in Firestore.
+- Do not deploy Firestore rules/indexes without explicit user intent and human review.
+- Do not point the app at a different Firebase project casually; generated options and project files must remain consistent.
+- Preserve session/feedback linkage and user ownership when changing write flows.
+
+For data changes, verify mapping round trips, null timestamps, empty data, permission behavior, and query/index alignment.

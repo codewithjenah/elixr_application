@@ -1,0 +1,16 @@
+---
+alwaysApply: true
+---
+# Controlled agentic development
+
+- Read the relevant implementation and nearest `AGENTS.md` before editing.
+- Treat code, tests, schemas, and configuration as the source of truth.
+- For non-trivial work, define current behavior, desired behavior, constraints, acceptance criteria, and contract participants before implementation.
+- Make the smallest coherent change. Do not refactor, rename, reformat, or upgrade unrelated code.
+- Do not stop merely because a correct cross-layer change requires several files; explain why every touched file is necessary.
+- Debug with reproduction, hypotheses, evidence, root cause, targeted fix, and regression coverage.
+- Review generated changes as untrusted code before finishing.
+- Run relevant verification and distinguish passed checks from unverified behavior.
+- Never claim a command, test, build, camera check, or Firebase check succeeded unless it was actually executed and observed.
+- Do not deploy, publish, mutate production data, or add secrets without an explicit user request.
+- Finish substantial tasks with behavior changed, files changed, commands/results, assumptions, risks, and `Not verified` items.

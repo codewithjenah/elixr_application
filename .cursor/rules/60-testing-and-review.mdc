@@ -1,0 +1,29 @@
+---
+description: Verification, regression tests, adversarial review, and completion evidence
+alwaysApply: false
+---
+# Testing and review
+
+Choose checks proportional to risk, then report exactly what ran.
+
+Test priorities:
+
+- Rule changes: synthetic detections/landmarks, boundaries, missing inputs, state transitions.
+- Scoring changes: classification weights, rolling-window behavior, reset, lower/upper bounds.
+- WebSocket changes: schema serialization, Dart parsing, missing/null fields, error frames.
+- Flutter state changes: connect/start/stop/disconnect, async disposal, duplicate feedback, save flow.
+- Firestore changes: mapping compatibility, ownership, empty collections, indexes, pending timestamps.
+- UI changes: loading, empty, error, narrow/wide layout, active session, navigation teardown.
+
+Before completion, inspect the diff for:
+
+- Unrelated changes or full-file churn.
+- Weakened/skipped tests.
+- Producer/consumer mismatch.
+- Leaked listeners, timers, sockets, camera/model resources, or audio players.
+- Swallowed exceptions and misleading success states.
+- Authentication/authorization regressions.
+- Event-loop blocking or frame backlog.
+- Configuration/documentation that does not match executable code.
+
+Do not call work complete solely because generated code compiles. State `Not verified` for camera hardware, model accuracy, Firebase deployment, Windows packaging, or any check that was not performed.

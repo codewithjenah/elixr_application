@@ -1,0 +1,26 @@
+---
+description: Cross-language WebSocket payload and session-control contract
+globs: ["backend/api/websocket.py", "backend/schemas/feedback.py", "lib/services/websocket_service.dart", "lib/data/models/practice_feedback.dart", "lib/features/practice/**/*.dart"]
+alwaysApply: false
+---
+# WebSocket contract
+
+Treat these files as one public contract:
+
+- Backend schema: `backend/schemas/feedback.py`
+- Backend producer/session loop: `backend/api/websocket.py`
+- Dart parser: `lib/data/models/practice_feedback.dart`
+- Dart connection/control service: `lib/services/websocket_service.dart`
+- Practice consumers: `lib/features/practice/`
+
+Rules:
+
+- Keep JSON keys snake_case.
+- Update producer and consumer in the same change.
+- Define required fields, defaults, nullability, and malformed-frame behavior explicitly.
+- Error payloads may omit `frame_jpeg_base64`; the UI must remain stable.
+- Use `error_code` for machine decisions. Do not require Dart to parse human feedback text for new fatal conditions.
+- Preserve `start` and `stop` lifecycle semantics and cleanup on disconnect.
+- Do not add high-frequency control chatter or large fields without considering latency and memory.
+- Base64 frames are transient display data; do not persist them by default.
+- Add schema/parser tests or focused fixtures for new fields where practical.
