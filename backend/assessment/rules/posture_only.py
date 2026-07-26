@@ -2,7 +2,7 @@ from typing import Optional
 
 from config import MOVEMENT_CONFIG
 from assessment.rules.base import RuleResult
-from assessment.rules.common_checks import check_hands_visible
+from assessment.rules.common_checks import check_hands_visible, visible_palm_centers
 from vision.types import HandsResult, Point2D, PoseLandmarks
 
 
@@ -28,8 +28,8 @@ _POSTURE_SUCCESS: dict[str, str] = {
         "Shoulders look ready for a shoulder stall. "
         "Enable bottle detection for complete scoring."
     ),
-    "Hand-to-Hand Bottle Exchange": (
-        "Both hands look ready for an exchange. "
+    "Double Hand Stall": (
+        "Both hands look ready for a double hand stall. "
         "Enable bottle detection for complete scoring."
     ),
 }
@@ -41,6 +41,28 @@ def evaluate_posture_only(
     hands: Optional[HandsResult],
     prev_hip_center: Optional[Point2D],
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
+    if movement == "Double Hand Stall":
+        palms = visible_palm_centers(hands)
+        if len(palms) < 2:
+            return (
+                RuleResult(
+                    feedback="Keep both hands visible for the double hand stall.",
+                    feedback_type="warning",
+                    posture_status="unknown",
+                ),
+                prev_hip_center,
+                None,
+            )
+        return (
+            RuleResult(
+                feedback=_POSTURE_SUCCESS["Double Hand Stall"],
+                feedback_type="positive",
+                posture_status="stable",
+            ),
+            prev_hip_center,
+            None,
+        )
+
     if _movement_requires_hands(movement):
         hands_check = check_hands_visible(hands)
         if hands_check:

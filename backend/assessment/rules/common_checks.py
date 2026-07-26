@@ -284,6 +284,25 @@ def nearest_hand_to_bottle(
     return best_hand, best_palm
 
 
+def visible_palm_centers(
+    hands: Optional[HandsResult],
+) -> list[Point2D]:
+    """Return palm centers for hands with usable wrist + middle-MCP landmarks.
+
+    Order follows the MediaPipe hand list and must not be treated as Left/Right.
+    Hands missing landmarks required by ``palm_center()`` are skipped.
+    """
+    if hands is None or not hands.hands:
+        return []
+    palms: list[Point2D] = []
+    for hand in hands.hands:
+        palm = hand.palm_center()
+        if palm is None:
+            continue
+        palms.append(palm)
+    return palms
+
+
 def track_bottle_stability(
     state: Optional[dict],
     bottle: BottleDetection,

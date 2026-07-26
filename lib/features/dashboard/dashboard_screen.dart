@@ -31,8 +31,9 @@ const _movementEmojis = <String, String>{
   'Elbow Stall': '🦾',
   'Upper Forearm Stall': '🆙',
   'Shoulder Stall': '🧍',
+  'Double Hand Stall': '🙌',
+  // Legacy movements kept only for historical session display.
   'Hand-to-Hand Bottle Exchange': '🔄',
-  // Legacy Hard movements kept only for historical session display.
   'Tap': '🥂',
   'Basket': '🧺',
 };

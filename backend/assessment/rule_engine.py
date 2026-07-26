@@ -5,9 +5,9 @@ from assessment.rules import (
     arm_stall,
     bartenders_grip,
     coming_soon,
+    double_hand_stall,
     elbow_stall,
     hand_stall,
-    hand_to_hand_exchange,
     normal_grip,
     reverse_grip,
     shoulder_stall,
@@ -37,7 +37,7 @@ _RULES: dict[str, EvaluateFn] = {
     "Elbow Stall": elbow_stall.evaluate,
     "Upper Forearm Stall": upper_forearm_stall.evaluate,
     "Shoulder Stall": shoulder_stall.evaluate,
-    "Hand-to-Hand Bottle Exchange": hand_to_hand_exchange.evaluate,
+    "Double Hand Stall": double_hand_stall.evaluate,
 }
 
 

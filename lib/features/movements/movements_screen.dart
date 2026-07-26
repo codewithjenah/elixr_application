@@ -25,7 +25,7 @@ const _movementEmojis = <String, String>{
   'Elbow Stall': '🦾',
   'Upper Forearm Stall': '🆙',
   'Shoulder Stall': '🧍',
-  'Hand-to-Hand Bottle Exchange': '🔄',
+  'Double Hand Stall': '🙌',
 };
 
 class MovementsScreen extends StatefulWidget {

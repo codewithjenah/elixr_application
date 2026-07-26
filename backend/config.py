@@ -60,14 +60,19 @@ SHOULDER_STALL_PROXIMITY = 0.16
 # Bottle centers farther below the shoulder than this are treated as chest/below.
 SHOULDER_BELOW_REJECT = 0.03
 
-# Hand-to-Hand Bottle Exchange state-machine thresholds (normalized coords / frames).
-EXCHANGE_HOLD_PROXIMITY = 0.12
-EXCHANGE_AIRBORNE_FRAMES = 3
-EXCHANGE_CATCH_HOLD_FRAMES = 4
-# Must exceed EXCHANGE_HOLD_PROXIMITY so an exclusive one-hand start can still
-# fail the travel check when the receiving hand is only slightly farther away.
-EXCHANGE_MIN_TRAVEL = 0.18
-EXCHANGE_TIMEOUT_FRAMES = 90
+# Double Hand Stall geometry and stability thresholds (normalized image coords).
+# Palms sit side-by-side under a bottle centered slightly above their midpoint.
+DOUBLE_HAND_STALL_PROXIMITY = 0.14
+DOUBLE_HAND_MIN_SEPARATION = 0.08
+DOUBLE_HAND_MAX_SEPARATION = 0.32
+DOUBLE_HAND_MAX_HEIGHT_DIFFERENCE = 0.10
+DOUBLE_HAND_TARGET_ABOVE_OFFSET = 0.04
+DOUBLE_HAND_MAX_SUPPORT_DISTANCE = 0.24
+# Horizontal slack outside the palm span; below-palm reject uses image y.
+DOUBLE_HAND_HORIZONTAL_MARGIN = 0.03
+DOUBLE_HAND_BELOW_REJECT = 0.03
+# Max |dist(bottle, left) - dist(bottle, right)| while still "centered".
+DOUBLE_HAND_BALANCE_TOLERANCE = 0.08
 
 SCORE_WINDOW = 30
 SCORE_POSITIVE = 5
@@ -92,7 +97,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_hands": True,
         "requires_pose": True,
     },
-    "Hand-to-Hand Bottle Exchange": {
+    "Double Hand Stall": {
         "difficulty": "Hard",
         "requires_hands": True,
         "requires_pose": False,

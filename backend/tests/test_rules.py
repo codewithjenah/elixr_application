@@ -5,11 +5,14 @@ from api import websocket as websocket_api
 from vision import hands_detector as hands_detector_module
 
 from config import (
-    EXCHANGE_AIRBORNE_FRAMES,
-    EXCHANGE_CATCH_HOLD_FRAMES,
-    EXCHANGE_TIMEOUT_FRAMES,
+    DOUBLE_HAND_MAX_HEIGHT_DIFFERENCE,
+    DOUBLE_HAND_MAX_SEPARATION,
+    DOUBLE_HAND_MIN_SEPARATION,
+    DOUBLE_HAND_STALL_PROXIMITY,
+    DOUBLE_HAND_TARGET_ABOVE_OFFSET,
     SHOULDER_ABOVE_OFFSET,
     SHOULDER_STALL_PROXIMITY,
+    STALL_STABILITY_THRESHOLD,
     UPPER_FOREARM_RATIO,
     UPPER_FOREARM_STALL_PROXIMITY,
 )
@@ -1007,7 +1010,7 @@ def test_movement_requires_hands():
         "Elbow Stall",
         "Upper Forearm Stall",
         "Shoulder Stall",
-        "Hand-to-Hand Bottle Exchange",
+        "Double Hand Stall",
     ],
 )
 def test_evaluate_movement_runs(movement):
@@ -1036,7 +1039,7 @@ def test_posture_only_requires_hands():
 
 def test_posture_only_positive():
     result, _, _ = evaluate_movement(
-        "Hand-to-Hand Bottle Exchange",
+        "Double Hand Stall",
         None,
         None,
         HandsResult(hands=[_hand_near(0.35, 0.5, "Left"), _hand_near(0.65, 0.5, "Right")]),
@@ -1045,6 +1048,7 @@ def test_posture_only_positive():
     )
     assert result.feedback_type == "positive"
     assert "bottle detection" in result.feedback.lower()
+    assert "double hand stall" in result.feedback.lower()
 
 
 def _pose_from_points(points: dict[int, Point2D], visibility: float = 0.9) -> PoseLandmarks:
@@ -1354,200 +1358,253 @@ def test_shoulder_stall_proximity_boundary():
     assert result.feedback_type == "warning"
 
 
-def _two_hands(
-    left_xy: tuple[float, float] = (0.30, 0.50),
-    right_xy: tuple[float, float] = (0.70, 0.50),
+def _two_palms(
+    left_xy: tuple[float, float] = (0.42, 0.55),
+    right_xy: tuple[float, float] = (0.58, 0.55),
     *,
     left_label: str = "Left",
     right_label: str = "Right",
+    reverse_order: bool = False,
 ) -> HandsResult:
-    return HandsResult(
-        hands=[
-            _hand_near(left_xy[0], left_xy[1], left_label),
-            _hand_near(right_xy[0], right_xy[1], right_label),
-        ]
+    left = _hand_near(left_xy[0], left_xy[1], left_label)
+    right = _hand_near(right_xy[0], right_xy[1], right_label)
+    hands = [right, left] if reverse_order else [left, right]
+    return HandsResult(hands=hands)
+
+
+def _double_hand_bottle(
+    left_xy: tuple[float, float] = (0.42, 0.55),
+    right_xy: tuple[float, float] = (0.58, 0.55),
+    *,
+    x: float | None = None,
+    y: float | None = None,
+) -> BottleDetection:
+    mid_x = (left_xy[0] + right_xy[0]) / 2.0
+    mid_y = (left_xy[1] + right_xy[1]) / 2.0
+    target_x = mid_x if x is None else x
+    target_y = mid_y - DOUBLE_HAND_TARGET_ABOVE_OFFSET if y is None else y
+    return _bottle(cx=int(round(target_x * 640)), cy=int(round(target_y * 480)))
+
+
+def _eval_double_hand(
+    bottle: BottleDetection | None,
+    hands: HandsResult | None,
+    state: dict | None = None,
+):
+    return evaluate_movement(
+        "Double Hand Stall",
+        bottle,
+        None,
+        hands,
+        None,
+        state,
     )
 
 
-def _run_exchange(sequence: list[tuple[BottleDetection, HandsResult]]):
-    state = None
-    results = []
-    for bottle, hands in sequence:
-        result, _, state = evaluate_movement(
-            "Hand-to-Hand Bottle Exchange",
-            bottle,
-            None,
-            hands,
-            None,
-            state,
-        )
-        results.append((result, state))
-    return results
+def test_double_hand_stall_stable_success():
+    hands = _two_palms()
+    bottle = _double_hand_bottle()
+    result, _, state = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+    assert "locked in" in result.feedback.lower()
+    assert "bottle_history" in state
 
 
-def test_hand_to_hand_exchange_left_to_right():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
-    sequence = [(start, hands)]
-    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
-    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES))
-    results = _run_exchange(sequence)
-    assert results[-1][0].feedback_type == "positive"
-    assert "complete" in results[-1][0].feedback.lower()
-    assert results[-1][1]["phase"] == "confirmed"
+def test_double_hand_stall_success_reversed_hand_list_order():
+    hands = _two_palms(reverse_order=True)
+    bottle = _double_hand_bottle()
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
 
 
-def test_hand_to_hand_exchange_right_to_left():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    catch = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    sequence = [(start, hands)]
-    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
-    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES))
-    results = _run_exchange(sequence)
-    assert results[-1][0].feedback_type == "positive"
-    assert results[-1][1]["phase"] == "confirmed"
+def test_double_hand_stall_success_unknown_handedness():
+    hands = _two_palms(left_label="Unknown", right_label="Unknown")
+    bottle = _double_hand_bottle()
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
 
 
-def test_hand_to_hand_exchange_rejects_direct_handoff():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
-    results = _run_exchange([(start, hands), (catch, hands)])
-    assert results[-1][0].feedback_type == "warning"
-    assert results[-1][1]["phase"] == "waiting_for_start"
+def test_double_hand_stall_missing_bottle():
+    result, _, _ = _eval_double_hand(None, _two_palms())
+    assert result.feedback_type == "error"
+    assert "bottle" in result.feedback.lower()
 
 
-def test_hand_to_hand_exchange_rejects_same_hand_catch():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    sequence = [(start, hands)]
-    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
-    sequence.append((start, hands))
-    results = _run_exchange(sequence)
-    assert results[-1][0].feedback_type == "warning"
-    assert "opposite" in results[-1][0].feedback.lower()
+def test_double_hand_stall_no_hands():
+    result, _, _ = _eval_double_hand(_double_hand_bottle(), None)
+    assert result.feedback_type == "warning"
+    assert "both hands" in result.feedback.lower()
 
 
-def test_hand_to_hand_exchange_rejects_insufficient_travel():
-    # Palms far enough for exclusive holds, but closer than EXCHANGE_MIN_TRAVEL.
-    close_hands = _two_hands((0.42, 0.50), (0.56, 0.50))
-    start = _bottle(cx=int(0.42 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=100)
-    catch = _bottle(cx=int(0.56 * 640), cy=int(0.50 * 480))
-    sequence = [(start, close_hands)]
-    sequence.extend((air, close_hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
-    sequence.append((catch, close_hands))
-    results = _run_exchange(sequence)
-    assert results[-1][0].feedback_type == "warning"
-    assert "farther" in results[-1][0].feedback.lower()
+def test_double_hand_stall_one_usable_hand():
+    hands = HandsResult(hands=[_hand_near(0.42, 0.55, "Left")])
+    result, _, _ = _eval_double_hand(_double_hand_bottle(), hands)
+    assert result.feedback_type == "warning"
+    assert "both hands" in result.feedback.lower()
 
 
-def test_hand_to_hand_exchange_missing_second_hand():
-    one_hand = HandsResult(hands=[_hand_near(0.30, 0.50, "Left")])
-    result, _, state = evaluate_movement(
-        "Hand-to-Hand Bottle Exchange",
-        _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480)),
+def test_double_hand_stall_hand_missing_palm_landmarks():
+    incomplete = HandLandmarks(
+        points={4: Point2D(0.42, 0.55)},
+        handedness="Left",
+    )
+    hands = HandsResult(hands=[incomplete, _hand_near(0.58, 0.55, "Right")])
+    result, _, _ = _eval_double_hand(_double_hand_bottle(), hands)
+    assert result.feedback_type == "warning"
+    assert "both hands" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_overlapping_palms():
+    hands = _two_palms((0.50, 0.55), (0.505, 0.55))
+    bottle = _double_hand_bottle((0.50, 0.55), (0.505, 0.55))
+    result, _, _ = _eval_double_hand(bottle, hands)
+    assert result.feedback_type == "warning"
+    assert "separate" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_palms_too_close():
+    gap = DOUBLE_HAND_MIN_SEPARATION - 0.01
+    left = (0.50 - gap / 2, 0.55)
+    right = (0.50 + gap / 2, 0.55)
+    hands = _two_palms(left, right)
+    result, _, _ = _eval_double_hand(_double_hand_bottle(left, right), hands)
+    assert result.feedback_type == "warning"
+    assert "separate" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_palms_too_far():
+    gap = DOUBLE_HAND_MAX_SEPARATION + 0.02
+    left = (0.50 - gap / 2, 0.55)
+    right = (0.50 + gap / 2, 0.55)
+    hands = _two_palms(left, right)
+    result, _, _ = _eval_double_hand(_double_hand_bottle(left, right), hands)
+    assert result.feedback_type == "warning"
+    assert "closer" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_uneven_palm_heights():
+    left = (0.42, 0.50)
+    right = (0.58, 0.50 + DOUBLE_HAND_MAX_HEIGHT_DIFFERENCE + 0.02)
+    hands = _two_palms(left, right)
+    result, _, _ = _eval_double_hand(_double_hand_bottle(left, right), hands)
+    assert result.feedback_type == "warning"
+    assert "same height" in result.feedback.lower()
+
+
+def test_double_hand_stall_bottle_centered_above_palms():
+    hands = _two_palms()
+    bottle = _double_hand_bottle()
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+
+
+def test_double_hand_stall_rejects_bottle_near_left_palm_only():
+    hands = _two_palms()
+    bottle = _bottle(cx=int(0.42 * 640), cy=int(0.55 * 480))
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "center" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_bottle_near_right_palm_only():
+    hands = _two_palms()
+    bottle = _bottle(cx=int(0.58 * 640), cy=int(0.55 * 480))
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "center" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_bottle_outside_horizontal_support():
+    hands = _two_palms()
+    bottle = _double_hand_bottle(x=0.30, y=0.51)
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "center" in result.feedback.lower()
+
+
+def test_double_hand_stall_rejects_bottle_below_palms():
+    hands = _two_palms()
+    bottle = _double_hand_bottle(y=0.70)
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "underneath" in result.feedback.lower()
+
+
+def test_double_hand_stall_stable_history_positive():
+    hands = _two_palms()
+    bottle = _double_hand_bottle()
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+
+
+def test_double_hand_stall_unstable_history_warning():
+    hands = _two_palms()
+    bottle = _double_hand_bottle()
+    state = _stable_state(bottle)
+    # Inject large drift into the stability window.
+    history = list(state["bottle_history"])
+    history[-1] = (
+        history[-1][0] + STALL_STABILITY_THRESHOLD + 0.05,
+        history[-1][1],
+    )
+    state["bottle_history"] = history
+    result, _, _ = _eval_double_hand(bottle, hands, state)
+    assert result.feedback_type == "warning"
+    assert "steady" in result.feedback.lower()
+
+
+def test_double_hand_stall_min_separation_boundary_accepts():
+    gap = DOUBLE_HAND_MIN_SEPARATION + 0.001
+    left = (0.50 - gap / 2, 0.55)
+    right = (0.50 + gap / 2, 0.55)
+    hands = _two_palms(left, right)
+    bottle = _double_hand_bottle(left, right)
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+
+
+def test_double_hand_stall_proximity_boundary_rejects():
+    hands = _two_palms()
+    # Far enough above the target to exceed stall proximity.
+    bottle = _double_hand_bottle(
+        y=0.55 - DOUBLE_HAND_TARGET_ABOVE_OFFSET - DOUBLE_HAND_STALL_PROXIMITY - 0.02
+    )
+    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+
+
+def test_double_hand_stall_state_isolated_between_evaluations():
+    hands = _two_palms()
+    bottle = _double_hand_bottle()
+    _, _, first_state = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    assert len(first_state["bottle_history"]) >= 4
+    result, _, second_state = _eval_double_hand(bottle, hands, None)
+    assert result.feedback_type in ("positive", "warning")
+    assert len(second_state["bottle_history"]) == 1
+
+
+def test_double_hand_stall_posture_only_requires_two_hands():
+    result, _, _ = evaluate_movement(
+        "Double Hand Stall",
         None,
-        one_hand,
         None,
+        HandsResult(hands=[_hand_near(0.42, 0.55, "Left")]),
+        None,
+        bottle_detection_enabled=False,
     )
     assert result.feedback_type == "warning"
     assert "both hands" in result.feedback.lower()
-    assert state["phase"] == "waiting_for_start"
 
 
-def test_hand_to_hand_exchange_unknown_handedness_safe():
-    hands = _two_hands(
-        (0.30, 0.50),
-        (0.70, 0.50),
-        left_label="Unknown",
-        right_label="Unknown",
-    )
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
-    sequence = [(start, hands)]
-    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
-    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES))
-    results = _run_exchange(sequence)
-    assert results[-1][0].feedback_type == "positive"
-    assert results[-1][1]["phase"] == "confirmed"
-
-
-def test_hand_to_hand_exchange_timeout_resets():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    state = None
-    result, _, state = evaluate_movement(
-        "Hand-to-Hand Bottle Exchange",
-        start,
-        None,
-        hands,
-        None,
-        state,
-    )
-    assert state["start_hand"] is not None
-    result, _, state = evaluate_movement(
-        "Hand-to-Hand Bottle Exchange",
-        air,
-        None,
-        hands,
-        None,
-        state,
-    )
-    assert state["phase"] == "released"
-    state["sequence_frames"] = EXCHANGE_TIMEOUT_FRAMES
-    result, _, state = evaluate_movement(
-        "Hand-to-Hand Bottle Exchange",
-        air,
-        None,
-        hands,
-        None,
-        state,
-    )
-    assert result.feedback_type == "warning"
-    assert "timed out" in result.feedback.lower()
-    assert state["phase"] == "waiting_for_start"
-
-
-def test_hand_to_hand_exchange_requires_catch_hold_frames():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
-    sequence = [(start, hands)]
-    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
-    # One fewer catch frame than required: still catching, not confirmed.
-    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES - 1))
-    results = _run_exchange(sequence)
-    assert results[-1][0].feedback_type == "positive"
-    assert results[-1][1]["phase"] == "catching"
-    assert "complete" not in results[-1][0].feedback.lower()
-
-
-def test_hand_to_hand_exchange_state_isolated_between_sessions():
-    hands = _two_hands()
-    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
-    air = _bottle(cx=320, cy=240)
-    first = _run_exchange(
-        [(start, hands)] + [(air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES)]
-    )
-    assert first[-1][1]["phase"] == "released"
-    # A new evaluation with no prior state must not inherit the released phase.
-    result, _, state = evaluate_movement(
-        "Hand-to-Hand Bottle Exchange",
-        start,
-        None,
-        hands,
+def test_double_hand_stall_posture_only_ready_with_two_hands():
+    result, _, _ = evaluate_movement(
+        "Double Hand Stall",
         None,
         None,
+        _two_palms(),
+        None,
+        bottle_detection_enabled=False,
     )
     assert result.feedback_type == "positive"
-    assert state["phase"] == "waiting_for_start"
-    assert state["start_hand"] is not None
+    assert "bottle detection" in result.feedback.lower()
+    assert "locked in" not in result.feedback.lower()

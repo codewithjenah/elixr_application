@@ -59,10 +59,9 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
-    name: 'Hand-to-Hand Bottle Exchange',
+    name: 'Double Hand Stall',
     difficulty: 'Hard',
-    description:
-        'Release the bottle from one hand and catch it with the opposite hand.',
+    description: 'Balance the bottle steadily above both open palms.',
     requiresHandsDetection: true,
     enabled: true,
   ),

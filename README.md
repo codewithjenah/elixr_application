@@ -14,7 +14,8 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 - Local computer vision for nine movements:
   - Easy: Normal Grip, Bartender's Grip, Reverse Grip
   - Medium: Hand Stall, Arm Stall, Elbow Stall
-  - Hard: Upper Forearm Stall, Shoulder Stall, Hand-to-Hand Bottle Exchange
+  - Hard: Upper Forearm Stall, Shoulder Stall, Double Hand Stall
+    (Double Hand Stall is a stationary two-palm bottle balance, not a handoff)
 
 ## Runtime architecture
 
