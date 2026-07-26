@@ -239,22 +239,39 @@ class _DifficultySection extends StatelessWidget {
             final columns = (constraints.maxWidth / (minCardWidth + spacing))
                 .floor()
                 .clamp(1, 3);
-            final cardWidth =
-                (constraints.maxWidth - spacing * (columns - 1)) / columns;
-            return Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
+            final rows = <List<Movement>>[];
+            for (var i = 0; i < movements.length; i += columns) {
+              final end = (i + columns).clamp(0, movements.length);
+              rows.add(movements.sublist(i, end));
+            }
+            return Column(
               children: [
-                for (final m in movements)
-                  SizedBox(
-                    width: cardWidth,
-                    child: _MovementCard(
-                      movement: m,
-                      accentColor: color,
-                      sessionCount: stats[m.name]?.count ?? 0,
-                      avgScore: stats[m.name]?.avgScore ?? 0,
-                    ),
+                for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) ...[
+                  if (rowIndex > 0) const SizedBox(height: spacing),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var col = 0; col < columns; col++) ...[
+                        if (col > 0) const SizedBox(width: spacing),
+                        Expanded(
+                          child: col < rows[rowIndex].length
+                              ? _MovementCard(
+                                  movement: rows[rowIndex][col],
+                                  accentColor: color,
+                                  sessionCount:
+                                      stats[rows[rowIndex][col].name]?.count ??
+                                          0,
+                                  avgScore:
+                                      stats[rows[rowIndex][col].name]
+                                              ?.avgScore ??
+                                          0,
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
+                    ],
                   ),
+                ],
               ],
             );
           },
@@ -343,6 +360,7 @@ class _MovementCardState extends State<_MovementCard> {
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   _visualHeader(accent, hovered),
                   const SizedBox(height: 12),
@@ -364,38 +382,51 @@ class _MovementCardState extends State<_MovementCard> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    widget.movement.description,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      height: 1.35,
-                      color: AppColors.textSecondary,
+                  // Fixed 2-line slot so short descriptions keep equal card height.
+                  SizedBox(
+                    height: 12 * 1.35 * 2,
+                    child: Text(
+                      widget.movement.description,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: AppColors.textSecondary,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  if (widget.movement.requiresHandsDetection) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(
-                          FluentIcons.sprint,
-                          size: 11,
-                          color: AppColors.primarySoft,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Hands detection required',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.primarySoft.withValues(alpha: 0.9),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  const SizedBox(height: 8),
+                  // Always reserve the hands-detection row height.
+                  SizedBox(
+                    height: 14,
+                    child: widget.movement.requiresHandsDetection
+                        ? Row(
+                            children: [
+                              const Icon(
+                                FluentIcons.sprint,
+                                size: 11,
+                                color: AppColors.primarySoft,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Hands detection required',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.primarySoft.withValues(
+                                    alpha: 0.9,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : null,
+                  ),
                   const SizedBox(height: 12),
-                  _footer(accent, hovered),
+                  SizedBox(
+                    height: 36,
+                    child: _footer(accent, hovered),
+                  ),
                 ],
               ),
             ),
