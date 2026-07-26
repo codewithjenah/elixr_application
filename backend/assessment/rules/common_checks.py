@@ -2,13 +2,13 @@ import math
 from typing import Optional
 
 from config import (
-    BASKET_PROXIMITY,
     HAND_BOTTLE_PROXIMITY,
     PINCH_DISTANCE,
+    SHOULDER_ABOVE_OFFSET,
     STALL_HISTORY_FRAMES,
     STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
-    TAP_CONTACT_THRESHOLD,
+    UPPER_FOREARM_RATIO,
 )
 from assessment.rules.base import RuleResult
 from vision.types import (
@@ -78,6 +78,105 @@ def pose_forearm_point(
         if dist < best_dist:
             best_dist = dist
             best = mid
+    return best
+
+
+def pose_upper_forearm_landmarks(
+    pose: Optional[PoseLandmarks],
+    bottle: BottleDetection,
+    *,
+    ratio: float = UPPER_FOREARM_RATIO,
+) -> Optional[tuple[Point2D, Point2D, Point2D, Point2D]]:
+    """Nearest-arm elbow, upper-forearm target, mid-forearm, and wrist.
+
+    The upper-forearm target is ``ratio`` of the way from elbow toward wrist
+    (expected ~0.25–0.40), keeping the point distinct from the elbow joint and
+    the ordinary 50% forearm midpoint used by Arm Stall.
+    """
+    if pose is None:
+        return None
+    bottle_center = bottle.center_normalized(640, 480)
+    best: Optional[tuple[Point2D, Point2D, Point2D, Point2D]] = None
+    best_dist = float("inf")
+    for elbow_i, wrist_i in ((13, 15), (14, 16)):
+        elbow = pose.get(elbow_i)
+        wrist = pose.get(wrist_i)
+        if elbow is None or wrist is None:
+            continue
+        upper = Point2D(
+            x=elbow.x + (wrist.x - elbow.x) * ratio,
+            y=elbow.y + (wrist.y - elbow.y) * ratio,
+        )
+        mid = Point2D(
+            x=(elbow.x + wrist.x) / 2.0,
+            y=(elbow.y + wrist.y) / 2.0,
+        )
+        dist = _dist(upper, bottle_center)
+        if dist < best_dist:
+            best_dist = dist
+            best = (elbow, upper, mid, wrist)
+    return best
+
+
+def pose_upper_forearm_point(
+    pose: Optional[PoseLandmarks],
+    bottle: BottleDetection,
+    *,
+    ratio: float = UPPER_FOREARM_RATIO,
+) -> Optional[Point2D]:
+    """Upper-forearm stall point on the arm nearest the bottle."""
+    landmarks = pose_upper_forearm_landmarks(pose, bottle, ratio=ratio)
+    if landmarks is None:
+        return None
+    return landmarks[1]
+
+
+def pose_shoulder_point(
+    pose: Optional[PoseLandmarks],
+    bottle: BottleDetection,
+    *,
+    above_offset: float = SHOULDER_ABOVE_OFFSET,
+) -> Optional[Point2D]:
+    """Expected bottle rest point slightly above the nearest visible shoulder.
+
+    MediaPipe Pose shoulders: 11 (left), 12 (right). Image y increases downward,
+    so "above" means a smaller y than the shoulder joint.
+    """
+    if pose is None:
+        return None
+    bottle_center = bottle.center_normalized(640, 480)
+    best_shoulder: Optional[Point2D] = None
+    best_dist = float("inf")
+    for index in (11, 12):
+        shoulder = pose.get(index)
+        if shoulder is None:
+            continue
+        dist = _dist(shoulder, bottle_center)
+        if dist < best_dist:
+            best_dist = dist
+            best_shoulder = shoulder
+    if best_shoulder is None:
+        return None
+    return Point2D(x=best_shoulder.x, y=best_shoulder.y - above_offset)
+
+
+def pose_nearest_shoulder(
+    pose: Optional[PoseLandmarks], bottle: BottleDetection
+) -> Optional[Point2D]:
+    """Nearest visible shoulder joint (without the above-offset target)."""
+    if pose is None:
+        return None
+    bottle_center = bottle.center_normalized(640, 480)
+    best: Optional[Point2D] = None
+    best_dist = float("inf")
+    for index in (11, 12):
+        shoulder = pose.get(index)
+        if shoulder is None:
+            continue
+        dist = _dist(shoulder, bottle_center)
+        if dist < best_dist:
+            best_dist = dist
+            best = shoulder
     return best
 
 
@@ -250,78 +349,3 @@ def check_pinch_grip(
         feedback_type="positive",
         posture_status="stable",
     )
-
-
-def check_basket_hold(
-    hand: HandLandmarks,
-    bottle: BottleDetection,
-    *,
-    threshold: float = BASKET_PROXIMITY,
-) -> RuleResult:
-    palm = hand.palm_center()
-    if palm is None:
-        return RuleResult(
-            feedback="Open your palm to form a basket hold.",
-            feedback_type="warning",
-            posture_status="unknown",
-        )
-
-    fingertips = [hand.points.get(i) for i in (8, 12, 16, 20)]
-    if any(tip is None for tip in fingertips):
-        return RuleResult(
-            feedback="Keep fingers visible for the basket catch.",
-            feedback_type="warning",
-            posture_status="unknown",
-        )
-
-    bottle_center = bottle.center_normalized(640, 480)
-    palm_dist = _dist(bottle_center, palm)
-    if palm_dist > threshold:
-        return RuleResult(
-            feedback="Catch the bottle in a basket hold.",
-            feedback_type="warning",
-            posture_status="unstable",
-        )
-
-    avg_tip_y = sum(tip.y for tip in fingertips if tip is not None) / len(fingertips)
-    if bottle_center.y < palm.y - 0.02:
-        return RuleResult(
-            feedback="Rest the bottle in your cupped palm.",
-            feedback_type="warning",
-            posture_status="unstable",
-        )
-    if avg_tip_y < palm.y:
-        return RuleResult(
-            feedback="Cup your fingers around the bottle base.",
-            feedback_type="warning",
-            posture_status="unstable",
-        )
-
-    return RuleResult(
-        feedback="Solid basket hold.",
-        feedback_type="positive",
-        posture_status="stable",
-    )
-
-
-def detect_tap_pulse(
-    state: Optional[dict],
-    dist: float,
-    *,
-    threshold: float = TAP_CONTACT_THRESHOLD,
-) -> tuple[dict, bool]:
-    current = dict(state or {})
-    in_contact = bool(current.get("in_contact", False))
-    tap_count = int(current.get("tap_count", 0))
-    tapped = False
-
-    if dist <= threshold and not in_contact:
-        in_contact = True
-    elif dist > threshold and in_contact:
-        in_contact = False
-        tap_count += 1
-        tapped = True
-
-    current["in_contact"] = in_contact
-    current["tap_count"] = tap_count
-    return current, tapped

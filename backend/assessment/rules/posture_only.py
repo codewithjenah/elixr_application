@@ -20,8 +20,18 @@ _POSTURE_SUCCESS: dict[str, str] = {
     "Hand Stall": "Hand looks steady. Enable bottle detection for stall scoring.",
     "Arm Stall": "Arm looks steady. Enable bottle detection for stall scoring.",
     "Elbow Stall": "Elbow looks steady. Enable bottle detection for stall scoring.",
-    "Tap": "Hand looks ready for taps. Enable bottle detection for scoring.",
-    "Basket": "Hand looks ready for the basket. Enable bottle detection for scoring.",
+    "Upper Forearm Stall": (
+        "Arm looks ready for an upper-forearm stall. "
+        "Enable bottle detection for complete scoring."
+    ),
+    "Shoulder Stall": (
+        "Shoulders look ready for a shoulder stall. "
+        "Enable bottle detection for complete scoring."
+    ),
+    "Hand-to-Hand Bottle Exchange": (
+        "Both hands look ready for an exchange. "
+        "Enable bottle detection for complete scoring."
+    ),
 }
 
 

@@ -45,8 +45,29 @@ STALL_STABILITY_THRESHOLD = 0.06
 STALL_HISTORY_FRAMES = 12
 
 PINCH_DISTANCE = 0.06
-BASKET_PROXIMITY = 0.14
-TAP_CONTACT_THRESHOLD = 0.10
+
+# Upper Forearm Stall: target is proximal (elbow -> wrist), between elbow and mid.
+# Ratio is the fraction of elbow-to-wrist distance used for the stall point.
+UPPER_FOREARM_RATIO = 0.33
+UPPER_FOREARM_STALL_PROXIMITY = 0.16
+# Absolute proximity zones that mean the bottle is on the elbow or ordinary mid-forearm.
+UPPER_FOREARM_ELBOW_ZONE = 0.09
+UPPER_FOREARM_MID_ZONE = 0.09
+
+# Shoulder Stall: expect the bottle slightly above the shoulder joint (smaller y).
+SHOULDER_ABOVE_OFFSET = 0.045
+SHOULDER_STALL_PROXIMITY = 0.16
+# Bottle centers farther below the shoulder than this are treated as chest/below.
+SHOULDER_BELOW_REJECT = 0.03
+
+# Hand-to-Hand Bottle Exchange state-machine thresholds (normalized coords / frames).
+EXCHANGE_HOLD_PROXIMITY = 0.12
+EXCHANGE_AIRBORNE_FRAMES = 3
+EXCHANGE_CATCH_HOLD_FRAMES = 4
+# Must exceed EXCHANGE_HOLD_PROXIMITY so an exclusive one-hand start can still
+# fail the travel check when the receiving hand is only slightly farther away.
+EXCHANGE_MIN_TRAVEL = 0.18
+EXCHANGE_TIMEOUT_FRAMES = 90
 
 SCORE_WINDOW = 30
 SCORE_POSITIVE = 5
@@ -61,6 +82,19 @@ MOVEMENT_CONFIG: dict[str, dict] = {
     "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Arm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Elbow Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
-    "Tap": {"difficulty": "Hard", "requires_hands": True},
-    "Basket": {"difficulty": "Hard", "requires_hands": True},
+    "Upper Forearm Stall": {
+        "difficulty": "Hard",
+        "requires_hands": True,
+        "requires_pose": True,
+    },
+    "Shoulder Stall": {
+        "difficulty": "Hard",
+        "requires_hands": True,
+        "requires_pose": True,
+    },
+    "Hand-to-Hand Bottle Exchange": {
+        "difficulty": "Hard",
+        "requires_hands": True,
+        "requires_pose": False,
+    },
 }

@@ -11,10 +11,10 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 - Guided practice with countdown, live annotated video, movement feedback, score, combo tracking, hold confirmation, music, and an optional session save flow.
 - Free-practice camera mode with live detection overlays and no score or saved session.
 - Dashboard, session history, and progress statistics derived from Firestore data.
-- Local computer vision for eight movements:
+- Local computer vision for nine movements:
   - Easy: Normal Grip, Bartender's Grip, Reverse Grip
   - Medium: Hand Stall, Arm Stall, Elbow Stall
-  - Hard: Tap, Basket
+  - Hard: Upper Forearm Stall, Shoulder Stall, Hand-to-Hand Bottle Exchange
 
 ## Runtime architecture
 

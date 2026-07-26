@@ -60,7 +60,8 @@ class VisionSession:
             rotated_fallback=movement == "Normal Grip",
             bartender_roi_fallback=movement == "Bartender's Grip",
         )
-        # Pose is only used for stall movements (hand/arm/elbow).
+        # Pose is enabled for every movement with requires_pose in MOVEMENT_CONFIG
+        # (hand/arm/elbow/upper-forearm/shoulder stalls).
         self.pose_detector = (
             PoseDetector() if movement_requires_pose(movement) else None
         )

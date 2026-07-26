@@ -44,16 +44,25 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
-    name: 'Tap',
+    name: 'Upper Forearm Stall',
     difficulty: 'Hard',
-    description: 'Tap the bottle with controlled rhythm.',
+    description:
+        'Balance the bottle on the upper forearm between the elbow and forearm midpoint.',
     requiresHandsDetection: true,
     enabled: true,
   ),
   Movement(
-    name: 'Basket',
+    name: 'Shoulder Stall',
     difficulty: 'Hard',
-    description: 'Catch the bottle in a basket hold.',
+    description: 'Balance the bottle steadily on either shoulder.',
+    requiresHandsDetection: true,
+    enabled: true,
+  ),
+  Movement(
+    name: 'Hand-to-Hand Bottle Exchange',
+    difficulty: 'Hard',
+    description:
+        'Release the bottle from one hand and catch it with the opposite hand.',
     requiresHandsDetection: true,
     enabled: true,
   ),

@@ -4,13 +4,14 @@ from config import MOVEMENT_CONFIG
 from assessment.rules import (
     arm_stall,
     bartenders_grip,
-    basket,
     coming_soon,
     elbow_stall,
     hand_stall,
+    hand_to_hand_exchange,
     normal_grip,
     reverse_grip,
-    tap,
+    shoulder_stall,
+    upper_forearm_stall,
 )
 from assessment.rules.base import RuleResult
 from assessment.rules.posture_only import evaluate_posture_only
@@ -34,8 +35,9 @@ _RULES: dict[str, EvaluateFn] = {
     "Hand Stall": hand_stall.evaluate,
     "Arm Stall": arm_stall.evaluate,
     "Elbow Stall": elbow_stall.evaluate,
-    "Tap": tap.evaluate,
-    "Basket": basket.evaluate,
+    "Upper Forearm Stall": upper_forearm_stall.evaluate,
+    "Shoulder Stall": shoulder_stall.evaluate,
+    "Hand-to-Hand Bottle Exchange": hand_to_hand_exchange.evaluate,
 }
 
 

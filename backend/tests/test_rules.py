@@ -4,18 +4,28 @@ import pytest
 from api import websocket as websocket_api
 from vision import hands_detector as hands_detector_module
 
+from config import (
+    EXCHANGE_AIRBORNE_FRAMES,
+    EXCHANGE_CATCH_HOLD_FRAMES,
+    EXCHANGE_TIMEOUT_FRAMES,
+    SHOULDER_ABOVE_OFFSET,
+    SHOULDER_STALL_PROXIMITY,
+    UPPER_FOREARM_RATIO,
+    UPPER_FOREARM_STALL_PROXIMITY,
+)
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hand_bottle_proximity,
     check_hands_visible,
     check_pinch_grip,
     check_stall_proximity,
-    detect_tap_pulse,
+    pose_shoulder_point,
+    pose_upper_forearm_point,
     track_bottle_stability,
 )
 from assessment.rule_engine import evaluate_movement, movement_requires_hands
 from assessment.scoring import SessionScorer
-from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D
+from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D, PoseLandmarks
 
 
 def _bottle(cx: int = 320, cy: int = 240) -> BottleDetection:
@@ -253,15 +263,6 @@ def test_pinch_grip_success():
     )
     result = check_pinch_grip(hand, _bottle(), success_message="Good bartender's grip on the neck.")
     assert result.feedback_type == "positive"
-
-
-def test_tap_pulse_detection():
-    state, tapped = detect_tap_pulse(None, 0.2, threshold=0.1)
-    assert tapped is False
-    state, _ = detect_tap_pulse(state, 0.05, threshold=0.1)
-    state, tapped = detect_tap_pulse(state, 0.2, threshold=0.1)
-    assert tapped is True
-    assert state["tap_count"] == 1
 
 
 def test_scorer_clamps():
@@ -1004,8 +1005,9 @@ def test_movement_requires_hands():
         "Hand Stall",
         "Arm Stall",
         "Elbow Stall",
-        "Tap",
-        "Basket",
+        "Upper Forearm Stall",
+        "Shoulder Stall",
+        "Hand-to-Hand Bottle Exchange",
     ],
 )
 def test_evaluate_movement_runs(movement):
@@ -1034,11 +1036,518 @@ def test_posture_only_requires_hands():
 
 def test_posture_only_positive():
     result, _, _ = evaluate_movement(
-        "Tap",
+        "Hand-to-Hand Bottle Exchange",
         None,
         None,
-        _hands_near(),
+        HandsResult(hands=[_hand_near(0.35, 0.5, "Left"), _hand_near(0.65, 0.5, "Right")]),
         None,
         bottle_detection_enabled=False,
     )
     assert result.feedback_type == "positive"
+    assert "bottle detection" in result.feedback.lower()
+
+
+def _pose_from_points(points: dict[int, Point2D], visibility: float = 0.9) -> PoseLandmarks:
+    return PoseLandmarks(
+        points=dict(points),
+        visibility={index: visibility for index in points},
+    )
+
+
+def _stable_state(bottle: BottleDetection, frames: int = 6) -> dict:
+    state = None
+    for _ in range(frames):
+        state, _ = track_bottle_stability(state, bottle)
+    return state
+
+
+def _arm_pose(
+    *,
+    left: bool,
+    elbow: Point2D,
+    wrist: Point2D,
+) -> PoseLandmarks:
+    if left:
+        return _pose_from_points({13: elbow, 15: wrist})
+    return _pose_from_points({14: elbow, 16: wrist})
+
+
+def _upper_point(elbow: Point2D, wrist: Point2D, ratio: float = UPPER_FOREARM_RATIO) -> Point2D:
+    return Point2D(
+        x=elbow.x + (wrist.x - elbow.x) * ratio,
+        y=elbow.y + (wrist.y - elbow.y) * ratio,
+    )
+
+
+def _bottle_at(point: Point2D) -> BottleDetection:
+    return _bottle(cx=int(point.x * 640), cy=int(point.y * 480))
+
+
+def test_upper_forearm_stall_success_left():
+    elbow = Point2D(0.40, 0.40)
+    wrist = Point2D(0.40, 0.70)
+    upper = _upper_point(elbow, wrist)
+    bottle = _bottle_at(upper)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+
+
+def test_upper_forearm_stall_success_right():
+    elbow = Point2D(0.60, 0.40)
+    wrist = Point2D(0.60, 0.70)
+    upper = _upper_point(elbow, wrist)
+    bottle = _bottle_at(upper)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=False, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "positive"
+
+
+def test_upper_forearm_stall_far_from_target():
+    elbow = Point2D(0.40, 0.40)
+    wrist = Point2D(0.40, 0.70)
+    bottle = _bottle(cx=100, cy=100)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+    assert "upper forearm" in result.feedback.lower()
+
+
+def test_upper_forearm_stall_rejects_elbow():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    bottle = _bottle_at(elbow)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+    assert "elbow" in result.feedback.lower()
+
+
+def test_upper_forearm_stall_rejects_mid_forearm():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    mid = Point2D(x=(elbow.x + wrist.x) / 2.0, y=(elbow.y + wrist.y) / 2.0)
+    bottle = _bottle_at(mid)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+    assert "mid-forearm" in result.feedback.lower() or "wrist" in result.feedback.lower()
+
+
+def test_upper_forearm_stall_missing_pose():
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        _bottle(),
+        None,
+        _hands_near(),
+        None,
+    )
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+
+
+def test_upper_forearm_stall_unstable_history():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    upper = _upper_point(elbow, wrist)
+    bottle = _bottle_at(upper)
+    state = None
+    for i in range(6):
+        moving = _bottle(cx=int(upper.x * 640) + i * 40, cy=int(upper.y * 480))
+        state, _ = track_bottle_stability(state, moving)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        state,
+    )
+    assert result.feedback_type == "warning"
+    assert "steady" in result.feedback.lower()
+
+
+def test_upper_forearm_stall_proximity_boundary():
+    elbow = Point2D(0.50, 0.40)
+    wrist = Point2D(0.50, 0.70)
+    upper = _upper_point(elbow, wrist)
+    # Just outside the success proximity.
+    outside = Point2D(upper.x + UPPER_FOREARM_STALL_PROXIMITY + 0.02, upper.y)
+    bottle = _bottle_at(outside)
+    result, _, _ = evaluate_movement(
+        "Upper Forearm Stall",
+        bottle,
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+    helper = pose_upper_forearm_point(
+        _arm_pose(left=True, elbow=elbow, wrist=wrist),
+        _bottle_at(upper),
+    )
+    assert helper is not None
+    assert helper.x == pytest.approx(upper.x)
+    assert helper.y == pytest.approx(upper.y)
+
+
+def test_shoulder_stall_success_left():
+    shoulder = Point2D(0.40, 0.35)
+    target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
+    bottle = _bottle_at(target)
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.35)})
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "positive"
+
+
+def test_shoulder_stall_success_right():
+    shoulder = Point2D(0.65, 0.35)
+    target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
+    bottle = _bottle_at(target)
+    pose = _pose_from_points({11: Point2D(0.30, 0.35), 12: shoulder})
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "positive"
+
+
+def test_shoulder_stall_rejects_below_shoulder():
+    shoulder = Point2D(0.50, 0.35)
+    below = Point2D(shoulder.x, shoulder.y + 0.08)
+    bottle = _bottle_at(below)
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.35)})
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+    assert "chest" in result.feedback.lower() or "shoulder" in result.feedback.lower()
+
+
+def test_shoulder_stall_rejects_chest():
+    shoulder = Point2D(0.50, 0.30)
+    chest = Point2D(shoulder.x, shoulder.y + 0.12)
+    bottle = _bottle_at(chest)
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.30)})
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+
+
+def test_shoulder_stall_far_from_shoulder():
+    pose = _pose_from_points({11: Point2D(0.40, 0.35), 12: Point2D(0.60, 0.35)})
+    bottle = _bottle(cx=100, cy=400)
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+
+
+def test_shoulder_stall_missing_landmarks():
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        _bottle(),
+        PoseLandmarks(points={}, visibility={}),
+        None,
+        None,
+    )
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+
+
+def test_shoulder_stall_unstable_history():
+    shoulder = Point2D(0.50, 0.35)
+    target = Point2D(shoulder.x, shoulder.y - SHOULDER_ABOVE_OFFSET)
+    bottle = _bottle_at(target)
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.70, 0.35)})
+    state = None
+    for i in range(6):
+        moving = _bottle(cx=int(target.x * 640) + i * 40, cy=int(target.y * 480))
+        state, _ = track_bottle_stability(state, moving)
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        state,
+    )
+    assert result.feedback_type == "warning"
+    assert "steady" in result.feedback.lower()
+
+
+def test_shoulder_stall_proximity_boundary():
+    shoulder = Point2D(0.50, 0.35)
+    pose = _pose_from_points({11: shoulder, 12: Point2D(0.75, 0.35)})
+    target = pose_shoulder_point(pose, _bottle_at(shoulder))
+    assert target is not None
+    # Stay above the shoulder line, but far from both shoulder targets.
+    outside = Point2D(0.50, target.y - (SHOULDER_STALL_PROXIMITY + 0.05))
+    bottle = _bottle_at(outside)
+    result, _, _ = evaluate_movement(
+        "Shoulder Stall",
+        bottle,
+        pose,
+        None,
+        None,
+        _stable_state(bottle),
+    )
+    assert result.feedback_type == "warning"
+
+
+def _two_hands(
+    left_xy: tuple[float, float] = (0.30, 0.50),
+    right_xy: tuple[float, float] = (0.70, 0.50),
+    *,
+    left_label: str = "Left",
+    right_label: str = "Right",
+) -> HandsResult:
+    return HandsResult(
+        hands=[
+            _hand_near(left_xy[0], left_xy[1], left_label),
+            _hand_near(right_xy[0], right_xy[1], right_label),
+        ]
+    )
+
+
+def _run_exchange(sequence: list[tuple[BottleDetection, HandsResult]]):
+    state = None
+    results = []
+    for bottle, hands in sequence:
+        result, _, state = evaluate_movement(
+            "Hand-to-Hand Bottle Exchange",
+            bottle,
+            None,
+            hands,
+            None,
+            state,
+        )
+        results.append((result, state))
+    return results
+
+
+def test_hand_to_hand_exchange_left_to_right():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
+    sequence = [(start, hands)]
+    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
+    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES))
+    results = _run_exchange(sequence)
+    assert results[-1][0].feedback_type == "positive"
+    assert "complete" in results[-1][0].feedback.lower()
+    assert results[-1][1]["phase"] == "confirmed"
+
+
+def test_hand_to_hand_exchange_right_to_left():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    catch = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    sequence = [(start, hands)]
+    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
+    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES))
+    results = _run_exchange(sequence)
+    assert results[-1][0].feedback_type == "positive"
+    assert results[-1][1]["phase"] == "confirmed"
+
+
+def test_hand_to_hand_exchange_rejects_direct_handoff():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
+    results = _run_exchange([(start, hands), (catch, hands)])
+    assert results[-1][0].feedback_type == "warning"
+    assert results[-1][1]["phase"] == "waiting_for_start"
+
+
+def test_hand_to_hand_exchange_rejects_same_hand_catch():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    sequence = [(start, hands)]
+    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
+    sequence.append((start, hands))
+    results = _run_exchange(sequence)
+    assert results[-1][0].feedback_type == "warning"
+    assert "opposite" in results[-1][0].feedback.lower()
+
+
+def test_hand_to_hand_exchange_rejects_insufficient_travel():
+    # Palms far enough for exclusive holds, but closer than EXCHANGE_MIN_TRAVEL.
+    close_hands = _two_hands((0.42, 0.50), (0.56, 0.50))
+    start = _bottle(cx=int(0.42 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=100)
+    catch = _bottle(cx=int(0.56 * 640), cy=int(0.50 * 480))
+    sequence = [(start, close_hands)]
+    sequence.extend((air, close_hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
+    sequence.append((catch, close_hands))
+    results = _run_exchange(sequence)
+    assert results[-1][0].feedback_type == "warning"
+    assert "farther" in results[-1][0].feedback.lower()
+
+
+def test_hand_to_hand_exchange_missing_second_hand():
+    one_hand = HandsResult(hands=[_hand_near(0.30, 0.50, "Left")])
+    result, _, state = evaluate_movement(
+        "Hand-to-Hand Bottle Exchange",
+        _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480)),
+        None,
+        one_hand,
+        None,
+    )
+    assert result.feedback_type == "warning"
+    assert "both hands" in result.feedback.lower()
+    assert state["phase"] == "waiting_for_start"
+
+
+def test_hand_to_hand_exchange_unknown_handedness_safe():
+    hands = _two_hands(
+        (0.30, 0.50),
+        (0.70, 0.50),
+        left_label="Unknown",
+        right_label="Unknown",
+    )
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
+    sequence = [(start, hands)]
+    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
+    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES))
+    results = _run_exchange(sequence)
+    assert results[-1][0].feedback_type == "positive"
+    assert results[-1][1]["phase"] == "confirmed"
+
+
+def test_hand_to_hand_exchange_timeout_resets():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    state = None
+    result, _, state = evaluate_movement(
+        "Hand-to-Hand Bottle Exchange",
+        start,
+        None,
+        hands,
+        None,
+        state,
+    )
+    assert state["start_hand"] is not None
+    result, _, state = evaluate_movement(
+        "Hand-to-Hand Bottle Exchange",
+        air,
+        None,
+        hands,
+        None,
+        state,
+    )
+    assert state["phase"] == "released"
+    state["sequence_frames"] = EXCHANGE_TIMEOUT_FRAMES
+    result, _, state = evaluate_movement(
+        "Hand-to-Hand Bottle Exchange",
+        air,
+        None,
+        hands,
+        None,
+        state,
+    )
+    assert result.feedback_type == "warning"
+    assert "timed out" in result.feedback.lower()
+    assert state["phase"] == "waiting_for_start"
+
+
+def test_hand_to_hand_exchange_requires_catch_hold_frames():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    catch = _bottle(cx=int(0.70 * 640), cy=int(0.50 * 480))
+    sequence = [(start, hands)]
+    sequence.extend((air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES))
+    # One fewer catch frame than required: still catching, not confirmed.
+    sequence.extend((catch, hands) for _ in range(EXCHANGE_CATCH_HOLD_FRAMES - 1))
+    results = _run_exchange(sequence)
+    assert results[-1][0].feedback_type == "positive"
+    assert results[-1][1]["phase"] == "catching"
+    assert "complete" not in results[-1][0].feedback.lower()
+
+
+def test_hand_to_hand_exchange_state_isolated_between_sessions():
+    hands = _two_hands()
+    start = _bottle(cx=int(0.30 * 640), cy=int(0.50 * 480))
+    air = _bottle(cx=320, cy=240)
+    first = _run_exchange(
+        [(start, hands)] + [(air, hands) for _ in range(EXCHANGE_AIRBORNE_FRAMES)]
+    )
+    assert first[-1][1]["phase"] == "released"
+    # A new evaluation with no prior state must not inherit the released phase.
+    result, _, state = evaluate_movement(
+        "Hand-to-Hand Bottle Exchange",
+        start,
+        None,
+        hands,
+        None,
+        None,
+    )
+    assert result.feedback_type == "positive"
+    assert state["phase"] == "waiting_for_start"
+    assert state["start_hand"] is not None
