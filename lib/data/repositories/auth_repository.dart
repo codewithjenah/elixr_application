@@ -5,11 +5,9 @@ import '../models/user.dart';
 import '../../core/constants/app_constants.dart';
 
 class AuthRepository {
-  AuthRepository({
-    fb.FirebaseAuth? auth,
-    FirestoreHelper? db,
-  })  : _auth = auth ?? fb.FirebaseAuth.instance,
-        _db = db ?? FirestoreHelper.instance;
+  AuthRepository({fb.FirebaseAuth? auth, FirestoreHelper? db})
+    : _auth = auth ?? fb.FirebaseAuth.instance,
+      _db = db ?? FirestoreHelper.instance;
 
   final fb.FirebaseAuth _auth;
   final FirestoreHelper _db;
@@ -38,10 +36,7 @@ class AuthRepository {
     }
   }
 
-  Future<User> login({
-    required String email,
-    required String password,
-  }) async {
+  Future<User> login({required String email, required String password}) async {
     try {
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,

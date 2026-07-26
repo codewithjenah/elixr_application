@@ -122,7 +122,9 @@ abstract final class AppTheme {
       border: Border.all(color: borderColor),
       boxShadow: [
         BoxShadow(
-          color: const Color(0xFF000000).withValues(alpha: isDark ? 0.28 : 0.08),
+          color: const Color(
+            0xFF000000,
+          ).withValues(alpha: isDark ? 0.28 : 0.08),
           blurRadius: 14,
           offset: const Offset(0, 6),
         ),
@@ -136,12 +138,13 @@ abstract final class AppTheme {
     );
   }
 
-  static TextStyle brandTitle({double fontSize = 28, Color? color}) => TextStyle(
-    fontSize: fontSize,
-    fontWeight: FontWeight.w900,
-    letterSpacing: 1.5,
-    color: color ?? AppColors.primary,
-  );
+  static TextStyle brandTitle({double fontSize = 28, Color? color}) =>
+      TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 1.5,
+        color: color ?? AppColors.primary,
+      );
 
   static TextStyle get headingLarge =>
       const TextStyle(fontSize: 28, fontWeight: FontWeight.bold);

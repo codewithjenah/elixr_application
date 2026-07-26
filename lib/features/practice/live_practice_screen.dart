@@ -104,14 +104,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _elapsedSeconds = 0;
     _sessionError = null;
     _currentFrame = null;
-    final settings = context.read<SettingsService>();
     // A generic movement keeps the vision pipeline (camera + detection
     // overlays) running; the user practices freely and nothing is scored.
-    _ws.sendStart(
-      movement: 'Normal Grip',
-      difficulty: 'Easy',
-      bottleDetectionEnabled: settings.bottleDetectionEnabled,
-    );
+    _ws.sendStart(movement: 'Normal Grip', difficulty: 'Easy');
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
@@ -214,7 +209,10 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
           leading: Padding(
             padding: const EdgeInsets.only(top: AppSpacing.xs),
             child: IconButton(
-              icon: const Icon(FluentIcons.chrome_back, color: AppColors.primary),
+              icon: const Icon(
+                FluentIcons.chrome_back,
+                color: AppColors.primary,
+              ),
               onPressed: _leave,
             ),
           ),
@@ -294,7 +292,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                               color: AppColors.primary.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: AppColors.primary.withValues(alpha: 0.25),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.25,
+                                ),
                               ),
                             ),
                             child: Column(
@@ -340,15 +340,11 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                         ],
                       ),
                     ),
-                    if (context
-                        .watch<SettingsService>()
-                        .bottleDetectionEnabled) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      _BottleStatusIndicator(
-                        detected: isSessionActive ? _bottleDetected : null,
-                        isActive: isSessionActive,
-                      ),
-                    ],
+                    const SizedBox(height: AppSpacing.md),
+                    _BottleStatusIndicator(
+                      detected: isSessionActive ? _bottleDetected : null,
+                      isActive: isSessionActive,
+                    ),
                     if (_sessionError != null) ...[
                       const SizedBox(height: AppSpacing.md),
                       ElixCard(
@@ -646,7 +642,10 @@ class _ConnectionStatusBadge extends StatelessWidget {
 }
 
 class _BottleStatusIndicator extends StatelessWidget {
-  const _BottleStatusIndicator({required this.detected, required this.isActive});
+  const _BottleStatusIndicator({
+    required this.detected,
+    required this.isActive,
+  });
 
   final bool? detected;
   final bool isActive;

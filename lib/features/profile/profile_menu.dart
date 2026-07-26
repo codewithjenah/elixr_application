@@ -125,10 +125,8 @@ class _ProfileMenuCard extends StatelessWidget {
               icon: FluentIcons.settings,
               label: 'Settings',
               description: 'Preferences & appearance',
-              onTap: () => _openSettings(
-                context,
-                ProfileSettingsSection.preferences,
-              ),
+              onTap: () =>
+                  _openSettings(context, ProfileSettingsSection.preferences),
             ),
           ),
           const SizedBox(height: AppSpacing.xs),

@@ -36,9 +36,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await context.read<AuthService>().login(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-          );
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
       if (mounted) context.go('/dashboard');
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));

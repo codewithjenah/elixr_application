@@ -7,12 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../core/constants/app_constants.dart';
 import '../data/models/practice_feedback.dart';
 
-enum WebSocketConnectionState {
-  disconnected,
-  connecting,
-  connected,
-  error,
-}
+enum WebSocketConnectionState { disconnected, connecting, connected, error }
 
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
@@ -61,19 +56,18 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  void sendStart({
-    required String movement,
-    required String difficulty,
-    bool bottleDetectionEnabled = true,
-  }) {
+  void sendStart({required String movement, required String difficulty}) {
     if (!isConnected || _channel == null) return;
 
-    _channel!.sink.add(jsonEncode({
-      'action': 'start',
-      'movement': movement,
-      'difficulty': difficulty,
-      'bottle_detection_enabled': bottleDetectionEnabled,
-    }));
+    _channel!.sink.add(
+      jsonEncode({
+        'action': 'start',
+        'movement': movement,
+        'difficulty': difficulty,
+        // Always enabled; backend still accepts this field for compatibility.
+        'bottle_detection_enabled': true,
+      }),
+    );
     _sessionActive = true;
     notifyListeners();
   }

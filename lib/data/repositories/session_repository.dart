@@ -3,7 +3,8 @@ import '../models/feedback.dart';
 import '../models/session.dart';
 
 class SessionRepository {
-  SessionRepository({FirestoreHelper? db}) : _db = db ?? FirestoreHelper.instance;
+  SessionRepository({FirestoreHelper? db})
+    : _db = db ?? FirestoreHelper.instance;
 
   final FirestoreHelper _db;
 

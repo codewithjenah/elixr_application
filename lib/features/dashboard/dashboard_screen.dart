@@ -341,10 +341,7 @@ class _MainColumn extends StatelessWidget {
               icon: FluentIcons.lightning_bolt,
               title: 'Recent Activity',
             ),
-            _LinkButton(
-              label: 'View all',
-              onTap: () => context.go('/history'),
-            ),
+            _LinkButton(label: 'View all', onTap: () => context.go('/history')),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -492,21 +489,18 @@ class _HeroBanner extends StatelessWidget {
                   final width = MediaQuery.of(context).size.width;
                   if (width < 1100) return const SizedBox.shrink();
                   return const Text(
-                      '“Great flair starts with great practice.”',
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontStyle: FontStyle.italic,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.4,
-                        color: _pink,
-                        shadows: [
-                          Shadow(
-                            color: Color(0x668B5CF6),
-                            blurRadius: 12,
-                          ),
-                        ],
-                      ),
+                    '“Great flair starts with great practice.”',
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                      color: _pink,
+                      shadows: [
+                        Shadow(color: Color(0x668B5CF6), blurRadius: 12),
+                      ],
+                    ),
                   );
                 },
               ),

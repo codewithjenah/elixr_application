@@ -76,9 +76,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
   /// Sessions oldest-first with a valid score, for the trend line.
   List<Session> get _chronological {
-    final list = _sessions
-        .where((s) => s.createdAt != null)
-        .toList()
+    final list = _sessions.where((s) => s.createdAt != null).toList()
       ..sort((a, b) => a.createdAt!.compareTo(b.createdAt!));
     return list;
   }
@@ -104,9 +102,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   children: [
                     Text(
                       'Progress',
-                      style: AppTheme.headingLarge.copyWith(
-                        color: _pink,
-                      ),
+                      style: AppTheme.headingLarge.copyWith(color: _pink),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
@@ -190,9 +186,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                           ),
                           child: SizedBox(
                             height: 200,
-                            child: _ScoreTrendChart(
-                              sessions: _chronological,
-                            ),
+                            child: _ScoreTrendChart(sessions: _chronological),
                           ),
                         ),
                         const SizedBox(height: AppSpacing.xl),
@@ -270,9 +264,7 @@ class _PanelCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _panelColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: accent.withValues(alpha: glow ? 0.55 : 0.22),
-        ),
+        border: Border.all(color: accent.withValues(alpha: glow ? 0.55 : 0.22)),
         boxShadow: [
           BoxShadow(
             color: accent.withValues(alpha: glow ? 0.22 : 0.07),
@@ -681,9 +673,7 @@ class _MovementChartState extends State<_MovementChart> {
   @override
   Widget build(BuildContext context) {
     final entries = widget.data.entries.toList();
-    final maxVal = entries
-        .map((e) => e.value)
-        .reduce((a, b) => a > b ? a : b);
+    final maxVal = entries.map((e) => e.value).reduce((a, b) => a > b ? a : b);
 
     return BarChart(
       BarChartData(

@@ -6,17 +6,14 @@ import 'package:flutter/foundation.dart';
 class SettingsService extends ChangeNotifier {
   static const _fileName = 'settings.json';
   static const _cameraMirroredKey = 'camera_mirrored';
-  static const _bottleDetectionEnabledKey = 'bottle_detection_enabled';
   static const _darkModeKey = 'dark_mode';
 
   bool _cameraMirrored = true;
-  bool _bottleDetectionEnabled = true;
   bool _darkMode = true;
   bool _initialized = false;
 
   bool get isInitialized => _initialized;
   bool get cameraMirrored => _cameraMirrored;
-  bool get bottleDetectionEnabled => _bottleDetectionEnabled;
   bool get darkMode => _darkMode;
 
   Future<void> initialize() async {
@@ -26,8 +23,6 @@ class SettingsService extends ChangeNotifier {
         final data =
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
         _cameraMirrored = data[_cameraMirroredKey] as bool? ?? true;
-        _bottleDetectionEnabled =
-            data[_bottleDetectionEnabledKey] as bool? ?? true;
         _darkMode = data[_darkModeKey] as bool? ?? true;
       }
     } catch (_) {
@@ -40,13 +35,6 @@ class SettingsService extends ChangeNotifier {
   Future<void> setCameraMirrored(bool value) async {
     if (_cameraMirrored == value) return;
     _cameraMirrored = value;
-    notifyListeners();
-    await _save();
-  }
-
-  Future<void> setBottleDetectionEnabled(bool value) async {
-    if (_bottleDetectionEnabled == value) return;
-    _bottleDetectionEnabled = value;
     notifyListeners();
     await _save();
   }
@@ -65,7 +53,6 @@ class SettingsService extends ChangeNotifier {
       await file.writeAsString(
         jsonEncode({
           _cameraMirroredKey: _cameraMirrored,
-          _bottleDetectionEnabledKey: _bottleDetectionEnabled,
           _darkModeKey: _darkMode,
         }),
       );

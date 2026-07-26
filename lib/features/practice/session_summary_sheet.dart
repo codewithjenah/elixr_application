@@ -48,7 +48,8 @@ class SessionSummarySheet extends StatelessWidget {
           builder: (context, setState) {
             return Stack(
               children: [
-                if (score >= 60) const Positioned.fill(child: ConfettiOverlay()),
+                if (score >= 60)
+                  const Positioned.fill(child: ConfettiOverlay()),
                 Center(
                   child: Material(
                     type: MaterialType.transparency,
@@ -538,9 +539,10 @@ class _AnimatedEntranceState extends State<_AnimatedEntrance>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..forward();
-    _scale = Tween(begin: 0.75, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
+    _scale = Tween(
+      begin: 0.75,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
     _fade = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0, 0.3, curve: Curves.easeOut),

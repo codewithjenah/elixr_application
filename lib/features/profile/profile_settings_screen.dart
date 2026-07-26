@@ -523,17 +523,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   onChanged: (value) => settings.setCameraMirrored(value),
                 ),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              _PreferenceRow(
-                label: 'Enable bottle detection',
-                description:
-                    'Automatically detect and track bottles during your practice.',
-                child: ToggleSwitch(
-                  checked: settings.bottleDetectionEnabled,
-                  onChanged: (value) =>
-                      settings.setBottleDetectionEnabled(value),
-                ),
-              ),
             ],
           ),
         ),

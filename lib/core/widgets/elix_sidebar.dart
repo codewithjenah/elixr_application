@@ -696,7 +696,9 @@ class _SidebarTileState extends State<_SidebarTile> {
 
     if (widget.isCollapsed) {
       return Tooltip(
-        message: soon ? '${widget.item.label} (coming soon)' : widget.item.label,
+        message: soon
+            ? '${widget.item.label} (coming soon)'
+            : widget.item.label,
         child: tile,
       );
     }

@@ -10,8 +10,6 @@ import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
-import '../../services/settings_service.dart';
-import '../profile/profile_settings_screen.dart';
 
 // Neon accent palette shared with the dashboard.
 const _purple = AppColors.accent;
@@ -91,10 +89,6 @@ class _MovementsScreenState extends State<MovementsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottleDetectionEnabled = context
-        .watch<SettingsService>()
-        .bottleDetectionEnabled;
-
     return ScaffoldPage(
       content: SafeArea(
         child: SingleChildScrollView(
@@ -103,15 +97,6 @@ class _MovementsScreenState extends State<MovementsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const _Header(),
-              if (!bottleDetectionEnabled) ...[
-                const SizedBox(height: AppSpacing.md),
-                _InfoBanner(
-                  onPreferences: () => ProfileSettingsScreen.show(
-                    context,
-                    initialSection: ProfileSettingsSection.preferences,
-                  ),
-                ),
-              ],
               const SizedBox(height: AppSpacing.xl),
               _DifficultySection(
                 title: 'Easy',
@@ -165,51 +150,9 @@ class _Header extends StatelessWidget {
         const SizedBox(height: 4),
         const Text(
           'Master Easy, Medium, and Hard flair movements.',
-          style: TextStyle(
-            fontSize: 14,
-            color: AppColors.textSecondary,
-          ),
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
         ),
       ],
-    );
-  }
-}
-
-class _InfoBanner extends StatelessWidget {
-  const _InfoBanner({required this.onPreferences});
-
-  final VoidCallback onPreferences;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: _panelColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        children: [
-          const Icon(FluentIcons.info, color: AppColors.warning, size: 18),
-          const SizedBox(width: AppSpacing.sm),
-          const Expanded(
-            child: Text(
-              'Bottle detection is off. Movement scoring uses posture only.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          HyperlinkButton(
-            onPressed: onPreferences,
-            child: const Text(
-              'Preferences',
-              style: TextStyle(color: AppColors.primarySoft),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -259,7 +202,10 @@ class _DifficultySection extends StatelessWidget {
                   color: color,
                   shape: BoxShape.circle,
                   boxShadow: [
-                    BoxShadow(color: color.withValues(alpha: 0.8), blurRadius: 6),
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.8),
+                      blurRadius: 6,
+                    ),
                   ],
                 ),
               ),
@@ -494,10 +440,7 @@ class _MovementCardState extends State<_MovementCard> {
               top: 8,
               right: 8,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(10),
@@ -716,10 +659,7 @@ class _PropOptionState extends State<_PropOption> {
             ),
             boxShadow: [
               if (_hovered)
-                BoxShadow(
-                  color: _pink.withValues(alpha: 0.25),
-                  blurRadius: 16,
-                ),
+                BoxShadow(color: _pink.withValues(alpha: 0.25), blurRadius: 16),
             ],
           ),
           child: Column(

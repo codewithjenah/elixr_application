@@ -67,8 +67,8 @@ class _SplashScreenState extends State<SplashScreen>
         curve: const Interval(0.45, 0.85, curve: Curves.easeOut),
       ),
     );
-    _taglineSlide =
-        Tween<Offset>(begin: const Offset(0, 0.4), end: Offset.zero).animate(
+    _taglineSlide = Tween<Offset>(begin: const Offset(0, 0.4), end: Offset.zero)
+        .animate(
           CurvedAnimation(
             parent: _logoController,
             curve: const Interval(0.45, 0.85, curve: Curves.easeOutCubic),
@@ -253,11 +253,7 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ],
       ),
-      child: const Icon(
-        FluentIcons.brightness,
-        size: 48,
-        color: Colors.white,
-      ),
+      child: const Icon(FluentIcons.brightness, size: 48, color: Colors.white),
     );
   }
 
@@ -300,9 +296,7 @@ class _SplashScreenState extends State<SplashScreen>
                   borderRadius: BorderRadius.circular(2),
                   child: Stack(
                     children: [
-                      Container(
-                        color: AppColors.border.withValues(alpha: 0.5),
-                      ),
+                      Container(color: AppColors.border.withValues(alpha: 0.5)),
                       Align(
                         alignment: Alignment(
                           -1 + _shimmerController.value * 2,

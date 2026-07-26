@@ -12,7 +12,7 @@ abstract final class FirestoreCollections {
 
 class FirestoreHelper {
   FirestoreHelper._({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   static final FirestoreHelper instance = FirestoreHelper._();
 
@@ -25,7 +25,9 @@ class FirestoreHelper {
     return null;
   }
 
-  Map<String, dynamic> _userFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  Map<String, dynamic> _userFromDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data()!;
     return {
       'id': doc.id,
@@ -37,7 +39,9 @@ class FirestoreHelper {
     };
   }
 
-  Map<String, dynamic> _sessionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  Map<String, dynamic> _sessionFromDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data()!;
     return {
       'id': doc.id,
@@ -50,7 +54,9 @@ class FirestoreHelper {
     };
   }
 
-  Map<String, dynamic> _feedbackFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  Map<String, dynamic> _feedbackFromDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data()!;
     return {
       'id': doc.id,
@@ -75,12 +81,21 @@ class FirestoreHelper {
     }, SetOptions(merge: true));
   }
 
-  Future<void> updateUserProfileField(String userId, Map<String, dynamic> fields) async {
-    await _firestore.collection(FirestoreCollections.users).doc(userId).update(fields);
+  Future<void> updateUserProfileField(
+    String userId,
+    Map<String, dynamic> fields,
+  ) async {
+    await _firestore
+        .collection(FirestoreCollections.users)
+        .doc(userId)
+        .update(fields);
   }
 
   Future<User?> getUserById(String id) async {
-    final doc = await _firestore.collection(FirestoreCollections.users).doc(id).get();
+    final doc = await _firestore
+        .collection(FirestoreCollections.users)
+        .doc(id)
+        .get();
     if (!doc.exists) return null;
     return User.fromMap(_userFromDoc(doc));
   }
@@ -104,7 +119,9 @@ class FirestoreHelper {
         .where('user_id', isEqualTo: userId)
         .orderBy('created_at', descending: true)
         .get();
-    return snapshot.docs.map((doc) => Session.fromMap(_sessionFromDoc(doc))).toList();
+    return snapshot.docs
+        .map((doc) => Session.fromMap(_sessionFromDoc(doc)))
+        .toList();
   }
 
   Future<String> insertFeedback(Feedback feedback) async {
@@ -139,7 +156,9 @@ class FirestoreHelper {
         .where('session_id', isEqualTo: sessionId)
         .orderBy('created_at')
         .get();
-    return snapshot.docs.map((doc) => Feedback.fromMap(_feedbackFromDoc(doc))).toList();
+    return snapshot.docs
+        .map((doc) => Feedback.fromMap(_feedbackFromDoc(doc)))
+        .toList();
   }
 
   Future<int> countSessionsForUser(String userId) async {
@@ -154,21 +173,30 @@ class FirestoreHelper {
   Future<double?> averageScoreForUser(String userId) async {
     final sessions = await _sessionsForUser(userId);
     if (sessions.isEmpty) return null;
-    final total = sessions.fold<int>(0, (running, session) => running + session.score);
+    final total = sessions.fold<int>(
+      0,
+      (running, session) => running + session.score,
+    );
     return total / sessions.length;
   }
 
   Future<int?> bestScoreForUser(String userId) async {
     final sessions = await _sessionsForUser(userId);
     if (sessions.isEmpty) return null;
-    return sessions.map((session) => session.score).reduce((a, b) => a > b ? a : b);
+    return sessions
+        .map((session) => session.score)
+        .reduce((a, b) => a > b ? a : b);
   }
 
   Future<Map<String, int>> sessionCountByMovement(String userId) async {
     final sessions = await _sessionsForUser(userId);
     final counts = <String, int>{};
     for (final session in sessions) {
-      counts.update(session.movementName, (value) => value + 1, ifAbsent: () => 1);
+      counts.update(
+        session.movementName,
+        (value) => value + 1,
+        ifAbsent: () => 1,
+      );
     }
     return counts;
   }
@@ -178,6 +206,8 @@ class FirestoreHelper {
         .collection(FirestoreCollections.sessions)
         .where('user_id', isEqualTo: userId)
         .get();
-    return snapshot.docs.map((doc) => Session.fromMap(_sessionFromDoc(doc))).toList();
+    return snapshot.docs
+        .map((doc) => Session.fromMap(_sessionFromDoc(doc)))
+        .toList();
   }
 }

@@ -6,7 +6,7 @@ import '../data/repositories/auth_repository.dart';
 
 class AuthService extends ChangeNotifier {
   AuthService({AuthRepository? repository})
-      : _repository = repository ?? AuthRepository();
+    : _repository = repository ?? AuthRepository();
 
   final AuthRepository _repository;
 
@@ -40,14 +40,8 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> login({
-    required String email,
-    required String password,
-  }) async {
-    final user = await _repository.login(
-      email: email,
-      password: password,
-    );
+  Future<void> login({required String email, required String password}) async {
+    final user = await _repository.login(email: email, password: password);
     _currentUser = user;
     notifyListeners();
   }
@@ -68,7 +62,8 @@ class AuthService extends ChangeNotifier {
       userId: _currentUser!.id!,
       fullName: fullName,
       email: email,
-      profilePicturePath: profilePicturePath ?? _currentUser!.profilePicturePath,
+      profilePicturePath:
+          profilePicturePath ?? _currentUser!.profilePicturePath,
     );
     notifyListeners();
   }

@@ -17,7 +17,8 @@ class ProgressStats {
 }
 
 class ProgressRepository {
-  ProgressRepository({FirestoreHelper? db}) : _db = db ?? FirestoreHelper.instance;
+  ProgressRepository({FirestoreHelper? db})
+    : _db = db ?? FirestoreHelper.instance;
 
   final FirestoreHelper _db;
 

@@ -53,10 +53,7 @@ class AppRouter {
                 state.uri.queryParameters['difficulty'] ?? 'Easy';
             return fadeTransitionPage(
               key: state.pageKey,
-              child: PracticeScreen(
-                movement: movement,
-                difficulty: difficulty,
-              ),
+              child: PracticeScreen(movement: movement, difficulty: difficulty),
             );
           },
         ),

@@ -7,10 +7,7 @@ import '../theme/app_theme.dart';
 import 'elix_sidebar.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({
-    super.key,
-    required this.child,
-  });
+  const AppShell({super.key, required this.child});
 
   final Widget child;
 

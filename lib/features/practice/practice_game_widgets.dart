@@ -18,14 +18,14 @@ class ConfettiOverlay extends StatefulWidget {
 
 class _ConfettiParticle {
   _ConfettiParticle(math.Random rng)
-      : x = rng.nextDouble(),
-        delay = rng.nextDouble() * 0.5,
-        speed = 0.6 + rng.nextDouble() * 0.8,
-        size = 6 + rng.nextDouble() * 7,
-        sway = (rng.nextDouble() - 0.5) * 0.25,
-        swayFreq = 2 + rng.nextDouble() * 3,
-        spin = (rng.nextDouble() - 0.5) * 12,
-        color = _palette[rng.nextInt(_palette.length)];
+    : x = rng.nextDouble(),
+      delay = rng.nextDouble() * 0.5,
+      speed = 0.6 + rng.nextDouble() * 0.8,
+      size = 6 + rng.nextDouble() * 7,
+      sway = (rng.nextDouble() - 0.5) * 0.25,
+      swayFreq = 2 + rng.nextDouble() * 3,
+      spin = (rng.nextDouble() - 0.5) * 12,
+      color = _palette[rng.nextInt(_palette.length)];
 
   static const _palette = [
     AppColors.primary,
@@ -105,9 +105,7 @@ class _ConfettiPainter extends CustomPainter {
       final x =
           (p.x + p.sway * math.sin(t * p.swayFreq * math.pi * 2)) * size.width;
       // Fade in at the top, fade out near the bottom.
-      final alpha = t < 0.05
-          ? t / 0.05
-          : (t > 0.85 ? (1 - t) / 0.15 : 1.0);
+      final alpha = t < 0.05 ? t / 0.05 : (t > 0.85 ? (1 - t) / 0.15 : 1.0);
       paint.color = p.color.withValues(alpha: alpha.clamp(0.0, 1.0) * 0.9);
 
       canvas.save();
@@ -186,9 +184,10 @@ class _VictoryDialogState extends State<_VictoryDialog>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..forward();
-    _cardScale = Tween(begin: 0.7, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
+    _cardScale = Tween(
+      begin: 0.7,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
     _cardFade = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0, 0.3, curve: Curves.easeOut),
@@ -478,9 +477,10 @@ class _GameCountdownOverlayState extends State<GameCountdownOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 750),
     );
-    _scale = Tween(begin: 2.2, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
+    _scale = Tween(
+      begin: 2.2,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
     _fade = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0, 0.25, curve: Curves.easeOut),

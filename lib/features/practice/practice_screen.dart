@@ -281,12 +281,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _combo = 0;
     _bestCombo = 0;
     _resetHold();
-    final settings = context.read<SettingsService>();
-    _ws.sendStart(
-      movement: _movement,
-      difficulty: _difficulty,
-      bottleDetectionEnabled: settings.bottleDetectionEnabled,
-    );
+    _ws.sendStart(movement: _movement, difficulty: _difficulty);
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
@@ -559,15 +554,11 @@ class _PracticeScreenState extends State<PracticeScreen>
                         ],
                       ),
                     ),
-                    if (context
-                        .watch<SettingsService>()
-                        .bottleDetectionEnabled) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      _BottleStatusIndicator(
-                        detected: _latestFeedback?.bottleDetected,
-                        isActive: isSessionActive,
-                      ),
-                    ],
+                    const SizedBox(height: AppSpacing.md),
+                    _BottleStatusIndicator(
+                      detected: _latestFeedback?.bottleDetected,
+                      isActive: isSessionActive,
+                    ),
                     const SizedBox(height: AppSpacing.md),
                     if (_sessionError != null)
                       ElixCard(

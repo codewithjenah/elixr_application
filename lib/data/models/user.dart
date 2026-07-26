@@ -39,7 +39,8 @@ class User {
       'full_name': fullName,
       'email': email,
       'role': role,
-      if (profilePicturePath != null) 'profile_picture_path': profilePicturePath,
+      if (profilePicturePath != null)
+        'profile_picture_path': profilePicturePath,
     };
 
     if (createdAt != null) {

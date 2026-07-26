@@ -126,11 +126,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final bestScore = _filtered.isEmpty
         ? 0
         : _filtered.map((s) => s.score).reduce((a, b) => a > b ? a : b);
-    final totalMinutes = _filtered.fold<int>(
-          0,
-          (sum, s) => sum + s.durationSeconds,
-        ) ~/
-        60;
+    final totalMinutes =
+        _filtered.fold<int>(0, (sum, s) => sum + s.durationSeconds) ~/ 60;
 
     final hasSessions = !_loading && _sessions.isNotEmpty;
 
@@ -175,9 +172,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       children: [
                         Text(
                           'History',
-                          style: AppTheme.headingLarge.copyWith(
-                            color: _pink,
-                          ),
+                          style: AppTheme.headingLarge.copyWith(color: _pink),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -228,10 +223,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         itemBuilder: (context, index) {
                           final label = groups.keys.elementAt(index);
                           final items = groups[label]!;
-                          return _SessionGroup(
-                            label: label,
-                            sessions: items,
-                          );
+                          return _SessionGroup(label: label, sessions: items);
                         },
                       ),
               ),
@@ -316,11 +308,11 @@ class _SummaryBar extends StatelessWidget {
   }
 
   Widget _divider() => Container(
-        width: 1,
-        height: 34,
-        color: AppColors.border,
-        margin: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-      );
+    width: 1,
+    height: 34,
+    color: AppColors.border,
+    margin: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+  );
 }
 
 class _SummaryStat extends StatelessWidget {
@@ -917,11 +909,7 @@ class _SessionCardState extends State<_SessionCard> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
-                      FluentIcons.comment,
-                      size: 13,
-                      color: _violet,
-                    ),
+                    const Icon(FluentIcons.comment, size: 13, color: _violet),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Text(
@@ -1083,10 +1071,7 @@ class _NoMatchState extends StatelessWidget {
             color: AppColors.textSecondary.withValues(alpha: 0.6),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            'No sessions match this filter.',
-            style: AppTheme.bodySecondary,
-          ),
+          Text('No sessions match this filter.', style: AppTheme.bodySecondary),
         ],
       ),
     );

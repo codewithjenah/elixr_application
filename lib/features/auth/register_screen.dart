@@ -49,10 +49,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     try {
       await context.read<AuthService>().register(
-            fullName: _fullNameController.text.trim(),
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-          );
+        fullName: _fullNameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
       if (mounted) context.go('/dashboard');
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
