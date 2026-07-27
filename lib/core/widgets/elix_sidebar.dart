@@ -39,6 +39,11 @@ const _sidebarItems = [
     route: '/dashboard',
   ),
   SidebarItem(
+    label: 'Leaderboard',
+    icon: FluentIcons.trophy2_solid,
+    route: '/leaderboard',
+  ),
+  SidebarItem(
     label: 'Movements',
     icon: FluentIcons.more_sports,
     route: '/movements',

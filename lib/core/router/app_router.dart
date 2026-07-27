@@ -4,6 +4,7 @@ import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/history/history_screen.dart';
+import '../../features/leaderboard/leaderboard_screen.dart';
 import '../../features/movements/movements_screen.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
@@ -72,6 +73,13 @@ class AppRouter {
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
                 child: const DashboardScreen(),
+              ),
+            ),
+            GoRoute(
+              path: '/leaderboard',
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const LeaderboardScreen(),
               ),
             ),
             GoRoute(

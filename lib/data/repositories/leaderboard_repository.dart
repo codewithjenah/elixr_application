@@ -6,6 +6,32 @@ import '../database/firestore_helper.dart';
 import '../models/leaderboard_award_plan.dart';
 import '../models/leaderboard_entry.dart';
 
+/// Opaque pagination cursor. UI stores and returns it; never unwraps it.
+abstract class LeaderboardPageCursor {}
+
+@visibleForTesting
+class FakeLeaderboardPageCursor implements LeaderboardPageCursor {
+  FakeLeaderboardPageCursor(this.id);
+  final String id;
+}
+
+class _FirestoreLeaderboardPageCursor implements LeaderboardPageCursor {
+  _FirestoreLeaderboardPageCursor(this.document);
+  final DocumentSnapshot<Map<String, dynamic>> document;
+}
+
+class LeaderboardPage {
+  const LeaderboardPage({
+    required this.entries,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+
+  final List<LeaderboardEntry> entries;
+  final LeaderboardPageCursor? nextCursor;
+  final bool hasMore;
+}
+
 class LeaderboardRepository {
   LeaderboardRepository({FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -42,6 +68,63 @@ class LeaderboardRepository {
           if (!doc.exists || doc.data() == null) return null;
           return LeaderboardEntry.tryFromMap(doc.data()!, id: doc.id);
         });
+  }
+
+  Future<LeaderboardPage> fetchPlayersPage({
+    int limit = 50,
+    LeaderboardPageCursor? startAfter,
+  }) async {
+    Query<Map<String, dynamic>> query = _firestore
+        .collection(FirestoreCollections.leaderboard)
+        .orderBy('total_xp', descending: true)
+        .orderBy('best_score', descending: true)
+        .limit(limit);
+
+    if (startAfter is _FirestoreLeaderboardPageCursor) {
+      query = query.startAfterDocument(startAfter.document);
+    } else if (startAfter != null) {
+      throw ArgumentError(
+        'startAfter must be a Firestore-backed LeaderboardPageCursor',
+      );
+    }
+
+    final snapshot = await query.get();
+    final docs = snapshot.docs;
+    final entries = docs
+        .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
+        .whereType<LeaderboardEntry>()
+        .toList(growable: false);
+
+    final cursor = docs.isEmpty
+        ? null
+        : _FirestoreLeaderboardPageCursor(docs.last);
+
+    return buildPage(
+      entries: entries,
+      returnedDocumentCount: docs.length,
+      limit: limit,
+      cursorFromLastDoc: cursor,
+    );
+  }
+
+  @visibleForTesting
+  static LeaderboardPage buildPage({
+    required List<LeaderboardEntry> entries,
+    required int returnedDocumentCount,
+    required int limit,
+    required LeaderboardPageCursor? cursorFromLastDoc,
+  }) {
+    final hasMore = returnedDocumentCount == limit;
+    if (hasMore && cursorFromLastDoc == null) {
+      throw ArgumentError(
+        'hasMore requires cursorFromLastDoc when returnedDocumentCount == limit',
+      );
+    }
+    return LeaderboardPage(
+      entries: List<LeaderboardEntry>.unmodifiable(entries),
+      hasMore: hasMore,
+      nextCursor: hasMore ? cursorFromLastDoc : null,
+    );
   }
 
   /// Idempotently awards XP for a completed session owned by [userId].
