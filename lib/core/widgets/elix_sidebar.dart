@@ -9,6 +9,7 @@ import '../../data/repositories/progress_repository.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
+import '../constants/gamification_rules.dart';
 import '../theme/app_theme.dart';
 import '../../features/profile/profile_menu.dart';
 import '../../features/profile/profile_settings_screen.dart';
@@ -57,10 +58,6 @@ const _sidebarItems = [
 
 const _expandedWidth = 240.0;
 const _collapsedWidth = 72.0;
-
-// XP is derived from practice volume; purely cosmetic gamification.
-const _xpPerSession = 25;
-const _xpPerLevel = 250;
 
 class ElixSidebar extends StatefulWidget {
   const ElixSidebar({
@@ -299,9 +296,9 @@ class _ElixSidebarState extends State<ElixSidebar> {
     User? user,
     String initials,
   ) {
-    final totalXp = _totalSessions * _xpPerSession;
-    final level = totalXp ~/ _xpPerLevel + 1;
-    final expInLevel = totalXp % _xpPerLevel;
+    final totalXp = GamificationRules.xpForSessions(_totalSessions);
+    final level = GamificationRules.levelForXp(totalXp);
+    final expInLevel = GamificationRules.xpIntoLevel(totalXp);
 
     final profileTile = MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -413,7 +410,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
                       ),
                       const SizedBox(height: AppSpacing.sm + 2),
                       Text(
-                        'EXP $expInLevel / $_xpPerLevel',
+                        'EXP $expInLevel / ${GamificationRules.xpPerLevel}',
                         style: AppTheme.caption.copyWith(
                           fontSize: 10,
                           color: context.elixTextSecondary,
@@ -432,10 +429,9 @@ class _ElixSidebarState extends State<ElixSidebar> {
                                 ),
                               ),
                               FractionallySizedBox(
-                                widthFactor: (expInLevel / _xpPerLevel).clamp(
-                                  0.0,
-                                  1.0,
-                                ),
+                                widthFactor:
+                                    (expInLevel / GamificationRules.xpPerLevel)
+                                        .clamp(0.0, 1.0),
                                 child: Container(
                                   decoration: const BoxDecoration(
                                     gradient: LinearGradient(

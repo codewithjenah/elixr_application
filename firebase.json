@@ -1,1 +1,18 @@
-{"firestore":{"rules":"firestore.rules","indexes":"firestore.indexes.json"},"flutter":{"platforms":{"dart":{"lib/firebase_options.dart":{"projectId":"elixr-app-2026","configurations":{"windows":"1:650249353869:web:72ef4938fa989f2a5000c4"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "elixr-app-2026",
+          "configurations": {
+            "windows": "1:650249353869:web:72ef4938fa989f2a5000c4"
+          }
+        }
+      }
+    }
+  }
+}

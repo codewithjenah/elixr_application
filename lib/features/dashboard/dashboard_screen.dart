@@ -8,12 +8,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
-import '../../core/constants/movement_visuals.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import 'widgets/dashboard_leaderboard.dart';
 
 // Neon accent palette used only on the dashboard.
 const _purple = AppColors.accent;
@@ -200,7 +200,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stats: _stats,
       sessionsThisWeek: _sessionsThisWeek,
       weeklyTrendPercent: _weeklyTrendPercent,
-      recentSessions: _sessions.take(4).toList(),
+      currentUserId: user?.id,
+      displayName: user?.fullName ?? 'Trainee',
     );
 
     return ScaffoldPage(
@@ -245,7 +246,8 @@ class _MainColumn extends StatelessWidget {
     required this.stats,
     required this.sessionsThisWeek,
     required this.weeklyTrendPercent,
-    required this.recentSessions,
+    required this.currentUserId,
+    required this.displayName,
   });
 
   final String firstName;
@@ -253,7 +255,8 @@ class _MainColumn extends StatelessWidget {
   final ProgressStats? stats;
   final int sessionsThisWeek;
   final int? weeklyTrendPercent;
-  final List<Session> recentSessions;
+  final String? currentUserId;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
@@ -323,33 +326,10 @@ class _MainColumn extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        // Recent Activity
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const _SectionHeader(
-              icon: FluentIcons.lightning_bolt,
-              title: 'Recent Activity',
-            ),
-            _LinkButton(label: 'View all', onTap: () => context.go('/history')),
-          ],
+        DashboardLeaderboard(
+          currentUserId: currentUserId,
+          displayName: displayName,
         ),
-        const SizedBox(height: AppSpacing.sm),
-        if (recentSessions.isEmpty)
-          const _PanelCard(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: Text(
-                'No sessions yet. Complete a practice session to see it here.',
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-              ),
-            ),
-          )
-        else
-          for (final session in recentSessions) ...[
-            _ActivityRow(session: session),
-            const SizedBox(height: AppSpacing.sm),
-          ],
       ],
     );
   }
@@ -603,21 +583,16 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
 // ---------------------------------------------------------------------------
 
 class _PanelCard extends StatelessWidget {
-  const _PanelCard({
-    required this.child,
-    this.accent = _purple,
-    this.padding = const EdgeInsets.all(AppSpacing.md),
-  });
+  const _PanelCard({required this.child, this.accent = _purple});
 
   final Widget child;
   final Color accent;
-  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: padding,
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: _panelColor,
         borderRadius: BorderRadius.circular(18),
@@ -631,49 +606,6 @@ class _PanelCard extends StatelessWidget {
         ],
       ),
       child: child,
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.icon, required this.title});
-
-  final IconData icon;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: _violet),
-        const SizedBox(width: AppSpacing.sm),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LinkButton extends StatelessWidget {
-  const _LinkButton({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return HyperlinkButton(
-      onPressed: onTap,
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 12, color: AppColors.primarySoft),
-      ),
     );
   }
 }
@@ -799,150 +731,6 @@ class _StatCard extends StatelessWidget {
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Recent Activity (main column)
-// ---------------------------------------------------------------------------
-
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.session});
-
-  final Session session;
-
-  String _dateLabel(String? createdAt) {
-    if (createdAt == null) return '';
-    final date = DateTime.tryParse(createdAt)?.toLocal();
-    if (date == null) return '';
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final sessionDay = DateTime(date.year, date.month, date.day);
-    if (sessionDay == today) {
-      return 'Today · ${DateFormat.jm().format(date)}';
-    }
-    if (sessionDay == today.subtract(const Duration(days: 1))) {
-      return 'Yesterday · ${DateFormat.jm().format(date)}';
-    }
-    return DateFormat('MMM d · h:mm a').format(date);
-  }
-
-  Color get _difficultyColor {
-    switch (session.difficulty) {
-      case 'Easy':
-        return AppColors.success;
-      case 'Medium':
-        return _amber;
-      case 'Hard':
-        return AppColors.error;
-      default:
-        return AppColors.textSecondary;
-    }
-  }
-
-  Color get _scoreColor {
-    if (session.score >= 80) return AppColors.success;
-    if (session.score >= 50) return _amber;
-    return AppColors.error;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _PanelCard(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              gradient: LinearGradient(
-                colors: [
-                  _purple.withValues(alpha: 0.3),
-                  _pink.withValues(alpha: 0.12),
-                ],
-              ),
-              border: Border.all(color: _purple.withValues(alpha: 0.3)),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              MovementVisuals.emojiFor(session.movementName),
-              style: const TextStyle(fontSize: 18),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  session.movementName,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _difficultyColor.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: _difficultyColor.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: Text(
-                        session.difficulty,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: _difficultyColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _dateLabel(session.createdAt),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: _scoreColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: _scoreColor.withValues(alpha: 0.4)),
-            ),
-            child: Text(
-              '${session.score}',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: _scoreColor,
-              ),
-            ),
           ),
         ],
       ),

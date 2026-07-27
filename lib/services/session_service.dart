@@ -3,33 +3,58 @@ import 'package:flutter/foundation.dart';
 import '../data/models/feedback.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/session.dart';
+import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/session_repository.dart';
 
+typedef LeaderboardSessionRecorder =
+    Future<void> Function({
+      required String sessionId,
+      required String userId,
+      required String displayName,
+    });
+
 class SessionService extends ChangeNotifier {
-  SessionService({SessionRepository? repository})
-    : _repository = repository ?? SessionRepository();
+  SessionService({
+    SessionRepository? repository,
+    LeaderboardRepository? leaderboardRepository,
+    Future<String> Function(Session session)? saveSessionOverride,
+    Future<void> Function(List<Feedback> feedbacks)? saveFeedbacksOverride,
+    LeaderboardSessionRecorder? recordCompletedSessionOverride,
+  }) : _repositoryOrNull = repository,
+       _leaderboardRepositoryOrNull = leaderboardRepository,
+       _saveSessionOverride = saveSessionOverride,
+       _saveFeedbacksOverride = saveFeedbacksOverride,
+       _recordCompletedSessionOverride = recordCompletedSessionOverride;
 
-  final SessionRepository _repository;
+  SessionRepository? _repositoryOrNull;
+  LeaderboardRepository? _leaderboardRepositoryOrNull;
+  final Future<String> Function(Session session)? _saveSessionOverride;
+  final Future<void> Function(List<Feedback> feedbacks)? _saveFeedbacksOverride;
+  final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
 
-  SessionRepository get repository => _repository;
+  SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
+
+  LeaderboardRepository get _leaderboardRepository =>
+      _leaderboardRepositoryOrNull ??= LeaderboardRepository();
 
   Future<String> saveCompletedSession({
     required String userId,
+    required String displayName,
     required String movementName,
     required String difficulty,
     required int score,
     required int durationSeconds,
     required List<PracticeFeedback> feedbackHistory,
   }) async {
-    final sessionId = await _repository.saveSession(
-      Session(
-        userId: userId,
-        movementName: movementName,
-        difficulty: difficulty,
-        score: score,
-        durationSeconds: durationSeconds,
-      ),
+    final session = Session(
+      userId: userId,
+      movementName: movementName,
+      difficulty: difficulty,
+      score: score,
+      durationSeconds: durationSeconds,
     );
+    final saveSession = _saveSessionOverride ?? repository.saveSession;
+    final sessionId = await saveSession(session);
 
     final seen = <String>{};
     final feedbacks = <Feedback>[];
@@ -46,7 +71,28 @@ class SessionService extends ChangeNotifier {
     }
 
     if (feedbacks.isNotEmpty) {
-      await _repository.saveFeedbacks(feedbacks);
+      final saveFeedbacks = _saveFeedbacksOverride ?? repository.saveFeedbacks;
+      await saveFeedbacks(feedbacks);
+    }
+
+    // Leaderboard sync must not erase a successfully saved practice session.
+    try {
+      final recorder =
+          _recordCompletedSessionOverride ??
+          _leaderboardRepository.recordCompletedSession;
+      await recorder(
+        sessionId: sessionId,
+        userId: userId,
+        displayName: displayName,
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          'Leaderboard sync failed after session save: '
+          'sessionId=$sessionId userId=$userId error=$error',
+        );
+        debugPrint('$stackTrace');
+      }
     }
 
     notifyListeners();

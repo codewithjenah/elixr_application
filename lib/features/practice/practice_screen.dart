@@ -279,7 +279,9 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     final router = GoRouter.of(context);
     final sessionService = context.read<SessionService>();
-    final userId = context.read<AuthService>().currentUser?.id;
+    final authUser = context.read<AuthService>().currentUser;
+    final userId = authUser?.id;
+    final displayName = authUser?.fullName ?? 'Trainee';
 
     final wasActive = _ws.sessionActive;
     _ws.sendStop();
@@ -310,6 +312,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     try {
       // Play congrats when the Session Complete dialog appears.
       await _sfx.playCongrats();
+      if (!mounted) return;
       final result = await SessionSummarySheet.show(
         context,
         movement: _movement,
@@ -319,6 +322,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         heldSteady: heldSteady,
         onSave: () => sessionService.saveCompletedSession(
           userId: userId,
+          displayName: displayName,
           movementName: _movement,
           difficulty: _difficulty,
           score: summaryScore,

@@ -3,12 +3,18 @@ import 'package:flutter/foundation.dart';
 
 import '../data/models/user.dart';
 import '../data/repositories/auth_repository.dart';
+import '../data/repositories/leaderboard_repository.dart';
 
 class AuthService extends ChangeNotifier {
-  AuthService({AuthRepository? repository})
-    : _repository = repository ?? AuthRepository();
+  AuthService({
+    AuthRepository? repository,
+    LeaderboardRepository? leaderboardRepository,
+  }) : _repository = repository ?? AuthRepository(),
+       _leaderboardRepository =
+           leaderboardRepository ?? LeaderboardRepository();
 
   final AuthRepository _repository;
+  final LeaderboardRepository _leaderboardRepository;
 
   User? _currentUser;
   bool _isLoading = true;
@@ -58,13 +64,29 @@ class AuthService extends ChangeNotifier {
     String? profilePicturePath,
   }) async {
     if (_currentUser?.id == null) return;
+    final userId = _currentUser!.id!;
     _currentUser = await _repository.updateProfile(
-      userId: _currentUser!.id!,
+      userId: userId,
       fullName: fullName,
       email: email,
       profilePicturePath:
           profilePicturePath ?? _currentUser!.profilePicturePath,
     );
+
+    try {
+      await _leaderboardRepository.syncDisplayName(
+        userId: userId,
+        displayName: fullName,
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          'Leaderboard display_name sync failed: userId=$userId error=$error',
+        );
+        debugPrint('$stackTrace');
+      }
+    }
+
     notifyListeners();
   }
 

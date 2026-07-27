@@ -2,21 +2,224 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function sessionPath(sessionId) {
+      return /databases/$(database)/documents/sessions/$(sessionId);
+    }
+
+    function markerPath(sessionId) {
+      return /databases/$(database)/documents/leaderboard_processed_sessions/$(sessionId);
+    }
+
+    function leaderboardKeys() {
+      return [
+        'user_id',
+        'display_name',
+        'total_xp',
+        'sessions_completed',
+        'score_sum',
+        'average_score',
+        'best_score',
+        'last_session_at',
+        'updated_at',
+        'last_awarded_session_id'
+      ];
+    }
+
+    function markerKeys() {
+      return ['session_id', 'user_id', 'score', 'xp_awarded', 'processed_at'];
+    }
+
+    function isNonNegInt(value) {
+      return value is int && value >= 0;
+    }
+
+    // Accept int or whole-number float (Firestore/clients may store either).
+    function isScore(value) {
+      return value is number
+        && value >= 0
+        && value <= 100
+        && value == int(value);
+    }
+
+    function isNonNegNumber(value) {
+      return value is number && value >= 0;
+    }
+
+    function validLeaderboardShape(data) {
+      return data.keys().hasOnly(leaderboardKeys())
+        && data.user_id is string
+        && data.user_id == request.auth.uid
+        && data.display_name is string
+        && data.display_name.size() > 0
+        && data.display_name.size() <= 80
+        && isNonNegInt(data.total_xp)
+        && isNonNegInt(data.sessions_completed)
+        && data.total_xp == data.sessions_completed * 25
+        && isNonNegNumber(data.score_sum)
+        && data.average_score is number
+        && data.average_score >= 0
+        && data.average_score <= 100
+        && isScore(data.best_score)
+        && data.last_awarded_session_id is string
+        && data.last_awarded_session_id.size() > 0
+        && data.keys().hasAll([
+          'user_id',
+          'display_name',
+          'total_xp',
+          'sessions_completed',
+          'score_sum',
+          'average_score',
+          'best_score',
+          'last_session_at',
+          'updated_at',
+          'last_awarded_session_id'
+        ]);
+    }
+
+    function sourceSession(sessionId) {
+      return get(sessionPath(sessionId)).data;
+    }
+
+    function markerAfter(sessionId) {
+      return getAfter(markerPath(sessionId)).data;
+    }
+
+    function markerMatchesSession(sessionId, score) {
+      return existsAfter(markerPath(sessionId))
+        && markerAfter(sessionId).user_id == request.auth.uid
+        && markerAfter(sessionId).session_id == sessionId
+        && markerAfter(sessionId).score == score
+        && markerAfter(sessionId).xp_awarded == 25;
+    }
+
+    function awardSessionId() {
+      return request.resource.data.last_awarded_session_id;
+    }
+
+    function awardSessionScore() {
+      return sourceSession(awardSessionId()).score;
+    }
+
+    function validSessionAwardCreate() {
+      return exists(sessionPath(awardSessionId()))
+        && sourceSession(awardSessionId()).user_id == request.auth.uid
+        && isScore(awardSessionScore())
+        && request.resource.data.sessions_completed == 1
+        && request.resource.data.total_xp == 25
+        && request.resource.data.score_sum == awardSessionScore()
+        && request.resource.data.average_score == awardSessionScore()
+        && request.resource.data.best_score == awardSessionScore()
+        && markerMatchesSession(awardSessionId(), awardSessionScore());
+    }
+
+    function aggregatesUnchanged() {
+      return request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.total_xp == resource.data.total_xp
+        && request.resource.data.sessions_completed == resource.data.sessions_completed
+        && request.resource.data.score_sum == resource.data.score_sum
+        && request.resource.data.average_score == resource.data.average_score
+        && request.resource.data.best_score == resource.data.best_score
+        && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
+        && request.resource.data.last_session_at == resource.data.last_session_at;
+    }
+
+    function validSessionAwardUpdate() {
+      return resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.sessions_completed == resource.data.sessions_completed + 1
+        && request.resource.data.total_xp == resource.data.total_xp + 25
+        && request.resource.data.score_sum == resource.data.score_sum + awardSessionScore()
+        && request.resource.data.average_score
+          == request.resource.data.score_sum / request.resource.data.sessions_completed
+        && request.resource.data.best_score >= resource.data.best_score
+        && request.resource.data.best_score >= awardSessionScore()
+        && (
+          request.resource.data.best_score == resource.data.best_score
+          || request.resource.data.best_score == awardSessionScore()
+        )
+        && request.resource.data.last_awarded_session_id != resource.data.last_awarded_session_id
+        && exists(sessionPath(awardSessionId()))
+        && sourceSession(awardSessionId()).user_id == request.auth.uid
+        && isScore(awardSessionScore())
+        && markerMatchesSession(awardSessionId(), awardSessionScore());
+    }
+
+    function validDisplayNameUpdate() {
+      return resource.data.user_id == request.auth.uid
+        && aggregatesUnchanged()
+        && request.resource.data.display_name is string
+        && request.resource.data.display_name.size() > 0
+        && request.resource.data.display_name.size() <= 80;
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
     }
 
     match /sessions/{sessionId} {
-      allow read: if request.auth != null && resource.data.user_id == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.user_id == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
     match /feedbacks/{feedbackId} {
-      allow read: if request.auth != null
-        && get(/databases/$(database)/documents/sessions/$(resource.data.session_id)).data.user_id == request.auth.uid;
-      allow create: if request.auth != null
-        && get(/databases/$(database)/documents/sessions/$(request.resource.data.session_id)).data.user_id == request.auth.uid;
+      allow read: if isSignedIn()
+        && get(/databases/$(database)/documents/sessions/$(resource.data.session_id)).data.user_id
+          == request.auth.uid;
+      allow create: if isSignedIn()
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.session_id)).data.user_id
+          == request.auth.uid;
+    }
+
+    // Public aggregate rankings. Authenticated read; own-document writes only.
+    // Limitation: a modified client that still satisfies XP=+25 / +1 session
+    // arithmetic can inflate rankings. Suitable for a controlled capstone, not
+    // tamper-proof against a hostile modified client.
+    match /leaderboard/{userId} {
+      allow read: if isSignedIn();
+
+      allow create: if isOwner(userId)
+        && validLeaderboardShape(request.resource.data)
+        && validSessionAwardCreate();
+
+      allow update: if isOwner(userId)
+        && validLeaderboardShape(request.resource.data)
+        && (validSessionAwardUpdate() || validDisplayNameUpdate());
+
+      allow delete: if false;
+    }
+
+    match /leaderboard_processed_sessions/{sessionId} {
+      // GET of a missing marker must succeed so the client transaction can
+      // check idempotency before creating the first award. resource is null
+      // when the document does not exist; accessing resource.data then fails
+      // the whole rule and surfaces as cloud_firestore/unknown on Windows.
+      allow get: if isSignedIn()
+        && (resource == null || resource.data.user_id == request.auth.uid);
+
+      // Queries must be constrained to the caller's own user_id.
+      allow list: if isSignedIn()
+        && resource.data.user_id == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(markerKeys())
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.session_id == sessionId
+        && request.resource.data.xp_awarded == 25
+        && isScore(request.resource.data.score)
+        && exists(sessionPath(sessionId))
+        && sourceSession(sessionId).user_id == request.auth.uid
+        && request.resource.data.score == sourceSession(sessionId).score;
+
+      allow update, delete: if false;
     }
   }
 }

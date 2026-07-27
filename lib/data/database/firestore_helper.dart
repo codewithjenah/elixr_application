@@ -8,6 +8,8 @@ abstract final class FirestoreCollections {
   static const users = 'users';
   static const sessions = 'sessions';
   static const feedbacks = 'feedbacks';
+  static const leaderboard = 'leaderboard';
+  static const leaderboardProcessedSessions = 'leaderboard_processed_sessions';
 }
 
 class FirestoreHelper {

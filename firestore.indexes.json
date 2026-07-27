@@ -15,6 +15,14 @@
         { "fieldPath": "session_id", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "leaderboard",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "total_xp", "order": "DESCENDING" },
+        { "fieldPath": "best_score", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
