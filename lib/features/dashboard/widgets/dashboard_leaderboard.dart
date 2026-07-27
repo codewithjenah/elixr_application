@@ -187,6 +187,7 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
               LeaderboardPodium(
                 podium: LeaderboardPresentation.podiumOf(_topPlayers),
                 currentUserId: widget.currentUserId,
+                variant: LeaderboardPodiumVariant.compact,
               ),
               const SizedBox(height: AppSpacing.sm),
               HyperlinkButton(

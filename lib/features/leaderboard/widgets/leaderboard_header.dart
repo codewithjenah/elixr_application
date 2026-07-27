@@ -4,8 +4,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 
-const _amber = AppColors.warning;
-
 class LeaderboardHeader extends StatelessWidget {
   const LeaderboardHeader({
     super.key,
@@ -25,12 +23,12 @@ class LeaderboardHeader extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppColors.accent.withValues(
-              alpha: context.isDarkTheme ? 0.2 : 0.12,
+              alpha: context.isDarkTheme ? 0.18 : 0.10,
             ),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.26)),
           ),
-          child: Icon(
+          child: const Icon(
             FluentIcons.trophy2_solid,
             size: 20,
             color: AppColors.accentSoft,
@@ -41,7 +39,10 @@ class LeaderboardHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 10,
+                runSpacing: 6,
                 children: [
                   Text(
                     'Leaderboard',
@@ -49,29 +50,33 @@ class LeaderboardHeader extends StatelessWidget {
                       color: AppColors.primary,
                     ),
                   ),
-                  const SizedBox(width: 10),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+                      horizontal: 9,
+                      vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: _amber.withValues(alpha: 0.14),
+                      color: AppColors.warning.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: _amber.withValues(alpha: 0.4)),
+                      border: Border.all(
+                        color: AppColors.warning.withValues(alpha: 0.28),
+                      ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'All Time',
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: _amber,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                        color: AppColors.warning.withValues(
+                          alpha: context.isDarkTheme ? 0.92 : 0.85,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 'All-time rankings by total XP.',
                 style: AppTheme.bodySecondary.copyWith(
@@ -81,6 +86,7 @@ class LeaderboardHeader extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(width: AppSpacing.sm),
         _RefreshButton(enabled: refreshEnabled, onPressed: onRefresh),
       ],
     );
@@ -99,20 +105,39 @@ class _RefreshButton extends StatefulWidget {
 
 class _RefreshButtonState extends State<_RefreshButton> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Refresh leaderboard',
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        cursor: widget.enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
+    final interactive = widget.enabled;
+    final accentBorder = _hovered || _focused;
+
+    return Semantics(
+      button: true,
+      enabled: interactive,
+      label: 'Refresh leaderboard',
+      child: Tooltip(
+        message: 'Refresh leaderboard',
         child: FocusableActionDetector(
+          onShowFocusHighlight: (focused) {
+            setState(() => _focused = focused);
+          },
+          onShowHoverHighlight: (hovered) {
+            setState(() => _hovered = hovered);
+          },
+          mouseCursor: interactive
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                if (interactive) widget.onPressed();
+                return null;
+              },
+            ),
+          },
           child: GestureDetector(
-            onTap: widget.enabled ? widget.onPressed : null,
+            onTap: interactive ? widget.onPressed : null,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               padding: const EdgeInsets.all(11),
@@ -120,17 +145,20 @@ class _RefreshButtonState extends State<_RefreshButton> {
                 color: context.elixCardSurface,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: _hovered && widget.enabled
+                  color: !interactive
+                      ? context.elixBorder.withValues(alpha: 0.5)
+                      : accentBorder
                       ? AppColors.accent.withValues(alpha: 0.55)
                       : context.elixBorder,
+                  width: _focused ? 1.6 : 1,
                 ),
               ),
               child: Icon(
                 FluentIcons.refresh,
                 size: 16,
-                color: widget.enabled
+                color: interactive
                     ? AppColors.accentSoft
-                    : context.elixTextSecondary,
+                    : context.elixTextSecondary.withValues(alpha: 0.55),
               ),
             ),
           ),

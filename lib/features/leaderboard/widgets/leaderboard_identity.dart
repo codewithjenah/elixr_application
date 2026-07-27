@@ -3,17 +3,40 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 
+/// Shared medal / badge visuals for podium and ranking rows.
+abstract final class LeaderboardRankStyle {
+  static const silver = Color(0xFFB8C0CC);
+  static const bronze = Color(0xFFCD7F32);
+
+  static Color medalForRank(int rank) {
+    switch (rank) {
+      case 1:
+        return AppColors.warning;
+      case 2:
+        return silver;
+      case 3:
+        return bronze;
+      default:
+        return AppColors.accent;
+    }
+  }
+}
+
 class LeaderboardInitialsAvatar extends StatelessWidget {
   const LeaderboardInitialsAvatar({
     super.key,
     required this.initials,
     required this.accent,
     required this.size,
+    this.highlightRing = false,
   });
 
   final String initials;
   final Color accent;
   final double size;
+
+  /// Subtle current-user ring that does not replace the medal accent.
+  final bool highlightRing;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +52,20 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
             AppColors.primary.withValues(alpha: 0.18),
           ],
         ),
-        border: Border.all(color: accent.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: highlightRing
+              ? AppColors.primary.withValues(alpha: 0.75)
+              : accent.withValues(alpha: 0.55),
+          width: highlightRing ? 2 : 1,
+        ),
+        boxShadow: highlightRing
+            ? [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.22),
+                  blurRadius: 6,
+                ),
+              ]
+            : null,
       ),
       child: Text(
         initials,
@@ -44,21 +80,26 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
 }
 
 class LeaderboardYouBadge extends StatelessWidget {
-  const LeaderboardYouBadge({super.key});
+  const LeaderboardYouBadge({super.key, this.compact = false});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 7,
+        vertical: compact ? 1 : 2,
+      ),
       decoration: BoxDecoration(
         color: AppColors.primary.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.primary.withValues(alpha: 0.55)),
       ),
-      child: const Text(
+      child: Text(
         'YOU',
         style: TextStyle(
-          fontSize: 9,
+          fontSize: compact ? 8 : 9,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.4,
           color: AppColors.primary,

@@ -10,7 +10,10 @@ import 'leaderboard_list_controller.dart';
 import 'leaderboard_presentation.dart';
 import 'widgets/leaderboard_header.dart';
 import 'widgets/leaderboard_podium.dart';
-import 'widgets/leaderboard_rank_row.dart';
+import 'widgets/leaderboard_rankings_section.dart';
+
+/// Desktop content width for the full leaderboard screen.
+const double _kLeaderboardContentMaxWidth = 1200;
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key, this.repository, this.controller});
@@ -74,6 +77,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   void _onRefresh() => _controller.refresh();
 
+  Widget _centered(Widget child) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: _kLeaderboardContentMaxWidth,
+        ),
+        child: child,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
@@ -92,98 +107,101 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               final currentUserId = context.read<AuthService>().currentUser?.id;
 
               if (_controller.isInitialLoading && entries.isEmpty) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LeaderboardHeader(
-                      refreshEnabled: false,
-                      onRefresh: _onRefresh,
-                    ),
-                    const Expanded(
-                      child: Center(
-                        child: ProgressRing(activeColor: AppColors.primary),
+                return _centered(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LeaderboardHeader(
+                        refreshEnabled: false,
+                        onRefresh: _onRefresh,
                       ),
-                    ),
-                  ],
+                      const Expanded(
+                        child: Center(
+                          child: ProgressRing(activeColor: AppColors.primary),
+                        ),
+                      ),
+                    ],
+                  ),
                 );
               }
 
               if (_controller.initialError != null && entries.isEmpty) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LeaderboardHeader(
-                      refreshEnabled: !_controller.isInitialLoading,
-                      onRefresh: _onRefresh,
-                    ),
-                    Expanded(child: _InitialErrorState(onRetry: _onRefresh)),
-                  ],
+                return _centered(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LeaderboardHeader(
+                        refreshEnabled: !_controller.isInitialLoading,
+                        onRefresh: _onRefresh,
+                      ),
+                      Expanded(child: _InitialErrorState(onRetry: _onRefresh)),
+                    ],
+                  ),
                 );
               }
 
               if (entries.isEmpty) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LeaderboardHeader(
-                      refreshEnabled: !_controller.isInitialLoading,
-                      onRefresh: _onRefresh,
-                    ),
-                    const Expanded(child: _EmptyState()),
-                  ],
+                return _centered(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LeaderboardHeader(
+                        refreshEnabled: !_controller.isInitialLoading,
+                        onRefresh: _onRefresh,
+                      ),
+                      const Expanded(child: _EmptyState()),
+                    ],
+                  ),
                 );
               }
 
               final podium = LeaderboardPresentation.podiumOf(entries);
               final rows = LeaderboardPresentation.rankedRowsOf(entries);
+              final loadMoreFooter = _LoadMoreFooter(
+                hasMore: _controller.hasMore,
+                isLoadingMore: _controller.isLoadingMore,
+                loadMoreError: _controller.loadMoreError,
+                onLoadMore: _controller.loadMore,
+              );
 
               return CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
-                    child: LeaderboardHeader(
-                      refreshEnabled: !_controller.isInitialLoading,
-                      onRefresh: _onRefresh,
+                    child: _centered(
+                      LeaderboardHeader(
+                        refreshEnabled: !_controller.isInitialLoading,
+                        onRefresh: _onRefresh,
+                      ),
                     ),
                   ),
                   const SliverToBoxAdapter(
                     child: SizedBox(height: AppSpacing.lg),
                   ),
                   SliverToBoxAdapter(
-                    child: LeaderboardPodium(
-                      podium: podium,
-                      currentUserId: currentUserId,
+                    child: _centered(
+                      LeaderboardPodium(
+                        podium: podium,
+                        currentUserId: currentUserId,
+                        variant: LeaderboardPodiumVariant.full,
+                      ),
                     ),
                   ),
                   if (rows.isNotEmpty) ...[
                     const SliverToBoxAdapter(
                       child: SizedBox(height: AppSpacing.lg),
                     ),
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final row = rows[index];
-                        return Padding(
-                          padding: EdgeInsets.only(
-                            bottom: index < rows.length - 1
-                                ? AppSpacing.sm
-                                : AppSpacing.md,
-                          ),
-                          child: LeaderboardRankRow(
-                            rank: row.rank,
-                            entry: row.entry,
-                            isCurrentUser: row.entry.userId == currentUserId,
-                          ),
-                        );
-                      }, childCount: rows.length),
+                    SliverToBoxAdapter(
+                      child: _centered(
+                        LeaderboardRankingsSection(
+                          rows: rows,
+                          currentUserId: currentUserId,
+                          footer: loadMoreFooter,
+                        ),
+                      ),
                     ),
+                  ] else ...[
+                    SliverToBoxAdapter(child: _centered(loadMoreFooter)),
                   ],
-                  SliverToBoxAdapter(
-                    child: _LoadMoreFooter(
-                      hasMore: _controller.hasMore,
-                      isLoadingMore: _controller.isLoadingMore,
-                      loadMoreError: _controller.loadMoreError,
-                      onLoadMore: _controller.loadMore,
-                    ),
-                  ),
                   const SliverToBoxAdapter(
                     child: SizedBox(height: AppSpacing.xl),
                   ),
