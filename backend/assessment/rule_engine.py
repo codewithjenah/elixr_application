@@ -69,9 +69,26 @@ def evaluate_movement(
     movement_state: Optional[dict] = None,
     *,
     bottle_detection_enabled: bool = True,
+    bottles: Optional[list[BottleDetection]] = None,
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
     if not bottle_detection_enabled and bottle is None:
         return evaluate_posture_only(movement, pose, hands, prev_hip_center)
+
+    # Double Hand Stall scores two bottles; keep other movements on primary bottle.
+    if movement == "Double Hand Stall":
+        bottle_list = (
+            list(bottles)
+            if bottles is not None
+            else ([bottle] if bottle is not None else [])
+        )
+        return double_hand_stall.evaluate(
+            bottle,
+            pose,
+            hands,
+            prev_hip_center,
+            movement_state,
+            bottles=bottle_list,
+        )
 
     if movement in _RULES:
         return _RULES[movement](bottle, pose, hands, prev_hip_center, movement_state)

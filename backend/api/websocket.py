@@ -182,7 +182,8 @@ class VisionSession:
             bottles = []
             self._last_bottles = []
 
-        # Score on the highest-confidence bottle; the rest are for display only.
+        # Score on the highest-confidence bottle for single-bottle movements.
+        # Double Hand Stall also receives the full detection list via `bottles`.
         bottle = bottles[0] if bottles else None
 
         # Important fix:
@@ -206,6 +207,7 @@ class VisionSession:
             self._prev_hip_center,
             self._movement_state,
             bottle_detection_enabled=self.bottle_detection_enabled,
+            bottles=bottles if self.bottle_detection_enabled else None,
         )
 
         self.scorer.record(rule_result.feedback_type)

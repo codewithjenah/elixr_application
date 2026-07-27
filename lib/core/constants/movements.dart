@@ -61,7 +61,8 @@ const movementCatalog = <Movement>[
   Movement(
     name: 'Double Hand Stall',
     difficulty: 'Hard',
-    description: 'Balance the bottle steadily above both open palms.',
+    description:
+        'Balance two bottles simultaneously, with one upright bottle on each open palm.',
     requiresHandsDetection: true,
     enabled: true,
   ),

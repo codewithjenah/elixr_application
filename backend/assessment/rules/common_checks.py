@@ -9,6 +9,8 @@ from config import (
     STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
     UPPER_FOREARM_RATIO,
+    DOUBLE_HAND_OPEN_PALM_EXTENSION_RATIO,
+    DOUBLE_HAND_MIN_EXTENDED_FINGERS,
 )
 from assessment.rules.base import RuleResult
 from vision.types import (
@@ -301,6 +303,52 @@ def visible_palm_centers(
             continue
         palms.append(palm)
     return palms
+
+
+def usable_hands_with_palms(
+    hands: Optional[HandsResult],
+) -> list[tuple[HandLandmarks, Point2D]]:
+    """Hands that have a usable palm center, preserving MediaPipe list order."""
+    if hands is None or not hands.hands:
+        return []
+    usable: list[tuple[HandLandmarks, Point2D]] = []
+    for hand in hands.hands:
+        palm = hand.palm_center()
+        if palm is None:
+            continue
+        usable.append((hand, palm))
+    return usable
+
+
+def is_open_palm(
+    hand: HandLandmarks,
+    *,
+    extension_ratio: float = DOUBLE_HAND_OPEN_PALM_EXTENSION_RATIO,
+    min_extended: int = DOUBLE_HAND_MIN_EXTENDED_FINGERS,
+) -> bool:
+    """Rotation-tolerant open-palm check via wrist-to-tip vs wrist-to-MCP.
+
+    Uses index, middle, ring, and pinky. A finger counts as extended when the
+    wrist-to-tip distance is at least ``extension_ratio`` times the wrist-to-MCP
+    distance. Requires at least ``min_extended`` extended fingers.
+    """
+    wrist = hand.points.get(0)
+    if wrist is None:
+        return False
+
+    extended = 0
+    for mcp_index, tip_index in ((5, 8), (9, 12), (13, 16), (17, 20)):
+        mcp = hand.points.get(mcp_index)
+        tip = hand.points.get(tip_index)
+        if mcp is None or tip is None:
+            continue
+        wrist_to_mcp = _dist(wrist, mcp)
+        if wrist_to_mcp < 1e-6:
+            continue
+        wrist_to_tip = _dist(wrist, tip)
+        if wrist_to_tip >= extension_ratio * wrist_to_mcp:
+            extended += 1
+    return extended >= min_extended
 
 
 def track_bottle_stability(

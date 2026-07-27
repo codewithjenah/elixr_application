@@ -2,7 +2,11 @@ from typing import Optional
 
 from config import MOVEMENT_CONFIG
 from assessment.rules.base import RuleResult
-from assessment.rules.common_checks import check_hands_visible, visible_palm_centers
+from assessment.rules.common_checks import (
+    check_hands_visible,
+    is_open_palm,
+    usable_hands_with_palms,
+)
 from vision.types import HandsResult, Point2D, PoseLandmarks
 
 
@@ -42,13 +46,26 @@ def evaluate_posture_only(
     prev_hip_center: Optional[Point2D],
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
     if movement == "Double Hand Stall":
-        palms = visible_palm_centers(hands)
-        if len(palms) < 2:
+        usable = usable_hands_with_palms(hands)
+        if len(usable) < 2:
             return (
                 RuleResult(
-                    feedback="Keep both hands visible for the double hand stall.",
+                    feedback="Keep both hands fully visible.",
                     feedback_type="warning",
                     posture_status="unknown",
+                ),
+                prev_hip_center,
+                None,
+            )
+        ordered = sorted(usable, key=lambda item: item[1].x)
+        left_hand, _ = ordered[0]
+        right_hand, _ = ordered[-1]
+        if not is_open_palm(left_hand) or not is_open_palm(right_hand):
+            return (
+                RuleResult(
+                    feedback="Open both palms and extend your fingers.",
+                    feedback_type="warning",
+                    posture_status="unstable",
                 ),
                 prev_hip_center,
                 None,

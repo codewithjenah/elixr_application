@@ -5,11 +5,10 @@ from api import websocket as websocket_api
 from vision import hands_detector as hands_detector_module
 
 from config import (
-    DOUBLE_HAND_MAX_HEIGHT_DIFFERENCE,
-    DOUBLE_HAND_MAX_SEPARATION,
-    DOUBLE_HAND_MIN_SEPARATION,
-    DOUBLE_HAND_STALL_PROXIMITY,
-    DOUBLE_HAND_TARGET_ABOVE_OFFSET,
+    DOUBLE_HAND_BOTTLE_BASE_TO_PALM,
+    DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF,
+    DOUBLE_HAND_MIN_PALM_SEPARATION,
+    DOUBLE_HAND_UPRIGHT_ASPECT_RATIO,
     SHOULDER_ABOVE_OFFSET,
     SHOULDER_STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
@@ -1045,13 +1044,14 @@ def test_posture_only_positive():
         "Double Hand Stall",
         None,
         None,
-        HandsResult(hands=[_hand_near(0.35, 0.5, "Left"), _hand_near(0.65, 0.5, "Right")]),
+        _two_open_palms((0.35, 0.5), (0.65, 0.5)),
         None,
         bottle_detection_enabled=False,
     )
     assert result.feedback_type == "positive"
     assert "bottle detection" in result.feedback.lower()
     assert "double hand stall" in result.feedback.lower()
+    assert "locked in" not in result.feedback.lower()
 
 
 def _pose_from_points(points: dict[int, Point2D], visibility: float = 0.9) -> PoseLandmarks:
@@ -1361,229 +1361,472 @@ def test_shoulder_stall_proximity_boundary():
     assert result.feedback_type == "warning"
 
 
-def _two_palms(
-    left_xy: tuple[float, float] = (0.42, 0.55),
-    right_xy: tuple[float, float] = (0.58, 0.55),
+def _open_palm_hand(
+    x: float = 0.5,
+    y: float = 0.5,
+    handedness: str = "Right",
+    *,
+    closed: bool = False,
+) -> HandLandmarks:
+    """Synthetic open (or closed) palm with palm_center near (x, y)."""
+    wrist = Point2D(x, y + 0.04)
+    middle_mcp = Point2D(x, y - 0.04)
+    if closed:
+        # Tips stay near MCPs so wrist-to-tip ≈ wrist-to-MCP (not extended).
+        tips = {
+            8: Point2D(x - 0.03, y - 0.025),
+            12: Point2D(x, y - 0.045),
+            16: Point2D(x + 0.025, y - 0.025),
+            20: Point2D(x + 0.04, y - 0.015),
+        }
+    else:
+        tips = {
+            8: Point2D(x - 0.04, y - 0.12),
+            12: Point2D(x, y - 0.13),
+            16: Point2D(x + 0.035, y - 0.12),
+            20: Point2D(x + 0.05, y - 0.10),
+        }
+    return HandLandmarks(
+        points={
+            0: wrist,
+            4: Point2D(x - 0.05, y),
+            5: Point2D(x - 0.03, y - 0.02),
+            9: middle_mcp,
+            13: Point2D(x + 0.025, y - 0.02),
+            17: Point2D(x + 0.04, y - 0.01),
+            **tips,
+        },
+        handedness=handedness,
+    )
+
+
+def _two_open_palms(
+    left_xy: tuple[float, float] = (0.35, 0.55),
+    right_xy: tuple[float, float] = (0.65, 0.55),
     *,
     left_label: str = "Left",
     right_label: str = "Right",
     reverse_order: bool = False,
+    closed: bool = False,
 ) -> HandsResult:
-    left = _hand_near(left_xy[0], left_xy[1], left_label)
-    right = _hand_near(right_xy[0], right_xy[1], right_label)
+    left = _open_palm_hand(left_xy[0], left_xy[1], left_label, closed=closed)
+    right = _open_palm_hand(right_xy[0], right_xy[1], right_label, closed=closed)
     hands = [right, left] if reverse_order else [left, right]
     return HandsResult(hands=hands)
 
 
-def _double_hand_bottle(
-    left_xy: tuple[float, float] = (0.42, 0.55),
-    right_xy: tuple[float, float] = (0.58, 0.55),
+def _bottle_on_palm(
+    palm_x: float,
+    palm_y: float,
     *,
-    x: float | None = None,
-    y: float | None = None,
+    width: int = 40,
+    height: int = 80,
+    confidence: float = 0.9,
+    dy: float = 0.01,
 ) -> BottleDetection:
-    mid_x = (left_xy[0] + right_xy[0]) / 2.0
-    mid_y = (left_xy[1] + right_xy[1]) / 2.0
-    target_x = mid_x if x is None else x
-    target_y = mid_y - DOUBLE_HAND_TARGET_ABOVE_OFFSET if y is None else y
-    return _bottle(cx=int(round(target_x * 640)), cy=int(round(target_y * 480)))
+    """Upright bottle whose bottom-center rests near the palm."""
+    bx = int(round(palm_x * 640))
+    by = int(round((palm_y - dy) * 480))
+    return BottleDetection(
+        x1=bx - width // 2,
+        y1=by - height,
+        x2=bx + width // 2,
+        y2=by,
+        confidence=confidence,
+    )
+
+
+def _stable_two_bottle_state(
+    left_bottle: BottleDetection,
+    right_bottle: BottleDetection,
+    frames: int = 6,
+) -> dict:
+    state: dict | None = None
+    for _ in range(frames):
+        left_sub, _ = track_bottle_stability(
+            None if state is None else state.get("left_palm"),
+            left_bottle,
+        )
+        right_sub, _ = track_bottle_stability(
+            None if state is None else state.get("right_palm"),
+            right_bottle,
+        )
+        state = {"left_palm": left_sub, "right_palm": right_sub}
+    assert state is not None
+    return state
 
 
 def _eval_double_hand(
-    bottle: BottleDetection | None,
+    bottles: list[BottleDetection] | None,
     hands: HandsResult | None,
     state: dict | None = None,
+    *,
+    primary: BottleDetection | None = None,
 ):
+    bottle_list = list(bottles) if bottles is not None else []
+    if primary is None:
+        primary = bottle_list[0] if bottle_list else None
     return evaluate_movement(
         "Double Hand Stall",
-        bottle,
+        primary,
         None,
         hands,
         None,
         state,
+        bottles=bottle_list if bottles is not None else None,
     )
 
 
-def test_double_hand_stall_stable_success():
-    hands = _two_palms()
-    bottle = _double_hand_bottle()
-    result, _, state = _eval_double_hand(bottle, hands, _stable_state(bottle))
+def test_double_hand_stall_two_bottles_stable_success():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55, confidence=0.95)
+    right_b = _bottle_on_palm(0.65, 0.55, confidence=0.90)
+    state = _stable_two_bottle_state(left_b, right_b)
+    result, _, out_state = _eval_double_hand([left_b, right_b], hands, state)
     assert result.feedback_type == "positive"
     assert "locked in" in result.feedback.lower()
-    assert "bottle_history" in state
+    assert "left_palm" in out_state and "right_palm" in out_state
 
 
 def test_double_hand_stall_success_reversed_hand_list_order():
-    hands = _two_palms(reverse_order=True)
-    bottle = _double_hand_bottle()
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    hands = _two_open_palms(reverse_order=True)
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
+    assert result.feedback_type == "positive"
+
+
+def test_double_hand_stall_success_reversed_bottle_list_order():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55, confidence=0.70)
+    right_b = _bottle_on_palm(0.65, 0.55, confidence=0.99)
+    # Higher-confidence bottle listed first (image-right).
+    result, _, _ = _eval_double_hand(
+        [right_b, left_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
     assert result.feedback_type == "positive"
 
 
 def test_double_hand_stall_success_unknown_handedness():
-    hands = _two_palms(left_label="Unknown", right_label="Unknown")
-    bottle = _double_hand_bottle()
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+    hands = _two_open_palms(left_label="Unknown", right_label="Unknown")
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
     assert result.feedback_type == "positive"
 
 
-def test_double_hand_stall_missing_bottle():
-    result, _, _ = _eval_double_hand(None, _two_palms())
+def test_double_hand_stall_no_bottles():
+    result, _, _ = _eval_double_hand([], _two_open_palms())
     assert result.feedback_type == "error"
-    assert "bottle" in result.feedback.lower()
+    assert "both bottles" in result.feedback.lower()
 
 
-def test_double_hand_stall_no_hands():
-    result, _, _ = _eval_double_hand(_double_hand_bottle(), None)
+def test_double_hand_stall_only_one_bottle():
+    hands = _two_open_palms()
+    bottle = _bottle_on_palm(0.35, 0.55)
+    result, _, _ = _eval_double_hand([bottle], hands)
+    assert result.feedback_type == "warning"
+    assert "two bottles" in result.feedback.lower()
+
+
+def test_double_hand_stall_only_one_hand():
+    hands = HandsResult(hands=[_open_palm_hand(0.35, 0.55, "Left")])
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    result, _, _ = _eval_double_hand([left_b, right_b], hands)
     assert result.feedback_type == "warning"
     assert "both hands" in result.feedback.lower()
 
 
-def test_double_hand_stall_one_usable_hand():
-    hands = HandsResult(hands=[_hand_near(0.42, 0.55, "Left")])
-    result, _, _ = _eval_double_hand(_double_hand_bottle(), hands)
-    assert result.feedback_type == "warning"
-    assert "both hands" in result.feedback.lower()
-
-
-def test_double_hand_stall_hand_missing_palm_landmarks():
+def test_double_hand_stall_one_incomplete_hand():
     incomplete = HandLandmarks(
-        points={4: Point2D(0.42, 0.55)},
+        points={4: Point2D(0.35, 0.55)},
         handedness="Left",
     )
-    hands = HandsResult(hands=[incomplete, _hand_near(0.58, 0.55, "Right")])
-    result, _, _ = _eval_double_hand(_double_hand_bottle(), hands)
+    hands = HandsResult(
+        hands=[incomplete, _open_palm_hand(0.65, 0.55, "Right")]
+    )
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    result, _, _ = _eval_double_hand([left_b, right_b], hands)
     assert result.feedback_type == "warning"
     assert "both hands" in result.feedback.lower()
 
 
-def test_double_hand_stall_rejects_overlapping_palms():
-    hands = _two_palms((0.50, 0.55), (0.505, 0.55))
-    bottle = _double_hand_bottle((0.50, 0.55), (0.505, 0.55))
-    result, _, _ = _eval_double_hand(bottle, hands)
+def test_double_hand_stall_closed_palm():
+    hands = _two_open_palms(closed=True)
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    result, _, _ = _eval_double_hand([left_b, right_b], hands)
     assert result.feedback_type == "warning"
-    assert "separate" in result.feedback.lower()
+    assert "open both palms" in result.feedback.lower()
 
 
-def test_double_hand_stall_rejects_palms_too_close():
-    gap = DOUBLE_HAND_MIN_SEPARATION - 0.01
-    left = (0.50 - gap / 2, 0.55)
-    right = (0.50 + gap / 2, 0.55)
-    hands = _two_palms(left, right)
-    result, _, _ = _eval_double_hand(_double_hand_bottle(left, right), hands)
+def test_double_hand_stall_both_bottles_near_same_palm():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.38, 0.55)
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
     assert result.feedback_type == "warning"
-    assert "separate" in result.feedback.lower()
+    assert "above each palm" in result.feedback.lower()
 
 
-def test_double_hand_stall_rejects_palms_too_far():
-    gap = DOUBLE_HAND_MAX_SEPARATION + 0.02
-    left = (0.50 - gap / 2, 0.55)
-    right = (0.50 + gap / 2, 0.55)
-    hands = _two_palms(left, right)
-    result, _, _ = _eval_double_hand(_double_hand_bottle(left, right), hands)
+def test_double_hand_stall_rejects_bottle_centered_between_palms():
+    hands = _two_open_palms()
+    # Old one-bottle geometry: both detections clustered at the midpoint.
+    mid_b1 = _bottle_on_palm(0.50, 0.55, confidence=0.95)
+    mid_b2 = _bottle_on_palm(0.52, 0.55, confidence=0.90)
+    result, _, _ = _eval_double_hand(
+        [mid_b1, mid_b2], hands, _stable_two_bottle_state(mid_b1, mid_b2)
+    )
     assert result.feedback_type == "warning"
-    assert "closer" in result.feedback.lower()
+    assert "above each palm" in result.feedback.lower()
 
 
-def test_double_hand_stall_rejects_uneven_palm_heights():
-    left = (0.42, 0.50)
-    right = (0.58, 0.50 + DOUBLE_HAND_MAX_HEIGHT_DIFFERENCE + 0.02)
-    hands = _two_palms(left, right)
-    result, _, _ = _eval_double_hand(_double_hand_bottle(left, right), hands)
+def test_double_hand_stall_bottle_below_assigned_palm():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55)
+    # Bottom-center clearly below the right palm (larger image y).
+    right_b = _bottle_on_palm(0.65, 0.70)
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
+    assert result.feedback_type == "warning"
+    assert "above each palm" in result.feedback.lower()
+
+
+def test_double_hand_stall_bottle_too_far_from_palm():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55)
+    far = DOUBLE_HAND_BOTTLE_BASE_TO_PALM + 0.08
+    right_b = _bottle_on_palm(0.65, 0.55 - far)
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
+    assert result.feedback_type == "warning"
+    assert "above each palm" in result.feedback.lower()
+
+
+def test_double_hand_stall_tilted_wide_bbox():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55)
+    # Wide short bbox fails upright aspect ratio.
+    right_b = _bottle_on_palm(0.65, 0.55, width=90, height=40)
+    assert (right_b.y2 - right_b.y1) / max(1, right_b.x2 - right_b.x1) < (
+        DOUBLE_HAND_UPRIGHT_ASPECT_RATIO
+    )
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
+    assert result.feedback_type == "warning"
+    assert "upright" in result.feedback.lower()
+
+
+def test_double_hand_stall_uneven_palm_heights():
+    left = (0.35, 0.50)
+    right = (0.65, 0.50 + DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF + 0.03)
+    hands = _two_open_palms(left, right)
+    left_b = _bottle_on_palm(*left)
+    right_b = _bottle_on_palm(*right)
+    result, _, _ = _eval_double_hand([left_b, right_b], hands)
     assert result.feedback_type == "warning"
     assert "same height" in result.feedback.lower()
 
 
-def test_double_hand_stall_bottle_centered_above_palms():
-    hands = _two_palms()
-    bottle = _double_hand_bottle()
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert result.feedback_type == "positive"
-
-
-def test_double_hand_stall_rejects_bottle_near_left_palm_only():
-    hands = _two_palms()
-    bottle = _bottle(cx=int(0.42 * 640), cy=int(0.55 * 480))
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert result.feedback_type == "warning"
-    assert "center" in result.feedback.lower()
-
-
-def test_double_hand_stall_rejects_bottle_near_right_palm_only():
-    hands = _two_palms()
-    bottle = _bottle(cx=int(0.58 * 640), cy=int(0.55 * 480))
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert result.feedback_type == "warning"
-    assert "center" in result.feedback.lower()
-
-
-def test_double_hand_stall_rejects_bottle_outside_horizontal_support():
-    hands = _two_palms()
-    bottle = _double_hand_bottle(x=0.30, y=0.51)
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert result.feedback_type == "warning"
-    assert "center" in result.feedback.lower()
-
-
-def test_double_hand_stall_rejects_bottle_below_palms():
-    hands = _two_palms()
-    bottle = _double_hand_bottle(y=0.70)
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert result.feedback_type == "warning"
-    assert "underneath" in result.feedback.lower()
-
-
-def test_double_hand_stall_stable_history_positive():
-    hands = _two_palms()
-    bottle = _double_hand_bottle()
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert result.feedback_type == "positive"
-
-
-def test_double_hand_stall_unstable_history_warning():
-    hands = _two_palms()
-    bottle = _double_hand_bottle()
-    state = _stable_state(bottle)
-    # Inject large drift into the stability window.
-    history = list(state["bottle_history"])
+def test_double_hand_stall_one_stable_one_moving():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    state = _stable_two_bottle_state(left_b, right_b)
+    history = list(state["right_palm"]["bottle_history"])
     history[-1] = (
         history[-1][0] + STALL_STABILITY_THRESHOLD + 0.05,
         history[-1][1],
     )
-    state["bottle_history"] = history
-    result, _, _ = _eval_double_hand(bottle, hands, state)
+    state["right_palm"]["bottle_history"] = history
+    result, _, _ = _eval_double_hand([left_b, right_b], hands, state)
     assert result.feedback_type == "warning"
     assert "steady" in result.feedback.lower()
 
 
-def test_double_hand_stall_min_separation_boundary_accepts():
-    gap = DOUBLE_HAND_MIN_SEPARATION + 0.001
-    left = (0.50 - gap / 2, 0.55)
-    right = (0.50 + gap / 2, 0.55)
-    hands = _two_palms(left, right)
-    bottle = _double_hand_bottle(left, right)
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+def test_double_hand_stall_both_histories_stable_positive():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55)
+    right_b = _bottle_on_palm(0.65, 0.55)
+    result, _, _ = _eval_double_hand(
+        [left_b, right_b], hands, _stable_two_bottle_state(left_b, right_b)
+    )
     assert result.feedback_type == "positive"
 
 
-def test_double_hand_stall_proximity_boundary_rejects():
-    hands = _two_palms()
-    # Far enough above the target to exceed stall proximity.
-    bottle = _double_hand_bottle(
-        y=0.55 - DOUBLE_HAND_TARGET_ABOVE_OFFSET - DOUBLE_HAND_STALL_PROXIMITY - 0.02
+def test_double_hand_stall_detection_order_change_preserves_state():
+    hands = _two_open_palms()
+    left_b = _bottle_on_palm(0.35, 0.55, confidence=0.8)
+    right_b = _bottle_on_palm(0.65, 0.55, confidence=0.95)
+    state = _stable_two_bottle_state(left_b, right_b)
+    left_len = len(state["left_palm"]["bottle_history"])
+    right_len = len(state["right_palm"]["bottle_history"])
+
+    _, _, state = _eval_double_hand([right_b, left_b], hands, state)
+    assert len(state["left_palm"]["bottle_history"]) == left_len + 1
+    assert len(state["right_palm"]["bottle_history"]) == right_len + 1
+
+    # Swap list order again; palm-keyed histories keep growing independently.
+    _, _, state = _eval_double_hand([left_b, right_b], hands, state)
+    assert len(state["left_palm"]["bottle_history"]) == left_len + 2
+    assert len(state["right_palm"]["bottle_history"]) == right_len + 2
+
+
+def test_double_hand_stall_session_receives_both_detections(monkeypatch):
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    left_b = _bottle_on_palm(0.35, 0.55, confidence=0.95)
+    right_b = _bottle_on_palm(0.65, 0.55, confidence=0.90)
+    received: dict = {}
+
+    class StubCamera:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read(self):
+            return frame
+
+        def release(self):
+            pass
+
+    class StubBottleDetector:
+        def __init__(self, *, enabled: bool):
+            self.enabled = enabled
+
+        def ensure_ready(self):
+            pass
+
+        def detect(self, current_frame):
+            return [left_b, right_b]
+
+    class StubHandsDetector:
+        def __init__(self, **kwargs):
+            pass
+
+        def detect(self, current_frame, bottle=None):
+            return _two_open_palms()
+
+        def close(self):
+            pass
+
+    real_evaluate = websocket_api.evaluate_movement
+
+    def tracking_evaluate(movement, bottle, *args, **kwargs):
+        received["movement"] = movement
+        received["bottle"] = bottle
+        received["bottles"] = kwargs.get("bottles")
+        return real_evaluate(movement, bottle, *args, **kwargs)
+
+    monkeypatch.setattr(websocket_api, "CameraCapture", StubCamera)
+    monkeypatch.setattr(websocket_api, "BottleDetector", StubBottleDetector)
+    monkeypatch.setattr(websocket_api, "HandsDetector", StubHandsDetector)
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+    monkeypatch.setattr(
+        websocket_api,
+        "annotate_frame",
+        lambda current_frame, *a, **k: current_frame,
     )
-    result, _, _ = _eval_double_hand(bottle, hands, _stable_state(bottle))
+
+    session = websocket_api.VisionSession("Double Hand Stall")
+    try:
+        message = session.process_frame()
+    finally:
+        session.close()
+
+    assert message is not None
+    assert received["movement"] == "Double Hand Stall"
+    assert received["bottles"] == [left_b, right_b]
+    assert received["bottle"] is left_b
+    assert message.bottle_count == 2
+
+
+def test_other_movements_still_use_primary_bottle(monkeypatch):
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    primary = _bottle(cx=200, cy=240)
+    secondary = _bottle(cx=400, cy=240)
+    received: dict = {}
+
+    class StubCamera:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read(self):
+            return frame
+
+        def release(self):
+            pass
+
+    class StubBottleDetector:
+        def __init__(self, *, enabled: bool):
+            self.enabled = enabled
+
+        def ensure_ready(self):
+            pass
+
+        def detect(self, current_frame):
+            return [primary, secondary]
+
+    class StubHandsDetector:
+        def __init__(self, **kwargs):
+            pass
+
+        def detect(self, current_frame, bottle=None):
+            received["hands_bottle"] = bottle
+            return _hands_near()
+
+        def close(self):
+            pass
+
+    real_evaluate = websocket_api.evaluate_movement
+
+    def tracking_evaluate(movement, bottle, *args, **kwargs):
+        received["movement"] = movement
+        received["bottle"] = bottle
+        received["bottles"] = kwargs.get("bottles")
+        return real_evaluate(movement, bottle, *args, **kwargs)
+
+    monkeypatch.setattr(websocket_api, "CameraCapture", StubCamera)
+    monkeypatch.setattr(websocket_api, "BottleDetector", StubBottleDetector)
+    monkeypatch.setattr(websocket_api, "HandsDetector", StubHandsDetector)
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+    monkeypatch.setattr(
+        websocket_api,
+        "annotate_frame",
+        lambda current_frame, *a, **k: current_frame,
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    try:
+        message = session.process_frame()
+    finally:
+        session.close()
+
+    assert message is not None
+    assert received["bottle"] is primary
+    assert received["hands_bottle"] is primary
+    # Non-DHS movements may receive the list but still score the primary bottle.
+    assert received["bottle"] is not secondary
+
+
+def test_double_hand_stall_palms_too_close():
+    gap = DOUBLE_HAND_MIN_PALM_SEPARATION - 0.02
+    left = (0.50 - gap / 2, 0.55)
+    right = (0.50 + gap / 2, 0.55)
+    hands = _two_open_palms(left, right)
+    left_b = _bottle_on_palm(*left)
+    right_b = _bottle_on_palm(*right)
+    result, _, _ = _eval_double_hand([left_b, right_b], hands)
     assert result.feedback_type == "warning"
-
-
-def test_double_hand_stall_state_isolated_between_evaluations():
-    hands = _two_palms()
-    bottle = _double_hand_bottle()
-    _, _, first_state = _eval_double_hand(bottle, hands, _stable_state(bottle))
-    assert len(first_state["bottle_history"]) >= 4
-    result, _, second_state = _eval_double_hand(bottle, hands, None)
-    assert result.feedback_type in ("positive", "warning")
-    assert len(second_state["bottle_history"]) == 1
 
 
 def test_double_hand_stall_posture_only_requires_two_hands():
@@ -1591,23 +1834,47 @@ def test_double_hand_stall_posture_only_requires_two_hands():
         "Double Hand Stall",
         None,
         None,
-        HandsResult(hands=[_hand_near(0.42, 0.55, "Left")]),
+        HandsResult(hands=[_open_palm_hand(0.35, 0.55, "Left")]),
         None,
         bottle_detection_enabled=False,
     )
     assert result.feedback_type == "warning"
     assert "both hands" in result.feedback.lower()
+    assert "locked in" not in result.feedback.lower()
 
 
-def test_double_hand_stall_posture_only_ready_with_two_hands():
+def test_double_hand_stall_posture_only_ready_with_two_open_palms():
     result, _, _ = evaluate_movement(
         "Double Hand Stall",
         None,
         None,
-        _two_palms(),
+        _two_open_palms(),
         None,
         bottle_detection_enabled=False,
     )
     assert result.feedback_type == "positive"
     assert "bottle detection" in result.feedback.lower()
     assert "locked in" not in result.feedback.lower()
+
+
+def test_double_hand_stall_posture_only_rejects_closed_palms():
+    result, _, _ = evaluate_movement(
+        "Double Hand Stall",
+        None,
+        None,
+        _two_open_palms(closed=True),
+        None,
+        bottle_detection_enabled=False,
+    )
+    assert result.feedback_type == "warning"
+    assert "open both palms" in result.feedback.lower()
+    assert "locked in" not in result.feedback.lower()
+
+
+def test_bottle_detection_bottom_center_normalized():
+    bottle = BottleDetection(x1=100, y1=100, x2=140, y2=180, confidence=0.9)
+    bottom = bottle.bottom_center_normalized(640, 480)
+    assert bottom.x == pytest.approx(120 / 640)
+    assert bottom.y == pytest.approx(180 / 480)
+    center = bottle.center_normalized(640, 480)
+    assert bottom.y > center.y

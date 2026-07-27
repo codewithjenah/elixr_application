@@ -60,19 +60,20 @@ SHOULDER_STALL_PROXIMITY = 0.16
 # Bottle centers farther below the shoulder than this are treated as chest/below.
 SHOULDER_BELOW_REJECT = 0.03
 
-# Double Hand Stall geometry and stability thresholds (normalized image coords).
-# Palms sit side-by-side under a bottle centered slightly above their midpoint.
-DOUBLE_HAND_STALL_PROXIMITY = 0.14
-DOUBLE_HAND_MIN_SEPARATION = 0.08
-DOUBLE_HAND_MAX_SEPARATION = 0.32
-DOUBLE_HAND_MAX_HEIGHT_DIFFERENCE = 0.10
-DOUBLE_HAND_TARGET_ABOVE_OFFSET = 0.04
-DOUBLE_HAND_MAX_SUPPORT_DISTANCE = 0.24
-# Horizontal slack outside the palm span; below-palm reject uses image y.
-DOUBLE_HAND_HORIZONTAL_MARGIN = 0.03
+# Double Hand Stall: two upright bottles, one on each open palm.
+# All geometry thresholds use normalized image coordinates (0-1).
+# Values are intentionally conservative across typical webcam distances.
+DOUBLE_HAND_BOTTLE_BASE_TO_PALM = 0.12
+DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF = 0.10
+DOUBLE_HAND_MIN_PALM_SEPARATION = 0.12
+DOUBLE_HAND_MAX_BOTTLE_HEIGHT_DIFF = 0.12
+# Minimum bbox height/width for an approximately upright bottle.
+DOUBLE_HAND_UPRIGHT_ASPECT_RATIO = 1.2
+# Finger tip must be at least this multiple of wrist-to-MCP distance.
+DOUBLE_HAND_OPEN_PALM_EXTENSION_RATIO = 1.2
+DOUBLE_HAND_MIN_EXTENDED_FINGERS = 3
+# Reject when bottle bottom-center sits clearly below the assigned palm (image y).
 DOUBLE_HAND_BELOW_REJECT = 0.03
-# Max |dist(bottle, left) - dist(bottle, right)| while still "centered".
-DOUBLE_HAND_BALANCE_TOLERANCE = 0.08
 
 SCORE_WINDOW = 30
 SCORE_POSITIVE = 5

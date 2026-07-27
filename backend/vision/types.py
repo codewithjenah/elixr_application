@@ -27,6 +27,18 @@ class BottleDetection:
         c = self.center
         return Point2D(x=c.x / width, y=c.y / height)
 
+    @property
+    def bottom_center(self) -> Point2D:
+        """Bottom-center of the bbox — the support/contact point on a palm."""
+        return Point2D(
+            x=(self.x1 + self.x2) / 2.0,
+            y=float(self.y2),
+        )
+
+    def bottom_center_normalized(self, width: int, height: int) -> Point2D:
+        c = self.bottom_center
+        return Point2D(x=c.x / width, y=c.y / height)
+
 
 @dataclass
 class PoseLandmarks:
