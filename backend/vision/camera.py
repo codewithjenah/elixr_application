@@ -2,6 +2,8 @@ import logging
 import sys
 import threading
 import time
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
 
 import cv2
@@ -20,8 +22,6 @@ logger = logging.getLogger(__name__)
 
 _CAMERA_LOCK = threading.Lock()
 
-_WARMUP_FRAMES = 3
-_WARMUP_SLEEP_S = 0.08
 _RELEASE_DELAY_S = 0.15
 _READ_RETRIES = 5
 _DISCOVERY_MAX_INDEX = 4
@@ -30,8 +30,19 @@ _DISCOVERY_MAX_INDEX = 4
 _MIN_FRAME_MEAN = 8.0
 _MIN_FRAME_STD = 4.0
 
+# Startup must see a stable stream, not a single lucky frame.
+_STARTUP_TIMEOUT_S = 2.0
+_STARTUP_REQUIRED_CONSECUTIVE_FRAMES = 5
+_STARTUP_READ_SLEEP_S = 0.05
+
+# Runtime blank-frame recovery.
+_MAX_BLANK_FRAME_STREAK = 12
+_RECOVERY_COOLDOWN_S = 1.0
+_MAX_RECOVERY_ATTEMPTS_PER_READ = 1
+
 _shared_cap: Optional[cv2.VideoCapture] = None
 _shared_index: Optional[int] = None
+_shared_profile: Optional["CaptureProfile"] = None
 _release_timer: Optional[threading.Timer] = None
 # Bumped every time a pending release is cancelled/superseded so a timer
 # callback that already fired (and was blocked on _CAMERA_LOCK) can detect it
@@ -39,11 +50,68 @@ _release_timer: Optional[threading.Timer] = None
 _release_generation = 0
 
 
-def _backends() -> list[int | None]:
-    if sys.platform == "win32":
-        return [cv2.CAP_DSHOW, cv2.CAP_MSMF]
+class CameraReadStatus(Enum):
+    OK = "ok"
+    TEMPORARY_MISS = "temporary_miss"
+    RECOVERING = "recovering"
+    UNAVAILABLE = "unavailable"
 
-    return [None]
+
+@dataclass(frozen=True)
+class CaptureProfile:
+    api: int | None
+    backend_label: str
+    use_mjpg: bool
+    label: str
+
+
+def _capture_profiles(index: int) -> list[CaptureProfile]:
+    """Ordered Windows capture profiles for the given camera index.
+
+    Nonzero indices are treated as likely external devices for profile
+    ordering only — index identity is still whatever the OS assigns.
+    """
+    if sys.platform == "win32":
+        dshow_mjpg = CaptureProfile(
+            cv2.CAP_DSHOW, "DirectShow", True, "DirectShow + MJPG"
+        )
+        msmf_mjpg = CaptureProfile(
+            cv2.CAP_MSMF, "Media Foundation", True, "Media Foundation + MJPG"
+        )
+        dshow_default = CaptureProfile(
+            cv2.CAP_DSHOW, "DirectShow", False, "DirectShow + default"
+        )
+        msmf_default = CaptureProfile(
+            cv2.CAP_MSMF, "Media Foundation", False, "Media Foundation + default"
+        )
+
+        if index > 0:
+            # External USB webcams (e.g. Hikvision) often need MJPG first.
+            return [dshow_mjpg, msmf_mjpg, dshow_default, msmf_default]
+
+        # Built-in cameras are usually more stable on the default format.
+        return [dshow_default, msmf_default, dshow_mjpg, msmf_mjpg]
+
+    return [
+        CaptureProfile(None, "Default", False, "Default + default"),
+        CaptureProfile(None, "Default", True, "Default + MJPG"),
+    ]
+
+
+def _profiles_starting_after(
+    profiles: list[CaptureProfile],
+    failed: CaptureProfile | None,
+) -> list[CaptureProfile]:
+    """Rotate so the next profile after ``failed`` is tried first."""
+    if not profiles or failed is None:
+        return list(profiles)
+
+    try:
+        idx = next(i for i, p in enumerate(profiles) if p.label == failed.label)
+    except StopIteration:
+        return list(profiles)
+
+    return profiles[idx + 1 :] + profiles[: idx + 1]
 
 
 def candidate_indices(camera_index: int | None = None) -> list[int]:
@@ -83,26 +151,36 @@ def _frame_is_usable(frame: np.ndarray) -> bool:
     return True
 
 
-def _mjpg_attempts(index: int) -> tuple[bool, ...]:
-    # USB webcams on Windows often return black frames with MJPG via DirectShow.
-    if sys.platform == "win32" and index > 0:
-        return (False,)
-
-    return (False, True)
+def _fourcc_to_str(value: float | int) -> str:
+    code = int(value)
+    chars = "".join(chr((code >> (8 * i)) & 0xFF) for i in range(4))
+    return chars if chars.isprintable() else f"0x{code:08x}"
 
 
-def _read_usable_frame(
+def _probe_stable_startup(
     cap: cv2.VideoCapture,
     *,
-    warmup_frames: int = _WARMUP_FRAMES,
+    timeout_s: float = _STARTUP_TIMEOUT_S,
+    required_consecutive: int = _STARTUP_REQUIRED_CONSECUTIVE_FRAMES,
+    read_sleep_s: float = _STARTUP_READ_SLEEP_S,
 ) -> tuple[bool, Optional[np.ndarray]]:
-    for _ in range(warmup_frames + 1):
+    """Require consecutive usable frames before accepting a capture profile."""
+    deadline = time.monotonic() + timeout_s
+    consecutive = 0
+    last_valid: Optional[np.ndarray] = None
+
+    while time.monotonic() < deadline:
         ok, frame = cap.read()
         if ok and frame is not None and _frame_is_usable(frame):
-            return True, frame
+            consecutive += 1
+            last_valid = frame
+            if consecutive >= required_consecutive:
+                return True, last_valid
+        else:
+            consecutive = 0
 
-        if _WARMUP_SLEEP_S > 0:
-            time.sleep(_WARMUP_SLEEP_S)
+        if read_sleep_s > 0:
+            time.sleep(read_sleep_s)
 
     return False, None
 
@@ -117,6 +195,7 @@ def _apply_capture_settings(
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, TARGET_FPS)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 
@@ -131,7 +210,7 @@ def _cancel_pending_release() -> None:
 
 
 def _release_shared_unlocked() -> None:
-    global _shared_cap, _shared_index
+    global _shared_cap, _shared_index, _shared_profile
 
     _cancel_pending_release()
 
@@ -139,6 +218,7 @@ def _release_shared_unlocked() -> None:
         _shared_cap.release()
         _shared_cap = None
         _shared_index = None
+        _shared_profile = None
         logger.info("Camera released")
 
         if sys.platform == "win32":
@@ -177,55 +257,65 @@ def _schedule_shared_release() -> None:
     _release_timer.start()
 
 
-def _open_video_capture(index: int) -> Optional[cv2.VideoCapture]:
-    warmup_frames = _WARMUP_FRAMES + (2 if index > 0 else 0)
+def _create_capture(index: int, profile: CaptureProfile) -> cv2.VideoCapture:
+    if profile.api is not None:
+        return cv2.VideoCapture(index, profile.api)
+    return cv2.VideoCapture(index)
 
-    for api in _backends():
-        for use_mjpg in _mjpg_attempts(index):
-            cap = (
-                cv2.VideoCapture(index, api)
-                if api is not None
-                else cv2.VideoCapture(index)
-            )
 
-            if not cap.isOpened():
-                cap.release()
-                continue
+def _log_opened_capture(index: int, cap: cv2.VideoCapture, profile: CaptureProfile) -> None:
+    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    actual_fps = float(cap.get(cv2.CAP_PROP_FPS))
+    fourcc = _fourcc_to_str(cap.get(cv2.CAP_PROP_FOURCC))
 
-            _apply_capture_settings(cap, use_mjpg=use_mjpg)
+    logger.info(
+        "Camera %s opened using %s. "
+        "Requested %sx%s @ %s FPS. "
+        "Actual %sx%s @ %s FPS. "
+        "FOURCC=%s.",
+        index,
+        profile.label,
+        FRAME_WIDTH,
+        FRAME_HEIGHT,
+        TARGET_FPS,
+        actual_w,
+        actual_h,
+        actual_fps,
+        fourcc,
+    )
 
-            ok, frame = _read_usable_frame(cap, warmup_frames=warmup_frames)
-            if not ok or frame is None:
-                logger.debug(
-                    "Camera %s rejected (backend=%s, mjpg=%s): no usable frames",
-                    index,
-                    api,
-                    use_mjpg,
-                )
-                cap.release()
-                if sys.platform == "win32":
-                    time.sleep(_RELEASE_DELAY_S)
-                continue
 
-            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            actual_fps = int(cap.get(cv2.CAP_PROP_FPS))
+def _open_video_capture(
+    index: int,
+    *,
+    prefer_after: CaptureProfile | None = None,
+) -> Optional[tuple[cv2.VideoCapture, CaptureProfile]]:
+    profiles = _profiles_starting_after(_capture_profiles(index), prefer_after)
 
-            logger.info(
-                "Camera %s opened (backend=%s, mjpg=%s). "
-                "Requested %sx%s @ %s FPS, actual %sx%s @ %s FPS",
+    for profile in profiles:
+        cap = _create_capture(index, profile)
+
+        if not cap.isOpened():
+            cap.release()
+            continue
+
+        _apply_capture_settings(cap, use_mjpg=profile.use_mjpg)
+
+        ok, frame = _probe_stable_startup(cap)
+        if not ok or frame is None:
+            logger.debug(
+                "Camera %s rejected (%s): no stable usable frames",
                 index,
-                api,
-                use_mjpg,
-                FRAME_WIDTH,
-                FRAME_HEIGHT,
-                TARGET_FPS,
-                actual_w,
-                actual_h,
-                actual_fps,
+                profile.label,
             )
+            cap.release()
+            if sys.platform == "win32":
+                time.sleep(_RELEASE_DELAY_S)
+            continue
 
-            return cap
+        _log_opened_capture(index, cap, profile)
+        return cap, profile
 
     return None
 
@@ -235,9 +325,13 @@ def _try_reuse_shared_capture(
     *,
     preferred_index: int | None = None,
 ) -> bool:
-    global _shared_cap, _shared_index
+    global _shared_cap, _shared_index, _shared_profile
 
     if _shared_cap is None or not _shared_cap.isOpened():
+        return False
+
+    if _shared_profile is None:
+        logger.info("Shared camera has no profile metadata; reopening")
         return False
 
     if _shared_index not in allowed_indices:
@@ -261,9 +355,17 @@ def _try_reuse_shared_capture(
         )
         return False
 
-    ok, _ = _read_usable_frame(_shared_cap, warmup_frames=1)
+    ok, _ = _probe_stable_startup(
+        _shared_cap,
+        timeout_s=min(_STARTUP_TIMEOUT_S, 1.0),
+        required_consecutive=_STARTUP_REQUIRED_CONSECUTIVE_FRAMES,
+    )
     if ok:
-        logger.info("Reusing open camera %s", _shared_index)
+        logger.info(
+            "Reusing open camera %s (%s)",
+            _shared_index,
+            _shared_profile.label if _shared_profile else "unknown",
+        )
         return True
 
     logger.warning("Shared camera %s became unusable; reopening", _shared_index)
@@ -297,10 +399,11 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
                 )
                 continue
 
-            cap = _open_video_capture(index)
-            if cap is None:
+            opened = _open_video_capture(index)
+            if opened is None:
                 continue
 
+            cap, _profile = opened
             cameras.append(
                 {
                     "index": index,
@@ -341,6 +444,8 @@ class CameraCapture:
         self._height = height
         self._blank_frame_streak = 0
         self._used_fallback = False
+        self._last_read_status = CameraReadStatus.OK
+        self._last_recovery_at = 0.0
 
         if camera_index is not None:
             self._auto = False
@@ -350,6 +455,7 @@ class CameraCapture:
             self._auto = True
             self._selection = None
             self._auto_preferred = index
+
     @property
     def is_open(self) -> bool:
         with _CAMERA_LOCK:
@@ -364,6 +470,10 @@ class CameraCapture:
     def used_fallback(self) -> bool:
         return self._used_fallback
 
+    @property
+    def last_read_status(self) -> CameraReadStatus:
+        return self._last_read_status
+
     def _allowed_indices(self) -> list[int]:
         if not self._auto:
             return candidate_indices(self._selection)
@@ -373,9 +483,22 @@ class CameraCapture:
             indices.append(CAMERA_FALLBACK_INDEX)
         return indices
 
-    def open(self) -> bool:
-        global _shared_cap, _shared_index
+    def _adopt_opened(
+        self,
+        index: int,
+        cap: cv2.VideoCapture,
+        profile: CaptureProfile,
+    ) -> None:
+        global _shared_cap, _shared_index, _shared_profile
 
+        _shared_cap = cap
+        _shared_index = index
+        _shared_profile = profile
+        self._blank_frame_streak = 0
+        preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
+        self._used_fallback = self._auto and index != preferred
+
+    def open(self) -> bool:
         allowed = self._allowed_indices()
         mode = "auto-select" if self._auto else "explicit"
         requested = "auto" if self._auto else str(self._selection)
@@ -398,9 +521,11 @@ class CameraCapture:
                     and _shared_index is not None
                     and _shared_index != getattr(self, "_auto_preferred", CAMERA_INDEX)
                 )
+                self._last_read_status = CameraReadStatus.OK
                 logger.info(
-                    "Camera ready (reused): active_index=%s used_fallback=%s",
+                    "Camera ready (reused): active_index=%s profile=%s used_fallback=%s",
                     _shared_index,
+                    _shared_profile.label if _shared_profile else "unknown",
                     self._used_fallback,
                 )
                 return True
@@ -408,14 +533,11 @@ class CameraCapture:
             _release_shared_unlocked()
 
             for candidate in allowed:
-                cap = _open_video_capture(candidate)
+                opened = _open_video_capture(candidate)
 
-                if cap is not None:
-                    _shared_cap = cap
-                    _shared_index = candidate
-                    self._blank_frame_streak = 0
-                    preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
-                    self._used_fallback = self._auto and candidate != preferred
+                if opened is not None:
+                    cap, profile = opened
+                    self._adopt_opened(candidate, cap, profile)
 
                     if self._used_fallback:
                         logger.warning(
@@ -424,9 +546,11 @@ class CameraCapture:
                             candidate,
                         )
 
+                    self._last_read_status = CameraReadStatus.OK
                     logger.info(
-                        "Camera ready: active_index=%s used_fallback=%s size=%sx%s",
+                        "Camera ready: active_index=%s profile=%s used_fallback=%s size=%sx%s",
                         _shared_index,
+                        profile.label,
                         self._used_fallback,
                         self._width,
                         self._height,
@@ -446,45 +570,147 @@ class CameraCapture:
                     self._selection,
                 )
 
+            self._last_read_status = CameraReadStatus.UNAVAILABLE
             return False
+
+    def _recovery_allowed(self) -> bool:
+        if _RECOVERY_COOLDOWN_S <= 0:
+            return True
+        return (time.monotonic() - self._last_recovery_at) >= _RECOVERY_COOLDOWN_S
+
+    def _recover_unlocked(self) -> bool:
+        """Rebuild the capture under ``_CAMERA_LOCK``. Never calls ``read()``."""
+        global _shared_cap, _shared_index, _shared_profile
+
+        failed_index = _shared_index
+        failed_profile = _shared_profile
+        if failed_index is None:
+            return False
+
+        self._last_read_status = CameraReadStatus.RECOVERING
+        self._last_recovery_at = time.monotonic()
+
+        logger.warning(
+            "Camera recovery starting: index=%s failed_profile=%s blank_streak=%s auto=%s",
+            failed_index,
+            failed_profile.label if failed_profile else "unknown",
+            self._blank_frame_streak,
+            self._auto,
+        )
+
+        _release_shared_unlocked()
+
+        # Same-index recovery with rotated capture profiles.
+        opened = _open_video_capture(failed_index, prefer_after=failed_profile)
+        if opened is not None:
+            cap, profile = opened
+            self._adopt_opened(failed_index, cap, profile)
+            logger.info(
+                "Camera recovery succeeded on same index %s using %s",
+                failed_index,
+                profile.label,
+            )
+            self._last_read_status = CameraReadStatus.OK
+            return True
+
+        # Auto-select may fall back only after preferred-index recovery fails.
+        if self._auto:
+            preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
+            for candidate in self._allowed_indices():
+                if candidate == failed_index:
+                    continue
+                opened = _open_video_capture(candidate)
+                if opened is not None:
+                    cap, profile = opened
+                    self._adopt_opened(candidate, cap, profile)
+                    logger.warning(
+                        "Camera recovery fell back from index %s to %s using %s",
+                        preferred,
+                        candidate,
+                        profile.label,
+                    )
+                    self._last_read_status = CameraReadStatus.OK
+                    return True
+
+        logger.error(
+            "Camera recovery failed for index %s (auto=%s)",
+            failed_index,
+            self._auto,
+        )
+        self._last_read_status = CameraReadStatus.UNAVAILABLE
+        return False
+
+    def _read_frame_once_unlocked(self) -> Optional[np.ndarray]:
+        """Attempt a short read loop. Does not trigger recovery."""
+        if _shared_cap is None or not _shared_cap.isOpened():
+            return None
+
+        for _ in range(_READ_RETRIES):
+            ok, frame = _shared_cap.read()
+
+            if not ok or frame is None:
+                self._blank_frame_streak += 1
+                if _STARTUP_READ_SLEEP_S > 0:
+                    time.sleep(_STARTUP_READ_SLEEP_S)
+                continue
+
+            if not _frame_is_usable(frame):
+                self._blank_frame_streak += 1
+                if self._blank_frame_streak == 1 or self._blank_frame_streak % 30 == 0:
+                    logger.warning(
+                        "Camera %s returned a blank frame (streak=%s profile=%s)",
+                        _shared_index,
+                        self._blank_frame_streak,
+                        _shared_profile.label if _shared_profile else "unknown",
+                    )
+                if _STARTUP_READ_SLEEP_S > 0:
+                    time.sleep(_STARTUP_READ_SLEEP_S)
+                continue
+
+            self._blank_frame_streak = 0
+
+            if frame.shape[1] != self._width or frame.shape[0] != self._height:
+                frame = cv2.resize(
+                    frame,
+                    (self._width, self._height),
+                    interpolation=cv2.INTER_AREA,
+                )
+
+            return frame
+
+        return None
 
     def read(self) -> Optional[np.ndarray]:
         with _CAMERA_LOCK:
-            if _shared_cap is None or not _shared_cap.isOpened():
+            recoveries = 0
+
+            while True:
+                frame = self._read_frame_once_unlocked()
+                if frame is not None:
+                    self._last_read_status = CameraReadStatus.OK
+                    return frame
+
+                if (
+                    self._blank_frame_streak >= _MAX_BLANK_FRAME_STREAK
+                    and recoveries < _MAX_RECOVERY_ATTEMPTS_PER_READ
+                    and self._recovery_allowed()
+                ):
+                    if self._recover_unlocked():
+                        recoveries += 1
+                        continue
+
+                    self._last_read_status = CameraReadStatus.UNAVAILABLE
+                    return None
+
+                if (
+                    _shared_cap is None
+                    or not _shared_cap.isOpened()
+                    or self._last_read_status == CameraReadStatus.UNAVAILABLE
+                ):
+                    self._last_read_status = CameraReadStatus.UNAVAILABLE
+                else:
+                    self._last_read_status = CameraReadStatus.TEMPORARY_MISS
                 return None
-
-            for _ in range(_READ_RETRIES):
-                ok, frame = _shared_cap.read()
-
-                if not ok or frame is None:
-                    if _WARMUP_SLEEP_S > 0:
-                        time.sleep(_WARMUP_SLEEP_S)
-                    continue
-
-                if not _frame_is_usable(frame):
-                    self._blank_frame_streak += 1
-                    if self._blank_frame_streak == 1 or self._blank_frame_streak % 30 == 0:
-                        logger.warning(
-                            "Camera %s returned a blank frame (streak=%s)",
-                            _shared_index,
-                            self._blank_frame_streak,
-                        )
-                    if _WARMUP_SLEEP_S > 0:
-                        time.sleep(_WARMUP_SLEEP_S)
-                    continue
-
-                self._blank_frame_streak = 0
-
-                if frame.shape[1] != self._width or frame.shape[0] != self._height:
-                    frame = cv2.resize(
-                        frame,
-                        (self._width, self._height),
-                        interpolation=cv2.INTER_AREA,
-                    )
-
-                return frame
-
-            return None
 
     def release(self) -> None:
         with _CAMERA_LOCK:
