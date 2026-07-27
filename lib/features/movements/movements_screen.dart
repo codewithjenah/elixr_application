@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/constants/movement_visuals.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
@@ -15,18 +16,6 @@ import '../../services/session_service.dart';
 const _purple = AppColors.accent;
 const _pink = AppColors.primary;
 const _panelColor = AppColors.panelSurface;
-
-const _movementEmojis = <String, String>{
-  'Normal Grip': '🍾',
-  "Bartender's Grip": '🤏',
-  'Reverse Grip': '🖐️',
-  'Hand Stall': '✋',
-  'Arm Stall': '💪',
-  'Elbow Stall': '🦾',
-  'Upper Forearm Stall': '🆙',
-  'Shoulder Stall': '🧍',
-  'Double Hand Stall': '🙌',
-};
 
 class MovementsScreen extends StatefulWidget {
   const MovementsScreen({super.key});
@@ -260,11 +249,11 @@ class _DifficultySection extends StatelessWidget {
                                   accentColor: color,
                                   sessionCount:
                                       stats[rows[rowIndex][col].name]?.count ??
-                                          0,
+                                      0,
                                   avgScore:
                                       stats[rows[rowIndex][col].name]
-                                              ?.avgScore ??
-                                          0,
+                                          ?.avgScore ??
+                                      0,
                                 )
                               : const SizedBox.shrink(),
                         ),
@@ -423,10 +412,7 @@ class _MovementCardState extends State<_MovementCard> {
                         : null,
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    height: 36,
-                    child: _footer(accent, hovered),
-                  ),
+                  SizedBox(height: 36, child: _footer(accent, hovered)),
                 ],
               ),
             ),
@@ -461,7 +447,7 @@ class _MovementCardState extends State<_MovementCard> {
               child: Opacity(
                 opacity: _enabled ? 1 : 0.4,
                 child: Text(
-                  _movementEmojis[widget.movement.name] ?? '🍾',
+                  MovementVisuals.emojiFor(widget.movement.name),
                   style: const TextStyle(fontSize: 40),
                 ),
               ),

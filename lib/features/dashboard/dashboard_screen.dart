@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/movement_visuals.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
@@ -21,22 +22,6 @@ const _pink = AppColors.primary;
 const _cyan = AppColors.primarySoft;
 const _amber = AppColors.warning;
 const _panelColor = AppColors.panelSurface;
-
-const _movementEmojis = <String, String>{
-  'Normal Grip': '🍾',
-  "Bartender's Grip": '🤏',
-  'Reverse Grip': '🖐️',
-  'Hand Stall': '✋',
-  'Arm Stall': '💪',
-  'Elbow Stall': '🦾',
-  'Upper Forearm Stall': '🆙',
-  'Shoulder Stall': '🧍',
-  'Double Hand Stall': '🙌',
-  // Legacy movements kept only for historical session display.
-  'Hand-to-Hand Bottle Exchange': '🔄',
-  'Tap': '🥂',
-  'Basket': '🧺',
-};
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -886,7 +871,7 @@ class _ActivityRow extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Text(
-              _movementEmojis[session.movementName] ?? '🍾',
+              MovementVisuals.emojiFor(session.movementName),
               style: const TextStyle(fontSize: 18),
             ),
           ),
