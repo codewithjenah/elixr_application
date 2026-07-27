@@ -32,9 +32,9 @@ class PracticeSfxService {
     try {
       await _player.stop();
       await _player.setReleaseMode(ReleaseMode.release);
-      await _player.setSource(_countdown);
-      await _player.seek(countdownLeadIn);
-      await _player.resume();
+      // Use play() (not setSource+resume) so switching from congrats is reliable
+      // on Windows after Try Again.
+      await _player.play(_countdown, position: countdownLeadIn);
       _preloaded = true;
     } catch (e, st) {
       debugPrint('Practice SFX failed to play countdown: $e\n$st');

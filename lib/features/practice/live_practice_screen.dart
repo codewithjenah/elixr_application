@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -8,16 +9,18 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/elix_card.dart';
-import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
-import 'practice_game_widgets.dart';
+import 'widgets/training_action_area.dart';
+import 'widgets/training_camera_workspace.dart';
+import 'widgets/training_session_header.dart';
+import 'widgets/training_session_panel.dart';
+import 'widgets/training_status_row.dart';
 
-/// Free-form live practice: the camera streams with detection overlays but the
+/// Free-form live practice: camera streams with detection overlays but the
 /// user is not locked to a movement and no scoring/feedback is shown.
 class LivePracticeScreen extends StatefulWidget {
   const LivePracticeScreen({super.key});
@@ -40,6 +43,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   String? _sessionError;
   bool _leaving = false;
   bool _countdownActive = false;
+
+  static const _wideBreakpoint = 1100.0;
+  static const _panelWidth = 370.0;
 
   @override
   void initState() {
@@ -97,7 +103,6 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       return;
     }
     if (_countdownActive) return;
-    // Await so "3" appears with the first audible beat (after lead-in seek).
     await _sfx.playCountdown();
     if (!mounted || _countdownActive) return;
     setState(() => _countdownActive = true);
@@ -143,12 +148,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   Future<void> _leave() async {
     if (_leaving) return;
     _leaving = true;
-    // Capture the router before any async gap so we never touch `context`
-    // after the widget starts deactivating.
     final router = GoRouter.of(context);
-    // Silence incoming frames/state so no setState runs during the exit
-    // transition, and fully stop audio before navigating (disposing the
-    // AudioPlayer mid-teardown corrupts the frame on Windows).
     await _feedbackSub?.cancel();
     _feedbackSub = null;
     _ws.removeListener(_onWsStateChanged);
@@ -166,70 +166,19 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     return '$m:$s';
   }
 
+  TrainingActionKind _actionKind({required bool isSessionActive}) {
+    if (isSessionActive) return TrainingActionKind.finish;
+    if (_countdownActive) return TrainingActionKind.getReady;
+    return TrainingActionKind.start;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isSessionActive = _ws.sessionActive;
     final hasConnectionError =
         _ws.connectionState == WebSocketConnectionState.error;
-    final isDisconnected = !_ws.isConnected && !hasConnectionError;
 
     return ScaffoldPage(
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.sm,
-          AppSpacing.sm,
-          AppSpacing.xl,
-          0,
-        ),
-        child: PageHeader(
-          title: Row(
-            children: [
-              const Flexible(
-                child: Text(
-                  'Free Practice',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primarySoft,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Text(
-                  'No scoring — do whatever you want',
-                  style: AppTheme.caption.copyWith(
-                    color: AppColors.primarySoft,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          leading: Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.xs),
-            child: IconButton(
-              icon: const Icon(
-                FluentIcons.chrome_back,
-                color: AppColors.primary,
-              ),
-              onPressed: _leave,
-            ),
-          ),
-        ),
-      ),
       content: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -238,464 +187,149 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
             AppSpacing.xl,
             AppSpacing.xl,
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                flex: 3,
-                child: PulsingGlow(
-                  active: isSessionActive,
-                  child: _CameraPanel(
-                    frameBytes: _currentFrame,
-                    mirrored: context.watch<SettingsService>().cameraMirrored,
-                    isSessionActive: isSessionActive,
-                    connectionState: _ws.connectionState,
-                    errorMessage: _ws.errorMessage,
-                    sessionError: _sessionError,
-                    connecting: _connecting,
-                    onRetry: _connect,
-                    countdownActive: _countdownActive,
-                    onCountdownComplete: _beginSessionAfterCountdown,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= _wideBreakpoint;
+              final header = TrainingSessionHeader(
+                onBack: _leave,
+                title: 'Free Practice',
+                statusPill: 'NO SCORING',
+                statusPillColor: AppColors.primarySoft,
+                instruction:
+                    'Practice freely with live bottle detection. '
+                    'Results are not scored or saved.',
+                connectionState: _ws.connectionState,
+                connecting: _connecting,
+                wideLayout: wide,
+              );
+              final camera = TrainingCameraWorkspace(
+                frameBytes: _currentFrame,
+                mirrored: context.watch<SettingsService>().cameraMirrored,
+                connectionState: _ws.connectionState,
+                connecting: _connecting,
+                isSessionActive: isSessionActive,
+                errorMessage: _ws.errorMessage,
+                sessionError: _sessionError,
+                onRetry: _connect,
+                countdownActive: _countdownActive,
+                onCountdownComplete: _beginSessionAfterCountdown,
+                statusItems: [
+                  if (isSessionActive)
+                    TrainingCameraStatusItem(
+                      label: _bottleDetected
+                          ? 'Bottle detected'
+                          : 'Searching for bottle',
+                      color: _bottleDetected
+                          ? AppColors.success
+                          : AppColors.warning,
+                    ),
+                ],
+              );
+
+              final actionKind = _actionKind(isSessionActive: isSessionActive);
+              final panel = TrainingSessionPanel(
+                phase: isSessionActive
+                    ? TrainingSessionPhase.inProgress
+                    : TrainingSessionPhase.ready,
+                metrics: Column(
+                  children: [
+                    Text(
+                      'ELAPSED',
+                      style: AppTheme.caption.copyWith(
+                        color: AppColors.primarySoft,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      _formatDuration(_elapsedSeconds),
+                      style: AppTheme.headingMedium.copyWith(
+                        fontSize: 40,
+                        letterSpacing: 2,
+                        fontWeight: FontWeight.w900,
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                statusContent: TrainingStatusRow(
+                  detection: resolveDetectionStatus(
+                    sessionActive: isSessionActive,
+                    bottleDetected: isSessionActive ? _bottleDetected : null,
                   ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.lg),
-              SizedBox(
-                width: 320,
+                notice: Text(
+                  'No score or session history will be saved.',
+                  style: AppTheme.bodySecondary.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                compactStatusNote: _sessionError != null
+                    ? Text(
+                        _sessionError!,
+                        style: AppTheme.bodySecondary.copyWith(
+                          color: AppColors.error,
+                        ),
+                      )
+                    : (hasConnectionError
+                          ? Text(
+                              _ws.errorMessage ??
+                                  'Backend offline. Start the Python server first.',
+                              style: AppTheme.bodySecondary.copyWith(
+                                color: AppColors.error,
+                              ),
+                            )
+                          : null),
+                actionArea: TrainingActionArea(
+                  kind: actionKind,
+                  startLabel: 'Start Free Practice',
+                  onPressed: actionKind == TrainingActionKind.finish
+                      ? _stopSession
+                      : actionKind == TrainingActionKind.start
+                      ? (_ws.isConnected ? _startSession : _connect)
+                      : null,
+                  isLoading: _connecting,
+                ),
+              );
+
+              if (wide) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    header,
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: camera),
+                          const SizedBox(width: AppSpacing.lg),
+                          SizedBox(width: _panelWidth, child: panel),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              final cameraHeight = math.max(
+                280.0,
+                constraints.maxHeight * 0.42,
+              );
+              return SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _ConnectionStatusBadge(
-                      state: _ws.connectionState,
-                      connecting: _connecting,
-                    ),
+                    header,
+                    SizedBox(height: cameraHeight, child: camera),
                     const SizedBox(height: AppSpacing.md),
-                    ElixCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(
-                                  FluentIcons.timer,
-                                  color: AppColors.primary,
-                                  size: 18,
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.sm),
-                              Text('Session', style: AppTheme.headingMedium),
-                            ],
-                          ),
-                          const SizedBox(height: AppSpacing.lg),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              vertical: AppSpacing.lg,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: AppColors.primary.withValues(
-                                  alpha: 0.25,
-                                ),
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      FluentIcons.clock,
-                                      size: 14,
-                                      color: AppColors.primarySoft,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'ELAPSED',
-                                      style: AppTheme.caption.copyWith(
-                                        color: AppColors.primarySoft,
-                                        letterSpacing: 1.5,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: AppSpacing.sm),
-                                Text(
-                                  _formatDuration(_elapsedSeconds),
-                                  style: AppTheme.headingMedium.copyWith(
-                                    fontSize: 40,
-                                    letterSpacing: 2,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            'Warm up, freestyle, or drill any move you like. '
-                            'This mode just mirrors your camera with live '
-                            'detection — nothing is scored or saved.',
-                            style: AppTheme.bodySecondary,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    _BottleStatusIndicator(
-                      detected: isSessionActive ? _bottleDetected : null,
-                      isActive: isSessionActive,
-                    ),
-                    if (_sessionError != null) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      ElixCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              FluentIcons.warning,
-                              color: AppColors.error,
-                              size: 28,
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            Text(_sessionError!, style: AppTheme.bodySecondary),
-                            const SizedBox(height: AppSpacing.md),
-                            ElixPrimaryButton(
-                              label: 'Retry',
-                              onPressed: _connecting ? null : _startSession,
-                              isLoading: _connecting,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ] else if (hasConnectionError || isDisconnected) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      ElixCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              FluentIcons.wifi,
-                              color: AppColors.error,
-                              size: 28,
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            Text(
-                              _ws.errorMessage ??
-                                  'Backend offline. Start the Python server first.',
-                              style: AppTheme.bodySecondary,
-                            ),
-                            const SizedBox(height: AppSpacing.md),
-                            ElixPrimaryButton(
-                              label: 'Retry Connection',
-                              onPressed: _connecting ? null : _connect,
-                              isLoading: _connecting,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const Spacer(),
-                    const SizedBox(height: AppSpacing.md),
-                    if (isSessionActive)
-                      GameActionButton(
-                        label: 'Stop',
-                        icon: FluentIcons.stop_solid,
-                        danger: true,
-                        onPressed: _stopSession,
-                      )
-                    else
-                      GameActionButton(
-                        label: _countdownActive ? 'Get Ready…' : 'Start',
-                        icon: FluentIcons.play_solid,
-                        onPressed: _countdownActive
-                            ? null
-                            : (_ws.isConnected ? _startSession : _connect),
-                        isLoading: _connecting,
-                      ),
+                    SizedBox(height: 320, child: panel),
                   ],
                 ),
-              ),
-            ],
+              );
+            },
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _CameraPanel extends StatelessWidget {
-  const _CameraPanel({
-    required this.frameBytes,
-    required this.mirrored,
-    required this.isSessionActive,
-    required this.connectionState,
-    required this.onRetry,
-    this.errorMessage,
-    this.sessionError,
-    this.connecting = false,
-    this.countdownActive = false,
-    required this.onCountdownComplete,
-  });
-
-  final Uint8List? frameBytes;
-  final bool mirrored;
-  final bool isSessionActive;
-  final WebSocketConnectionState connectionState;
-  final String? errorMessage;
-  final String? sessionError;
-  final bool connecting;
-  final VoidCallback onRetry;
-  final bool countdownActive;
-  final VoidCallback onCountdownComplete;
-
-  @override
-  Widget build(BuildContext context) {
-    return ElixCard(
-      padding: EdgeInsets.zero,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: isSessionActive
-              ? Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.45),
-                  width: 1.5,
-                )
-              : null,
-          boxShadow: isSessionActive
-              ? [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    blurRadius: 24,
-                    spreadRadius: -4,
-                  ),
-                ]
-              : null,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: ColoredBox(
-            color: const Color(0xFF0A0A0C),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (frameBytes != null)
-                  Center(
-                    child: AspectRatio(
-                      aspectRatio: 640 / 480,
-                      child: Transform.flip(
-                        flipX: mirrored,
-                        child: Image.memory(
-                          frameBytes!,
-                          fit: BoxFit.fill,
-                          gaplessPlayback: true,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: AppColors.cardSurface.withValues(alpha: 0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            isSessionActive
-                                ? FluentIcons.video
-                                : FluentIcons.video_solid,
-                            size: 40,
-                            color: AppColors.textSecondary.withValues(
-                              alpha: 0.6,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(
-                          isSessionActive
-                              ? 'Waiting for frames...'
-                              : 'Press Start for a free camera session',
-                          style: AppTheme.bodySecondary,
-                        ),
-                      ],
-                    ),
-                  ),
-                if (connectionState == WebSocketConnectionState.error ||
-                    sessionError != null)
-                  Container(
-                    color: AppColors.background.withValues(alpha: 0.85),
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          sessionError != null
-                              ? FluentIcons.error
-                              : FluentIcons.warning,
-                          color: AppColors.error,
-                          size: 40,
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(
-                          sessionError ?? errorMessage ?? 'Connection error',
-                          style: AppTheme.body,
-                          textAlign: TextAlign.center,
-                        ),
-                        if (connectionState ==
-                            WebSocketConnectionState.error) ...[
-                          const SizedBox(height: AppSpacing.lg),
-                          ElixPrimaryButton(
-                            label: 'Retry',
-                            onPressed: connecting ? null : onRetry,
-                            isLoading: connecting,
-                            expanded: false,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                if (countdownActive)
-                  Positioned.fill(
-                    child: GameCountdownOverlay(
-                      onComplete: onCountdownComplete,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ConnectionStatusBadge extends StatelessWidget {
-  const _ConnectionStatusBadge({required this.state, required this.connecting});
-
-  final WebSocketConnectionState state;
-  final bool connecting;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (state) {
-      WebSocketConnectionState.connected => ('Connected', AppColors.success),
-      WebSocketConnectionState.connecting => (
-        'Connecting...',
-        AppColors.warning,
-      ),
-      WebSocketConnectionState.error => ('Error', AppColors.error),
-      WebSocketConnectionState.disconnected => (
-        'Disconnected',
-        AppColors.textSecondary,
-      ),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm + 2,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          if (connecting || state == WebSocketConnectionState.connecting)
-            const Padding(
-              padding: EdgeInsets.only(right: AppSpacing.sm),
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: ProgressRing(strokeWidth: 2),
-              ),
-            )
-          else
-            Container(
-              width: 9,
-              height: 9,
-              margin: const EdgeInsets.only(right: AppSpacing.sm),
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6),
-                ],
-              ),
-            ),
-          Text(
-            label,
-            style: AppTheme.body.copyWith(
-              color: color,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BottleStatusIndicator extends StatelessWidget {
-  const _BottleStatusIndicator({
-    required this.detected,
-    required this.isActive,
-  });
-
-  final bool? detected;
-  final bool isActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color, icon) = switch (detected) {
-      true => (
-        'Bottle detected',
-        AppColors.success,
-        FluentIcons.status_circle_checkmark,
-      ),
-      false => (
-        'Bottle not detected',
-        AppColors.error,
-        FluentIcons.status_circle_error_x,
-      ),
-      null => (
-        'Bottle status',
-        AppColors.textSecondary,
-        FluentIcons.circle_ring,
-      ),
-    };
-
-    return ElixCard(
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              isActive ? label : 'Start session to detect bottle',
-              style: AppTheme.body.copyWith(
-                color: isActive ? color : AppColors.textSecondary,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

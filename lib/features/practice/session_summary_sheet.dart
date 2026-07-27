@@ -9,6 +9,8 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/practice_feedback.dart';
 import 'practice_game_widgets.dart';
 
+enum SessionSummaryResult { saved, discarded, tryAgain }
+
 class SessionSummarySheet extends StatelessWidget {
   const SessionSummarySheet({
     super.key,
@@ -18,7 +20,9 @@ class SessionSummarySheet extends StatelessWidget {
     required this.feedbacks,
     required this.onSave,
     required this.onDiscard,
+    required this.onTryAgain,
     this.saving = false,
+    this.heldSteady = false,
   });
 
   final String movement;
@@ -27,17 +31,20 @@ class SessionSummarySheet extends StatelessWidget {
   final List<PracticeFeedback> feedbacks;
   final VoidCallback onSave;
   final VoidCallback onDiscard;
+  final VoidCallback onTryAgain;
   final bool saving;
+  final bool heldSteady;
 
-  static Future<bool?> show(
+  static Future<SessionSummaryResult?> show(
     BuildContext context, {
     required String movement,
     required int score,
     required int durationSeconds,
     required List<PracticeFeedback> feedbacks,
     required Future<void> Function() onSave,
+    bool heldSteady = false,
   }) {
-    return showDialog<bool>(
+    return showDialog<SessionSummaryResult>(
       context: context,
       barrierDismissible: false,
       barrierColor: const Color(0xCC000000),
@@ -60,13 +67,23 @@ class SessionSummarySheet extends StatelessWidget {
                         durationSeconds: durationSeconds,
                         feedbacks: feedbacks,
                         saving: saving,
-                        onDiscard: () =>
-                            Navigator.of(ctx, rootNavigator: true).pop(false),
+                        heldSteady: heldSteady,
+                        onDiscard: () => Navigator.of(
+                          ctx,
+                          rootNavigator: true,
+                        ).pop(SessionSummaryResult.discarded),
+                        onTryAgain: () => Navigator.of(
+                          ctx,
+                          rootNavigator: true,
+                        ).pop(SessionSummaryResult.tryAgain),
                         onSave: () async {
                           setState(() => saving = true);
                           await onSave();
                           if (ctx.mounted) {
-                            Navigator.of(ctx, rootNavigator: true).pop(true);
+                            Navigator.of(
+                              ctx,
+                              rootNavigator: true,
+                            ).pop(SessionSummaryResult.saved);
                           }
                         },
                       ),
@@ -211,36 +228,44 @@ class SessionSummarySheet extends StatelessWidget {
               color: AppColors.success.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              FluentIcons.completed_solid,
+            child: Icon(
+              heldSteady
+                  ? FluentIcons.trophy2_solid
+                  : FluentIcons.completed_solid,
               color: AppColors.success,
               size: 20,
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Session Complete',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Session Complete',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                movement,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.primary,
+                const SizedBox(height: 2),
+                Text(
+                  heldSteady
+                      ? 'You held "$movement" steady. Well done!'
+                      : movement,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.primary,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const Spacer(),
+          const SizedBox(width: AppSpacing.sm),
           RankBadge(score: score),
         ],
       ),
@@ -425,16 +450,7 @@ class SessionSummarySheet extends StatelessWidget {
           if (improvements.isEmpty)
             _buildAllGoodCard()
           else
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: improvements.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: AppSpacing.sm),
-                itemBuilder: (_, i) => _ImprovementCard(tip: improvements[i]),
-              ),
-            ),
+            Flexible(child: _TipsCard(tips: improvements)),
         ],
       ),
     );
@@ -481,33 +497,50 @@ class SessionSummarySheet extends StatelessWidget {
   Widget _buildActions(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.xl),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Button(
-              style: ButtonStyle(
-                padding: WidgetStateProperty.all(
-                  const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                ),
-                backgroundColor: WidgetStateProperty.resolveWith(
-                  (_) => context.elixBackground,
+          Row(
+            children: [
+              Expanded(
+                child: Button(
+                  style: ButtonStyle(
+                    padding: WidgetStateProperty.all(
+                      const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                    ),
+                    backgroundColor: WidgetStateProperty.resolveWith(
+                      (_) => context.elixBackground,
+                    ),
+                  ),
+                  onPressed: saving ? null : onTryAgain,
+                  child: Text(
+                    'Try Again',
+                    style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                flex: 2,
+                child: GameActionButton(
+                  label: 'Save & Continue',
+                  icon: FluentIcons.save,
+                  onPressed: saving ? null : onSave,
+                  isLoading: saving,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Center(
+            child: HyperlinkButton(
               onPressed: saving ? null : onDiscard,
               child: Text(
-                'Discard',
-                style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                'Discard without saving',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            flex: 2,
-            child: GameActionButton(
-              label: 'Save & Continue',
-              icon: FluentIcons.save,
-              onPressed: saving ? null : onSave,
-              isLoading: saving,
             ),
           ),
         ],
@@ -564,13 +597,16 @@ class _AnimatedEntranceState extends State<_AnimatedEntrance>
   }
 }
 
-class _ImprovementCard extends StatelessWidget {
-  const _ImprovementCard({required this.tip});
-  final String tip;
+/// Single beginner-friendly tips card (all tips in one place).
+class _TipsCard extends StatelessWidget {
+  const _TipsCard({required this.tips});
+
+  final List<String> tips;
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.lg,
         vertical: AppSpacing.md,
@@ -580,32 +616,42 @@ class _ImprovementCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Container(
-              width: 6,
-              height: 6,
-              decoration: const BoxDecoration(
-                color: AppColors.warning,
-                shape: BoxShape.circle,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < tips.length; i++) ...[
+              if (i > 0) const SizedBox(height: AppSpacing.sm),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: AppColors.warning,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      tips[i],
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              tip,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textPrimary,
-                height: 1.45,
-              ),
-            ),
-          ),
-        ],
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -647,6 +693,6 @@ class _ScoreRingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ScoreRingPainter old) =>
-      old.progress != progress || old.color != color;
+  bool shouldRepaint(_ScoreRingPainter oldDelegate) =>
+      oldDelegate.progress != progress || oldDelegate.color != color;
 }
