@@ -454,7 +454,10 @@ class _VictoryQuitButtonState extends State<_VictoryQuitButton> {
 
 /// Full-screen "3.. 2.. 1.. GO!" overlay shown before a session starts.
 class GameCountdownOverlay extends StatefulWidget {
-  const GameCountdownOverlay({super.key, required this.onComplete});
+  const GameCountdownOverlay({
+    super.key,
+    required this.onComplete,
+  });
 
   final VoidCallback onComplete;
 
@@ -475,7 +478,8 @@ class _GameCountdownOverlayState extends State<GameCountdownOverlay>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 750),
+      // Match countdown.mp3 beat spacing (~1.0s after lead-in silence).
+      duration: const Duration(milliseconds: 1000),
     );
     _scale = Tween(
       begin: 2.2,

@@ -14,6 +14,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../services/auth_service.dart';
 import '../../services/practice_music_service.dart';
+import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
@@ -57,6 +58,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   final _ws = WebSocketService();
   final _music = PracticeMusicService();
+  final _sfx = PracticeSfxService();
   final _feedbackHistory = <PracticeFeedback>[];
   final _scrollController = ScrollController();
 
@@ -104,6 +106,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _ws.addListener(_onWsStateChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _connect();
+    _sfx.preload();
   }
 
   @override
@@ -113,6 +116,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _feedbackSub?.cancel();
     _scorePulseController.dispose();
     _music.dispose();
+    _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
     _ws.dispose();
     _scrollController.dispose();
@@ -129,6 +133,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (feedback.isSessionFatal) {
       _timer?.cancel();
       _music.stop();
+      _sfx.stop();
       setState(() {
         _sessionError = feedback.feedback;
         _latestFeedback = feedback;
@@ -229,6 +234,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _timer?.cancel();
     _timer = null;
     await _music.stop();
+    await _sfx.playCongrats();
     if (mounted) setState(() {});
 
     final tryAgain = await _showMovementConfirmedDialog();
@@ -258,11 +264,15 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (mounted) setState(() => _connecting = false);
   }
 
-  void _startSession() {
+  Future<void> _startSession() async {
     if (!_ws.isConnected) {
       _connect();
       return;
     }
+    if (_countdownActive) return;
+    // Await so "3" appears with the first audible beat (after lead-in seek).
+    await _sfx.playCountdown();
+    if (!mounted || _countdownActive) return;
     setState(() => _countdownActive = true);
   }
 
@@ -286,6 +296,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
+    _sfx.stop();
     _music.start();
   }
 
@@ -318,6 +329,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _timer?.cancel();
     _timer = null;
     await _music.stop();
+    await _sfx.stop();
 
     if (!wasActive && _elapsedSeconds == 0 && _feedbackHistory.isEmpty) {
       if (mounted) router.go('/movements');

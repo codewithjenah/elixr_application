@@ -12,6 +12,7 @@ import '../../core/widgets/elix_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../services/practice_music_service.dart';
+import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
 import 'practice_game_widgets.dart';
@@ -28,6 +29,7 @@ class LivePracticeScreen extends StatefulWidget {
 class _LivePracticeScreenState extends State<LivePracticeScreen> {
   final _ws = WebSocketService();
   final _music = PracticeMusicService();
+  final _sfx = PracticeSfxService();
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   Timer? _timer;
@@ -45,6 +47,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _ws.addListener(_onWsStateChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _connect();
+    _sfx.preload();
   }
 
   @override
@@ -52,6 +55,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _timer?.cancel();
     _feedbackSub?.cancel();
     _music.dispose();
+    _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
     _ws.dispose();
     super.dispose();
@@ -67,6 +71,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (feedback.isSessionFatal) {
       _timer?.cancel();
       _music.stop();
+      _sfx.stop();
       setState(() => _sessionError = feedback.feedback);
       return;
     }
@@ -86,11 +91,15 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (mounted) setState(() => _connecting = false);
   }
 
-  void _startSession() {
+  Future<void> _startSession() async {
     if (!_ws.isConnected) {
       _connect();
       return;
     }
+    if (_countdownActive) return;
+    // Await so "3" appears with the first audible beat (after lead-in seek).
+    await _sfx.playCountdown();
+    if (!mounted || _countdownActive) return;
     setState(() => _countdownActive = true);
   }
 
@@ -111,6 +120,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
+    _sfx.stop();
     _music.start();
   }
 
@@ -119,6 +129,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _timer?.cancel();
     _timer = null;
     await _music.stop();
+    await _sfx.stop();
     if (mounted) {
       setState(() {
         _elapsedSeconds = 0;
@@ -145,6 +156,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _timer?.cancel();
     _timer = null;
     await _music.stop();
+    await _sfx.stop();
     router.go('/dashboard');
   }
 
