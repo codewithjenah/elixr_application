@@ -14,6 +14,7 @@ import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
+import 'practice_run_phase.dart';
 import 'widgets/training_action_area.dart';
 import 'widgets/training_camera_workspace.dart';
 import 'widgets/training_session_header.dart';
@@ -33,16 +34,14 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   final _ws = WebSocketService();
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
+  final _run = PracticeRunController();
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
-  Timer? _timer;
-  int _elapsedSeconds = 0;
   Uint8List? _currentFrame;
   bool _bottleDetected = false;
   bool _connecting = false;
   String? _sessionError;
   bool _leaving = false;
-  bool _countdownActive = false;
 
   static const _wideBreakpoint = 1100.0;
   static const _panelWidth = 370.0;
@@ -51,6 +50,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   void initState() {
     super.initState();
     _ws.addListener(_onWsStateChanged);
+    _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _connect();
     _sfx.preload();
@@ -58,11 +58,12 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
 
   @override
   void dispose() {
-    _timer?.cancel();
     _feedbackSub?.cancel();
     _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
+    _run.removeListener(_onRunChanged);
+    _run.dispose();
     _ws.dispose();
     super.dispose();
   }
@@ -71,19 +72,57 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (mounted) setState(() {});
   }
 
+  void _onRunChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onFeedback(PracticeFeedback feedback) {
     if (!mounted) return;
 
     if (feedback.isSessionFatal) {
-      _timer?.cancel();
       _music.stop();
       _sfx.stop();
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: feedback.feedback,
+      );
+      _ws.sendStop();
       setState(() {
         _sessionError = feedback.feedback;
         _currentFrame = null;
       });
       return;
     }
+
+    if (_run.isPreparingCamera) {
+      setState(() {
+        _sessionError = null;
+        if (feedback.frameJpegBytes != null) {
+          _currentFrame = feedback.frameJpegBytes;
+        }
+      });
+      final startCountdown = _run.onPreviewFeedback(
+        hasJpegFrame: feedback.frameJpegBytes != null,
+        isFatal: false,
+      );
+      if (startCountdown) {
+        unawaited(_startCountdownOverlay());
+      }
+      return;
+    }
+
+    if (_run.isCountdown) {
+      setState(() {
+        _sessionError = null;
+        if (feedback.frameJpegBytes != null) {
+          _currentFrame = feedback.frameJpegBytes;
+        }
+      });
+      return;
+    }
+
+    if (!_run.isTrainingActive) return;
 
     setState(() {
       _sessionError = null;
@@ -92,6 +131,13 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         _currentFrame = feedback.frameJpegBytes;
       }
     });
+  }
+
+  Future<void> _startCountdownOverlay() async {
+    await _sfx.playCountdown();
+    if (!mounted || !_run.isPreparingCamera) return;
+    if (!_run.countdownTriggered) return;
+    _run.enterCountdown();
   }
 
   Future<void> _connect() async {
@@ -105,52 +151,87 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       _connect();
       return;
     }
-    if (_countdownActive) return;
-    await _sfx.playCountdown();
-    if (!mounted || _countdownActive) return;
-    setState(() => _countdownActive = true);
-  }
-
-  Future<void> _beginSessionAfterCountdown() async {
-    if (!mounted) return;
-    setState(() => _countdownActive = false);
-    if (!_ws.isConnected) {
-      _connect();
+    if (_run.phase != PracticeRunPhase.idle &&
+        _run.phase != PracticeRunPhase.error) {
       return;
     }
-    _elapsedSeconds = 0;
+
     _sessionError = null;
     _currentFrame = null;
-    // A generic movement keeps the vision pipeline (camera + detection
-    // overlays) running; the user practices freely and nothing is scored.
+    _bottleDetected = false;
+    _run.beginPreparing(onTimeout: _onPreparationTimeout);
+    setState(() {});
+
     final cameraIndex =
         await context.read<SettingsService>().loadSelectedCameraIndex();
     if (!mounted) return;
-    _ws.sendStart(
+    if (!_run.isPreparingCamera) return;
+
+    // A generic movement keeps the vision pipeline (camera + detection
+    // overlays) running; the user practices freely and nothing is scored.
+    _ws.sendPrepare(
       movement: 'Normal Grip',
       difficulty: 'Easy',
       cameraIndex: cameraIndex,
     );
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedSeconds++);
-    });
-    _sfx.stop();
-    _music.start();
   }
 
-  Future<void> _stopSession() async {
+  void _onPreparationTimeout() {
+    if (!mounted) return;
     _ws.sendStop();
-    _timer?.cancel();
-    _timer = null;
+    unawaited(_music.stop());
+    unawaited(_sfx.stop());
+    setState(() {
+      _sessionError = _run.errorMessage;
+      _currentFrame = null;
+    });
+  }
+
+  Future<void> _beginSessionAfterCountdown() async {
+    if (!mounted) return;
+    if (!_run.isCountdown) return;
+    if (!_ws.isConnected) {
+      _run.cancelToIdle();
+      _connect();
+      return;
+    }
+
+    _ws.sendActivate();
+    _run.enterActive();
+    _sfx.stop();
+    _music.start();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _cancelPreActive() async {
+    _ws.sendStop();
+    _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
     if (mounted) {
       setState(() {
-        _elapsedSeconds = 0;
         _currentFrame = null;
         _bottleDetected = false;
-        _countdownActive = false;
+        _sessionError = null;
+      });
+    }
+  }
+
+  Future<void> _stopSession() async {
+    if (_run.isPreparingCamera || _run.isCountdown || _run.isError) {
+      await _cancelPreActive();
+      return;
+    }
+
+    _ws.sendStop();
+    _run.cancelToIdle();
+    await _music.stop();
+    await _sfx.stop();
+    if (mounted) {
+      setState(() {
+        _currentFrame = null;
+        _bottleDetected = false;
+        _sessionError = null;
       });
     }
   }
@@ -162,9 +243,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     await _feedbackSub?.cancel();
     _feedbackSub = null;
     _ws.removeListener(_onWsStateChanged);
+    _run.removeListener(_onRunChanged);
     _ws.sendStop();
-    _timer?.cancel();
-    _timer = null;
+    _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
     router.go('/dashboard');
@@ -176,17 +257,35 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     return '$m:$s';
   }
 
-  TrainingActionKind _actionKind({required bool isSessionActive}) {
-    if (isSessionActive) return TrainingActionKind.finish;
-    if (_countdownActive) return TrainingActionKind.getReady;
-    return TrainingActionKind.start;
+  TrainingActionKind _actionKind() {
+    return switch (_run.phase) {
+      PracticeRunPhase.active => TrainingActionKind.finish,
+      PracticeRunPhase.preparingCamera ||
+      PracticeRunPhase.countdown => TrainingActionKind.cancel,
+      PracticeRunPhase.error => TrainingActionKind.retry,
+      PracticeRunPhase.idle ||
+      PracticeRunPhase.completed => TrainingActionKind.start,
+    };
+  }
+
+  TrainingSessionPhase _panelPhase() {
+    return switch (_run.phase) {
+      PracticeRunPhase.idle => TrainingSessionPhase.ready,
+      PracticeRunPhase.preparingCamera => TrainingSessionPhase.preparingCamera,
+      PracticeRunPhase.countdown => TrainingSessionPhase.getReady,
+      PracticeRunPhase.active => TrainingSessionPhase.inProgress,
+      PracticeRunPhase.completed => TrainingSessionPhase.completed,
+      PracticeRunPhase.error => TrainingSessionPhase.cameraError,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final isSessionActive = _ws.sessionActive;
+    final isTrainingActive = _run.isTrainingActive;
+    final isCameraLive = _run.isCameraSessionLive;
     final hasConnectionError =
         _ws.connectionState == WebSocketConnectionState.error;
+    final actionKind = _actionKind();
 
     return ScaffoldPage(
       content: SafeArea(
@@ -217,14 +316,15 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 mirrored: context.watch<SettingsService>().cameraMirrored,
                 connectionState: _ws.connectionState,
                 connecting: _connecting,
-                isSessionActive: isSessionActive,
+                isSessionActive: isCameraLive && !_run.isPreparingCamera,
+                isPreparingCamera: _run.isPreparingCamera,
                 errorMessage: _ws.errorMessage,
-                sessionError: _sessionError,
+                sessionError: _sessionError ?? _run.errorMessage,
                 onRetry: _connect,
-                countdownActive: _countdownActive,
+                countdownActive: _run.isCountdown,
                 onCountdownComplete: _beginSessionAfterCountdown,
                 statusItems: [
-                  if (isSessionActive)
+                  if (isTrainingActive)
                     TrainingCameraStatusItem(
                       label: _bottleDetected
                           ? 'Bottle detected'
@@ -236,11 +336,8 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 ],
               );
 
-              final actionKind = _actionKind(isSessionActive: isSessionActive);
               final panel = TrainingSessionPanel(
-                phase: isSessionActive
-                    ? TrainingSessionPhase.inProgress
-                    : TrainingSessionPhase.ready,
+                phase: _panelPhase(),
                 metrics: Column(
                   children: [
                     Text(
@@ -253,7 +350,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Text(
-                      _formatDuration(_elapsedSeconds),
+                      _formatDuration(_run.elapsedSeconds),
                       style: AppTheme.headingMedium.copyWith(
                         fontSize: 40,
                         letterSpacing: 2,
@@ -265,8 +362,8 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 ),
                 statusContent: TrainingStatusRow(
                   detection: resolveDetectionStatus(
-                    sessionActive: isSessionActive,
-                    bottleDetected: isSessionActive ? _bottleDetected : null,
+                    sessionActive: isTrainingActive,
+                    bottleDetected: isTrainingActive ? _bottleDetected : null,
                   ),
                 ),
                 notice: Text(
@@ -275,9 +372,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                     color: context.elixTextSecondary,
                   ),
                 ),
-                compactStatusNote: _sessionError != null
+                compactStatusNote: (_sessionError ?? _run.errorMessage) != null
                     ? Text(
-                        _sessionError!,
+                        _sessionError ?? _run.errorMessage!,
                         style: AppTheme.bodySecondary.copyWith(
                           color: AppColors.error,
                         ),
@@ -294,11 +391,12 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 actionArea: TrainingActionArea(
                   kind: actionKind,
                   startLabel: 'Start Free Practice',
-                  onPressed: actionKind == TrainingActionKind.finish
-                      ? _stopSession
-                      : actionKind == TrainingActionKind.start
-                      ? (_ws.isConnected ? _startSession : _connect)
-                      : null,
+                  onPressed: switch (actionKind) {
+                    TrainingActionKind.finish => _stopSession,
+                    TrainingActionKind.cancel => _cancelPreActive,
+                    TrainingActionKind.retry || TrainingActionKind.start =>
+                      _ws.isConnected ? _startSession : _connect,
+                  },
                   isLoading: _connecting,
                 ),
               );

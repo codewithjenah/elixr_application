@@ -2,9 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../practice_game_widgets.dart';
 
-enum TrainingActionKind { start, getReady, finish }
+enum TrainingActionKind { start, cancel, finish, retry }
 
-/// Presentation for Start / Get Ready… / Finish. Pinning is owned by the panel.
+/// Presentation for Start / Cancel / Finish / Retry. Pinning is owned by the panel.
 class TrainingActionArea extends StatelessWidget {
   const TrainingActionArea({
     super.key,
@@ -30,11 +30,17 @@ class TrainingActionArea extends StatelessWidget {
         danger: true,
         onPressed: onPressed,
       ),
-      TrainingActionKind.getReady => const GameActionButton(
-        label: 'Get Ready…',
+      TrainingActionKind.cancel => GameActionButton(
+        label: 'Cancel',
+        icon: FluentIcons.cancel,
+        danger: true,
+        onPressed: onPressed,
+      ),
+      TrainingActionKind.retry => GameActionButton(
+        label: 'Retry',
         icon: FluentIcons.play_solid,
-        onPressed: null,
-        isLoading: false,
+        onPressed: onPressed,
+        isLoading: isLoading,
       ),
       TrainingActionKind.start => GameActionButton(
         label: startLabel,

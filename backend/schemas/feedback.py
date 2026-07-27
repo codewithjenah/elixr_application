@@ -13,3 +13,7 @@ class FeedbackMessage(BaseModel):
     posture_status: str
     frame_jpeg_base64: Optional[str] = None
     error_code: Optional[str] = None
+    # Optional lifecycle fields (backward-compatible defaults).
+    # session_state: preparing | active | recovering | unavailable
+    camera_ready: Optional[bool] = None
+    session_state: Optional[str] = None

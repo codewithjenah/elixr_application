@@ -11,6 +11,8 @@ class PracticeFeedback {
     required this.postureStatus,
     this.frameJpegBytes,
     this.errorCode,
+    this.cameraReady,
+    this.sessionState,
   });
 
   final bool bottleDetected;
@@ -21,6 +23,15 @@ class PracticeFeedback {
   final String postureStatus;
   final Uint8List? frameJpegBytes;
   final String? errorCode;
+
+  /// Optional: true when a usable preview/active JPEG is present.
+  final bool? cameraReady;
+
+  /// Optional: preparing | active | recovering | unavailable
+  final String? sessionState;
+
+  bool get isPreparing => sessionState == 'preparing';
+  bool get isSessionEvaluating => sessionState == 'active';
 
   bool get isSessionFatal =>
       errorCode != null ||
@@ -45,6 +56,8 @@ class PracticeFeedback {
       postureStatus: json['posture_status'] as String? ?? 'unknown',
       frameJpegBytes: frameBytes,
       errorCode: json['error_code'] as String?,
+      cameraReady: json['camera_ready'] as bool?,
+      sessionState: json['session_state'] as String?,
     );
   }
 }

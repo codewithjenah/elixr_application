@@ -18,6 +18,7 @@ import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
 import 'practice_game_widgets.dart';
+import 'practice_run_phase.dart';
 import 'session_summary_sheet.dart';
 import 'widgets/training_action_area.dart';
 import 'widgets/training_camera_workspace.dart';
@@ -48,11 +49,10 @@ class _PracticeScreenState extends State<PracticeScreen>
   final _ws = WebSocketService();
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
+  final _run = PracticeRunController();
   final _feedbackHistory = <PracticeFeedback>[];
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
-  Timer? _timer;
-  int _elapsedSeconds = 0;
   Uint8List? _currentFrame;
   PracticeFeedback? _latestFeedback;
   bool _connecting = false;
@@ -69,7 +69,6 @@ class _PracticeScreenState extends State<PracticeScreen>
   late final Animation<double> _scorePulse;
   int? _lastPulsedScore;
 
-  bool _countdownActive = false;
   int _combo = 0;
   int _bestCombo = 0;
   int _scorePopupTrigger = 0;
@@ -93,6 +92,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           CurvedAnimation(parent: _scorePulseController, curve: Curves.easeOut),
         );
     _ws.addListener(_onWsStateChanged);
+    _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _connect();
     _sfx.preload();
@@ -100,13 +100,14 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   @override
   void dispose() {
-    _timer?.cancel();
     _holdTimer?.cancel();
     _feedbackSub?.cancel();
     _scorePulseController.dispose();
     _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
+    _run.removeListener(_onRunChanged);
+    _run.dispose();
     _ws.dispose();
     super.dispose();
   }
@@ -115,13 +116,22 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (mounted) setState(() {});
   }
 
+  void _onRunChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onFeedback(PracticeFeedback feedback) {
     if (!mounted) return;
 
     if (feedback.isSessionFatal) {
-      _timer?.cancel();
       _music.stop();
       _sfx.stop();
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: feedback.feedback,
+      );
+      _ws.sendStop();
       setState(() {
         _sessionError = feedback.feedback;
         _latestFeedback = feedback;
@@ -129,6 +139,38 @@ class _PracticeScreenState extends State<PracticeScreen>
       });
       return;
     }
+
+    // Preparing: store frame; first JPEG starts countdown once.
+    if (_run.isPreparingCamera) {
+      setState(() {
+        _sessionError = null;
+        if (feedback.frameJpegBytes != null) {
+          _currentFrame = feedback.frameJpegBytes;
+        }
+      });
+      final startCountdown = _run.onPreviewFeedback(
+        hasJpegFrame: feedback.frameJpegBytes != null,
+        isFatal: false,
+      );
+      if (startCountdown) {
+        unawaited(_startCountdownOverlay());
+      }
+      return;
+    }
+
+    // Countdown: keep refreshing preview frames only.
+    if (_run.isCountdown) {
+      setState(() {
+        _sessionError = null;
+        if (feedback.frameJpegBytes != null) {
+          _currentFrame = feedback.frameJpegBytes;
+        }
+      });
+      return;
+    }
+
+    // Only active training updates score UI / combo / history / hold.
+    if (!_run.isTrainingActive) return;
 
     final previousScore = _latestFeedback?.score;
     final scoreChanged = previousScore != feedback.score;
@@ -166,8 +208,15 @@ class _PracticeScreenState extends State<PracticeScreen>
     }
   }
 
+  Future<void> _startCountdownOverlay() async {
+    await _sfx.playCountdown();
+    if (!mounted || !_run.isPreparingCamera) return;
+    if (!_run.countdownTriggered) return;
+    _run.enterCountdown();
+  }
+
   void _trackHold(PracticeFeedback feedback) {
-    if (_movementConfirmedShowing || !_ws.sessionActive) {
+    if (_movementConfirmedShowing || !_run.isTrainingActive) {
       _resetHold();
       return;
     }
@@ -183,7 +232,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     _holdStartAt ??= DateTime.now();
     _holdTimer ??= Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (!mounted || _holdStartAt == null) return;
+      if (!mounted || _holdStartAt == null || !_run.isTrainingActive) return;
       final elapsed = DateTime.now().difference(_holdStartAt!);
       final progress = (elapsed.inMilliseconds / _holdDuration.inMilliseconds)
           .clamp(0.0, 1.0);
@@ -209,8 +258,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _resetHold();
 
     _ws.sendStop();
-    _timer?.cancel();
-    _timer = null;
+    _run.markCompleted();
     await _music.stop();
     if (mounted) setState(() {});
 
@@ -230,49 +278,61 @@ class _PracticeScreenState extends State<PracticeScreen>
       _connect();
       return;
     }
-    if (_countdownActive) return;
-    await _sfx.playCountdown();
-    if (!mounted || _countdownActive) return;
-    setState(() => _countdownActive = true);
-  }
-
-  Future<void> _beginSessionAfterCountdown() async {
-    if (!mounted) return;
-    setState(() => _countdownActive = false);
-    if (!_ws.isConnected) {
-      _connect();
+    if (_run.phase != PracticeRunPhase.idle &&
+        _run.phase != PracticeRunPhase.error) {
       return;
     }
-    _feedbackHistory.clear();
-    _elapsedSeconds = 0;
-    _sessionError = null;
-    _currentFrame = null;
-    _latestFeedback = null;
-    _combo = 0;
-    _bestCombo = 0;
-    _resetHold();
+
+    _clearSessionState();
+    _run.beginPreparing(onTimeout: _onPreparationTimeout);
+    setState(() {});
+
     final cameraIndex =
         await context.read<SettingsService>().loadSelectedCameraIndex();
     if (!mounted) return;
-    _ws.sendStart(
+    if (!_run.isPreparingCamera) return;
+
+    _ws.sendPrepare(
       movement: _movement,
       difficulty: _difficulty,
       cameraIndex: cameraIndex,
     );
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedSeconds++);
+  }
+
+  void _onPreparationTimeout() {
+    if (!mounted) return;
+    _ws.sendStop();
+    unawaited(_music.stop());
+    unawaited(_sfx.stop());
+    setState(() {
+      _sessionError = _run.errorMessage;
+      _currentFrame = null;
     });
+  }
+
+  Future<void> _beginSessionAfterCountdown() async {
+    if (!mounted) return;
+    if (!_run.isCountdown) return;
+    if (!_ws.isConnected) {
+      _run.cancelToIdle();
+      _connect();
+      return;
+    }
+
+    _ws.sendActivate();
+    _run.enterActive();
     _sfx.stop();
     _music.start();
+    if (mounted) setState(() {});
   }
 
   bool get _hasSessionData =>
-      _ws.sessionActive || _elapsedSeconds > 0 || _feedbackHistory.isNotEmpty;
+      _run.elapsedSeconds > 0 ||
+      _feedbackHistory.isNotEmpty ||
+      _latestFeedback != null;
 
   void _clearSessionState() {
     _feedbackHistory.clear();
-    _elapsedSeconds = 0;
     _sessionError = null;
     _currentFrame = null;
     _latestFeedback = null;
@@ -282,8 +342,31 @@ class _PracticeScreenState extends State<PracticeScreen>
     _resetHold();
   }
 
+  Future<void> _cancelPreActive() async {
+    _ws.sendStop();
+    _run.cancelToIdle();
+    await _music.stop();
+    await _sfx.stop();
+    _clearSessionState();
+    if (mounted) setState(() {});
+  }
+
   Future<void> _stopSession({bool heldSteady = false}) async {
     if (_isShowingSummary) return;
+
+    // Cancel during prepare/countdown/error: no summary.
+    if (_run.isPreparingCamera || _run.isCountdown || _run.isError) {
+      await _cancelPreActive();
+      return;
+    }
+
+    final wasTraining =
+        _run.isTrainingActive || _run.phase == PracticeRunPhase.completed;
+    if (!wasTraining) {
+      await _cancelPreActive();
+      if (mounted) context.go('/movements');
+      return;
+    }
 
     final router = GoRouter.of(context);
     final sessionService = context.read<SessionService>();
@@ -291,19 +374,26 @@ class _PracticeScreenState extends State<PracticeScreen>
     final userId = authUser?.id;
     final displayName = authUser?.fullName ?? 'Trainee';
 
-    final wasActive = _ws.sessionActive;
     _ws.sendStop();
-    _timer?.cancel();
-    _timer = null;
+    if (_run.phase == PracticeRunPhase.active) {
+      _run.markCompleted();
+    }
     await _music.stop();
     await _sfx.stop();
 
-    if (!wasActive && _elapsedSeconds == 0 && _feedbackHistory.isEmpty) {
-      if (mounted) router.go('/movements');
-      return;
+    if (!_hasSessionData && _run.elapsedSeconds == 0) {
+      // Still show summary for an activated session with zero elapsed when
+      // there was at least a score snapshot; otherwise return to catalog.
+      if (_latestFeedback == null && _feedbackHistory.isEmpty) {
+        _run.cancelToIdle();
+        _clearSessionState();
+        if (mounted) router.go('/movements');
+        return;
+      }
     }
 
     if (userId == null) {
+      _run.cancelToIdle();
       _clearSessionState();
       if (mounted) setState(() {});
       if (mounted) router.go('/movements');
@@ -311,7 +401,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     }
 
     final summaryScore = _latestFeedback?.score ?? 0;
-    final summaryDuration = _elapsedSeconds;
+    final summaryDuration = _run.elapsedSeconds;
     final summaryFeedbacks = List<PracticeFeedback>.unmodifiable(
       _feedbackHistory.reversed.toList(),
     );
@@ -342,18 +432,20 @@ class _PracticeScreenState extends State<PracticeScreen>
       if (!mounted) return;
 
       // End congrats before the next action. Do NOT stop again in finally —
-      // Try Again starts countdown on the same player and a finally stop
+      // Try Again starts preparation on the same player and a finally stop
       // would silence it immediately.
       await _sfx.stop();
 
       if (result == SessionSummaryResult.tryAgain) {
         _clearSessionState();
+        _run.cancelToIdle();
         setState(() {});
         await _startSession();
         return;
       }
 
       _clearSessionState();
+      _run.cancelToIdle();
       setState(() {});
 
       router.go(
@@ -379,22 +471,43 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   void _onBack() {
     if (_isShowingSummary) return;
-    if (_hasSessionData) {
+    if (_run.isPreparingCamera || _run.isCountdown) {
+      _cancelPreActive();
+      return;
+    }
+    if (_hasSessionData || _run.isTrainingActive) {
       _stopSession();
     } else {
       context.go('/movements');
     }
   }
 
-  TrainingActionKind _actionKind({required bool isSessionActive}) {
-    if (isSessionActive) return TrainingActionKind.finish;
-    if (_countdownActive) return TrainingActionKind.getReady;
-    return TrainingActionKind.start;
+  TrainingActionKind _actionKind() {
+    return switch (_run.phase) {
+      PracticeRunPhase.active => TrainingActionKind.finish,
+      PracticeRunPhase.preparingCamera ||
+      PracticeRunPhase.countdown => TrainingActionKind.cancel,
+      PracticeRunPhase.error => TrainingActionKind.retry,
+      PracticeRunPhase.idle ||
+      PracticeRunPhase.completed => TrainingActionKind.start,
+    };
+  }
+
+  TrainingSessionPhase _panelPhase() {
+    return switch (_run.phase) {
+      PracticeRunPhase.idle => TrainingSessionPhase.ready,
+      PracticeRunPhase.preparingCamera => TrainingSessionPhase.preparingCamera,
+      PracticeRunPhase.countdown => TrainingSessionPhase.getReady,
+      PracticeRunPhase.active => TrainingSessionPhase.inProgress,
+      PracticeRunPhase.completed => TrainingSessionPhase.completed,
+      PracticeRunPhase.error => TrainingSessionPhase.cameraError,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final isSessionActive = _ws.sessionActive;
+    final isTrainingActive = _run.isTrainingActive;
+    final isCameraLive = _run.isCameraSessionLive;
     final hasConnectionError =
         _ws.connectionState == WebSocketConnectionState.error;
 
@@ -420,9 +533,12 @@ class _PracticeScreenState extends State<PracticeScreen>
                 connecting: _connecting,
                 wideLayout: wide,
               );
-              final camera = _buildCamera(isSessionActive: isSessionActive);
+              final camera = _buildCamera(
+                isTrainingActive: isTrainingActive,
+                isCameraLive: isCameraLive,
+              );
               final panel = _buildPanel(
-                isSessionActive: isSessionActive,
+                isTrainingActive: isTrainingActive,
                 hasConnectionError: hasConnectionError,
               );
 
@@ -467,19 +583,23 @@ class _PracticeScreenState extends State<PracticeScreen>
     );
   }
 
-  Widget _buildCamera({required bool isSessionActive}) {
+  Widget _buildCamera({
+    required bool isTrainingActive,
+    required bool isCameraLive,
+  }) {
     return TrainingCameraWorkspace(
       frameBytes: _currentFrame,
       mirrored: context.watch<SettingsService>().cameraMirrored,
       connectionState: _ws.connectionState,
       connecting: _connecting,
-      isSessionActive: isSessionActive,
+      isSessionActive: isCameraLive && !_run.isPreparingCamera,
+      isPreparingCamera: _run.isPreparingCamera,
       errorMessage: _ws.errorMessage,
-      sessionError: _sessionError,
+      sessionError: _sessionError ?? _run.errorMessage,
       onRetry: _connect,
-      countdownActive: _countdownActive,
+      countdownActive: _run.isCountdown,
       onCountdownComplete: _beginSessionAfterCountdown,
-      overlayFeedback: isSessionActive ? _latestFeedback : null,
+      overlayFeedback: isTrainingActive ? _latestFeedback : null,
       overlays: Stack(
         fit: StackFit.expand,
         children: [
@@ -493,7 +613,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           Positioned(
             right: AppSpacing.lg,
             bottom: AppSpacing.lg,
-            child: ComboBadge(combo: isSessionActive ? _combo : 0),
+            child: ComboBadge(combo: isTrainingActive ? _combo : 0),
           ),
           Positioned.fill(
             child: Center(
@@ -509,16 +629,14 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   Widget _buildPanel({
-    required bool isSessionActive,
+    required bool isTrainingActive,
     required bool hasConnectionError,
   }) {
-    final score = _latestFeedback?.score;
-    final actionKind = _actionKind(isSessionActive: isSessionActive);
+    final score = isTrainingActive ? _latestFeedback?.score : null;
+    final actionKind = _actionKind();
 
     return TrainingSessionPanel(
-      phase: isSessionActive
-          ? TrainingSessionPhase.inProgress
-          : TrainingSessionPhase.ready,
+      phase: _panelPhase(),
       rankBadge: score != null ? RankBadge(score: score) : null,
       metrics: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -530,7 +648,7 @@ class _PracticeScreenState extends State<PracticeScreen>
                 child: _MetricCell(
                   label: 'Elapsed',
                   child: Text(
-                    _formatDuration(_elapsedSeconds),
+                    _formatDuration(_run.elapsedSeconds),
                     style: AppTheme.headingMedium.copyWith(
                       letterSpacing: 1.2,
                       color: context.elixTextPrimary,
@@ -564,10 +682,12 @@ class _PracticeScreenState extends State<PracticeScreen>
       ),
       statusContent: TrainingStatusRow(
         detection: resolveDetectionStatus(
-          sessionActive: isSessionActive,
+          sessionActive: isTrainingActive,
           bottleDetected: _latestFeedback?.bottleDetected,
         ),
-        postureLabel: postureDisplayLabel(_latestFeedback?.postureStatus),
+        postureLabel: postureDisplayLabel(
+          isTrainingActive ? _latestFeedback?.postureStatus : null,
+        ),
       ),
       supportingContent: Column(
         children: [
@@ -580,9 +700,9 @@ class _PracticeScreenState extends State<PracticeScreen>
           ],
         ],
       ),
-      compactStatusNote: _sessionError != null
+      compactStatusNote: (_sessionError ?? _run.errorMessage) != null
           ? Text(
-              _sessionError!,
+              _sessionError ?? _run.errorMessage!,
               style: AppTheme.bodySecondary.copyWith(color: AppColors.error),
             )
           : (hasConnectionError
@@ -597,11 +717,12 @@ class _PracticeScreenState extends State<PracticeScreen>
       actionArea: TrainingActionArea(
         kind: actionKind,
         startLabel: 'Start Session',
-        onPressed: actionKind == TrainingActionKind.finish
-            ? () => _stopSession()
-            : actionKind == TrainingActionKind.start
-            ? (_ws.isConnected ? _startSession : _connect)
-            : null,
+        onPressed: switch (actionKind) {
+          TrainingActionKind.finish => () => _stopSession(),
+          TrainingActionKind.cancel => _cancelPreActive,
+          TrainingActionKind.retry || TrainingActionKind.start =>
+            _ws.isConnected ? _startSession : _connect,
+        },
         isLoading: _connecting,
       ),
     );

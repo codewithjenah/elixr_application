@@ -912,9 +912,9 @@ def test_session_enables_only_its_grip_fallback(monkeypatch):
         RecordingHandsDetector,
     )
 
-    websocket_api.VisionSession("Normal Grip")
-    websocket_api.VisionSession("Bartender's Grip")
-    websocket_api.VisionSession("Reverse Grip")
+    websocket_api.VisionSession("Normal Grip")._ensure_detectors()
+    websocket_api.VisionSession("Bartender's Grip")._ensure_detectors()
+    websocket_api.VisionSession("Reverse Grip")._ensure_detectors()
 
     assert fallback_settings == [
         (True, False),

@@ -32,6 +32,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
     this.errorMessage,
     this.sessionError,
     this.countdownActive = false,
+    this.isPreparingCamera = false,
     this.overlayFeedback,
     this.overlays,
     this.statusItems = const [],
@@ -47,6 +48,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
   final String? errorMessage;
   final String? sessionError;
   final bool countdownActive;
+  final bool isPreparingCamera;
   final PracticeFeedback? overlayFeedback;
   final Widget? overlays;
   final List<TrainingCameraStatusItem> statusItems;
@@ -148,10 +150,12 @@ class TrainingCameraWorkspace extends StatelessWidget {
       );
     }
 
-    if (isSessionActive) {
+    if (isPreparingCamera || isSessionActive) {
       return _CenteredMessage(
         child: Text(
-          'Waiting for camera frames…',
+          isPreparingCamera
+              ? 'Preparing camera…'
+              : 'Waiting for camera frames…',
           style: AppTheme.bodySecondary,
         ),
       );

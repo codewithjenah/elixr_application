@@ -17,13 +17,21 @@ class WebSocketService extends ChangeNotifier {
   WebSocketConnectionState _connectionState =
       WebSocketConnectionState.disconnected;
   String? _errorMessage;
+  bool _sessionPrepared = false;
   bool _sessionActive = false;
 
   WebSocketConnectionState get connectionState => _connectionState;
   String? get errorMessage => _errorMessage;
   bool get isConnected =>
       _connectionState == WebSocketConnectionState.connected;
+
+  /// Camera session prepared (preview may stream). Not the same as training.
+  bool get sessionPrepared => _sessionPrepared;
+
+  /// Movement evaluation / scoring is active after [sendActivate] or legacy
+  /// [sendStart].
   bool get sessionActive => _sessionActive;
+
   Stream<PracticeFeedback> get feedbackStream => _feedbackController.stream;
 
   Future<void> connect() async {
@@ -56,6 +64,37 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
+  void sendPrepare({
+    required String movement,
+    required String difficulty,
+    int? cameraIndex,
+  }) {
+    if (!isConnected || _channel == null) return;
+
+    _channel!.sink.add(
+      jsonEncode(
+        buildPreparePayload(
+          movement: movement,
+          difficulty: difficulty,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    );
+    _sessionPrepared = true;
+    _sessionActive = false;
+    notifyListeners();
+  }
+
+  void sendActivate() {
+    if (!isConnected || _channel == null) return;
+
+    _channel!.sink.add(jsonEncode(buildActivatePayload()));
+    _sessionPrepared = true;
+    _sessionActive = true;
+    notifyListeners();
+  }
+
+  /// Legacy start: prepare + immediate activation on the backend.
   void sendStart({
     required String movement,
     required String difficulty,
@@ -72,8 +111,31 @@ class WebSocketService extends ChangeNotifier {
         ),
       ),
     );
+    _sessionPrepared = true;
     _sessionActive = true;
     notifyListeners();
+  }
+
+  /// Builds the WebSocket prepare payload. Exposed for unit tests.
+  @visibleForTesting
+  static Map<String, dynamic> buildPreparePayload({
+    required String movement,
+    required String difficulty,
+    int? cameraIndex,
+  }) {
+    return <String, dynamic>{
+      'action': 'prepare',
+      'movement': movement,
+      'difficulty': difficulty,
+      'bottle_detection_enabled': true,
+      'camera_index': cameraIndex,
+    };
+  }
+
+  /// Builds the WebSocket activate payload. Exposed for unit tests.
+  @visibleForTesting
+  static Map<String, dynamic> buildActivatePayload() {
+    return <String, dynamic>{'action': 'activate'};
   }
 
   /// Builds the WebSocket start payload. Exposed for unit tests.
@@ -99,6 +161,7 @@ class WebSocketService extends ChangeNotifier {
     if (_channel != null && isConnected) {
       _channel!.sink.add(jsonEncode({'action': 'stop'}));
     }
+    _sessionPrepared = false;
     _sessionActive = false;
     notifyListeners();
   }
@@ -115,12 +178,14 @@ class WebSocketService extends ChangeNotifier {
 
   void _onError(Object error) {
     _errorMessage = 'Connection lost.';
+    _sessionPrepared = false;
     _sessionActive = false;
     _setState(WebSocketConnectionState.error);
     _cleanupChannel();
   }
 
   void _onDone() {
+    _sessionPrepared = false;
     _sessionActive = false;
     if (_connectionState != WebSocketConnectionState.error) {
       _setState(WebSocketConnectionState.disconnected);
@@ -149,6 +214,7 @@ class WebSocketService extends ChangeNotifier {
   @override
   void dispose() {
     // Tear down without notifying listeners (notifying after dispose throws).
+    _sessionPrepared = false;
     _sessionActive = false;
     if (_channel != null && isConnected) {
       try {

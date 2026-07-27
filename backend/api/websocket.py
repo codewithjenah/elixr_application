@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 CAMERA_REOPEN_DELAY_S = 0.75
 _MAX_CAMERA_INDEX = 10
 
+SESSION_PREPARED = "prepared"
+SESSION_ACTIVE = "active"
+SESSION_CLOSED = "closed"
+
 
 def parse_camera_index(raw) -> tuple[int | None, str | None]:
     """Validate a WebSocket ``camera_index`` value.
@@ -105,16 +109,15 @@ class VisionSession:
         self.bottle_detection_enabled = bottle_detection_enabled
 
         self.camera = CameraCapture(camera_index=camera_index)
+        # Bottle weights load lazily on activate / first evaluated frame.
         self.bottle_detector = BottleDetector(enabled=bottle_detection_enabled)
-        self.hands_detector = HandsDetector(
-            rotated_fallback=movement == "Normal Grip",
-            bartender_roi_fallback=movement == "Bartender's Grip",
-        )
-        # Pose is enabled for every movement with requires_pose in MOVEMENT_CONFIG
-        # (hand/arm/elbow/upper-forearm/shoulder stalls).
-        self.pose_detector = (
-            PoseDetector() if movement_requires_pose(movement) else None
-        )
+        # MediaPipe detectors are deferred so prepare can open the camera and
+        # stream preview JPEGs before model init cost.
+        self.hands_detector: HandsDetector | None = None
+        self.pose_detector: PoseDetector | None = None
+        self._hands_rotated_fallback = movement == "Normal Grip"
+        self._hands_bartender_roi = movement == "Bartender's Grip"
+        self._pose_needed = movement_requires_pose(movement)
         self.scorer = SessionScorer()
 
         self._frame_index = 0
@@ -125,9 +128,52 @@ class VisionSession:
         self._prev_hip_center: Point2D | None = None
         self._movement_state: dict | None = None
         self._model_checked = False
+        self._lifecycle = SESSION_PREPARED
+
+    @property
+    def lifecycle(self) -> str:
+        return self._lifecycle
+
+    @property
+    def is_prepared(self) -> bool:
+        return self._lifecycle == SESSION_PREPARED
+
+    @property
+    def is_active(self) -> bool:
+        return self._lifecycle == SESSION_ACTIVE
 
     def start(self) -> bool:
         return self.camera.open()
+
+    def _ensure_detectors(self) -> None:
+        if self.hands_detector is None:
+            self.hands_detector = HandsDetector(
+                rotated_fallback=self._hands_rotated_fallback,
+                bartender_roi_fallback=self._hands_bartender_roi,
+            )
+        if self._pose_needed and self.pose_detector is None:
+            self.pose_detector = PoseDetector()
+
+    def activate(self) -> bool:
+        """Transition prepared → active without reopening the camera.
+
+        Returns True when activation succeeded or the session was already
+        active (idempotent). Returns False when the session is closed.
+        """
+        if self._lifecycle == SESSION_ACTIVE:
+            return True
+
+        if self._lifecycle != SESSION_PREPARED:
+            return False
+
+        self._ensure_detectors()
+        self.scorer.reset()
+        self._prev_hip_center = None
+        self._movement_state = None
+        self._last_bottles = []
+        self._frame_index = 0
+        self._lifecycle = SESSION_ACTIVE
+        return True
 
     def _check_model(self) -> FeedbackMessage | None:
         if not self.bottle_detection_enabled:
@@ -153,11 +199,42 @@ class VisionSession:
                 posture_status="unknown",
                 frame_jpeg_base64=None,
                 error_code="model_load_failed",
+                camera_ready=False,
+                session_state="unavailable",
             )
 
         return None
 
+    def process_preview_frame(self) -> FeedbackMessage | None:
+        """Encode a JPEG preview without model load, evaluation, or scoring."""
+        frame = self.camera.read()
+
+        if frame is None:
+            return None
+
+        _, buffer = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+        )
+
+        frame_b64 = base64.b64encode(buffer).decode("ascii")
+
+        return FeedbackMessage(
+            bottle_detected=False,
+            bottle_count=0,
+            movement=self.movement,
+            score=self.scorer.score,
+            feedback="Preparing camera…",
+            feedback_type="positive",
+            posture_status="unknown",
+            frame_jpeg_base64=frame_b64,
+            camera_ready=True,
+            session_state="preparing",
+        )
+
     def process_frame(self) -> FeedbackMessage | None:
+        self._ensure_detectors()
         model_error = self._check_model()
 
         if model_error is not None:
@@ -189,6 +266,7 @@ class VisionSession:
         # Important fix:
         # Do not use previous hand landmarks when the current frame has no hand.
         # This prevents "naiiwan yung daliri" / ghost hand dots.
+        assert self.hands_detector is not None
         if movement_requires_hands(self.movement):
             hands = self.hands_detector.detect(
                 frame,
@@ -240,11 +318,22 @@ class VisionSession:
             feedback_type=rule_result.feedback_type,
             posture_status=rule_result.posture_status,
             frame_jpeg_base64=frame_b64,
+            camera_ready=True,
+            session_state="active",
         )
 
+    def process_tick(self) -> FeedbackMessage | None:
+        if self._lifecycle == SESSION_ACTIVE:
+            return self.process_frame()
+        if self._lifecycle == SESSION_PREPARED:
+            return self.process_preview_frame()
+        return None
+
     def close(self) -> None:
+        self._lifecycle = SESSION_CLOSED
         self.camera.release()
-        self.hands_detector.close()
+        if self.hands_detector is not None:
+            self.hands_detector.close()
         if self.pose_detector is not None:
             self.pose_detector.close()
 
@@ -255,6 +344,8 @@ async def _cv_session_loop(
     *,
     camera_index: int | None = None,
     bottle_detection_enabled: bool = True,
+    session_ref: dict | None = None,
+    start_active: bool = False,
 ):
     try:
         session = VisionSession(
@@ -278,10 +369,15 @@ async def _cv_session_loop(
             posture_status="unknown",
             frame_jpeg_base64=None,
             error_code="pipeline_init_failed",
+            camera_ready=False,
+            session_state="unavailable",
         )
 
         await websocket.send_text(error.model_dump_json())
         return
+
+    if session_ref is not None:
+        session_ref["session"] = session
 
     if not session.start():
         feedback, error_code = _camera_unavailable_message(camera_index)
@@ -294,19 +390,27 @@ async def _cv_session_loop(
             posture_status="unknown",
             frame_jpeg_base64=None,
             error_code=error_code,
+            camera_ready=False,
+            session_state="unavailable",
         )
 
         await websocket.send_text(error.model_dump_json())
+        if session_ref is not None:
+            session_ref["session"] = None
         session.close()
         return
 
+    if start_active:
+        session.activate()
+
     logger.info(
         "Camera selection active: mode=%s requested=%s active_index=%s "
-        "used_fallback=%s",
+        "used_fallback=%s lifecycle=%s",
         "auto-select" if camera_index is None else "explicit",
         camera_index,
         session.camera.active_index,
         session.camera.used_fallback,
+        session.lifecycle,
     )
 
     interval = 1.0 / TARGET_FPS
@@ -319,7 +423,7 @@ async def _cv_session_loop(
             tick = time.perf_counter()
 
             frame_task = asyncio.create_task(
-                asyncio.to_thread(session.process_frame)
+                asyncio.to_thread(session.process_tick)
             )
 
             try:
@@ -345,10 +449,11 @@ async def _cv_session_loop(
                 actual_fps = frame_count / elapsed if elapsed > 0 else 0
 
                 logger.info(
-                    "CV session FPS: %.1f (target=%s, yolo_skip=%s)",
+                    "CV session FPS: %.1f (target=%s, yolo_skip=%s, lifecycle=%s)",
                     actual_fps,
                     TARGET_FPS,
                     YOLO_FRAME_SKIP,
+                    session.lifecycle,
                 )
 
             processing = time.perf_counter() - tick
@@ -371,6 +476,8 @@ async def _cv_session_loop(
             posture_status="unknown",
             frame_jpeg_base64=None,
             error_code="pipeline_error",
+            camera_ready=False,
+            session_state="unavailable",
         )
 
         await websocket.send_text(error.model_dump_json())
@@ -382,7 +489,48 @@ async def _cv_session_loop(
             except Exception:
                 pass
 
+        if session_ref is not None and session_ref.get("session") is session:
+            session_ref["session"] = None
+
         session.close()
+
+
+def _parse_session_request(data: dict, movement: str, difficulty: str):
+    """Parse shared prepare/start fields. Returns tuple or error FeedbackMessage."""
+    movement = data.get("movement", movement)
+    difficulty = data.get("difficulty", difficulty)
+
+    bottle_detection_enabled = bool(data.get("bottle_detection_enabled", True))
+
+    camera_index, camera_error = parse_camera_index(data.get("camera_index"))
+
+    if camera_error is not None:
+        error = FeedbackMessage(
+            bottle_detected=False,
+            movement=movement,
+            score=0,
+            feedback=(
+                "Invalid camera selection. Choose Auto-select or a "
+                "valid camera index in Settings."
+            ),
+            feedback_type="error",
+            posture_status="unknown",
+            frame_jpeg_base64=None,
+            error_code=camera_error,
+            camera_ready=False,
+            session_state="unavailable",
+        )
+        return None, error
+
+    return (
+        {
+            "movement": movement,
+            "difficulty": difficulty,
+            "camera_index": camera_index,
+            "bottle_detection_enabled": bottle_detection_enabled,
+        },
+        None,
+    )
 
 
 @router.websocket("/ws")
@@ -390,6 +538,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
 
     session_task: asyncio.Task | None = None
+    session_ref: dict = {"session": None}
     movement = "Hand Stall"
     difficulty = "Easy"
 
@@ -399,36 +548,21 @@ async def websocket_endpoint(websocket: WebSocket):
             data = json.loads(raw)
             action = data.get("action")
 
-            if action == "start":
-                movement = data.get("movement", movement)
-                difficulty = data.get("difficulty", difficulty)
-
-                bottle_detection_enabled = bool(
-                    data.get("bottle_detection_enabled", True)
-                )
-
-                camera_index, camera_error = parse_camera_index(
-                    data.get("camera_index")
-                )
-
-                if camera_error is not None:
-                    error = FeedbackMessage(
-                        bottle_detected=False,
-                        movement=movement,
-                        score=0,
-                        feedback=(
-                            "Invalid camera selection. Choose Auto-select or a "
-                            "valid camera index in Settings."
-                        ),
-                        feedback_type="error",
-                        posture_status="unknown",
-                        frame_jpeg_base64=None,
-                        error_code=camera_error,
-                    )
+            if action in ("prepare", "start"):
+                parsed, error = _parse_session_request(data, movement, difficulty)
+                if error is not None:
                     await websocket.send_text(error.model_dump_json())
                     continue
 
+                assert parsed is not None
+                movement = parsed["movement"]
+                difficulty = parsed["difficulty"]
+                camera_index = parsed["camera_index"]
+                bottle_detection_enabled = parsed["bottle_detection_enabled"]
+                start_active = action == "start"
+
                 await _stop_session_task(session_task)
+                session_ref["session"] = None
 
                 session_task = asyncio.create_task(
                     _cv_session_loop(
@@ -436,12 +570,15 @@ async def websocket_endpoint(websocket: WebSocket):
                         movement,
                         camera_index=camera_index,
                         bottle_detection_enabled=bottle_detection_enabled,
+                        session_ref=session_ref,
+                        start_active=start_active,
                     )
                 )
 
                 logger.info(
-                    "CV session started: %s (%s, bottle_detection=%s, "
+                    "CV session %s: %s (%s, bottle_detection=%s, "
                     "camera_mode=%s, camera_index=%s)",
+                    "started" if start_active else "prepared",
                     movement,
                     difficulty,
                     bottle_detection_enabled,
@@ -449,15 +586,50 @@ async def websocket_endpoint(websocket: WebSocket):
                     camera_index,
                 )
 
+            elif action == "activate":
+                session = session_ref.get("session")
+                if session is None or not (
+                    session.is_prepared or session.is_active
+                ):
+                    error = FeedbackMessage(
+                        bottle_detected=False,
+                        movement=movement,
+                        score=0,
+                        feedback=(
+                            "No prepared camera session to activate. "
+                            "Start again to prepare the camera."
+                        ),
+                        feedback_type="error",
+                        posture_status="unknown",
+                        frame_jpeg_base64=None,
+                        error_code="session_not_prepared",
+                        camera_ready=False,
+                        session_state="unavailable",
+                    )
+                    await websocket.send_text(error.model_dump_json())
+                    continue
+
+                activated = session.activate()
+                logger.info(
+                    "CV session activate: movement=%s ok=%s lifecycle=%s",
+                    movement,
+                    activated,
+                    session.lifecycle,
+                )
+
             elif action == "stop":
                 await _stop_session_task(session_task)
                 session_task = None
+                session_ref["session"] = None
 
                 logger.info("CV session stopped")
 
+            else:
+                logger.warning("Ignoring unknown WebSocket action: %s", action)
     except WebSocketDisconnect:
         logger.info("Client disconnected")
 
     finally:
         await _stop_session_task(session_task)
+        session_ref["session"] = None
         release_shared_camera()

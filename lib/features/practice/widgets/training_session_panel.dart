@@ -4,7 +4,14 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_card.dart';
 
-enum TrainingSessionPhase { ready, inProgress, completed }
+enum TrainingSessionPhase {
+  ready,
+  preparingCamera,
+  getReady,
+  inProgress,
+  completed,
+  cameraError,
+}
 
 /// Slot-based session panel shell. Owns action pin; content comes from slots.
 class TrainingSessionPanel extends StatelessWidget {
@@ -31,8 +38,11 @@ class TrainingSessionPanel extends StatelessWidget {
 
   String get _phaseLabel => switch (phase) {
     TrainingSessionPhase.ready => 'Ready',
+    TrainingSessionPhase.preparingCamera => 'Preparing Camera',
+    TrainingSessionPhase.getReady => 'Get Ready',
     TrainingSessionPhase.inProgress => 'In Progress',
     TrainingSessionPhase.completed => 'Completed',
+    TrainingSessionPhase.cameraError => 'Camera Error',
   };
 
   @override
