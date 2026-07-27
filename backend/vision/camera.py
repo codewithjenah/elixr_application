@@ -61,6 +61,15 @@ def candidate_indices(camera_index: int | None = None) -> list[int]:
     return [camera_index]
 
 
+def camera_display_name(index: int) -> str:
+    """Friendly label for a camera index. Selection still uses the numeric index."""
+    if index == CAMERA_INDEX:
+        return "Default camera"
+    if index == CAMERA_FALLBACK_INDEX:
+        return "Webcam"
+    return f"Webcam {index}"
+
+
 def _frame_is_usable(frame: np.ndarray) -> bool:
     if frame.size == 0:
         return False
@@ -221,7 +230,11 @@ def _open_video_capture(index: int) -> Optional[cv2.VideoCapture]:
     return None
 
 
-def _try_reuse_shared_capture(allowed_indices: list[int]) -> bool:
+def _try_reuse_shared_capture(
+    allowed_indices: list[int],
+    *,
+    preferred_index: int | None = None,
+) -> bool:
     global _shared_cap, _shared_index
 
     if _shared_cap is None or not _shared_cap.isOpened():
@@ -232,6 +245,19 @@ def _try_reuse_shared_capture(allowed_indices: list[int]) -> bool:
             "Shared camera %s is not in allowed indices %s; reopening",
             _shared_index,
             allowed_indices,
+        )
+        return False
+
+    # Auto-select must still prefer CAMERA_INDEX over a sticky fallback capture.
+    if (
+        preferred_index is not None
+        and _shared_index != preferred_index
+        and preferred_index in allowed_indices
+    ):
+        logger.info(
+            "Shared camera %s is allowed but preferred index is %s; reopening",
+            _shared_index,
+            preferred_index,
         )
         return False
 
@@ -266,7 +292,7 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
                 cameras.append(
                     {
                         "index": index,
-                        "display_name": f"Camera {index}",
+                        "display_name": camera_display_name(index),
                     }
                 )
                 continue
@@ -278,7 +304,7 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
             cameras.append(
                 {
                     "index": index,
-                    "display_name": f"Camera {index}",
+                    "display_name": camera_display_name(index),
                 }
             )
             cap.release()
@@ -364,7 +390,8 @@ class CameraCapture:
         with _CAMERA_LOCK:
             _cancel_pending_release()
 
-            if _try_reuse_shared_capture(allowed):
+            preferred = allowed[0] if allowed else None
+            if _try_reuse_shared_capture(allowed, preferred_index=preferred):
                 self._blank_frame_streak = 0
                 self._used_fallback = (
                     self._auto

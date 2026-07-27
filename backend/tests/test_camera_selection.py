@@ -101,6 +101,33 @@ def test_shared_camera_wrong_index_is_not_reused(monkeypatch):
     camera_mod._release_shared_unlocked()
 
 
+def test_auto_does_not_reuse_sticky_fallback_when_preferred_differs(monkeypatch):
+    if CAMERA_INDEX == CAMERA_FALLBACK_INDEX:
+        return
+
+    old = _FakeCap()
+    camera_mod._shared_cap = old
+    camera_mod._shared_index = CAMERA_FALLBACK_INDEX
+    camera_mod._release_timer = None
+
+    opened = []
+
+    def fake_open(index: int):
+        opened.append(index)
+        if index == CAMERA_INDEX:
+            return _FakeCap()
+        return None
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+
+    capture = camera_mod.CameraCapture(camera_index=None)
+    assert capture.open() is True
+    assert opened[0] == CAMERA_INDEX
+    assert camera_mod._shared_index == CAMERA_INDEX
+
+    camera_mod._release_shared_unlocked()
+
+
 def test_explicit_open_does_not_try_fallback(monkeypatch):
     tried = []
 
@@ -223,7 +250,12 @@ def test_cameras_endpoint_structure(monkeypatch):
         cameras_api,
         "discover_cameras",
         lambda max_index=4: {
-            "cameras": [{"index": 0, "display_name": "Camera 0"}],
+            "cameras": [
+                {
+                    "index": 0,
+                    "display_name": camera_mod.camera_display_name(0),
+                }
+            ],
             "preferred_index": CAMERA_INDEX,
             "fallback_index": CAMERA_FALLBACK_INDEX,
             "active_index": None,
@@ -232,7 +264,7 @@ def test_cameras_endpoint_structure(monkeypatch):
 
     body = asyncio.run(cameras_api.list_cameras())
     payload = body.model_dump()
-    assert payload["cameras"][0]["display_name"] == "Camera 0"
+    assert payload["cameras"][0]["display_name"] == camera_mod.camera_display_name(0)
     assert "preferred_index" in payload
     assert "fallback_index" in payload
     assert "active_index" in payload

@@ -78,7 +78,10 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       _timer?.cancel();
       _music.stop();
       _sfx.stop();
-      setState(() => _sessionError = feedback.feedback);
+      setState(() {
+        _sessionError = feedback.feedback;
+        _currentFrame = null;
+      });
       return;
     }
 
@@ -108,7 +111,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     setState(() => _countdownActive = true);
   }
 
-  void _beginSessionAfterCountdown() {
+  Future<void> _beginSessionAfterCountdown() async {
     if (!mounted) return;
     setState(() => _countdownActive = false);
     if (!_ws.isConnected) {
@@ -120,10 +123,13 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _currentFrame = null;
     // A generic movement keeps the vision pipeline (camera + detection
     // overlays) running; the user practices freely and nothing is scored.
+    final cameraIndex =
+        await context.read<SettingsService>().loadSelectedCameraIndex();
+    if (!mounted) return;
     _ws.sendStart(
       movement: 'Normal Grip',
       difficulty: 'Easy',
-      cameraIndex: context.read<SettingsService>().selectedCameraIndex,
+      cameraIndex: cameraIndex,
     );
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {

@@ -4,17 +4,39 @@ class CameraDevice {
   final int index;
   final String displayName;
 
-  factory CameraDevice.fromJson(Map<String, dynamic> json) {
+  factory CameraDevice.fromJson(
+    Map<String, dynamic> json, {
+    int? preferredIndex,
+    int? fallbackIndex,
+  }) {
     final index = json['index'];
     if (index is! int || index < 0) {
       throw const FormatException('Invalid camera index');
     }
-    final name = json['display_name'];
     return CameraDevice(
       index: index,
-      displayName: name is String && name.isNotEmpty ? name : 'Camera $index',
+      displayName: cameraDisplayName(
+        index,
+        preferredIndex: preferredIndex,
+        fallbackIndex: fallbackIndex,
+      ),
     );
   }
+}
+
+/// Friendly camera labels. Underlying selection remains the numeric index.
+///
+/// - preferred backend index → "Default camera"
+/// - fallback backend index → "Webcam"
+/// - any other index → "Webcam N"
+String cameraDisplayName(int index, {int? preferredIndex, int? fallbackIndex}) {
+  if (preferredIndex != null && index == preferredIndex) {
+    return 'Default camera';
+  }
+  if (fallbackIndex != null && index == fallbackIndex) {
+    return 'Webcam';
+  }
+  return 'Webcam $index';
 }
 
 class CameraDiscoveryResult {
@@ -36,15 +58,6 @@ class CameraDiscoveryResult {
       throw const FormatException('Missing cameras list');
     }
 
-    final cameras = <CameraDevice>[];
-    for (final item in rawCameras) {
-      if (item is Map<String, dynamic>) {
-        cameras.add(CameraDevice.fromJson(item));
-      } else if (item is Map) {
-        cameras.add(CameraDevice.fromJson(Map<String, dynamic>.from(item)));
-      }
-    }
-
     int requireInt(String key) {
       final value = json[key];
       if (value is int) return value;
@@ -60,10 +73,30 @@ class CameraDiscoveryResult {
       return null;
     }
 
+    final preferredIndex = requireInt('preferred_index');
+    final fallbackIndex = requireInt('fallback_index');
+
+    final cameras = <CameraDevice>[];
+    for (final item in rawCameras) {
+      final map = item is Map<String, dynamic>
+          ? item
+          : item is Map
+          ? Map<String, dynamic>.from(item)
+          : null;
+      if (map == null) continue;
+      cameras.add(
+        CameraDevice.fromJson(
+          map,
+          preferredIndex: preferredIndex,
+          fallbackIndex: fallbackIndex,
+        ),
+      );
+    }
+
     return CameraDiscoveryResult(
       cameras: cameras,
-      preferredIndex: requireInt('preferred_index'),
-      fallbackIndex: requireInt('fallback_index'),
+      preferredIndex: preferredIndex,
+      fallbackIndex: fallbackIndex,
       activeIndex: optionalInt('active_index'),
     );
   }

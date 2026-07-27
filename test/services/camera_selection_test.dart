@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('WebSocketService.buildStartPayload', () {
-    test('omits camera_index for Auto-select', () {
+    test('includes null camera_index for Auto-select', () {
       final payload = WebSocketService.buildStartPayload(
         movement: 'Hand Stall',
         difficulty: 'Medium',
@@ -15,7 +15,8 @@ void main() {
       expect(payload['movement'], 'Hand Stall');
       expect(payload['difficulty'], 'Medium');
       expect(payload['bottle_detection_enabled'], isTrue);
-      expect(payload.containsKey('camera_index'), isFalse);
+      expect(payload.containsKey('camera_index'), isTrue);
+      expect(payload['camera_index'], isNull);
     });
 
     test('includes explicit camera_index', () {
@@ -42,7 +43,8 @@ void main() {
       });
 
       expect(result.cameras, hasLength(2));
-      expect(result.cameras.first.displayName, 'Camera 0');
+      expect(result.cameras[0].displayName, 'Webcam');
+      expect(result.cameras[1].displayName, 'Default camera');
       expect(result.preferredIndex, 1);
       expect(result.fallbackIndex, 0);
       expect(result.activeIndex, isNull);

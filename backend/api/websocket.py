@@ -22,7 +22,7 @@ from config import (
 from schemas.feedback import FeedbackMessage
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
-from vision.camera import CameraCapture, release_shared_camera
+from vision.camera import CameraCapture, camera_display_name, release_shared_camera
 from vision.hands_detector import HandsDetector
 from vision.pose_detector import PoseDetector
 from vision.types import BottleDetection, Point2D
@@ -70,8 +70,9 @@ def _camera_unavailable_message(camera_index: int | None) -> tuple[str, str]:
             "camera_unavailable",
         )
 
+    label = camera_display_name(camera_index)
     return (
-        f"Camera {camera_index} is unavailable. Reconnect it, choose another "
+        f"{label} is unavailable. Reconnect it, choose another "
         "camera in Settings, or use Auto-select.",
         "selected_camera_unavailable",
     )

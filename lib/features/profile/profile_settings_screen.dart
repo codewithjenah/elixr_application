@@ -11,6 +11,7 @@ import '../../core/theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/camera_device_service.dart';
 import '../../services/settings_service.dart';
+import '../../data/models/camera_device.dart';
 
 enum ProfileSettingsSection { account, profile, security, preferences }
 
@@ -672,7 +673,16 @@ class _CameraSourcePreference extends StatelessWidget {
     if (selected != null &&
         cameras.cameras.every((camera) => camera.index != selected)) {
       items.add(
-        ComboBoxItem<int>(value: selected, child: Text('Camera $selected')),
+        ComboBoxItem<int>(
+          value: selected,
+          child: Text(
+            cameraDisplayName(
+              selected,
+              preferredIndex: cameras.preferredIndex,
+              fallbackIndex: cameras.fallbackIndex,
+            ),
+          ),
+        ),
       );
     }
 
@@ -741,7 +751,7 @@ class _CameraSourcePreference extends StatelessWidget {
         if (warning) ...[
           const SizedBox(height: 4),
           Text(
-            'Camera $selected is no longer available',
+            '${cameraDisplayName(selected!, preferredIndex: cameras.preferredIndex, fallbackIndex: cameras.fallbackIndex)} is no longer available',
             style: AppTheme.caption.copyWith(color: AppColors.warning),
           ),
         ],

@@ -125,6 +125,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       setState(() {
         _sessionError = feedback.feedback;
         _latestFeedback = feedback;
+        _currentFrame = null;
       });
       return;
     }
@@ -235,7 +236,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     setState(() => _countdownActive = true);
   }
 
-  void _beginSessionAfterCountdown() {
+  Future<void> _beginSessionAfterCountdown() async {
     if (!mounted) return;
     setState(() => _countdownActive = false);
     if (!_ws.isConnected) {
@@ -250,10 +251,13 @@ class _PracticeScreenState extends State<PracticeScreen>
     _combo = 0;
     _bestCombo = 0;
     _resetHold();
+    final cameraIndex =
+        await context.read<SettingsService>().loadSelectedCameraIndex();
+    if (!mounted) return;
     _ws.sendStart(
       movement: _movement,
       difficulty: _difficulty,
-      cameraIndex: context.read<SettingsService>().selectedCameraIndex,
+      cameraIndex: cameraIndex,
     );
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {

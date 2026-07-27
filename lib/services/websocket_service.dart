@@ -83,17 +83,16 @@ class WebSocketService extends ChangeNotifier {
     required String difficulty,
     int? cameraIndex,
   }) {
-    final payload = <String, dynamic>{
+    return <String, dynamic>{
       'action': 'start',
       'movement': movement,
       'difficulty': difficulty,
       // Always enabled; backend still accepts this field for compatibility.
       'bottle_detection_enabled': true,
+      // Always include the key so Auto-select (`null`) and explicit indices are
+      // distinguishable from older clients that omitted the field entirely.
+      'camera_index': cameraIndex,
     };
-    if (cameraIndex != null) {
-      payload['camera_index'] = cameraIndex;
-    }
-    return payload;
   }
 
   void sendStop() {

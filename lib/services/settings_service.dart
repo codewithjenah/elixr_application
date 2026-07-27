@@ -64,6 +64,22 @@ class SettingsService extends ChangeNotifier {
     await _save();
   }
 
+  /// Reloads `camera_index` from disk so practice starts use the saved value
+  /// even after hot reload left in-memory settings stale.
+  Future<int?> loadSelectedCameraIndex() async {
+    try {
+      final file = _settingsFile();
+      if (await file.exists()) {
+        final data =
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        _selectedCameraIndex = _parseCameraIndex(data[_cameraIndexKey]);
+      }
+    } catch (_) {
+      // Keep the in-memory value.
+    }
+    return _selectedCameraIndex;
+  }
+
   Future<void> _save() async {
     try {
       final file = _settingsFile();
