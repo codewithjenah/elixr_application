@@ -56,20 +56,44 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  void sendStart({required String movement, required String difficulty}) {
+  void sendStart({
+    required String movement,
+    required String difficulty,
+    int? cameraIndex,
+  }) {
     if (!isConnected || _channel == null) return;
 
     _channel!.sink.add(
-      jsonEncode({
-        'action': 'start',
-        'movement': movement,
-        'difficulty': difficulty,
-        // Always enabled; backend still accepts this field for compatibility.
-        'bottle_detection_enabled': true,
-      }),
+      jsonEncode(
+        buildStartPayload(
+          movement: movement,
+          difficulty: difficulty,
+          cameraIndex: cameraIndex,
+        ),
+      ),
     );
     _sessionActive = true;
     notifyListeners();
+  }
+
+  /// Builds the WebSocket start payload. Exposed for unit tests.
+  @visibleForTesting
+  static Map<String, dynamic> buildStartPayload({
+    required String movement,
+    required String difficulty,
+    int? cameraIndex,
+  }) {
+    final payload = <String, dynamic>{
+      'action': 'start',
+      'movement': movement,
+      'difficulty': difficulty,
+      // Always enabled; backend still accepts this field for compatibility.
+      'bottle_detection_enabled': true,
+    };
+    if (cameraIndex != null) {
+      payload['camera_index'] = cameraIndex;
+    }
+    return payload;
   }
 
   void sendStop() {

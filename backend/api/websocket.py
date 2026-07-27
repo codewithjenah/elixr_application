@@ -15,8 +15,6 @@ from assessment.rule_engine import (
 from assessment.scoring import SessionScorer
 from config import (
     FPS_LOG_INTERVAL,
-    FRAME_HEIGHT,
-    FRAME_WIDTH,
     JPEG_QUALITY,
     TARGET_FPS,
     YOLO_FRAME_SKIP,
@@ -33,6 +31,50 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 CAMERA_REOPEN_DELAY_S = 0.75
+_MAX_CAMERA_INDEX = 10
+
+
+def parse_camera_index(raw) -> tuple[int | None, str | None]:
+    """Validate a WebSocket ``camera_index`` value.
+
+    Returns ``(camera_index, error_code)``.
+    ``None`` camera_index means Auto-select.
+    """
+    if raw is None:
+        return None, None
+
+    if isinstance(raw, bool):
+        return None, "invalid_camera_index"
+
+    if isinstance(raw, int):
+        if raw < 0 or raw > _MAX_CAMERA_INDEX:
+            return None, "invalid_camera_index"
+        return raw, None
+
+    if isinstance(raw, float):
+        if not raw.is_integer():
+            return None, "invalid_camera_index"
+        as_int = int(raw)
+        if as_int < 0 or as_int > _MAX_CAMERA_INDEX:
+            return None, "invalid_camera_index"
+        return as_int, None
+
+    return None, "invalid_camera_index"
+
+
+def _camera_unavailable_message(camera_index: int | None) -> tuple[str, str]:
+    if camera_index is None:
+        return (
+            "No usable camera is available. Check that a camera is connected "
+            "and not being used by another application.",
+            "camera_unavailable",
+        )
+
+    return (
+        f"Camera {camera_index} is unavailable. Reconnect it, choose another "
+        "camera in Settings, or use Auto-select.",
+        "selected_camera_unavailable",
+    )
 
 
 async def _stop_session_task(session_task: asyncio.Task | None) -> None:
@@ -50,11 +92,18 @@ async def _stop_session_task(session_task: asyncio.Task | None) -> None:
 
 
 class VisionSession:
-    def __init__(self, movement: str, *, bottle_detection_enabled: bool = True):
+    def __init__(
+        self,
+        movement: str,
+        *,
+        camera_index: int | None = None,
+        bottle_detection_enabled: bool = True,
+    ):
         self.movement = movement
+        self.camera_index = camera_index
         self.bottle_detection_enabled = bottle_detection_enabled
 
-        self.camera = CameraCapture()
+        self.camera = CameraCapture(camera_index=camera_index)
         self.bottle_detector = BottleDetector(enabled=bottle_detection_enabled)
         self.hands_detector = HandsDetector(
             rotated_fallback=movement == "Normal Grip",
@@ -201,11 +250,13 @@ async def _cv_session_loop(
     websocket: WebSocket,
     movement: str,
     *,
+    camera_index: int | None = None,
     bottle_detection_enabled: bool = True,
 ):
     try:
         session = VisionSession(
             movement,
+            camera_index=camera_index,
             bottle_detection_enabled=bottle_detection_enabled,
         )
     except Exception:
@@ -230,20 +281,30 @@ async def _cv_session_loop(
         return
 
     if not session.start():
+        feedback, error_code = _camera_unavailable_message(camera_index)
         error = FeedbackMessage(
             bottle_detected=False,
             movement=movement,
             score=0,
-            feedback="Camera unavailable. Check that a webcam is connected.",
+            feedback=feedback,
             feedback_type="error",
             posture_status="unknown",
             frame_jpeg_base64=None,
-            error_code="camera_unavailable",
+            error_code=error_code,
         )
 
         await websocket.send_text(error.model_dump_json())
         session.close()
         return
+
+    logger.info(
+        "Camera selection active: mode=%s requested=%s active_index=%s "
+        "used_fallback=%s",
+        "auto-select" if camera_index is None else "explicit",
+        camera_index,
+        session.camera.active_index,
+        session.camera.used_fallback,
+    )
 
     interval = 1.0 / TARGET_FPS
     frame_count = 0
@@ -343,21 +404,46 @@ async def websocket_endpoint(websocket: WebSocket):
                     data.get("bottle_detection_enabled", True)
                 )
 
+                camera_index, camera_error = parse_camera_index(
+                    data.get("camera_index")
+                )
+
+                if camera_error is not None:
+                    error = FeedbackMessage(
+                        bottle_detected=False,
+                        movement=movement,
+                        score=0,
+                        feedback=(
+                            "Invalid camera selection. Choose Auto-select or a "
+                            "valid camera index in Settings."
+                        ),
+                        feedback_type="error",
+                        posture_status="unknown",
+                        frame_jpeg_base64=None,
+                        error_code=camera_error,
+                    )
+                    await websocket.send_text(error.model_dump_json())
+                    continue
+
                 await _stop_session_task(session_task)
 
                 session_task = asyncio.create_task(
                     _cv_session_loop(
                         websocket,
                         movement,
+                        camera_index=camera_index,
                         bottle_detection_enabled=bottle_detection_enabled,
                     )
                 )
 
                 logger.info(
-                    "CV session started: %s (%s, bottle_detection=%s)",
+                    "CV session started: %s (%s, bottle_detection=%s, "
+                    "camera_mode=%s, camera_index=%s)",
                     movement,
                     difficulty,
                     bottle_detection_enabled,
+                    "auto-select" if camera_index is None else "explicit",
+                    camera_index,
                 )
 
             elif action == "stop":

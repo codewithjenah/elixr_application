@@ -250,7 +250,11 @@ class _PracticeScreenState extends State<PracticeScreen>
     _combo = 0;
     _bestCombo = 0;
     _resetHold();
-    _ws.sendStart(movement: _movement, difficulty: _difficulty);
+    _ws.sendStart(
+      movement: _movement,
+      difficulty: _difficulty,
+      cameraIndex: context.read<SettingsService>().selectedCameraIndex,
+    );
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);

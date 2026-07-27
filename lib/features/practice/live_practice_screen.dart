@@ -120,7 +120,11 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _currentFrame = null;
     // A generic movement keeps the vision pipeline (camera + detection
     // overlays) running; the user practices freely and nothing is scored.
-    _ws.sendStart(movement: 'Normal Grip', difficulty: 'Easy');
+    _ws.sendStart(
+      movement: 'Normal Grip',
+      difficulty: 'Easy',
+      cameraIndex: context.read<SettingsService>().selectedCameraIndex,
+    );
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);

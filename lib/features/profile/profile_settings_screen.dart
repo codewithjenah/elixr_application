@@ -9,6 +9,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/auth_service.dart';
+import '../../services/camera_device_service.dart';
 import '../../services/settings_service.dart';
 
 enum ProfileSettingsSection { account, profile, security, preferences }
@@ -58,6 +59,20 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     _nameController = TextEditingController(text: user?.fullName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
     _pickedImagePath = user?.profilePicturePath;
+    if (_section == ProfileSettingsSection.preferences) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.read<CameraDeviceService>().refresh();
+        }
+      });
+    }
+  }
+
+  void _openSection(ProfileSettingsSection section) {
+    setState(() => _section = section);
+    if (section == ProfileSettingsSection.preferences) {
+      context.read<CameraDeviceService>().refresh();
+    }
   }
 
   @override
@@ -236,29 +251,25 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             icon: FluentIcons.contact,
             label: 'Account',
             isSelected: _section == ProfileSettingsSection.account,
-            onTap: () =>
-                setState(() => _section = ProfileSettingsSection.account),
+            onTap: () => _openSection(ProfileSettingsSection.account),
           ),
           _SidebarNavItem(
             icon: FluentIcons.photo2,
             label: 'Profile',
             isSelected: _section == ProfileSettingsSection.profile,
-            onTap: () =>
-                setState(() => _section = ProfileSettingsSection.profile),
+            onTap: () => _openSection(ProfileSettingsSection.profile),
           ),
           _SidebarNavItem(
             icon: FluentIcons.lock,
             label: 'Security',
             isSelected: _section == ProfileSettingsSection.security,
-            onTap: () =>
-                setState(() => _section = ProfileSettingsSection.security),
+            onTap: () => _openSection(ProfileSettingsSection.security),
           ),
           _SidebarNavItem(
             icon: FluentIcons.settings,
             label: 'Preferences',
             isSelected: _section == ProfileSettingsSection.preferences,
-            onTap: () =>
-                setState(() => _section = ProfileSettingsSection.preferences),
+            onTap: () => _openSection(ProfileSettingsSection.preferences),
           ),
         ],
       ),
@@ -491,6 +502,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   Widget _buildPreferencesSection() {
     final settings = context.watch<SettingsService>();
+    final cameras = context.watch<CameraDeviceService>();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -525,6 +537,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _SettingsCard(
+          child: _CameraSourcePreference(settings: settings, cameras: cameras),
         ),
       ],
     );
@@ -625,6 +641,133 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         ),
       ],
     );
+  }
+}
+
+class _CameraSourcePreference extends StatelessWidget {
+  const _CameraSourcePreference({
+    required this.settings,
+    required this.cameras,
+  });
+
+  final SettingsService settings;
+  final CameraDeviceService cameras;
+
+  static const _autoValue = -1;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = settings.selectedCameraIndex;
+    final items = <ComboBoxItem<int>>[
+      const ComboBoxItem<int>(
+        value: _autoValue,
+        child: Text('Auto-select (Recommended)'),
+      ),
+      for (final camera in cameras.cameras)
+        ComboBoxItem<int>(value: camera.index, child: Text(camera.displayName)),
+    ];
+
+    // Keep a previously saved explicit camera visible even if discovery no
+    // longer lists it, so the preference is not silently reset.
+    if (selected != null &&
+        cameras.cameras.every((camera) => camera.index != selected)) {
+      items.add(
+        ComboBoxItem<int>(value: selected, child: Text('Camera $selected')),
+      );
+    }
+
+    final comboValue = selected ?? _autoValue;
+    final statusText = _statusText(selected);
+    final warning =
+        selected != null &&
+        cameras.state == CameraDiscoveryState.success &&
+        cameras.cameras.every((camera) => camera.index != selected);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Camera source',
+          style: AppTheme.body.copyWith(
+            fontSize: 14,
+            color: context.elixTextPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Choose the camera ELIXR will use during practice.',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Expanded(
+              child: ComboBox<int>(
+                value: comboValue,
+                items: items,
+                isExpanded: true,
+                onChanged: cameras.isLoading
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        settings.setSelectedCameraIndex(
+                          value == _autoValue ? null : value,
+                        );
+                      },
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            IconButton(
+              icon: cameras.isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: ProgressRing(strokeWidth: 2),
+                    )
+                  : const Icon(FluentIcons.refresh, size: 16),
+              onPressed: cameras.isLoading ? null : () => cameras.refresh(),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          statusText,
+          style: AppTheme.caption.copyWith(
+            color: warning || cameras.state == CameraDiscoveryState.error
+                ? AppColors.warning
+                : context.elixTextSecondary,
+          ),
+        ),
+        if (warning) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Camera $selected is no longer available',
+            style: AppTheme.caption.copyWith(color: AppColors.warning),
+          ),
+        ],
+        const SizedBox(height: 4),
+        Text(
+          'Selection applies to your next practice session',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+      ],
+    );
+  }
+
+  String _statusText(int? selected) {
+    switch (cameras.state) {
+      case CameraDiscoveryState.idle:
+      case CameraDiscoveryState.loading:
+        return 'Checking cameras…';
+      case CameraDiscoveryState.empty:
+        return 'No usable cameras detected';
+      case CameraDiscoveryState.error:
+        return cameras.errorMessage ??
+            'Backend unavailable — start the Python server';
+      case CameraDiscoveryState.success:
+        final count = cameras.cameras.length;
+        return '$count camera${count == 1 ? '' : 's'} available';
+    }
   }
 }
 

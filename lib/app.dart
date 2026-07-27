@@ -7,6 +7,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
+import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
 import 'services/settings_service.dart';
 
@@ -20,6 +21,7 @@ class ElixrApp extends StatefulWidget {
 class _ElixrAppState extends State<ElixrApp> {
   late final AuthService _authService;
   late final SettingsService _settingsService;
+  late final CameraDeviceService _cameraDeviceService;
   late final GoRouter _router;
   bool _splashFinished = false;
 
@@ -28,11 +30,13 @@ class _ElixrAppState extends State<ElixrApp> {
     super.initState();
     _authService = AuthService()..initialize();
     _settingsService = SettingsService()..initialize();
+    _cameraDeviceService = CameraDeviceService();
     _router = AppRouter.create(_authService);
   }
 
   @override
   void dispose() {
+    _cameraDeviceService.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -43,6 +47,7 @@ class _ElixrAppState extends State<ElixrApp> {
       providers: [
         ChangeNotifierProvider.value(value: _authService),
         ChangeNotifierProvider.value(value: _settingsService),
+        ChangeNotifierProvider.value(value: _cameraDeviceService),
         ChangeNotifierProvider(create: (_) => SessionService()),
       ],
       child: Consumer<SettingsService>(

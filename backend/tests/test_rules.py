@@ -932,6 +932,9 @@ def test_session_passes_primary_bottle_to_hand_detector(
     seen_bottles = []
 
     class StubCamera:
+        def __init__(self, *args, **kwargs):
+            pass
+
         def read(self):
             return frame
 

@@ -2,7 +2,7 @@ import logging
 import sys
 import threading
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 import numpy as np
@@ -24,6 +24,7 @@ _WARMUP_FRAMES = 3
 _WARMUP_SLEEP_S = 0.08
 _RELEASE_DELAY_S = 0.15
 _READ_RETRIES = 5
+_DISCOVERY_MAX_INDEX = 4
 
 # Phantom DirectShow devices can open but only return black frames.
 _MIN_FRAME_MEAN = 8.0
@@ -45,13 +46,19 @@ def _backends() -> list[int | None]:
     return [None]
 
 
-def _indices_to_try(preferred: int) -> list[int]:
-    indices = [preferred]
+def candidate_indices(camera_index: int | None = None) -> list[int]:
+    """Return camera indices to try for a session request.
 
-    if preferred != CAMERA_FALLBACK_INDEX:
-        indices.append(CAMERA_FALLBACK_INDEX)
+    ``None`` means Auto-select (preferred, then fallback).
+    An integer means explicit selection with no silent fallback.
+    """
+    if camera_index is None:
+        indices = [CAMERA_INDEX]
+        if CAMERA_FALLBACK_INDEX != CAMERA_INDEX:
+            indices.append(CAMERA_FALLBACK_INDEX)
+        return indices
 
-    return indices
+    return [camera_index]
 
 
 def _frame_is_usable(frame: np.ndarray) -> bool:
@@ -214,10 +221,18 @@ def _open_video_capture(index: int) -> Optional[cv2.VideoCapture]:
     return None
 
 
-def _try_reuse_shared_capture() -> bool:
+def _try_reuse_shared_capture(allowed_indices: list[int]) -> bool:
     global _shared_cap, _shared_index
 
     if _shared_cap is None or not _shared_cap.isOpened():
+        return False
+
+    if _shared_index not in allowed_indices:
+        logger.info(
+            "Shared camera %s is not in allowed indices %s; reopening",
+            _shared_index,
+            allowed_indices,
+        )
         return False
 
     ok, _ = _read_usable_frame(_shared_cap, warmup_frames=1)
@@ -230,18 +245,85 @@ def _try_reuse_shared_capture() -> bool:
     return False
 
 
+def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]:
+    """Probe a bounded index range and return usable cameras.
+
+    Does not release an already-open shared capture. The active shared index is
+    listed without reopening it. Blocking OpenCV work must be run off the
+    FastAPI event loop by the caller (``asyncio.to_thread``).
+    """
+    cameras: list[dict[str, Any]] = []
+
+    with _CAMERA_LOCK:
+        active_index = (
+            _shared_index
+            if _shared_cap is not None and _shared_cap.isOpened()
+            else None
+        )
+
+        for index in range(max_index + 1):
+            if active_index is not None and index == active_index:
+                cameras.append(
+                    {
+                        "index": index,
+                        "display_name": f"Camera {index}",
+                    }
+                )
+                continue
+
+            cap = _open_video_capture(index)
+            if cap is None:
+                continue
+
+            cameras.append(
+                {
+                    "index": index,
+                    "display_name": f"Camera {index}",
+                }
+            )
+            cap.release()
+            if sys.platform == "win32":
+                time.sleep(_RELEASE_DELAY_S)
+
+    return {
+        "cameras": cameras,
+        "preferred_index": CAMERA_INDEX,
+        "fallback_index": CAMERA_FALLBACK_INDEX,
+        "active_index": active_index,
+    }
+
+
 class CameraCapture:
     def __init__(
         self,
         index: int = CAMERA_INDEX,
         width: int = FRAME_WIDTH,
         height: int = FRAME_HEIGHT,
+        *,
+        camera_index: int | None = None,
     ):
-        self._index = index
+        """Open a webcam for a vision session.
+
+        Keyword ``camera_index``:
+        - ``None`` → Auto-select (preferred ``index``/CAMERA_INDEX, then fallback)
+        - ``N`` → explicit index N with no silent fallback
+
+        Legacy positional ``index`` remains the preferred Auto-select index when
+        ``camera_index`` is omitted/None (scripts and profile tools).
+        """
         self._width = width
         self._height = height
         self._blank_frame_streak = 0
+        self._used_fallback = False
 
+        if camera_index is not None:
+            self._auto = False
+            self._selection = camera_index
+            self._auto_preferred = CAMERA_INDEX
+        else:
+            self._auto = True
+            self._selection = None
+            self._auto_preferred = index
     @property
     def is_open(self) -> bool:
         with _CAMERA_LOCK:
@@ -252,47 +334,90 @@ class CameraCapture:
         with _CAMERA_LOCK:
             return _shared_index
 
+    @property
+    def used_fallback(self) -> bool:
+        return self._used_fallback
+
+    def _allowed_indices(self) -> list[int]:
+        if not self._auto:
+            return candidate_indices(self._selection)
+        preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
+        indices = [preferred]
+        if CAMERA_FALLBACK_INDEX != preferred:
+            indices.append(CAMERA_FALLBACK_INDEX)
+        return indices
+
     def open(self) -> bool:
         global _shared_cap, _shared_index
+
+        allowed = self._allowed_indices()
+        mode = "auto-select" if self._auto else "explicit"
+        requested = "auto" if self._auto else str(self._selection)
+
+        logger.info(
+            "Camera open requested: mode=%s requested=%s candidates=%s",
+            mode,
+            requested,
+            allowed,
+        )
 
         with _CAMERA_LOCK:
             _cancel_pending_release()
 
-            if _try_reuse_shared_capture():
+            if _try_reuse_shared_capture(allowed):
                 self._blank_frame_streak = 0
+                self._used_fallback = (
+                    self._auto
+                    and _shared_index is not None
+                    and _shared_index != getattr(self, "_auto_preferred", CAMERA_INDEX)
+                )
+                logger.info(
+                    "Camera ready (reused): active_index=%s used_fallback=%s",
+                    _shared_index,
+                    self._used_fallback,
+                )
                 return True
 
             _release_shared_unlocked()
 
-            for candidate in _indices_to_try(self._index):
+            for candidate in allowed:
                 cap = _open_video_capture(candidate)
 
                 if cap is not None:
                     _shared_cap = cap
                     _shared_index = candidate
                     self._blank_frame_streak = 0
+                    preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
+                    self._used_fallback = self._auto and candidate != preferred
 
-                    if candidate != self._index:
+                    if self._used_fallback:
                         logger.warning(
                             "Camera index %s unavailable; using fallback index %s",
-                            self._index,
+                            preferred,
                             candidate,
                         )
 
                     logger.info(
-                        "Camera %s ready at %sx%s",
+                        "Camera ready: active_index=%s used_fallback=%s size=%sx%s",
                         _shared_index,
+                        self._used_fallback,
                         self._width,
                         self._height,
                     )
 
                     return True
 
-            logger.error(
-                "Failed to open camera index %s. Fallback index %s also failed.",
-                self._index,
-                CAMERA_FALLBACK_INDEX,
-            )
+            if self._auto:
+                logger.error(
+                    "Failed to open camera index %s. Fallback index %s also failed.",
+                    getattr(self, "_auto_preferred", CAMERA_INDEX),
+                    CAMERA_FALLBACK_INDEX,
+                )
+            else:
+                logger.error(
+                    "Failed to open selected camera index %s (no fallback).",
+                    self._selection,
+                )
 
             return False
 
