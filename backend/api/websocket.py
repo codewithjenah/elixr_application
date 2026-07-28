@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 CAMERA_REOPEN_DELAY_S = 0.75
 _MAX_CAMERA_INDEX = 10
+_MAX_DEVICE_ID_LENGTH = 1024
 
 SESSION_PREPARED = "prepared"
 SESSION_ACTIVE = "active"
@@ -39,7 +40,7 @@ SESSION_CLOSED = "closed"
 
 
 def parse_camera_index(raw) -> tuple[int | None, str | None]:
-    """Validate a WebSocket ``camera_index`` value.
+    """Validate a legacy WebSocket ``camera_index`` value.
 
     Returns ``(camera_index, error_code)``.
     ``None`` camera_index means Auto-select.
@@ -66,15 +67,65 @@ def parse_camera_index(raw) -> tuple[int | None, str | None]:
     return None, "invalid_camera_index"
 
 
-def _camera_unavailable_message(camera_index: int | None) -> tuple[str, str]:
-    if camera_index is None:
+def parse_camera_device_id(raw) -> tuple[str | None, str | None]:
+    """Validate a WebSocket ``camera_device_id`` value.
+
+    Returns ``(camera_device_id, error_code)``.
+    ``None`` means Auto-select.
+    """
+    if raw is None:
+        return None, None
+
+    if isinstance(raw, bool) or isinstance(raw, (int, float)):
+        return None, "invalid_camera_device_id"
+
+    if isinstance(raw, str):
+        value = raw.strip()
+        if not value:
+            return None, "invalid_camera_device_id"
+        if len(value) > _MAX_DEVICE_ID_LENGTH:
+            return None, "invalid_camera_device_id"
+        return value, None
+
+    return None, "invalid_camera_device_id"
+
+
+def parse_camera_selection(
+    data: dict,
+) -> tuple[str | None, int | None, str | None]:
+    """Parse camera selection from a prepare/start payload.
+
+    Prefers ``camera_device_id`` when the key is present. Falls back to legacy
+    ``camera_index`` for migration. Returns
+    ``(camera_device_id, legacy_camera_index, error_code)``.
+    """
+    if "camera_device_id" in data:
+        device_id, error = parse_camera_device_id(data.get("camera_device_id"))
+        return device_id, None, error
+
+    if "camera_index" in data:
+        camera_index, error = parse_camera_index(data.get("camera_index"))
+        return None, camera_index, error
+
+    return None, None, None
+
+
+def _camera_unavailable_message(
+    *,
+    camera_device_id: str | None = None,
+    camera_index: int | None = None,
+) -> tuple[str, str]:
+    if camera_device_id is None and camera_index is None:
         return (
             "No usable camera is available. Check that a camera is connected "
             "and not being used by another application.",
             "camera_unavailable",
         )
 
-    label = camera_display_name(camera_index)
+    label = camera_display_name(
+        device_id=camera_device_id,
+        runtime_index=camera_index,
+    )
     return (
         f"{label} is unavailable. Reconnect it, choose another "
         "camera in Settings, or use Auto-select.",
@@ -102,13 +153,18 @@ class VisionSession:
         movement: str,
         *,
         camera_index: int | None = None,
+        camera_device_id: str | None = None,
         bottle_detection_enabled: bool = True,
     ):
         self.movement = movement
         self.camera_index = camera_index
+        self.camera_device_id = camera_device_id
         self.bottle_detection_enabled = bottle_detection_enabled
 
-        self.camera = CameraCapture(camera_index=camera_index)
+        self.camera = CameraCapture(
+            camera_index=camera_index,
+            camera_device_id=camera_device_id,
+        )
         # Bottle weights load lazily on activate / first evaluated frame.
         self.bottle_detector = BottleDetector(enabled=bottle_detection_enabled)
         # MediaPipe detectors are deferred so prepare can open the camera and
@@ -343,6 +399,7 @@ async def _cv_session_loop(
     movement: str,
     *,
     camera_index: int | None = None,
+    camera_device_id: str | None = None,
     bottle_detection_enabled: bool = True,
     session_ref: dict | None = None,
     start_active: bool = False,
@@ -351,6 +408,7 @@ async def _cv_session_loop(
         session = VisionSession(
             movement,
             camera_index=camera_index,
+            camera_device_id=camera_device_id,
             bottle_detection_enabled=bottle_detection_enabled,
         )
     except Exception:
@@ -380,7 +438,10 @@ async def _cv_session_loop(
         session_ref["session"] = session
 
     if not session.start():
-        feedback, error_code = _camera_unavailable_message(camera_index)
+        feedback, error_code = _camera_unavailable_message(
+            camera_device_id=camera_device_id,
+            camera_index=camera_index,
+        )
         error = FeedbackMessage(
             bottle_detected=False,
             movement=movement,
@@ -403,13 +464,17 @@ async def _cv_session_loop(
     if start_active:
         session.activate()
 
+    explicit = camera_device_id is not None or camera_index is not None
     logger.info(
-        "Camera selection active: mode=%s requested=%s active_index=%s "
+        "Camera selection active: mode=%s requested_device_id=%s "
+        "requested_index=%s active_index=%s active_device_id=%s "
         "used_fallback=%s lifecycle=%s",
-        "auto-select" if camera_index is None else "explicit",
+        "explicit" if explicit else "auto-select",
+        camera_device_id,
         camera_index,
-        session.camera.active_index,
-        session.camera.used_fallback,
+        getattr(session.camera, "active_index", None),
+        getattr(session.camera, "active_device_id", None),
+        getattr(session.camera, "used_fallback", False),
         session.lifecycle,
     )
 
@@ -502,7 +567,7 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
 
     bottle_detection_enabled = bool(data.get("bottle_detection_enabled", True))
 
-    camera_index, camera_error = parse_camera_index(data.get("camera_index"))
+    camera_device_id, camera_index, camera_error = parse_camera_selection(data)
 
     if camera_error is not None:
         error = FeedbackMessage(
@@ -511,7 +576,7 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
             score=0,
             feedback=(
                 "Invalid camera selection. Choose Auto-select or a "
-                "valid camera index in Settings."
+                "valid camera in Settings."
             ),
             feedback_type="error",
             posture_status="unknown",
@@ -526,6 +591,7 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
         {
             "movement": movement,
             "difficulty": difficulty,
+            "camera_device_id": camera_device_id,
             "camera_index": camera_index,
             "bottle_detection_enabled": bottle_detection_enabled,
         },
@@ -557,6 +623,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 assert parsed is not None
                 movement = parsed["movement"]
                 difficulty = parsed["difficulty"]
+                camera_device_id = parsed["camera_device_id"]
                 camera_index = parsed["camera_index"]
                 bottle_detection_enabled = parsed["bottle_detection_enabled"]
                 start_active = action == "start"
@@ -569,20 +636,25 @@ async def websocket_endpoint(websocket: WebSocket):
                         websocket,
                         movement,
                         camera_index=camera_index,
+                        camera_device_id=camera_device_id,
                         bottle_detection_enabled=bottle_detection_enabled,
                         session_ref=session_ref,
                         start_active=start_active,
                     )
                 )
 
+                explicit = (
+                    camera_device_id is not None or camera_index is not None
+                )
                 logger.info(
                     "CV session %s: %s (%s, bottle_detection=%s, "
-                    "camera_mode=%s, camera_index=%s)",
+                    "camera_mode=%s, camera_device_id=%s, camera_index=%s)",
                     "started" if start_active else "prepared",
                     movement,
                     difficulty,
                     bottle_detection_enabled,
-                    "auto-select" if camera_index is None else "explicit",
+                    "explicit" if explicit else "auto-select",
+                    camera_device_id,
                     camera_index,
                 )
 

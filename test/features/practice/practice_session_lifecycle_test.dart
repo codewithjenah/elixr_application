@@ -205,11 +205,11 @@ void main() {
       final payload = WebSocketService.buildPreparePayload(
         movement: 'Normal Grip',
         difficulty: 'Easy',
-        cameraIndex: 1,
+        cameraDeviceId: 'dev-b',
       );
       expect(payload['action'], 'prepare');
       expect(payload['movement'], 'Normal Grip');
-      expect(payload['camera_index'], 1);
+      expect(payload['camera_device_id'], 'dev-b');
       expect(payload['bottle_detection_enabled'], isTrue);
     });
 

@@ -11,7 +11,6 @@ import '../../core/theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/camera_device_service.dart';
 import '../../services/settings_service.dart';
-import '../../data/models/camera_device.dart';
 
 enum ProfileSettingsSection { account, profile, security, preferences }
 
@@ -645,7 +644,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 }
 
-class _CameraSourcePreference extends StatelessWidget {
+class _CameraSourcePreference extends StatefulWidget {
   const _CameraSourcePreference({
     required this.settings,
     required this.cameras,
@@ -654,44 +653,76 @@ class _CameraSourcePreference extends StatelessWidget {
   final SettingsService settings;
   final CameraDeviceService cameras;
 
-  static const _autoValue = -1;
+  @override
+  State<_CameraSourcePreference> createState() =>
+      _CameraSourcePreferenceState();
+}
+
+class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
+  static const _autoValue = '__auto_select__';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _maybeMigrateLegacySelection();
+  }
+
+  Future<void> _maybeMigrateLegacySelection() async {
+    final settings = widget.settings;
+    final cameras = widget.cameras;
+    if (!settings.hasPendingLegacyCameraMigration) return;
+    if (cameras.state != CameraDiscoveryState.success) return;
+    if (cameras.cameras.isEmpty) return;
+
+    final migrated = await settings.migrateLegacyCameraIndex(cameras.cameras);
+    if (migrated && mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final selected = settings.selectedCameraIndex;
-    final items = <ComboBoxItem<int>>[
-      const ComboBoxItem<int>(
+    final settings = widget.settings;
+    final cameras = widget.cameras;
+    final selectedId = settings.selectedCameraDeviceId;
+    final labels = cameras.distinguishableLabels;
+    final items = <ComboBoxItem<String>>[
+      const ComboBoxItem<String>(
         value: _autoValue,
         child: Text('Auto-select (Recommended)'),
       ),
-      for (final camera in cameras.cameras)
-        ComboBoxItem<int>(value: camera.index, child: Text(camera.displayName)),
+      for (var i = 0; i < cameras.cameras.length; i++)
+        ComboBoxItem<String>(
+          value: cameras.cameras[i].deviceId,
+          child: Text(labels[i]),
+        ),
     ];
 
     // Keep a previously saved explicit camera visible even if discovery no
     // longer lists it, so the preference is not silently reset.
-    if (selected != null &&
-        cameras.cameras.every((camera) => camera.index != selected)) {
+    final selectedMissing =
+        selectedId != null && cameras.findByDeviceId(selectedId) == null;
+    if (selectedMissing) {
+      final cachedName =
+          settings.selectedCameraDisplayName ?? 'Selected camera';
       items.add(
-        ComboBoxItem<int>(
-          value: selected,
-          child: Text(
-            cameraDisplayName(
-              selected,
-              preferredIndex: cameras.preferredIndex,
-              fallbackIndex: cameras.fallbackIndex,
-            ),
-          ),
+        ComboBoxItem<String>(
+          value: selectedId,
+          child: Text('$cachedName — unavailable'),
         ),
       );
     }
 
-    final comboValue = selected ?? _autoValue;
-    final statusText = _statusText(selected);
+    final comboValue = selectedId ?? _autoValue;
+    final statusText = _statusText(selectedId);
     final warning =
-        selected != null &&
+        selectedId != null &&
         cameras.state == CameraDiscoveryState.success &&
-        cameras.cameras.every((camera) => camera.index != selected);
+        selectedMissing;
+
+    final autoActive = cameras.activeDeviceId != null
+        ? cameras.findByDeviceId(cameras.activeDeviceId!)
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,7 +743,7 @@ class _CameraSourcePreference extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: ComboBox<int>(
+              child: ComboBox<String>(
                 value: comboValue,
                 items: items,
                 isExpanded: true,
@@ -720,8 +751,16 @@ class _CameraSourcePreference extends StatelessWidget {
                     ? null
                     : (value) {
                         if (value == null) return;
-                        settings.setSelectedCameraIndex(
-                          value == _autoValue ? null : value,
+                        if (value == _autoValue) {
+                          settings.clearCameraSelectionForAutoSelect();
+                          return;
+                        }
+                        final match = cameras.findByDeviceId(value);
+                        settings.setSelectedCameraDevice(
+                          value,
+                          displayName:
+                              match?.displayName ??
+                              settings.selectedCameraDisplayName,
                         );
                       },
               ),
@@ -735,7 +774,13 @@ class _CameraSourcePreference extends StatelessWidget {
                       child: ProgressRing(strokeWidth: 2),
                     )
                   : const Icon(FluentIcons.refresh, size: 16),
-              onPressed: cameras.isLoading ? null : () => cameras.refresh(),
+              onPressed: cameras.isLoading
+                  ? null
+                  : () async {
+                      await cameras.refresh();
+                      if (!mounted) return;
+                      await _maybeMigrateLegacySelection();
+                    },
             ),
           ],
         ),
@@ -748,10 +793,19 @@ class _CameraSourcePreference extends StatelessWidget {
                 : context.elixTextSecondary,
           ),
         ),
+        if (selectedId == null &&
+            cameras.state == CameraDiscoveryState.success &&
+            autoActive != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Auto-select is currently using ${autoActive.displayName}',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
         if (warning) ...[
           const SizedBox(height: 4),
           Text(
-            '${cameraDisplayName(selected!, preferredIndex: cameras.preferredIndex, fallbackIndex: cameras.fallbackIndex)} is no longer available',
+            '${settings.selectedCameraDisplayName ?? 'Selected camera'} is no longer available',
             style: AppTheme.caption.copyWith(color: AppColors.warning),
           ),
         ],
@@ -764,7 +818,8 @@ class _CameraSourcePreference extends StatelessWidget {
     );
   }
 
-  String _statusText(int? selected) {
+  String _statusText(String? selected) {
+    final cameras = widget.cameras;
     switch (cameras.state) {
       case CameraDiscoveryState.idle:
       case CameraDiscoveryState.loading:

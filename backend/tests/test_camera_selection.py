@@ -86,6 +86,7 @@ def _opened(cap: _FakeCap, index: int = 0) -> tuple[_FakeCap, camera_mod.Capture
 def _reset_shared() -> None:
     camera_mod._shared_cap = None
     camera_mod._shared_index = None
+    camera_mod._shared_device_id = None
     camera_mod._shared_profile = None
     camera_mod._release_timer = None
     camera_mod._release_generation = 0
@@ -256,6 +257,113 @@ def test_parse_camera_index_rejects_invalid_values():
     assert error == "invalid_camera_index"
 
 
+def test_parse_camera_selection_prefers_device_id():
+    from api.websocket import parse_camera_selection
+
+    device_id, index, error = parse_camera_selection(
+        {"camera_device_id": "\\\\?\\usb#vid_1234", "camera_index": 1}
+    )
+    assert device_id == "\\\\?\\usb#vid_1234"
+    assert index is None
+    assert error is None
+
+    device_id, index, error = parse_camera_selection({"camera_device_id": None})
+    assert device_id is None
+    assert index is None
+    assert error is None
+
+    device_id, index, error = parse_camera_selection({"camera_index": 1})
+    assert device_id is None
+    assert index == 1
+    assert error is None
+
+    device_id, index, error = parse_camera_selection({"camera_device_id": ""})
+    assert error == "invalid_camera_device_id"
+
+
+def test_explicit_device_id_resolves_current_index(monkeypatch):
+    from vision import camera_devices
+    from vision.camera_devices import EnumeratedCamera
+
+    monkeypatch.setattr(
+        camera_devices,
+        "enumerate_camera_devices",
+        lambda: [
+            EnumeratedCamera("dev-a", "Integrated Camera", 1, True),
+            EnumeratedCamera("dev-b", "HIKVISION", 0, True),
+        ],
+    )
+
+    tried = []
+
+    def fake_open(index: int, **_kwargs):
+        tried.append(index)
+        return _opened(_FakeCap(), index)
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    _reset_shared()
+
+    capture = camera_mod.CameraCapture(camera_device_id="dev-b")
+    assert capture.open() is True
+    assert tried == [0]
+    assert camera_mod._shared_index == 0
+    assert camera_mod._shared_device_id == "dev-b"
+
+    camera_mod._release_shared_unlocked()
+
+
+def test_explicit_device_id_missing_does_not_fallback(monkeypatch):
+    from vision import camera_devices
+
+    monkeypatch.setattr(camera_devices, "enumerate_camera_devices", lambda: [])
+    tried = []
+
+    def fake_open(index: int, **_kwargs):
+        tried.append(index)
+        return _opened(_FakeCap(), index)
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+    _reset_shared()
+
+    capture = camera_mod.CameraCapture(camera_device_id="missing-device")
+    assert capture.open() is False
+    assert tried == []
+
+
+def test_device_reorder_keeps_selected_physical_camera(monkeypatch):
+    from vision import camera_devices
+    from vision.camera_devices import EnumeratedCamera
+
+    # After reorder, HIKVISION (dev-b) is at runtime index 0.
+    monkeypatch.setattr(
+        camera_devices,
+        "enumerate_camera_devices",
+        lambda: [
+            EnumeratedCamera("dev-b", "HIKVISION", 0, True),
+            EnumeratedCamera("dev-a", "Integrated Camera", 1, True),
+        ],
+    )
+
+    tried = []
+
+    def fake_open(index: int, **_kwargs):
+        tried.append(index)
+        return _opened(_FakeCap(), index)
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    _reset_shared()
+
+    capture = camera_mod.CameraCapture(camera_device_id="dev-b")
+    assert capture.open() is True
+    assert camera_mod._shared_index == 0
+    assert tried == [0]
+
+    camera_mod._release_shared_unlocked()
+
+
+
 def test_discover_cameras_excludes_blank_frames(monkeypatch):
     def open_or_none(index: int, **_kwargs):
         if index == 1:
@@ -264,19 +372,28 @@ def test_discover_cameras_excludes_blank_frames(monkeypatch):
 
     monkeypatch.setattr(camera_mod, "_open_video_capture", open_or_none)
     monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        camera_mod,
+        "enumerate_camera_devices",
+        lambda: [],
+    )
     _reset_shared()
 
     result = camera_mod.discover_cameras(max_index=2)
-    assert [c["index"] for c in result["cameras"]] == [1]
+    assert [c["runtime_index"] for c in result["cameras"]] == [1]
+    assert result["cameras"][0]["display_name"] == "Camera 1"
+    assert result["cameras"][0]["identity_stable"] is False
     assert result["preferred_index"] == CAMERA_INDEX
     assert result["fallback_index"] == CAMERA_FALLBACK_INDEX
     assert result["active_index"] is None
+    assert "active_device_id" in result
 
 
 def test_discover_cameras_includes_active_shared_without_reopen(monkeypatch):
     fake = _FakeCap()
     camera_mod._shared_cap = fake
     camera_mod._shared_index = 0
+    camera_mod._shared_device_id = "opencv:0"
     camera_mod._shared_profile = _default_profile(0)
 
     opened = []
@@ -289,10 +406,12 @@ def test_discover_cameras_includes_active_shared_without_reopen(monkeypatch):
 
     monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
     monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "enumerate_camera_devices", lambda: [])
 
     result = camera_mod.discover_cameras(max_index=1)
-    assert [c["index"] for c in result["cameras"]] == [0, 1]
+    assert [c["runtime_index"] for c in result["cameras"]] == [0, 1]
     assert result["active_index"] == 0
+    assert result["active_device_id"] == "opencv:0"
     assert 0 not in opened
     assert fake.released is False
 
@@ -310,10 +429,15 @@ def test_cameras_endpoint_structure(monkeypatch):
         lambda max_index=4: {
             "cameras": [
                 {
+                    "device_id": "opencv:0",
+                    "display_name": "Camera 0",
+                    "runtime_index": 0,
+                    "is_active": False,
+                    "identity_stable": False,
                     "index": 0,
-                    "display_name": camera_mod.camera_display_name(0),
                 }
             ],
+            "active_device_id": None,
             "preferred_index": CAMERA_INDEX,
             "fallback_index": CAMERA_FALLBACK_INDEX,
             "active_index": None,
@@ -322,10 +446,12 @@ def test_cameras_endpoint_structure(monkeypatch):
 
     body = asyncio.run(cameras_api.list_cameras())
     payload = body.model_dump()
-    assert payload["cameras"][0]["display_name"] == camera_mod.camera_display_name(0)
+    assert payload["cameras"][0]["display_name"] == "Camera 0"
+    assert payload["cameras"][0]["device_id"] == "opencv:0"
     assert "preferred_index" in payload
     assert "fallback_index" in payload
     assert "active_index" in payload
+    assert "active_device_id" in payload
 
 
 # ---------------------------------------------------------------------------
@@ -333,28 +459,18 @@ def test_cameras_endpoint_structure(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_external_windows_profiles_prefer_mjpg_first(monkeypatch):
+def test_windows_profiles_prefer_mjpg_first_for_all_indices(monkeypatch):
     monkeypatch.setattr(camera_mod.sys, "platform", "win32")
-    profiles = camera_mod._capture_profiles(1)
-    assert len(profiles) == 4
-    assert [p.use_mjpg for p in profiles] == [True, True, False, False]
-    assert profiles[0].api == cv2.CAP_DSHOW
-    assert profiles[0].label == "DirectShow + MJPG"
-    assert profiles[1].api == cv2.CAP_MSMF
-    assert profiles[1].label == "Media Foundation + MJPG"
-    assert profiles[2].label == "DirectShow + default"
-    assert profiles[3].label == "Media Foundation + default"
-
-
-def test_builtin_windows_profiles_prefer_default_first(monkeypatch):
-    monkeypatch.setattr(camera_mod.sys, "platform", "win32")
-    profiles = camera_mod._capture_profiles(0)
-    assert len(profiles) == 4
-    assert [p.use_mjpg for p in profiles] == [False, False, True, True]
-    assert profiles[0].label == "DirectShow + default"
-    assert profiles[1].label == "Media Foundation + default"
-    assert profiles[2].label == "DirectShow + MJPG"
-    assert profiles[3].label == "Media Foundation + MJPG"
+    for index in (0, 1, 2):
+        profiles = camera_mod._capture_profiles(index)
+        assert len(profiles) == 4
+        assert [p.use_mjpg for p in profiles] == [True, True, False, False]
+        assert profiles[0].api == cv2.CAP_DSHOW
+        assert profiles[0].label == "DirectShow + MJPG"
+        assert profiles[1].api == cv2.CAP_MSMF
+        assert profiles[1].label == "Media Foundation + MJPG"
+        assert profiles[2].label == "DirectShow + default"
+        assert profiles[3].label == "Media Foundation + default"
 
 
 def test_windows_profiles_include_both_mjpg_and_default(monkeypatch):

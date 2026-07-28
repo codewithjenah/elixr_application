@@ -5,3 +5,6 @@ numpy==2.4.6
 opencv-python==4.13.0.92
 ultralytics==8.4.80
 mediapipe==0.10.9
+# Windows DirectShow camera identity (FriendlyName + DevicePath). Optional at
+# runtime on non-Windows; discovery falls back to OpenCV indices without it.
+comtypes==1.4.10

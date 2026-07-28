@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.get("/cameras", response_model=CamerasResponse)
 async def list_cameras() -> CamerasResponse:
-    """Return currently usable camera indices.
+    """Return currently usable cameras with stable device identities.
 
     Blocking OpenCV probing runs in a worker thread so the event loop stays free.
     Does not interrupt an active shared practice-session camera.

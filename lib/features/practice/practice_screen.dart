@@ -287,15 +287,20 @@ class _PracticeScreenState extends State<PracticeScreen>
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
 
-    final cameraIndex =
-        await context.read<SettingsService>().loadSelectedCameraIndex();
+    final cameraDeviceId = await context
+        .read<SettingsService>()
+        .loadSelectedCameraDeviceId();
     if (!mounted) return;
     if (!_run.isPreparingCamera) return;
 
+    final settings = context.read<SettingsService>();
     _ws.sendPrepare(
       movement: _movement,
       difficulty: _difficulty,
-      cameraIndex: cameraIndex,
+      cameraDeviceId: cameraDeviceId,
+      legacyCameraIndex: cameraDeviceId == null
+          ? settings.pendingLegacyCameraIndex
+          : null,
     );
   }
 

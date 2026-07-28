@@ -162,17 +162,22 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
 
-    final cameraIndex =
-        await context.read<SettingsService>().loadSelectedCameraIndex();
+    final cameraDeviceId = await context
+        .read<SettingsService>()
+        .loadSelectedCameraDeviceId();
     if (!mounted) return;
     if (!_run.isPreparingCamera) return;
 
+    final settings = context.read<SettingsService>();
     // A generic movement keeps the vision pipeline (camera + detection
     // overlays) running; the user practices freely and nothing is scored.
     _ws.sendPrepare(
       movement: 'Normal Grip',
       difficulty: 'Easy',
-      cameraIndex: cameraIndex,
+      cameraDeviceId: cameraDeviceId,
+      legacyCameraIndex: cameraDeviceId == null
+          ? settings.pendingLegacyCameraIndex
+          : null,
     );
   }
 

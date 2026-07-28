@@ -26,6 +26,7 @@ class StubCamera:
         self.read_count = 0
         self.released = False
         self.active_index = kwargs.get("camera_index") or 0
+        self.active_device_id = kwargs.get("camera_device_id")
         self.used_fallback = False
         StubCamera.instances.append(self)
 

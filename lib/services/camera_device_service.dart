@@ -21,18 +21,37 @@ class CameraDeviceService extends ChangeNotifier {
 
   CameraDiscoveryState _state = CameraDiscoveryState.idle;
   List<CameraDevice> _cameras = const [];
-  int? _preferredIndex;
-  int? _fallbackIndex;
+  String? _activeDeviceId;
   int? _activeIndex;
   String? _errorMessage;
 
   CameraDiscoveryState get state => _state;
   List<CameraDevice> get cameras => _cameras;
-  int? get preferredIndex => _preferredIndex;
-  int? get fallbackIndex => _fallbackIndex;
+  String? get activeDeviceId => _activeDeviceId;
   int? get activeIndex => _activeIndex;
   String? get errorMessage => _errorMessage;
   bool get isLoading => _state == CameraDiscoveryState.loading;
+
+  /// Labels for UI when duplicate friendly names exist.
+  List<String> get distinguishableLabels =>
+      distinguishableCameraLabels(_cameras);
+
+  CameraDevice? findByDeviceId(String? deviceId) {
+    if (deviceId == null) return null;
+    for (final camera in _cameras) {
+      if (camera.deviceId == deviceId) return camera;
+    }
+    return null;
+  }
+
+  /// Legacy migration helper: map an old runtime index to a discovered device.
+  CameraDevice? findByRuntimeIndex(int? runtimeIndex) {
+    if (runtimeIndex == null) return null;
+    for (final camera in _cameras) {
+      if (camera.runtimeIndex == runtimeIndex) return camera;
+    }
+    return null;
+  }
 
   Future<void> refresh() async {
     if (_state == CameraDiscoveryState.loading) return;
@@ -50,8 +69,7 @@ class CameraDeviceService extends ChangeNotifier {
 
       final result = CameraDiscoveryResult.fromJson(decoded);
       _cameras = List.unmodifiable(result.cameras);
-      _preferredIndex = result.preferredIndex;
-      _fallbackIndex = result.fallbackIndex;
+      _activeDeviceId = result.activeDeviceId;
       _activeIndex = result.activeIndex;
 
       if (_cameras.isEmpty) {
@@ -61,18 +79,26 @@ class CameraDeviceService extends ChangeNotifier {
       }
     } on SocketException {
       _cameras = const [];
+      _activeDeviceId = null;
+      _activeIndex = null;
       _state = CameraDiscoveryState.error;
       _errorMessage = 'Backend unavailable — start the Python server';
     } on TimeoutException {
       _cameras = const [];
+      _activeDeviceId = null;
+      _activeIndex = null;
       _state = CameraDiscoveryState.error;
       _errorMessage = 'Backend unavailable — start the Python server';
     } on FormatException {
       _cameras = const [];
+      _activeDeviceId = null;
+      _activeIndex = null;
       _state = CameraDiscoveryState.error;
       _errorMessage = 'Backend returned an invalid camera list';
     } catch (_) {
       _cameras = const [];
+      _activeDeviceId = null;
+      _activeIndex = null;
       _state = CameraDiscoveryState.error;
       _errorMessage = 'Backend unavailable — start the Python server';
     }

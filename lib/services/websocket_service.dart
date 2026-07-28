@@ -67,7 +67,8 @@ class WebSocketService extends ChangeNotifier {
   void sendPrepare({
     required String movement,
     required String difficulty,
-    int? cameraIndex,
+    String? cameraDeviceId,
+    int? legacyCameraIndex,
   }) {
     if (!isConnected || _channel == null) return;
 
@@ -76,7 +77,8 @@ class WebSocketService extends ChangeNotifier {
         buildPreparePayload(
           movement: movement,
           difficulty: difficulty,
-          cameraIndex: cameraIndex,
+          cameraDeviceId: cameraDeviceId,
+          legacyCameraIndex: legacyCameraIndex,
         ),
       ),
     );
@@ -98,7 +100,8 @@ class WebSocketService extends ChangeNotifier {
   void sendStart({
     required String movement,
     required String difficulty,
-    int? cameraIndex,
+    String? cameraDeviceId,
+    int? legacyCameraIndex,
   }) {
     if (!isConnected || _channel == null) return;
 
@@ -107,7 +110,8 @@ class WebSocketService extends ChangeNotifier {
         buildStartPayload(
           movement: movement,
           difficulty: difficulty,
-          cameraIndex: cameraIndex,
+          cameraDeviceId: cameraDeviceId,
+          legacyCameraIndex: legacyCameraIndex,
         ),
       ),
     );
@@ -121,15 +125,16 @@ class WebSocketService extends ChangeNotifier {
   static Map<String, dynamic> buildPreparePayload({
     required String movement,
     required String difficulty,
-    int? cameraIndex,
+    String? cameraDeviceId,
+    int? legacyCameraIndex,
   }) {
-    return <String, dynamic>{
-      'action': 'prepare',
-      'movement': movement,
-      'difficulty': difficulty,
-      'bottle_detection_enabled': true,
-      'camera_index': cameraIndex,
-    };
+    return _buildSessionPayload(
+      action: 'prepare',
+      movement: movement,
+      difficulty: difficulty,
+      cameraDeviceId: cameraDeviceId,
+      legacyCameraIndex: legacyCameraIndex,
+    );
   }
 
   /// Builds the WebSocket activate payload. Exposed for unit tests.
@@ -143,18 +148,40 @@ class WebSocketService extends ChangeNotifier {
   static Map<String, dynamic> buildStartPayload({
     required String movement,
     required String difficulty,
-    int? cameraIndex,
+    String? cameraDeviceId,
+    int? legacyCameraIndex,
   }) {
-    return <String, dynamic>{
-      'action': 'start',
+    return _buildSessionPayload(
+      action: 'start',
+      movement: movement,
+      difficulty: difficulty,
+      cameraDeviceId: cameraDeviceId,
+      legacyCameraIndex: legacyCameraIndex,
+    );
+  }
+
+  static Map<String, dynamic> _buildSessionPayload({
+    required String action,
+    required String movement,
+    required String difficulty,
+    String? cameraDeviceId,
+    int? legacyCameraIndex,
+  }) {
+    final payload = <String, dynamic>{
+      'action': action,
       'movement': movement,
       'difficulty': difficulty,
-      // Always enabled; backend still accepts this field for compatibility.
       'bottle_detection_enabled': true,
-      // Always include the key so Auto-select (`null`) and explicit indices are
-      // distinguishable from older clients that omitted the field entirely.
-      'camera_index': cameraIndex,
     };
+
+    // Prefer stable device identity. Only while a one-time settings migration
+    // is still pending, fall back to the legacy runtime index.
+    if (cameraDeviceId != null || legacyCameraIndex == null) {
+      payload['camera_device_id'] = cameraDeviceId;
+    } else {
+      payload['camera_index'] = legacyCameraIndex;
+    }
+    return payload;
   }
 
   void sendStop() {

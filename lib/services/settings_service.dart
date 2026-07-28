@@ -3,27 +3,50 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../data/models/camera_device.dart';
+
 class SettingsService extends ChangeNotifier {
   SettingsService({File? settingsFile}) : _settingsFileOverride = settingsFile;
 
   static const _fileName = 'settings.json';
   static const _cameraMirroredKey = 'camera_mirrored';
   static const _darkModeKey = 'dark_mode';
+  static const _cameraDeviceIdKey = 'camera_device_id';
+  static const _cameraDisplayNameKey = 'camera_display_name';
+
+  /// Legacy migration key. Retained only until mapped to a device id.
   static const _cameraIndexKey = 'camera_index';
 
   final File? _settingsFileOverride;
 
   bool _cameraMirrored = true;
   bool _darkMode = true;
-  int? _selectedCameraIndex;
+  String? _selectedCameraDeviceId;
+  String? _selectedCameraDisplayName;
+
+  /// Pending legacy runtime index awaiting one-time migration.
+  int? _legacyCameraIndex;
   bool _initialized = false;
 
   bool get isInitialized => _initialized;
   bool get cameraMirrored => _cameraMirrored;
   bool get darkMode => _darkMode;
 
-  /// `null` means Auto-select; a non-null value is an explicit camera index.
-  int? get selectedCameraIndex => _selectedCameraIndex;
+  /// `null` means Auto-select; a non-null value is an explicit device id.
+  String? get selectedCameraDeviceId => _selectedCameraDeviceId;
+
+  /// Cached UI label for the selected device. Not used for identity.
+  String? get selectedCameraDisplayName => _selectedCameraDisplayName;
+
+  /// Whether a legacy `camera_index` still needs migration after discovery.
+  bool get hasPendingLegacyCameraMigration =>
+      _selectedCameraDeviceId == null && _legacyCameraIndex != null;
+
+  /// Legacy runtime index retained until discovery migrates it to a device id.
+  ///
+  /// Practice may send this temporarily when device id migration has not run
+  /// yet. Null means Auto-select or already migrated.
+  int? get pendingLegacyCameraIndex => _legacyCameraIndex;
 
   Future<void> initialize() async {
     try {
@@ -33,7 +56,7 @@ class SettingsService extends ChangeNotifier {
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
         _cameraMirrored = data[_cameraMirroredKey] as bool? ?? true;
         _darkMode = data[_darkModeKey] as bool? ?? true;
-        _selectedCameraIndex = _parseCameraIndex(data[_cameraIndexKey]);
+        _loadCameraSelection(data);
       }
     } catch (_) {
       // Keep defaults.
@@ -56,28 +79,90 @@ class SettingsService extends ChangeNotifier {
     await _save();
   }
 
-  Future<void> setSelectedCameraIndex(int? value) async {
-    final normalized = value == null ? null : _parseCameraIndex(value);
-    if (_selectedCameraIndex == normalized) return;
-    _selectedCameraIndex = normalized;
+  Future<void> setSelectedCameraDevice(
+    String? deviceId, {
+    String? displayName,
+  }) async {
+    final normalizedId = _parseDeviceId(deviceId);
+    final normalizedName = displayName?.trim();
+    final name = (normalizedName == null || normalizedName.isEmpty)
+        ? null
+        : normalizedName;
+
+    if (_selectedCameraDeviceId == normalizedId &&
+        _selectedCameraDisplayName == name &&
+        _legacyCameraIndex == null) {
+      return;
+    }
+
+    _selectedCameraDeviceId = normalizedId;
+    _selectedCameraDisplayName = normalizedId == null ? null : name;
+    _legacyCameraIndex = null;
     notifyListeners();
     await _save();
   }
 
-  /// Reloads `camera_index` from disk so practice starts use the saved value
+  Future<void> clearCameraSelectionForAutoSelect() async {
+    await setSelectedCameraDevice(null);
+  }
+
+  /// Map a legacy persisted `camera_index` onto a discovered stable device.
+  ///
+  /// Does nothing when already migrated, when there is no legacy index, or
+  /// when the legacy index cannot be matched. Never silently picks another
+  /// device.
+  Future<bool> migrateLegacyCameraIndex(List<CameraDevice> discovered) async {
+    if (_selectedCameraDeviceId != null) return false;
+    final legacyIndex = _legacyCameraIndex;
+    if (legacyIndex == null) return false;
+
+    CameraDevice? match;
+    for (final camera in discovered) {
+      if (camera.runtimeIndex == legacyIndex) {
+        match = camera;
+        break;
+      }
+    }
+    if (match == null) return false;
+
+    await setSelectedCameraDevice(
+      match.deviceId,
+      displayName: match.displayName,
+    );
+    return true;
+  }
+
+  /// Reloads camera selection from disk so practice starts use the saved value
   /// even after hot reload left in-memory settings stale.
-  Future<int?> loadSelectedCameraIndex() async {
+  Future<String?> loadSelectedCameraDeviceId() async {
     try {
       final file = _settingsFile();
       if (await file.exists()) {
         final data =
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-        _selectedCameraIndex = _parseCameraIndex(data[_cameraIndexKey]);
+        _loadCameraSelection(data);
       }
     } catch (_) {
       // Keep the in-memory value.
     }
-    return _selectedCameraIndex;
+    return _selectedCameraDeviceId;
+  }
+
+  void _loadCameraSelection(Map<String, dynamic> data) {
+    final deviceId = _parseDeviceId(data[_cameraDeviceIdKey]);
+    if (deviceId != null) {
+      _selectedCameraDeviceId = deviceId;
+      final name = data[_cameraDisplayNameKey];
+      _selectedCameraDisplayName = name is String && name.trim().isNotEmpty
+          ? name.trim()
+          : null;
+      _legacyCameraIndex = null;
+      return;
+    }
+
+    _selectedCameraDeviceId = null;
+    _selectedCameraDisplayName = null;
+    _legacyCameraIndex = _parseCameraIndex(data[_cameraIndexKey]);
   }
 
   Future<void> _save() async {
@@ -87,9 +172,12 @@ class SettingsService extends ChangeNotifier {
       final payload = <String, dynamic>{
         _cameraMirroredKey: _cameraMirrored,
         _darkModeKey: _darkMode,
+        _cameraDeviceIdKey: _selectedCameraDeviceId,
+        _cameraDisplayNameKey: _selectedCameraDisplayName,
       };
-      if (_selectedCameraIndex != null) {
-        payload[_cameraIndexKey] = _selectedCameraIndex;
+      // Keep legacy key only while migration is still pending.
+      if (_selectedCameraDeviceId == null && _legacyCameraIndex != null) {
+        payload[_cameraIndexKey] = _legacyCameraIndex;
       } else {
         payload[_cameraIndexKey] = null;
       }
@@ -113,6 +201,14 @@ class SettingsService extends ChangeNotifier {
     return File(_fileName);
   }
 
+  static String? _parseDeviceId(Object? raw) {
+    if (raw == null) return null;
+    if (raw is! String) return null;
+    final value = raw.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  /// Legacy `camera_index` parser for one-time migration.
   static int? _parseCameraIndex(Object? raw) {
     if (raw == null) return null;
     if (raw is bool) return null;

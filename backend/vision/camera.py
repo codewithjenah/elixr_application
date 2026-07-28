@@ -17,6 +17,14 @@ from config import (
     FRAME_WIDTH,
     TARGET_FPS,
 )
+from vision.camera_devices import (
+    device_id_for_runtime_index,
+    display_name_for_runtime_index,
+    enumerate_camera_devices,
+    lookup_device,
+    merge_enumerated_with_usable_indices,
+    resolve_device_id_to_index,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +50,7 @@ _MAX_RECOVERY_ATTEMPTS_PER_READ = 1
 
 _shared_cap: Optional[cv2.VideoCapture] = None
 _shared_index: Optional[int] = None
+_shared_device_id: Optional[str] = None
 _shared_profile: Optional["CaptureProfile"] = None
 _release_timer: Optional[threading.Timer] = None
 # Bumped every time a pending release is cancelled/superseded so a timer
@@ -66,11 +75,16 @@ class CaptureProfile:
 
 
 def _capture_profiles(index: int) -> list[CaptureProfile]:
-    """Ordered Windows capture profiles for the given camera index.
+    """Ordered Windows capture profiles.
 
-    Nonzero indices are treated as likely external devices for profile
-    ordering only — index identity is still whatever the OS assigns.
+    Profile order does not classify built-in vs external from the runtime
+    index. Every backend/format combination is still attempted; startup
+    probing rejects profiles that open but yield unusable frames.
+
+    ``index`` is retained for call-site compatibility only.
     """
+    del index  # Runtime index is not a device-class signal.
+
     if sys.platform == "win32":
         dshow_mjpg = CaptureProfile(
             cv2.CAP_DSHOW, "DirectShow", True, "DirectShow + MJPG"
@@ -84,13 +98,8 @@ def _capture_profiles(index: int) -> list[CaptureProfile]:
         msmf_default = CaptureProfile(
             cv2.CAP_MSMF, "Media Foundation", False, "Media Foundation + default"
         )
-
-        if index > 0:
-            # External USB webcams (e.g. Hikvision) often need MJPG first.
-            return [dshow_mjpg, msmf_mjpg, dshow_default, msmf_default]
-
-        # Built-in cameras are usually more stable on the default format.
-        return [dshow_default, msmf_default, dshow_mjpg, msmf_mjpg]
+        # MJPG first helps many USB cameras; others fall through quickly.
+        return [dshow_mjpg, msmf_mjpg, dshow_default, msmf_default]
 
     return [
         CaptureProfile(None, "Default", False, "Default + default"),
@@ -117,8 +126,11 @@ def _profiles_starting_after(
 def candidate_indices(camera_index: int | None = None) -> list[int]:
     """Return camera indices to try for a session request.
 
-    ``None`` means Auto-select (preferred, then fallback).
+    ``None`` means Auto-select (preferred, then fallback config indices).
     An integer means explicit selection with no silent fallback.
+
+    Prefer resolving ``camera_device_id`` via
+    :func:`resolve_camera_device_id` before calling this with a legacy index.
     """
     if camera_index is None:
         indices = [CAMERA_INDEX]
@@ -129,13 +141,29 @@ def candidate_indices(camera_index: int | None = None) -> list[int]:
     return [camera_index]
 
 
-def camera_display_name(index: int) -> str:
-    """Friendly label for a camera index. Selection still uses the numeric index."""
-    if index == CAMERA_INDEX:
-        return "Default camera"
-    if index == CAMERA_FALLBACK_INDEX:
-        return "Webcam"
-    return f"Webcam {index}"
+def resolve_camera_device_id(device_id: str | None) -> int | None:
+    """Resolve a stable device id to the current OpenCV runtime index.
+
+    Returns ``None`` when the device is disconnected or unknown.
+    """
+    if device_id is None:
+        return None
+    return resolve_device_id_to_index(device_id)
+
+
+def camera_display_name(
+    *,
+    device_id: str | None = None,
+    runtime_index: int | None = None,
+) -> str:
+    """Friendly label from OS identity when available; never invents Default/Webcam."""
+    if device_id:
+        device = lookup_device(device_id)
+        if device is not None:
+            return device.display_name
+    if runtime_index is not None:
+        return display_name_for_runtime_index(runtime_index)
+    return "Selected camera"
 
 
 def _frame_is_usable(frame: np.ndarray) -> bool:
@@ -210,7 +238,7 @@ def _cancel_pending_release() -> None:
 
 
 def _release_shared_unlocked() -> None:
-    global _shared_cap, _shared_index, _shared_profile
+    global _shared_cap, _shared_index, _shared_device_id, _shared_profile
 
     _cancel_pending_release()
 
@@ -218,6 +246,7 @@ def _release_shared_unlocked() -> None:
         _shared_cap.release()
         _shared_cap = None
         _shared_index = None
+        _shared_device_id = None
         _shared_profile = None
         logger.info("Camera released")
 
@@ -374,13 +403,15 @@ def _try_reuse_shared_capture(
 
 
 def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]:
-    """Probe a bounded index range and return usable cameras.
+    """Probe a bounded index range and return usable cameras with stable IDs.
 
     Does not release an already-open shared capture. The active shared index is
     listed without reopening it. Blocking OpenCV work must be run off the
     FastAPI event loop by the caller (``asyncio.to_thread``).
     """
+    enumerated = enumerate_camera_devices()
     cameras: list[dict[str, Any]] = []
+    usable_indices: list[int] = []
 
     with _CAMERA_LOCK:
         active_index = (
@@ -388,15 +419,11 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
             if _shared_cap is not None and _shared_cap.isOpened()
             else None
         )
+        active_device_id = _shared_device_id
 
         for index in range(max_index + 1):
             if active_index is not None and index == active_index:
-                cameras.append(
-                    {
-                        "index": index,
-                        "display_name": camera_display_name(index),
-                    }
-                )
+                usable_indices.append(index)
                 continue
 
             opened = _open_video_capture(index)
@@ -404,18 +431,42 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
                 continue
 
             cap, _profile = opened
-            cameras.append(
-                {
-                    "index": index,
-                    "display_name": camera_display_name(index),
-                }
-            )
+            usable_indices.append(index)
             cap.release()
             if sys.platform == "win32":
                 time.sleep(_RELEASE_DELAY_S)
 
+        merged = merge_enumerated_with_usable_indices(
+            usable_indices,
+            enumerated=enumerated,
+        )
+
+        if active_device_id is None and active_index is not None:
+            active_device_id = device_id_for_runtime_index(
+                active_index,
+                devices=merged,
+            )
+
+        for device in merged:
+            cameras.append(
+                {
+                    "device_id": device.device_id,
+                    "display_name": device.display_name,
+                    "runtime_index": device.runtime_index,
+                    "is_active": (
+                        active_index is not None
+                        and device.runtime_index == active_index
+                    ),
+                    "identity_stable": device.identity_stable,
+                    # Legacy migration field.
+                    "index": device.runtime_index,
+                }
+            )
+
     return {
         "cameras": cameras,
+        "active_device_id": active_device_id,
+        # Legacy migration fields.
         "preferred_index": CAMERA_INDEX,
         "fallback_index": CAMERA_FALLBACK_INDEX,
         "active_index": active_index,
@@ -430,15 +481,20 @@ class CameraCapture:
         height: int = FRAME_HEIGHT,
         *,
         camera_index: int | None = None,
+        camera_device_id: str | None = None,
     ):
         """Open a webcam for a vision session.
 
-        Keyword ``camera_index``:
-        - ``None`` → Auto-select (preferred ``index``/CAMERA_INDEX, then fallback)
+        Keyword ``camera_device_id``:
+        - ``None`` with ``camera_index is None`` → Auto-select
+        - non-null string → explicit physical camera (resolved at open time)
+
+        Keyword ``camera_index`` (legacy migration):
+        - ``None`` → Auto-select when device id is also None
         - ``N`` → explicit index N with no silent fallback
 
         Legacy positional ``index`` remains the preferred Auto-select index when
-        ``camera_index`` is omitted/None (scripts and profile tools).
+        both keywords are omitted/None (scripts and profile tools).
         """
         self._width = width
         self._height = height
@@ -446,8 +502,14 @@ class CameraCapture:
         self._used_fallback = False
         self._last_read_status = CameraReadStatus.OK
         self._last_recovery_at = 0.0
+        self._requested_device_id = camera_device_id
+        self._active_device_id: str | None = None
 
-        if camera_index is not None:
+        if camera_device_id is not None:
+            self._auto = False
+            self._selection = None
+            self._auto_preferred = CAMERA_INDEX
+        elif camera_index is not None:
             self._auto = False
             self._selection = camera_index
             self._auto_preferred = CAMERA_INDEX
@@ -467,6 +529,11 @@ class CameraCapture:
             return _shared_index
 
     @property
+    def active_device_id(self) -> str | None:
+        with _CAMERA_LOCK:
+            return _shared_device_id
+
+    @property
     def used_fallback(self) -> bool:
         return self._used_fallback
 
@@ -474,9 +541,17 @@ class CameraCapture:
     def last_read_status(self) -> CameraReadStatus:
         return self._last_read_status
 
-    def _allowed_indices(self) -> list[int]:
+    def _resolve_allowed_indices(self) -> list[int] | None:
+        """Return candidate indices, or ``None`` when explicit device is missing."""
+        if self._requested_device_id is not None:
+            resolved = resolve_device_id_to_index(self._requested_device_id)
+            if resolved is None:
+                return None
+            return [resolved]
+
         if not self._auto:
             return candidate_indices(self._selection)
+
         preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
         indices = [preferred]
         if CAMERA_FALLBACK_INDEX != preferred:
@@ -488,20 +563,44 @@ class CameraCapture:
         index: int,
         cap: cv2.VideoCapture,
         profile: CaptureProfile,
+        *,
+        device_id: str | None = None,
     ) -> None:
-        global _shared_cap, _shared_index, _shared_profile
+        global _shared_cap, _shared_index, _shared_device_id, _shared_profile
+
+        resolved_id = device_id
+        if resolved_id is None:
+            if self._requested_device_id is not None:
+                resolved_id = self._requested_device_id
+            else:
+                resolved_id = device_id_for_runtime_index(index)
 
         _shared_cap = cap
         _shared_index = index
+        _shared_device_id = resolved_id
         _shared_profile = profile
+        self._active_device_id = resolved_id
         self._blank_frame_streak = 0
         preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
         self._used_fallback = self._auto and index != preferred
 
     def open(self) -> bool:
-        allowed = self._allowed_indices()
+        allowed = self._resolve_allowed_indices()
         mode = "auto-select" if self._auto else "explicit"
-        requested = "auto" if self._auto else str(self._selection)
+        if self._requested_device_id is not None:
+            requested = self._requested_device_id
+        elif self._auto:
+            requested = "auto"
+        else:
+            requested = str(self._selection)
+
+        if allowed is None:
+            logger.error(
+                "Failed to resolve selected camera_device_id=%s (disconnected or unknown)",
+                self._requested_device_id,
+            )
+            self._last_read_status = CameraReadStatus.UNAVAILABLE
+            return False
 
         logger.info(
             "Camera open requested: mode=%s requested=%s candidates=%s",
@@ -516,6 +615,7 @@ class CameraCapture:
             preferred = allowed[0] if allowed else None
             if _try_reuse_shared_capture(allowed, preferred_index=preferred):
                 self._blank_frame_streak = 0
+                self._active_device_id = _shared_device_id
                 self._used_fallback = (
                     self._auto
                     and _shared_index is not None
@@ -523,8 +623,10 @@ class CameraCapture:
                 )
                 self._last_read_status = CameraReadStatus.OK
                 logger.info(
-                    "Camera ready (reused): active_index=%s profile=%s used_fallback=%s",
+                    "Camera ready (reused): active_index=%s device_id=%s "
+                    "profile=%s used_fallback=%s",
                     _shared_index,
+                    _shared_device_id,
                     _shared_profile.label if _shared_profile else "unknown",
                     self._used_fallback,
                 )
@@ -548,8 +650,10 @@ class CameraCapture:
 
                     self._last_read_status = CameraReadStatus.OK
                     logger.info(
-                        "Camera ready: active_index=%s profile=%s used_fallback=%s size=%sx%s",
+                        "Camera ready: active_index=%s device_id=%s profile=%s "
+                        "used_fallback=%s size=%sx%s",
                         _shared_index,
+                        _shared_device_id,
                         profile.label,
                         self._used_fallback,
                         self._width,
@@ -563,6 +667,11 @@ class CameraCapture:
                     "Failed to open camera index %s. Fallback index %s also failed.",
                     getattr(self, "_auto_preferred", CAMERA_INDEX),
                     CAMERA_FALLBACK_INDEX,
+                )
+            elif self._requested_device_id is not None:
+                logger.error(
+                    "Failed to open selected camera_device_id=%s (no fallback).",
+                    self._requested_device_id,
                 )
             else:
                 logger.error(
@@ -601,13 +710,26 @@ class CameraCapture:
         _release_shared_unlocked()
 
         # Same-index recovery with rotated capture profiles.
-        opened = _open_video_capture(failed_index, prefer_after=failed_profile)
+        # Re-resolve explicit device id in case the runtime index changed.
+        recover_index = failed_index
+        if self._requested_device_id is not None:
+            resolved = resolve_device_id_to_index(self._requested_device_id)
+            if resolved is None:
+                logger.error(
+                    "Camera recovery failed: selected device_id=%s no longer present",
+                    self._requested_device_id,
+                )
+                self._last_read_status = CameraReadStatus.UNAVAILABLE
+                return False
+            recover_index = resolved
+
+        opened = _open_video_capture(recover_index, prefer_after=failed_profile)
         if opened is not None:
             cap, profile = opened
-            self._adopt_opened(failed_index, cap, profile)
+            self._adopt_opened(recover_index, cap, profile)
             logger.info(
-                "Camera recovery succeeded on same index %s using %s",
-                failed_index,
+                "Camera recovery succeeded on index %s using %s",
+                recover_index,
                 profile.label,
             )
             self._last_read_status = CameraReadStatus.OK
@@ -616,8 +738,8 @@ class CameraCapture:
         # Auto-select may fall back only after preferred-index recovery fails.
         if self._auto:
             preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
-            for candidate in self._allowed_indices():
-                if candidate == failed_index:
+            for candidate in self._resolve_allowed_indices() or []:
+                if candidate == recover_index:
                     continue
                 opened = _open_video_capture(candidate)
                 if opened is not None:
@@ -634,7 +756,7 @@ class CameraCapture:
 
         logger.error(
             "Camera recovery failed for index %s (auto=%s)",
-            failed_index,
+            recover_index,
             self._auto,
         )
         self._last_read_status = CameraReadStatus.UNAVAILABLE

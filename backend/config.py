@@ -5,11 +5,10 @@ FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 JPEG_QUALITY = 70
 
-# Camera setup:
-# CAMERA_INDEX = 0  -> built-in laptop camera
-# CAMERA_INDEX = 1  -> Hikvision USB webcam
-#
-# Default: Hikvision USB webcam. Override without editing this file, e.g.:
+# Auto-select try order uses ephemeral OpenCV/DirectShow runtime indices.
+# These are NOT stable physical-camera identities across machines or reconnects.
+# Explicit selection must use camera_device_id from discovery.
+# Override without editing this file, e.g.:
 #   $env:CAMERA_INDEX = "0"; .\run.ps1
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "1"))
 CAMERA_FALLBACK_INDEX = int(os.getenv("CAMERA_FALLBACK_INDEX", "0"))
