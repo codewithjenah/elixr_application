@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:elixr_application/data/models/camera_device.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/websocket_service.dart';
@@ -165,9 +168,7 @@ void main() {
   });
 
   group('CameraDeviceService', () {
-    test('handles success, empty, and backend errors', () async {
-      final success = CameraDeviceService(
-        httpGet: (_) async => '''
+    const successBody = '''
 {
   "cameras": [{
     "device_id": "dev-a",
@@ -177,8 +178,10 @@ void main() {
     "identity_stable": true
   }],
   "active_device_id": null
-}''',
-      );
+}''';
+
+    test('handles success, empty, and backend errors', () async {
+      final success = CameraDeviceService(httpGet: (_) async => successBody);
       await success.refresh();
       expect(success.state, CameraDiscoveryState.success);
       expect(success.cameras, hasLength(1));
@@ -200,25 +203,148 @@ void main() {
       );
       await error.refresh();
       expect(error.state, CameraDiscoveryState.error);
+      expect(error.errorKind, CameraDiscoveryErrorKind.invalidResponse);
       expect(error.errorMessage, contains('invalid'));
     });
 
     test('does not replace a missing selected device', () async {
-      final service = CameraDeviceService(
-        httpGet: (_) async => '''
-{
-  "cameras": [{
-    "device_id": "dev-a",
-    "display_name": "Integrated Camera",
-    "runtime_index": 0,
-    "is_active": false,
-    "identity_stable": true
-  }],
-  "active_device_id": null
-}''',
-      );
+      final service = CameraDeviceService(httpGet: (_) async => successBody);
       await service.refresh();
       expect(service.findByDeviceId('missing'), isNull);
+    });
+
+    test('timeout with healthy backend reports scan timeout', () async {
+      final service = CameraDeviceService(
+        httpGet: (uri) async {
+          if (uri.path == '/health') {
+            return '{"status":"ok"}';
+          }
+          throw TimeoutException('scan timed out');
+        },
+      );
+      await service.refresh();
+      expect(service.state, CameraDiscoveryState.error);
+      expect(service.errorKind, CameraDiscoveryErrorKind.scanTimeout);
+      expect(service.errorMessage, contains('camera scan took too long'));
+    });
+
+    test(
+      'timeout with unhealthy backend reports backend unavailable',
+      () async {
+        final service = CameraDeviceService(
+          httpGet: (uri) async {
+            throw TimeoutException('scan timed out');
+          },
+        );
+        await service.refresh();
+        expect(service.errorKind, CameraDiscoveryErrorKind.backendUnreachable);
+        expect(service.errorMessage, contains('Backend unavailable'));
+      },
+    );
+
+    test('preserves previous cameras after transient refresh error', () async {
+      var call = 0;
+      final service = CameraDeviceService(
+        httpGet: (uri) async {
+          if (uri.path == '/health') {
+            return '{"status":"ok"}';
+          }
+          call += 1;
+          if (call == 1) {
+            return successBody;
+          }
+          throw TimeoutException('scan timed out');
+        },
+      );
+
+      await service.refresh();
+      expect(service.cameras, hasLength(1));
+
+      await service.refresh();
+      expect(service.cameras, hasLength(1));
+      expect(service.errorKind, CameraDiscoveryErrorKind.scanTimeout);
+    });
+
+    test('socket exception is backend unreachable', () async {
+      final service = CameraDeviceService(
+        httpGet: (_) async => throw const SocketException('refused'),
+      );
+      await service.refresh();
+      expect(service.errorKind, CameraDiscoveryErrorKind.backendUnreachable);
+    });
+
+    test('http exception is distinguishable', () async {
+      final service = CameraDeviceService(
+        httpGet: (_) async => throw const HttpException('HTTP 500'),
+      );
+      await service.refresh();
+      expect(service.errorKind, CameraDiscoveryErrorKind.httpError);
+      expect(service.errorMessage, contains('HTTP 500'));
+    });
+
+    test('forceRefresh bypasses backend cache via query parameter', () async {
+      Uri? requestedUri;
+      final service = CameraDeviceService(
+        httpGet: (uri) async {
+          requestedUri = uri;
+          return successBody;
+        },
+      );
+
+      await service.refresh();
+      expect(requestedUri!.queryParameters['force_refresh'], isNull);
+
+      await service.refresh(forceRefresh: true);
+      expect(requestedUri!.queryParameters['force_refresh'], 'true');
+    });
+
+    test('saved camera missing only after successful discovery', () {
+      final cameras = [
+        const CameraDevice(
+          deviceId: 'dev-a',
+          displayName: 'Integrated Camera',
+          runtimeIndex: 0,
+          identityStable: true,
+        ),
+      ];
+
+      bool selectedMissing({
+        required CameraDiscoveryState state,
+        required String? selectedId,
+        required List<CameraDevice> discovered,
+      }) {
+        final discoveryComplete =
+            state == CameraDiscoveryState.success ||
+            state == CameraDiscoveryState.empty;
+        if (selectedId == null) return false;
+        final inList = discovered.any((c) => c.deviceId == selectedId);
+        return discoveryComplete && !inList;
+      }
+
+      expect(
+        selectedMissing(
+          state: CameraDiscoveryState.loading,
+          selectedId: 'missing',
+          discovered: cameras,
+        ),
+        isFalse,
+      );
+      expect(
+        selectedMissing(
+          state: CameraDiscoveryState.error,
+          selectedId: 'missing',
+          discovered: cameras,
+        ),
+        isFalse,
+      );
+      expect(
+        selectedMissing(
+          state: CameraDiscoveryState.success,
+          selectedId: 'missing',
+          discovered: cameras,
+        ),
+        isTrue,
+      );
     });
   });
 }

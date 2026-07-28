@@ -90,6 +90,7 @@ def _reset_shared() -> None:
     camera_mod._shared_profile = None
     camera_mod._release_timer = None
     camera_mod._release_generation = 0
+    camera_mod.reset_discovery_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +380,7 @@ def test_discover_cameras_excludes_blank_frames(monkeypatch):
     )
     _reset_shared()
 
-    result = camera_mod.discover_cameras(max_index=2)
+    result = camera_mod.discover_cameras(max_index=2, force_refresh=True)
     assert [c["runtime_index"] for c in result["cameras"]] == [1]
     assert result["cameras"][0]["display_name"] == "Camera 1"
     assert result["cameras"][0]["identity_stable"] is False
@@ -408,7 +409,7 @@ def test_discover_cameras_includes_active_shared_without_reopen(monkeypatch):
     monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
     monkeypatch.setattr(camera_mod, "enumerate_camera_devices", lambda: [])
 
-    result = camera_mod.discover_cameras(max_index=1)
+    result = camera_mod.discover_cameras(max_index=1, force_refresh=True)
     assert [c["runtime_index"] for c in result["cameras"]] == [0, 1]
     assert result["active_index"] == 0
     assert result["active_device_id"] == "opencv:0"
@@ -426,7 +427,7 @@ def test_cameras_endpoint_structure(monkeypatch):
     monkeypatch.setattr(
         cameras_api,
         "discover_cameras",
-        lambda max_index=4: {
+        lambda max_index=4, force_refresh=False: {
             "cameras": [
                 {
                     "device_id": "opencv:0",
@@ -452,6 +453,205 @@ def test_cameras_endpoint_structure(monkeypatch):
     assert "fallback_index" in payload
     assert "active_index" in payload
     assert "active_device_id" in payload
+
+
+def test_cameras_endpoint_plumbs_force_refresh(monkeypatch):
+    import asyncio
+
+    from api import cameras as cameras_api
+
+    seen = {}
+
+    def fake_discover(max_index=4, force_refresh=False):
+        seen["force_refresh"] = force_refresh
+        return {
+            "cameras": [],
+            "active_device_id": None,
+            "preferred_index": CAMERA_INDEX,
+            "fallback_index": CAMERA_FALLBACK_INDEX,
+            "active_index": None,
+        }
+
+    monkeypatch.setattr(cameras_api, "discover_cameras", fake_discover)
+
+    asyncio.run(cameras_api.list_cameras(force_refresh=False))
+    assert seen["force_refresh"] is False
+
+    asyncio.run(cameras_api.list_cameras(force_refresh=True))
+    assert seen["force_refresh"] is True
+
+
+# ---------------------------------------------------------------------------
+# Discovery enumeration, cache, and backend consistency
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_probes_only_enumerated_indices(monkeypatch):
+    from vision.camera_devices import EnumeratedCamera
+
+    probed: list[int] = []
+
+    def fake_probe(index: int, *, enumerated):
+        probed.append(index)
+        return index in {1, 3}
+
+    monkeypatch.setattr(camera_mod, "_probe_index_for_discovery", fake_probe)
+    monkeypatch.setattr(
+        camera_mod,
+        "enumerate_camera_devices",
+        lambda: [
+            EnumeratedCamera("dev-a", "Integrated Camera", 1, True),
+            EnumeratedCamera("dev-b", "HIKVISION", 3, True),
+        ],
+    )
+    _reset_shared()
+
+    result = camera_mod.discover_cameras(max_index=4, force_refresh=True)
+    assert probed == [1, 3]
+    assert [c["runtime_index"] for c in result["cameras"]] == [1, 3]
+
+
+def test_discovery_uses_blind_index_fallback_when_enumeration_empty(monkeypatch):
+    probed: list[int] = []
+
+    def fake_probe(index: int, *, enumerated):
+        probed.append(index)
+        return index == 2
+
+    monkeypatch.setattr(camera_mod, "_probe_index_for_discovery", fake_probe)
+    monkeypatch.setattr(camera_mod, "enumerate_camera_devices", lambda: [])
+    _reset_shared()
+
+    result = camera_mod.discover_cameras(max_index=2, force_refresh=True)
+    assert probed == [0, 1, 2]
+    assert [c["runtime_index"] for c in result["cameras"]] == [2]
+
+
+def test_discovery_probe_uses_bounded_settings(monkeypatch):
+    used = {"discovery": False, "startup": False}
+
+    def fake_discovery(*_args, **_kwargs):
+        used["discovery"] = True
+        return True, _usable_frame()
+
+    def fake_startup(*_args, **_kwargs):
+        used["startup"] = True
+        return True, _usable_frame()
+
+    monkeypatch.setattr(camera_mod, "_probe_discovery", fake_discovery)
+    monkeypatch.setattr(camera_mod, "_probe_stable_startup", fake_startup)
+    monkeypatch.setattr(
+        camera_mod,
+        "_create_capture",
+        lambda index, profile: _FakeCap(),
+    )
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+
+    assert camera_mod._open_video_capture(0, for_discovery=True) is not None
+    assert used["discovery"] is True
+    assert used["startup"] is False
+
+    used["discovery"] = False
+    assert camera_mod._open_video_capture(0, for_discovery=False) is not None
+    assert used["discovery"] is False
+    assert used["startup"] is True
+
+
+def test_discover_cameras_reuses_cache(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_impl(**_kwargs):
+        calls["n"] += 1
+        return {
+            "cameras": [],
+            "active_device_id": None,
+            "preferred_index": CAMERA_INDEX,
+            "fallback_index": CAMERA_FALLBACK_INDEX,
+            "active_index": None,
+        }
+
+    monkeypatch.setattr(camera_mod, "_discover_cameras_impl", fake_impl)
+    _reset_shared()
+
+    first = camera_mod.discover_cameras(force_refresh=True)
+    second = camera_mod.discover_cameras()
+    assert calls["n"] == 1
+    assert first == second
+
+
+def test_overlapping_discovery_scans_share_single_flight(monkeypatch):
+    import threading
+
+    calls = {"n": 0}
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_impl(**_kwargs):
+        calls["n"] += 1
+        started.set()
+        release.wait(timeout=2.0)
+        return {
+            "cameras": [],
+            "active_device_id": None,
+            "preferred_index": CAMERA_INDEX,
+            "fallback_index": CAMERA_FALLBACK_INDEX,
+            "active_index": None,
+        }
+
+    monkeypatch.setattr(camera_mod, "_discover_cameras_impl", slow_impl)
+    _reset_shared()
+
+    results: list[dict] = []
+
+    def worker():
+        results.append(camera_mod.discover_cameras(force_refresh=True))
+
+    first = threading.Thread(target=worker)
+    second = threading.Thread(target=worker)
+    first.start()
+    assert started.wait(timeout=2.0)
+    second.start()
+    release.set()
+    first.join(timeout=2.0)
+    second.join(timeout=2.0)
+
+    assert calls["n"] == 1
+    assert len(results) == 2
+
+
+def test_explicit_stable_device_uses_directshow_only(monkeypatch):
+    from vision import camera_devices
+    from vision.camera_devices import EnumeratedCamera
+
+    monkeypatch.setattr(
+        camera_devices,
+        "enumerate_camera_devices",
+        lambda: [EnumeratedCamera("dev-a", "Integrated Camera", 1, True)],
+    )
+
+    seen: list[bool] = []
+
+    def fake_open(index: int, **kwargs):
+        seen.append(kwargs.get("dshow_only", False))
+        return _opened(_FakeCap(), index)
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    _reset_shared()
+
+    capture = camera_mod.CameraCapture(camera_device_id="dev-a")
+    assert capture.open() is True
+    assert seen == [True]
+
+    camera_mod._release_shared_unlocked()
+
+
+def test_explicit_device_open_never_uses_msmf_profile(monkeypatch):
+    monkeypatch.setattr(camera_mod.sys, "platform", "win32")
+    profiles = camera_mod._capture_profiles(0, dshow_only=True)
+    assert profiles
+    assert all(profile.api == camera_mod.cv2.CAP_DSHOW for profile in profiles)
+    assert all(profile.api != camera_mod.cv2.CAP_MSMF for profile in profiles)
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from vision import camera as camera_mod
 from vision.camera_devices import (
     EnumeratedCamera,
     fallback_device_for_index,
@@ -64,3 +65,15 @@ def test_merge_enumerated_with_usable_indices():
     assert merged[0].identity_stable is True
     assert merged[1].identity_stable is False
     assert merged[1].display_name == "Camera 2"
+
+
+def test_indices_to_probe_prefers_enumerated_runtime_indices():
+    enumerated = [
+        EnumeratedCamera("dev-a", "Integrated Camera", 2, True),
+        EnumeratedCamera("dev-b", "HIKVISION", 0, True),
+    ]
+    assert camera_mod._indices_to_probe(max_index=4, enumerated=enumerated) == [0, 2]
+
+
+def test_indices_to_probe_falls_back_to_bounded_range_when_empty():
+    assert camera_mod._indices_to_probe(max_index=3, enumerated=[]) == [0, 1, 2, 3]

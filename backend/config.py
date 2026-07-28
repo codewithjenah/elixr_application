@@ -16,6 +16,20 @@ CAMERA_FALLBACK_INDEX = int(os.getenv("CAMERA_FALLBACK_INDEX", "0"))
 # Keep the webcam open briefly when sessions restart.
 CAMERA_RELEASE_DEBOUNCE_S = 2.0
 
+# Lightweight GET /cameras discovery (separate from strict session startup).
+DISCOVERY_MAX_INDEX = int(os.getenv("DISCOVERY_MAX_INDEX", "4"))
+DISCOVERY_CACHE_TTL_S = float(os.getenv("DISCOVERY_CACHE_TTL_S", "30"))
+# 0.75s/1-frame was too tight for a second physical device probed right after
+# another: a legitimately connected (e.g. built-in) camera could fail to
+# produce a usable frame in time and be dropped from the list. Widened to
+# give real hardware room to warm up while staying well under the client's
+# HTTP timeout for a small number of devices.
+DISCOVERY_PROBE_TIMEOUT_S = float(os.getenv("DISCOVERY_PROBE_TIMEOUT_S", "1.5"))
+DISCOVERY_PROBE_REQUIRED_CONSECUTIVE = int(
+    os.getenv("DISCOVERY_PROBE_REQUIRED_CONSECUTIVE", "2")
+)
+DISCOVERY_PROBE_READ_SLEEP_S = float(os.getenv("DISCOVERY_PROBE_READ_SLEEP_S", "0.03"))
+
 YOLO_FRAME_SKIP = 2
 
 FPS_LOG_INTERVAL = 60

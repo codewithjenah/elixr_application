@@ -62,7 +62,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     if (_section == ProfileSettingsSection.preferences) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          context.read<CameraDeviceService>().refresh();
+          context.read<CameraDeviceService>().refresh(forceRefresh: true);
         }
       });
     }
@@ -71,7 +71,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   void _openSection(ProfileSettingsSection section) {
     setState(() => _section = section);
     if (section == ProfileSettingsSection.preferences) {
-      context.read<CameraDeviceService>().refresh();
+      context.read<CameraDeviceService>().refresh(forceRefresh: true);
     }
   }
 
@@ -700,17 +700,18 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
 
     // Keep a previously saved explicit camera visible even if discovery no
     // longer lists it, so the preference is not silently reset.
+    final discoveryComplete =
+        cameras.state == CameraDiscoveryState.success ||
+        cameras.state == CameraDiscoveryState.empty;
     final selectedMissing =
-        selectedId != null && cameras.findByDeviceId(selectedId) == null;
-    if (selectedMissing) {
+        selectedId != null &&
+        discoveryComplete &&
+        cameras.findByDeviceId(selectedId) == null;
+    if (selectedId != null && cameras.findByDeviceId(selectedId) == null) {
       final cachedName =
           settings.selectedCameraDisplayName ?? 'Selected camera';
-      items.add(
-        ComboBoxItem<String>(
-          value: selectedId,
-          child: Text('$cachedName — unavailable'),
-        ),
-      );
+      final label = selectedMissing ? '$cachedName — unavailable' : cachedName;
+      items.add(ComboBoxItem<String>(value: selectedId, child: Text(label)));
     }
 
     final comboValue = selectedId ?? _autoValue;
@@ -777,7 +778,7 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
               onPressed: cameras.isLoading
                   ? null
                   : () async {
-                      await cameras.refresh();
+                      await cameras.refresh(forceRefresh: true);
                       if (!mounted) return;
                       await _maybeMigrateLegacySelection();
                     },

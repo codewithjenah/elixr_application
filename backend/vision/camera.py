@@ -13,14 +13,21 @@ from config import (
     CAMERA_FALLBACK_INDEX,
     CAMERA_INDEX,
     CAMERA_RELEASE_DEBOUNCE_S,
+    DISCOVERY_CACHE_TTL_S,
+    DISCOVERY_MAX_INDEX,
+    DISCOVERY_PROBE_READ_SLEEP_S,
+    DISCOVERY_PROBE_REQUIRED_CONSECUTIVE,
+    DISCOVERY_PROBE_TIMEOUT_S,
     FRAME_HEIGHT,
     FRAME_WIDTH,
     TARGET_FPS,
 )
 from vision.camera_devices import (
+    EnumeratedCamera,
     device_id_for_runtime_index,
     display_name_for_runtime_index,
     enumerate_camera_devices,
+    is_fallback_device_id,
     lookup_device,
     merge_enumerated_with_usable_indices,
     resolve_device_id_to_index,
@@ -29,10 +36,16 @@ from vision.camera_devices import (
 logger = logging.getLogger(__name__)
 
 _CAMERA_LOCK = threading.Lock()
+_DISCOVERY_LOCK = threading.Lock()
 
 _RELEASE_DELAY_S = 0.15
 _READ_RETRIES = 5
-_DISCOVERY_MAX_INDEX = 4
+
+# Short-lived GET /cameras cache and single-flight scan coordination.
+_discovery_cache: dict[str, Any] | None = None
+_discovery_cache_at: float = 0.0
+_discovery_scan_inflight = False
+_discovery_scan_waiters: list[threading.Event] = []
 
 # Phantom DirectShow devices can open but only return black frames.
 _MIN_FRAME_MEAN = 8.0
@@ -74,12 +87,20 @@ class CaptureProfile:
     label: str
 
 
-def _capture_profiles(index: int) -> list[CaptureProfile]:
+def _capture_profiles(
+    index: int,
+    *,
+    dshow_only: bool = False,
+) -> list[CaptureProfile]:
     """Ordered Windows capture profiles.
 
     Profile order does not classify built-in vs external from the runtime
     index. Every backend/format combination is still attempted; startup
     probing rejects profiles that open but yield unusable frames.
+
+  When ``dshow_only`` is True, only DirectShow profiles are returned so a
+  stable DirectShow ``device_id`` cannot silently open a different physical
+  camera through Media Foundation at the same runtime index.
 
     ``index`` is retained for call-site compatibility only.
     """
@@ -89,11 +110,14 @@ def _capture_profiles(index: int) -> list[CaptureProfile]:
         dshow_mjpg = CaptureProfile(
             cv2.CAP_DSHOW, "DirectShow", True, "DirectShow + MJPG"
         )
-        msmf_mjpg = CaptureProfile(
-            cv2.CAP_MSMF, "Media Foundation", True, "Media Foundation + MJPG"
-        )
         dshow_default = CaptureProfile(
             cv2.CAP_DSHOW, "DirectShow", False, "DirectShow + default"
+        )
+        if dshow_only:
+            return [dshow_mjpg, dshow_default]
+
+        msmf_mjpg = CaptureProfile(
+            cv2.CAP_MSMF, "Media Foundation", True, "Media Foundation + MJPG"
         )
         msmf_default = CaptureProfile(
             cv2.CAP_MSMF, "Media Foundation", False, "Media Foundation + default"
@@ -315,12 +339,71 @@ def _log_opened_capture(index: int, cap: cv2.VideoCapture, profile: CaptureProfi
     )
 
 
+def _abbreviate_device_id(device_id: str | None) -> str:
+    if not device_id:
+        return "none"
+    if len(device_id) <= 24:
+        return device_id
+    return f"{device_id[:12]}…{device_id[-8:]}"
+
+
+def _probe_discovery(
+    cap: cv2.VideoCapture,
+    *,
+    timeout_s: float = DISCOVERY_PROBE_TIMEOUT_S,
+    required_consecutive: int = DISCOVERY_PROBE_REQUIRED_CONSECUTIVE,
+    read_sleep_s: float = DISCOVERY_PROBE_READ_SLEEP_S,
+) -> tuple[bool, Optional[np.ndarray]]:
+    """Bounded probe for GET /cameras; not used for practice session startup."""
+    return _probe_stable_startup(
+        cap,
+        timeout_s=timeout_s,
+        required_consecutive=required_consecutive,
+        read_sleep_s=read_sleep_s,
+    )
+
+
+def _discovery_log_context(
+    index: int,
+    *,
+    enumerated: list[EnumeratedCamera],
+) -> tuple[str, str]:
+    device = next((d for d in enumerated if d.runtime_index == index), None)
+    if device is not None:
+        return device.display_name, _abbreviate_device_id(device.device_id)
+    return display_name_for_runtime_index(index, devices=enumerated), "unknown"
+
+
+def _indices_to_probe(
+    *,
+    max_index: int,
+    enumerated: list[EnumeratedCamera],
+) -> list[int]:
+    if enumerated:
+        return sorted({device.runtime_index for device in enumerated})
+    return list(range(max_index + 1))
+
+
+def _explicit_selection_requires_dshow(device_id: str | None) -> bool:
+    if device_id is None or is_fallback_device_id(device_id):
+        return False
+    device = lookup_device(device_id)
+    if device is None:
+        return True
+    return device.identity_stable
+
+
 def _open_video_capture(
     index: int,
     *,
     prefer_after: CaptureProfile | None = None,
+    dshow_only: bool = False,
+    for_discovery: bool = False,
 ) -> Optional[tuple[cv2.VideoCapture, CaptureProfile]]:
-    profiles = _profiles_starting_after(_capture_profiles(index), prefer_after)
+    profiles = _profiles_starting_after(
+        _capture_profiles(index, dshow_only=dshow_only),
+        prefer_after,
+    )
 
     for profile in profiles:
         cap = _create_capture(index, profile)
@@ -331,12 +414,17 @@ def _open_video_capture(
 
         _apply_capture_settings(cap, use_mjpg=profile.use_mjpg)
 
-        ok, frame = _probe_stable_startup(cap)
+        if for_discovery:
+            ok, frame = _probe_discovery(cap)
+        else:
+            ok, frame = _probe_stable_startup(cap)
+
         if not ok or frame is None:
             logger.debug(
-                "Camera %s rejected (%s): no stable usable frames",
+                "Camera %s rejected (%s): no %s usable frames",
                 index,
                 profile.label,
+                "discovery" if for_discovery else "stable",
             )
             cap.release()
             if sys.platform == "win32":
@@ -347,6 +435,41 @@ def _open_video_capture(
         return cap, profile
 
     return None
+
+
+def _probe_index_for_discovery(
+    index: int,
+    *,
+    enumerated: list[EnumeratedCamera],
+) -> bool:
+    display_name, device_id_short = _discovery_log_context(
+        index,
+        enumerated=enumerated,
+    )
+    opened = _open_video_capture(index, for_discovery=True)
+    if opened is None:
+        logger.info(
+            "Discovery probe failed: name=%r id=%s index=%s backend=none "
+            "reason=no_openable_profile",
+            display_name,
+            device_id_short,
+            index,
+        )
+        return False
+
+    cap, profile = opened
+    cap.release()
+    if sys.platform == "win32":
+        time.sleep(_RELEASE_DELAY_S)
+
+    logger.info(
+        "Discovery probe succeeded: name=%r id=%s index=%s backend=%s",
+        display_name,
+        device_id_short,
+        index,
+        profile.label,
+    )
+    return True
 
 
 def _try_reuse_shared_capture(
@@ -402,15 +525,10 @@ def _try_reuse_shared_capture(
     return False
 
 
-def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]:
-    """Probe a bounded index range and return usable cameras with stable IDs.
-
-    Does not release an already-open shared capture. The active shared index is
-    listed without reopening it. Blocking OpenCV work must be run off the
-    FastAPI event loop by the caller (``asyncio.to_thread``).
-    """
+def _discover_cameras_impl(*, max_index: int = DISCOVERY_MAX_INDEX) -> dict[str, Any]:
+    """Probe enumerated (or fallback) indices and return usable cameras."""
     enumerated = enumerate_camera_devices()
-    cameras: list[dict[str, Any]] = []
+    indices = _indices_to_probe(max_index=max_index, enumerated=enumerated)
     usable_indices: list[int] = []
 
     with _CAMERA_LOCK:
@@ -421,47 +539,41 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
         )
         active_device_id = _shared_device_id
 
-        for index in range(max_index + 1):
-            if active_index is not None and index == active_index:
-                usable_indices.append(index)
-                continue
-
-            opened = _open_video_capture(index)
-            if opened is None:
-                continue
-
-            cap, _profile = opened
+    for index in indices:
+        if active_index is not None and index == active_index:
             usable_indices.append(index)
-            cap.release()
-            if sys.platform == "win32":
-                time.sleep(_RELEASE_DELAY_S)
+            continue
 
-        merged = merge_enumerated_with_usable_indices(
-            usable_indices,
-            enumerated=enumerated,
+        if _probe_index_for_discovery(index, enumerated=enumerated):
+            usable_indices.append(index)
+
+    merged = merge_enumerated_with_usable_indices(
+        usable_indices,
+        enumerated=enumerated,
+    )
+
+    if active_device_id is None and active_index is not None:
+        active_device_id = device_id_for_runtime_index(
+            active_index,
+            devices=merged,
         )
 
-        if active_device_id is None and active_index is not None:
-            active_device_id = device_id_for_runtime_index(
-                active_index,
-                devices=merged,
-            )
-
-        for device in merged:
-            cameras.append(
-                {
-                    "device_id": device.device_id,
-                    "display_name": device.display_name,
-                    "runtime_index": device.runtime_index,
-                    "is_active": (
-                        active_index is not None
-                        and device.runtime_index == active_index
-                    ),
-                    "identity_stable": device.identity_stable,
-                    # Legacy migration field.
-                    "index": device.runtime_index,
-                }
-            )
+    cameras: list[dict[str, Any]] = []
+    for device in merged:
+        cameras.append(
+            {
+                "device_id": device.device_id,
+                "display_name": device.display_name,
+                "runtime_index": device.runtime_index,
+                "is_active": (
+                    active_index is not None
+                    and device.runtime_index == active_index
+                ),
+                "identity_stable": device.identity_stable,
+                # Legacy migration field.
+                "index": device.runtime_index,
+            }
+        )
 
     return {
         "cameras": cameras,
@@ -471,6 +583,80 @@ def discover_cameras(*, max_index: int = _DISCOVERY_MAX_INDEX) -> dict[str, Any]
         "fallback_index": CAMERA_FALLBACK_INDEX,
         "active_index": active_index,
     }
+
+
+def _discovery_cache_fresh(now: float) -> bool:
+    if _discovery_cache is None:
+        return False
+    return (now - _discovery_cache_at) < DISCOVERY_CACHE_TTL_S
+
+
+def discover_cameras(
+    *,
+    max_index: int = DISCOVERY_MAX_INDEX,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Return usable cameras with stable IDs, using cache and single-flight.
+
+    Does not release an already-open shared capture. Blocking OpenCV work must
+    be run off the FastAPI event loop by the caller (``asyncio.to_thread``).
+    """
+    global _discovery_cache, _discovery_cache_at, _discovery_scan_inflight
+
+    now = time.monotonic()
+
+    with _DISCOVERY_LOCK:
+        if not force_refresh and _discovery_cache_fresh(now):
+            logger.debug("Returning cached camera discovery result")
+            return dict(_discovery_cache)
+
+        if _discovery_scan_inflight:
+            waiter = threading.Event()
+            _discovery_scan_waiters.append(waiter)
+            logger.debug("Waiting for in-flight camera discovery scan")
+        else:
+            _discovery_scan_inflight = True
+            waiter = None
+
+    if waiter is not None:
+        waiter.wait()
+        with _DISCOVERY_LOCK:
+            if _discovery_cache is not None:
+                return dict(_discovery_cache)
+            # Prior scan failed without caching; become the leader.
+            _discovery_scan_inflight = True
+
+    try:
+        result = _discover_cameras_impl(max_index=max_index)
+    except Exception:
+        with _DISCOVERY_LOCK:
+            waiters = list(_discovery_scan_waiters)
+            _discovery_scan_waiters.clear()
+            _discovery_scan_inflight = False
+        for event in waiters:
+            event.set()
+        raise
+
+    with _DISCOVERY_LOCK:
+        _discovery_cache = result
+        _discovery_cache_at = time.monotonic()
+        waiters = list(_discovery_scan_waiters)
+        _discovery_scan_waiters.clear()
+        _discovery_scan_inflight = False
+
+    for event in waiters:
+        event.set()
+
+    return dict(result)
+
+
+def reset_discovery_cache() -> None:
+    """Clear cached discovery results (primarily for tests)."""
+    global _discovery_cache, _discovery_cache_at
+
+    with _DISCOVERY_LOCK:
+        _discovery_cache = None
+        _discovery_cache_at = 0.0
 
 
 class CameraCapture:
@@ -634,8 +820,13 @@ class CameraCapture:
 
             _release_shared_unlocked()
 
+            dshow_only = _explicit_selection_requires_dshow(self._requested_device_id)
+
             for candidate in allowed:
-                opened = _open_video_capture(candidate)
+                opened = _open_video_capture(
+                    candidate,
+                    dshow_only=dshow_only and self._requested_device_id is not None,
+                )
 
                 if opened is not None:
                     cap, profile = opened
@@ -723,7 +914,11 @@ class CameraCapture:
                 return False
             recover_index = resolved
 
-        opened = _open_video_capture(recover_index, prefer_after=failed_profile)
+        opened = _open_video_capture(
+            recover_index,
+            prefer_after=failed_profile,
+            dshow_only=_explicit_selection_requires_dshow(self._requested_device_id),
+        )
         if opened is not None:
             cap, profile = opened
             self._adopt_opened(recover_index, cap, profile)
