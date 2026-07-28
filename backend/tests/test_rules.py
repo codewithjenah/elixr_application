@@ -25,7 +25,11 @@ from assessment.rules.common_checks import (
     pose_upper_forearm_point,
     track_bottle_stability,
 )
-from assessment.rule_engine import evaluate_movement, movement_requires_hands
+from assessment.rule_engine import (
+    evaluate_movement,
+    movement_requires_hands,
+    movement_requires_pose,
+)
 from assessment.scoring import SessionScorer
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D, PoseLandmarks
 
@@ -1475,6 +1479,151 @@ def _eval_double_hand(
         state,
         bottles=bottle_list if bottles is not None else None,
     )
+
+
+def _eval_hand_stall(
+    bottle: BottleDetection | None,
+    hands: HandsResult | None,
+    state: dict | None = None,
+    *,
+    pose=None,
+):
+    return evaluate_movement("Hand Stall", bottle, pose, hands, None, state)
+
+
+def test_hand_stall_accepts_upright_bottle_on_open_right_palm():
+    hands = HandsResult(hands=[_open_palm_hand(0.55, 0.55, "Right")])
+    bottle = _bottle_on_palm(0.55, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+    assert "locked in" in result.feedback.lower()
+
+
+def test_hand_stall_accepts_upright_bottle_on_open_left_palm():
+    hands = HandsResult(hands=[_open_palm_hand(0.35, 0.55, "Left")])
+    bottle = _bottle_on_palm(0.35, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+    assert "locked in" in result.feedback.lower()
+
+
+def test_hand_stall_works_with_unknown_handedness():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55, "Unknown")])
+    bottle = _bottle_on_palm(0.50, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+
+
+def test_hand_stall_selects_correct_palm_when_two_hands_visible():
+    # Bottle rests on the left palm; a distant right palm must not reject.
+    hands = _two_open_palms((0.30, 0.55), (0.75, 0.55), reverse_order=True)
+    bottle = _bottle_on_palm(0.30, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+
+
+def test_hand_stall_rejects_closed_palm():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55, closed=True)])
+    bottle = _bottle_on_palm(0.50, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "open" in result.feedback.lower()
+    assert result.feedback_type != "positive"
+
+
+def test_hand_stall_rejects_incomplete_landmarks_without_crash():
+    incomplete = HandLandmarks(
+        points={4: Point2D(0.50, 0.55), 8: Point2D(0.52, 0.50)},
+        handedness="Right",
+    )
+    bottle = _bottle_on_palm(0.50, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, HandsResult(hands=[incomplete]))
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+
+
+def test_hand_stall_rejects_tilted_wide_bbox():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55)])
+    # Wide bbox: height/width < upright aspect threshold.
+    bottle = _bottle_on_palm(0.50, 0.55, width=100, height=60)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "upright" in result.feedback.lower()
+
+
+def test_hand_stall_rejects_center_near_wrist_but_base_not_on_palm():
+    """Regression: old logic accepted bottle center near the pose/hand wrist."""
+    palm_x, palm_y = 0.50, 0.50
+    hand = _open_palm_hand(palm_x, palm_y)
+    wrist = hand.points[0]
+    # Tall bottle whose center sits on the wrist, but bottom is far below the palm.
+    cx = int(round(wrist.x * 640))
+    cy = int(round(wrist.y * 480))
+    height = 160
+    bottle = BottleDetection(
+        x1=cx - 20,
+        y1=cy - height // 2,
+        x2=cx + 20,
+        y2=cy + height // 2,
+        confidence=0.9,
+    )
+    # Pose wrist colocated with the hand wrist — old path would accept this.
+    pose = _pose_from_points({16: wrist})
+    result, _, _ = _eval_hand_stall(
+        bottle, HandsResult(hands=[hand]), _stable_state(bottle), pose=pose
+    )
+    assert result.feedback_type == "warning"
+    assert result.feedback_type != "positive"
+
+
+def test_hand_stall_rejects_bottle_horizontally_far_from_palm():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55)])
+    bottle = _bottle_on_palm(0.70, 0.55)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "palm" in result.feedback.lower()
+
+
+def test_hand_stall_rejects_bottle_clearly_below_palm():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.50)])
+    # Bottom-center well below palm (image y increases downward).
+    bottle = _bottle_on_palm(0.50, 0.50, dy=-0.08)
+    result, _, _ = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "warning"
+    assert "palm" in result.feedback.lower()
+
+
+def test_hand_stall_rejects_unstable_bottle_history():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55)])
+    bottle = _bottle_on_palm(0.50, 0.55)
+    state = None
+    for i in range(6):
+        moving = _bottle_on_palm(0.50 + i * 0.05, 0.55)
+        state, _ = track_bottle_stability(state, moving)
+    result, _, _ = _eval_hand_stall(bottle, hands, state)
+    assert result.feedback_type == "warning"
+    assert "steady" in result.feedback.lower()
+
+
+def test_hand_stall_positive_after_valid_stable_history():
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55)])
+    bottle = _bottle_on_palm(0.50, 0.55)
+    result, _, out_state = _eval_hand_stall(bottle, hands, _stable_state(bottle))
+    assert result.feedback_type == "positive"
+    assert "hand stall locked in" in result.feedback.lower()
+    assert "bottle_history" in out_state
+
+
+def test_hand_stall_does_not_require_pose():
+    assert movement_requires_pose("Hand Stall") is False
+
+
+def test_other_stall_pose_requirements_unchanged():
+    assert movement_requires_pose("Arm Stall") is True
+    assert movement_requires_pose("Elbow Stall") is True
+    assert movement_requires_pose("Upper Forearm Stall") is True
+    assert movement_requires_pose("Shoulder Stall") is True
+    assert movement_requires_pose("Double Hand Stall") is False
 
 
 def test_double_hand_stall_two_bottles_stable_success():

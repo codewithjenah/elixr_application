@@ -59,6 +59,16 @@ SHOULDER_STALL_PROXIMITY = 0.16
 # Bottle centers farther below the shoulder than this are treated as chest/below.
 SHOULDER_BELOW_REJECT = 0.03
 
+# Hand Stall: one upright bottle resting on a single open palm.
+# Independently tunable from Double Hand Stall (same units: normalized 0-1).
+HAND_STALL_UPRIGHT_ASPECT_RATIO = 1.25
+HAND_STALL_OPEN_PALM_EXTENSION_RATIO = 1.18
+HAND_STALL_MIN_EXTENDED_FINGERS = 3
+HAND_STALL_BASE_TO_PALM = 0.11
+HAND_STALL_MAX_HORIZONTAL_OFFSET = 0.09
+# Reject when bottle bottom-center sits clearly below the palm (image y).
+HAND_STALL_BELOW_PALM_REJECT = 0.03
+
 # Double Hand Stall: two upright bottles, one on each open palm.
 # All geometry thresholds use normalized image coordinates (0-1).
 # Values are intentionally conservative across typical webcam distances.
@@ -84,7 +94,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
     "Normal Grip": {"difficulty": "Easy", "requires_hands": True},
     "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True},
     "Reverse Grip": {"difficulty": "Easy", "requires_hands": True},
-    "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
+    "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": False},
     "Arm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Elbow Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Upper Forearm Stall": {
