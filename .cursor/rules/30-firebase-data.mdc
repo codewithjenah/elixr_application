@@ -17,4 +17,18 @@ alwaysApply: false
 - Do not point the app at a different Firebase project casually; generated options and project files must remain consistent.
 - Preserve session/feedback linkage and user ownership when changing write flows.
 
+## Leaderboard (Firestore)
+
+- `leaderboard/{userId}` uses the Firebase UID as document ID and `user_id`.
+- `leaderboard_processed_sessions/{sessionId}` is the duplicate-award idempotency marker.
+- Leaderboard awards must be idempotent; do not award the same session twice.
+- The source `sessions/{sessionId}` document must exist and belong to the authenticated user.
+- The processed marker must match the session, user, score, and `xp_awarded` (25) according to `firestore.rules`.
+- Keep aggregate fields synchronized with `LeaderboardEntry`, `LeaderboardAwardPlan`, `LeaderboardRepository`, and `firestore.rules`: `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`.
+- Keep leaderboard query ordering synchronized with `firestore.indexes.json` (`total_xp` descending, then `best_score` descending).
+- Preserve authenticated leaderboard reads and own-document write constraints; do not weaken marker update/delete restrictions.
+- Display-name-only updates must not alter XP or score aggregates.
+- The current client transaction model is suitable for the controlled capstone environment but must not be described as server-authoritative or hostile-client-proof.
+- Camera settings are stored locally and must not be described as Firestore data.
+
 For data changes, verify mapping round trips, null timestamps, empty data, permission behavior, and query/index alignment.

@@ -13,7 +13,7 @@ Use Python 3.11 for the current pinned dependency set unless the dependency pins
 - Ultralytics YOLO with `backend/best.pt`.
 - MediaPipe Hand and Pose landmarker task assets.
 - Movement-specific rule modules.
-- Pytest rule-engine tests. (`pytest` is not currently listed in `backend/requirements.txt`.)
+- Pytest rule-engine, camera, and session-lifecycle tests. (`pytest` is not currently listed in `backend/requirements.txt`.)
 
 ## Runtime ownership
 
@@ -41,7 +41,7 @@ Keep Flutter independent of these implementation details except for the document
 ## Camera lifecycle
 
 - Run the backend with `backend/` as the working directory unless model paths are made explicit and tested.
-- Stable explicit selection uses a discovered physical `camera_device_id` from `GET /cameras` / `vision.camera_devices`. Runtime OpenCV or DirectShow indices are ephemeral implementation details.
+- Explicit selection uses a discovered `camera_device_id` from `GET /cameras` / `vision.camera_devices`. Physical identity is stable only when `identity_stable` is `true`; `opencv:N` fallback IDs are tied to ephemeral runtime indices. Runtime OpenCV or DirectShow indices are ephemeral implementation details.
 - Keep legacy `camera_index` parsing in `parse_camera_selection` only for migration when `camera_device_id` is absent.
 - `CAMERA_INDEX` and `CAMERA_FALLBACK_INDEX` influence Auto-select try order only; they are not stable physical-camera identities.
 - Preserve lightweight `GET /cameras` discovery separately from strict session startup. Discovery uses bounded probing (`DISCOVERY_PROBE_TIMEOUT_S`, `DISCOVERY_MAX_INDEX`, `DISCOVERY_PROBE_REQUIRED_CONSECUTIVE`) and `DISCOVERY_CACHE_TTL_S` caching with single-flight coordination.
@@ -52,7 +52,7 @@ Keep Flutter independent of these implementation details except for the document
 - Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record score changes.
 - Await in-flight frame work before releasing camera and detector resources on stop, cancellation, or disconnect.
 - Return machine-readable fatal errors such as `camera_unavailable`, `selected_camera_unavailable`, `invalid_camera_device_id`, `invalid_camera_index`, `session_not_prepared`, `model_load_failed`, `pipeline_init_failed`, and `pipeline_error`.
-- Camera changes require tests for Auto-select, stable device IDs, legacy migration, unavailable saved devices, slow warm-up, reconnects, stop, disconnect, and prepare/activate boundaries where relevant.
+- Camera changes require tests for Auto-select, `identity_stable` native IDs and `opencv:N` fallback IDs, legacy migration, unavailable saved devices, slow warm-up, reconnects, stop, disconnect, and prepare/activate boundaries where relevant.
 
 ## Model and detector behavior
 

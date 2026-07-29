@@ -41,7 +41,7 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 ### External services
 
 - Firebase Authentication owns user identity.
-- Cloud Firestore stores user profiles, sessions, and feedback.
+- Cloud Firestore stores user profiles, sessions, feedback, and leaderboard aggregates.
 - The FastAPI WebSocket is local runtime communication, not persistent storage.
 
 ## Non-negotiable invariants
@@ -56,11 +56,16 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 8. **Movement names are cross-layer identifiers.** Keep Flutter's catalog, Python `MOVEMENT_CONFIG`, and rule registry aligned.
 9. **Do not commit secrets.** Never add service-account keys, tokens, passwords, personal Firebase credentials, or local environment files.
 10. **Do not claim verification that was not performed.** Separate passed checks from unverified behavior.
-11. **Stable camera selection uses a discovered `camera_device_id`.** Never infer a physical camera from an OpenCV or DirectShow runtime index, and never label index `0` as permanently built-in or index `1` as permanently external.
+11. **Explicit camera selection uses a discovered `camera_device_id`.** Clients must respect `identity_stable`: native Windows/DirectShow identities may remain stable across runtime-index changes; `opencv:N` fallback IDs are tied to ephemeral runtime indices and are not permanent physical identities. Never infer a physical camera from an OpenCV or DirectShow runtime index, and never label index `0` as permanently built-in or index `1` as permanently external.
 12. **Legacy `camera_index` is compatibility-only.** Do not make it the preferred public contract when `camera_device_id` is available.
 13. **Camera discovery, settings persistence, session preparation, usable preview readiness, countdown, activation, timer start, scoring, stop, and teardown form one coordinated cross-layer lifecycle.** Timer and scoring must not begin before successful preparation and explicit activation.
 14. **Camera identity or lifecycle changes require coordinated backend, Flutter, WebSocket contract, documentation, and test updates.**
 15. **Camera discovery probing must remain bounded, cancellable, and tolerant of reasonable warm-up.** Camera cleanup must remain deterministic after preparation failure, stop, cancellation, disconnect, navigation, and application teardown.
+16. **Leaderboard session awards must remain idempotent.** A completed session must not award XP more than once; `leaderboard_processed_sessions/{sessionId}` is the duplicate-award marker.
+17. **Leaderboard identity must remain tied to the authenticated Firebase UID** (`leaderboard/{userId}` document ID and `user_id` field).
+18. **Leaderboard field changes require coordinated updates** to Dart models, repository mappings, Firestore rules, indexes, tests, and documentation.
+19. **Do not weaken leaderboard ownership or processed-session marker rules.** Marker update/delete restrictions and own-document write constraints must be preserved.
+20. **Do not claim the current client-written leaderboard is fully tamper-proof.** It is appropriate for the controlled capstone environment but is not a trusted server-authoritative ranking system against a hostile modified client.
 
 ## Controlled development protocol
 

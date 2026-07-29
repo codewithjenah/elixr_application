@@ -18,7 +18,9 @@ Treat these files as one public contract:
 
 ## Camera discovery (HTTP)
 
-- `GET /cameras` returns usable cameras with stable `device_id`, `display_name`, `runtime_index`, `is_active`, and `identity_stable`.
+- `GET /cameras` returns usable cameras with `device_id`, `display_name`, `runtime_index`, `is_active`, and `identity_stable`.
+- `device_id` is the selection identifier exposed by discovery; physical identity is stable only when `identity_stable` is `true` (native Windows/DirectShow paths). `opencv:N` fallback IDs are compatibility identities tied to ephemeral runtime indices and must not be treated as permanent physical identities. Clients must inspect `identity_stable` before persisting a selection.
+- Do not assume runtime index `0` is built-in or index `1` is external.
 - Optional query `force_refresh=true` bypasses the short-lived discovery cache.
 - Legacy response fields `preferred_index`, `fallback_index`, and `active_index` are migration-only; do not use them for UI labels.
 

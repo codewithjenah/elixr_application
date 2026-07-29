@@ -11,6 +11,7 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 - Guided practice with countdown, live annotated video, movement feedback, score, combo tracking, hold confirmation, music, and an optional session save flow.
 - Free-practice camera mode with live detection overlays and no score or saved session.
 - Dashboard, session history, and progress statistics derived from Firestore data.
+- Global leaderboard with XP awards for completed sessions, live top-player rankings, and paginated player lists.
 - Local computer vision for nine movements:
   - Easy: Normal Grip, Bartender's Grip, Reverse Grip
   - Medium: Hand Stall, Arm Stall, Elbow Stall
@@ -55,7 +56,7 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 │  ├─ data/
 │  │  ├─ database/          # Firestore adapter
 │  │  ├─ models/            # Client/domain data models
-│  │  └─ repositories/      # Auth, session, and progress persistence
+│  │  └─ repositories/      # Auth, session, progress, and leaderboard persistence
 │  ├─ features/             # Feature-oriented Flutter screens
 │  ├─ services/             # App state and runtime orchestration
 │  ├─ app.dart              # Providers, theme, router, splash gate
@@ -68,7 +69,7 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 │  │  └─ scoring.py         # Bounded rolling score
 │  ├─ models/               # Bundled MediaPipe model assets
 │  ├─ schemas/              # Pydantic WebSocket payloads
-│  ├─ tests/                # Rule-engine tests
+│  ├─ tests/                # Pytest rule-engine, camera, and session-lifecycle tests
 │  ├─ vision/               # Camera, detectors, types, annotation
 │  ├─ best.pt               # Custom flair-bottle YOLO model
 │  ├─ config.py             # Vision and scoring constants
@@ -212,7 +213,7 @@ The backend is the only webcam owner. Flutter discovers cameras through the back
 
 ### Discovery endpoint
 
-`GET /cameras` returns currently usable cameras with stable identities:
+`GET /cameras` returns currently usable cameras with identity metadata:
 
 ```json
 {
@@ -233,10 +234,10 @@ The backend is the only webcam owner. Flutter discovers cameras through the back
 }
 ```
 
-- `device_id` is the stable identity used for explicit selection.
+- `device_id` is the selection identifier exposed by discovery for explicit selection.
 - `display_name` is the user-facing label from OS enumeration when available.
 - `runtime_index` is the current OpenCV/DirectShow index and may change after reconnects, reboots, or driver changes.
-- `identity_stable` indicates whether the `device_id` came from OS enumeration (`true`) or an OpenCV-only fallback (`false`, e.g. `opencv:0`).
+- `identity_stable` is `true` for native Windows/DirectShow device identities that can remain stable across runtime-index changes; it is `false` for OpenCV fallback IDs such as `opencv:0`, which are tied to an ephemeral runtime index and must not be treated as permanent physical identities.
 - `index` is a legacy migration field equal to `runtime_index`.
 - `preferred_index` / `fallback_index` reflect backend Auto-select try order from environment/config; they are not physical-camera identities.
 - `force_refresh=true` bypasses the short-lived discovery cache for an explicit user refresh.
@@ -248,7 +249,7 @@ Discovery probing is bounded (`DISCOVERY_PROBE_TIMEOUT_S`, `DISCOVERY_MAX_INDEX`
 | Mode | WebSocket field | Behavior |
 | ---- | --------------- | -------- |
 | Auto-select (recommended) | `camera_device_id: null` (omit legacy `camera_index`) | Backend tries `CAMERA_INDEX`, then `CAMERA_FALLBACK_INDEX` if different |
-| Explicit stable device | `camera_device_id` from discovery | Opens that physical device only; no silent fallback to another camera |
+| Explicit device | `camera_device_id` from discovery | Opens that device only; no silent fallback to another camera. Prefer entries with `identity_stable: true` when available. |
 | Legacy migration | `camera_index` when `camera_device_id` is absent | Compatibility only; Flutter migrates saved settings to `camera_device_id` after discovery |
 
 **Do not assume runtime index `0` is always built-in or index `1` is always external.** Indices are ephemeral. Never document or label cameras by guessed index order.
@@ -288,15 +289,39 @@ Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confid
 
 ## Data model
 
-Firestore uses three top-level collections:
+Firestore uses five top-level collections:
 
-- `users`
-- `sessions`
-- `feedbacks`
+- `users` — per-user profile documents keyed by Firebase UID.
+- `sessions` — completed practice sessions owned by the authenticated user.
+- `feedbacks` — feedback messages linked to a session.
+- `leaderboard` — public aggregate ranking entries keyed by Firebase UID (`leaderboard/{userId}`).
+- `leaderboard_processed_sessions` — idempotency markers keyed by session ID (`leaderboard_processed_sessions/{sessionId}`).
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 
 Current session persistence stores the final score, duration, selected movement, difficulty, and deduplicated feedback messages. Camera frames are not written to Firestore by the current implementation.
+
+### Leaderboard
+
+Each eligible completed session awards **25 XP** (`GamificationRules.xpPerSession`). Awards run in a Firestore transaction (`LeaderboardRepository.recordCompletedSession`):
+
+1. Read the source `sessions/{sessionId}` document and verify `user_id` matches the authenticated user.
+2. Check `leaderboard_processed_sessions/{sessionId}`; if a marker already exists, skip the award.
+3. Create the processed-session marker with `session_id`, `user_id`, `score`, `xp_awarded` (25), and `processed_at`.
+4. Merge aggregate fields into `leaderboard/{userId}`.
+
+Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, and `last_awarded_session_id`. Display-name-only updates do not change XP or score aggregates.
+
+Rankings are ordered by `total_xp` descending, then `best_score` descending (`LeaderboardRepository.watchTopPlayers` and `fetchPlayersPage`). Paginated fetches default to 50 entries per page and use a Firestore document cursor for `startAfter`. The live top-players stream defaults to 10 entries. The compound index in `firestore.indexes.json` matches this ordering.
+
+Access model (`firestore.rules`):
+
+- `leaderboard`: authenticated read; create/update only on the caller's own document (`userId == request.auth.uid`); delete denied.
+- `leaderboard_processed_sessions`: authenticated get/list constrained to the caller's markers; create allowed for own sessions; update/delete denied.
+
+Leaderboard data is **not** globally writable. The current client-written transaction model is appropriate for a controlled capstone environment but is **not** a trusted server-authoritative ranking system against a hostile modified client.
+
+Camera preferences are stored locally (`%APPDATA%\Elixr\settings.json` on Windows), not in Firestore.
 
 ## Practice session lifecycle
 
