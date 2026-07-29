@@ -36,7 +36,7 @@ def evaluate(
     if landmarks is None:
         return (
             RuleResult(
-                feedback="Show your elbow and wrist so the upper forearm can be tracked.",
+                feedback="Show your elbow and wrist so the reverse forearm can be tracked.",
                 feedback_type="warning",
                 posture_status="unknown",
             ),
@@ -55,7 +55,7 @@ def evaluate(
     if dist_elbow <= UPPER_FOREARM_ELBOW_ZONE and dist_elbow < dist_upper:
         return (
             RuleResult(
-                feedback="Move the bottle away from the elbow onto the upper forearm.",
+                feedback="Move the bottle away from the elbow onto the reverse forearm.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -66,7 +66,7 @@ def evaluate(
     if dist_mid <= UPPER_FOREARM_MID_ZONE and dist_mid < dist_upper:
         return (
             RuleResult(
-                feedback="Keep the bottle on the upper forearm, not the mid-forearm or wrist.",
+                feedback="Keep the bottle on the reverse forearm, not the mid-forearm or wrist.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -77,7 +77,7 @@ def evaluate(
     if dist_upper > UPPER_FOREARM_STALL_PROXIMITY:
         return (
             RuleResult(
-                feedback="Balance the bottle on your upper forearm between elbow and mid-arm.",
+                feedback="Balance the bottle on your reverse forearm between elbow and mid-arm.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -88,7 +88,7 @@ def evaluate(
     if not stable:
         return (
             RuleResult(
-                feedback="Hold the bottle steady on your upper forearm.",
+                feedback="Hold the bottle steady on your reverse forearm.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -98,7 +98,7 @@ def evaluate(
 
     return (
         RuleResult(
-            feedback="Upper forearm stall locked in.",
+            feedback="Reverse forearm stall locked in.",
             feedback_type="positive",
             posture_status="stable",
         ),

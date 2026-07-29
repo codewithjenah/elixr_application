@@ -33,8 +33,11 @@ _RULES: dict[str, EvaluateFn] = {
     "Bartender's Grip": bartenders_grip.evaluate,
     "Reverse Grip": reverse_grip.evaluate,
     "Hand Stall": hand_stall.evaluate,
-    "Arm Stall": arm_stall.evaluate,
+    "Forearm Stall": arm_stall.evaluate,
     "Elbow Stall": elbow_stall.evaluate,
+    "Reverse Forearm Stall": upper_forearm_stall.evaluate,
+    # Legacy movement names for historical sessions and backward compatibility.
+    "Arm Stall": arm_stall.evaluate,
     "Upper Forearm Stall": upper_forearm_stall.evaluate,
     "Shoulder Stall": shoulder_stall.evaluate,
     "Double Hand Stall": double_hand_stall.evaluate,

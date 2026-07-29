@@ -30,7 +30,7 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
-    name: 'Arm Stall',
+    name: 'Forearm Stall',
     difficulty: 'Medium',
     description: 'Balance the bottle on your forearm.',
     requiresHandsDetection: true,
@@ -44,10 +44,10 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
-    name: 'Upper Forearm Stall',
+    name: 'Reverse Forearm Stall',
     difficulty: 'Hard',
     description:
-        'Balance the bottle on the upper forearm between the elbow and forearm midpoint.',
+        'Balance the bottle on the reverse forearm between the elbow and forearm midpoint.',
     requiresHandsDetection: true,
     enabled: true,
   ),

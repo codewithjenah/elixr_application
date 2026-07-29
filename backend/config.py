@@ -59,7 +59,7 @@ STALL_HISTORY_FRAMES = 12
 
 PINCH_DISTANCE = 0.06
 
-# Upper Forearm Stall: target is proximal (elbow -> wrist), between elbow and mid.
+# Reverse Forearm Stall: target is proximal (elbow -> wrist), between elbow and mid.
 # Ratio is the fraction of elbow-to-wrist distance used for the stall point.
 UPPER_FOREARM_RATIO = 0.33
 UPPER_FOREARM_STALL_PROXIMITY = 0.16
@@ -109,8 +109,15 @@ MOVEMENT_CONFIG: dict[str, dict] = {
     "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True},
     "Reverse Grip": {"difficulty": "Easy", "requires_hands": True},
     "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": False},
-    "Arm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
+    "Forearm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Elbow Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
+    "Reverse Forearm Stall": {
+        "difficulty": "Hard",
+        "requires_hands": True,
+        "requires_pose": True,
+    },
+    # Legacy movement names for historical sessions and backward compatibility.
+    "Arm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Upper Forearm Stall": {
         "difficulty": "Hard",
         "requires_hands": True,

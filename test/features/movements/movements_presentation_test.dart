@@ -30,7 +30,7 @@ void main() {
     test('ignores catalog movements with zero sessions', () {
       final summary = computeMovementsSummary({
         'Normal Grip': (count: 0, avgScore: 0),
-        'Arm Stall': (count: 4, avgScore: 55),
+        'Forearm Stall': (count: 4, avgScore: 55),
       });
 
       expect(summary.practicedCount, 1);

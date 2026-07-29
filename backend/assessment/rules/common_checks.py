@@ -93,7 +93,7 @@ def pose_upper_forearm_landmarks(
 
     The upper-forearm target is ``ratio`` of the way from elbow toward wrist
     (expected ~0.25–0.40), keeping the point distinct from the elbow joint and
-    the ordinary 50% forearm midpoint used by Arm Stall.
+    the ordinary 50% forearm midpoint used by Forearm Stall.
     """
     if pose is None:
         return None

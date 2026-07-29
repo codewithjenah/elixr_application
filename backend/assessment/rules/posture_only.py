@@ -22,10 +22,16 @@ _POSTURE_SUCCESS: dict[str, str] = {
     "Bartender's Grip": "Hand looks ready for bartender's grip. Enable bottle detection for scoring.",
     "Reverse Grip": "Hand looks ready for reverse grip. Enable bottle detection for scoring.",
     "Hand Stall": "Hand looks steady. Enable bottle detection for stall scoring.",
-    "Arm Stall": "Arm looks steady. Enable bottle detection for stall scoring.",
+    "Forearm Stall": "Forearm looks steady. Enable bottle detection for stall scoring.",
     "Elbow Stall": "Elbow looks steady. Enable bottle detection for stall scoring.",
+    "Reverse Forearm Stall": (
+        "Arm looks ready for a reverse forearm stall. "
+        "Enable bottle detection for complete scoring."
+    ),
+    # Legacy movement names for historical sessions and backward compatibility.
+    "Arm Stall": "Forearm looks steady. Enable bottle detection for stall scoring.",
     "Upper Forearm Stall": (
-        "Arm looks ready for an upper-forearm stall. "
+        "Arm looks ready for a reverse forearm stall. "
         "Enable bottle detection for complete scoring."
     ),
     "Shoulder Stall": (

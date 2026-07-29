@@ -31,7 +31,7 @@ def evaluate(
         stall = check_stall_proximity(
             bottle,
             forearm,
-            success_message="Stable arm stall.",
+            success_message="Stable forearm stall.",
             threshold=ARM_STALL_PROXIMITY,
         )
     else:
@@ -42,7 +42,7 @@ def evaluate(
         stall = check_stall_proximity(
             bottle,
             palm,
-            success_message="Stable arm stall.",
+            success_message="Stable forearm stall.",
             threshold=ARM_STALL_PROXIMITY,
         )
     if stall.feedback_type != "positive":

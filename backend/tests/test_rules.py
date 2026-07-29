@@ -1000,7 +1000,8 @@ def test_session_passes_primary_bottle_to_hand_detector(
 
 def test_movement_requires_hands():
     assert movement_requires_hands("Hand Stall") is True
-    assert movement_requires_hands("Arm Stall") is True
+    assert movement_requires_hands("Forearm Stall") is True
+    assert movement_requires_hands("Arm Stall") is True  # legacy alias
     assert movement_requires_hands("Elbow Stall") is True
     assert movement_requires_hands("Normal Grip") is True
 
@@ -1012,9 +1013,9 @@ def test_movement_requires_hands():
         "Bartender's Grip",
         "Reverse Grip",
         "Hand Stall",
-        "Arm Stall",
+        "Forearm Stall",
         "Elbow Stall",
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         "Shoulder Stall",
         "Double Hand Stall",
     ],
@@ -1100,7 +1101,7 @@ def test_upper_forearm_stall_success_left():
     upper = _upper_point(elbow, wrist)
     bottle = _bottle_at(upper)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         None,
@@ -1117,7 +1118,7 @@ def test_upper_forearm_stall_success_right():
     upper = _upper_point(elbow, wrist)
     bottle = _bottle_at(upper)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=False, elbow=elbow, wrist=wrist),
         None,
@@ -1132,7 +1133,7 @@ def test_upper_forearm_stall_far_from_target():
     wrist = Point2D(0.40, 0.70)
     bottle = _bottle(cx=100, cy=100)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         None,
@@ -1140,7 +1141,7 @@ def test_upper_forearm_stall_far_from_target():
         _stable_state(bottle),
     )
     assert result.feedback_type == "warning"
-    assert "upper forearm" in result.feedback.lower()
+    assert "reverse forearm" in result.feedback.lower()
 
 
 def test_upper_forearm_stall_rejects_elbow():
@@ -1148,7 +1149,7 @@ def test_upper_forearm_stall_rejects_elbow():
     wrist = Point2D(0.50, 0.70)
     bottle = _bottle_at(elbow)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         None,
@@ -1165,7 +1166,7 @@ def test_upper_forearm_stall_rejects_mid_forearm():
     mid = Point2D(x=(elbow.x + wrist.x) / 2.0, y=(elbow.y + wrist.y) / 2.0)
     bottle = _bottle_at(mid)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         None,
@@ -1178,7 +1179,7 @@ def test_upper_forearm_stall_rejects_mid_forearm():
 
 def test_upper_forearm_stall_missing_pose():
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         _bottle(),
         None,
         _hands_near(),
@@ -1198,7 +1199,7 @@ def test_upper_forearm_stall_unstable_history():
         moving = _bottle(cx=int(upper.x * 640) + i * 40, cy=int(upper.y * 480))
         state, _ = track_bottle_stability(state, moving)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         None,
@@ -1217,7 +1218,7 @@ def test_upper_forearm_stall_proximity_boundary():
     outside = Point2D(upper.x + UPPER_FOREARM_STALL_PROXIMITY + 0.02, upper.y)
     bottle = _bottle_at(outside)
     result, _, _ = evaluate_movement(
-        "Upper Forearm Stall",
+        "Reverse Forearm Stall",
         bottle,
         _arm_pose(left=True, elbow=elbow, wrist=wrist),
         None,
@@ -1619,9 +1620,11 @@ def test_hand_stall_does_not_require_pose():
 
 
 def test_other_stall_pose_requirements_unchanged():
-    assert movement_requires_pose("Arm Stall") is True
+    assert movement_requires_pose("Forearm Stall") is True
+    assert movement_requires_pose("Arm Stall") is True  # legacy alias
     assert movement_requires_pose("Elbow Stall") is True
-    assert movement_requires_pose("Upper Forearm Stall") is True
+    assert movement_requires_pose("Reverse Forearm Stall") is True
+    assert movement_requires_pose("Upper Forearm Stall") is True  # legacy alias
     assert movement_requires_pose("Shoulder Stall") is True
     assert movement_requires_pose("Double Hand Stall") is False
 
