@@ -62,6 +62,15 @@ Do not silently ignore malformed frames without considering observability. The c
 
 - Flutter displays backend-supplied JPEG bytes; it does not own the webcam.
 - Do not add `camera`, DirectShow capture, or another camera process to Flutter.
+- Camera labels shown in Settings must come from `GET /cameras` discovery metadata (`display_name`), not guessed runtime-index ordering.
+- Persist explicit camera choice through `SettingsService` as `camera_device_id` (plus a cached `camera_display_name` for UI only). `null` means Auto-select.
+- Do not persist an OpenCV runtime index as a permanent physical-camera identity. Legacy `camera_index` exists only for one-time migration via `migrateLegacyCameraIndex`.
+- When a saved `camera_device_id` is no longer discoverable, keep the saved preference visible with a warning; do not silently switch to another device.
+- Practice screens use `PracticeRunController` phases: `preparingCamera` → `countdown` → `active`. Gate countdown behind the first inbound preview JPEG during `preparingCamera`. Gate the elapsed timer, scoring UI, combo/hold logic, and music behind `active` after `sendActivate`.
+- Do not advance the practice timer while waiting for the first usable preview frame or during countdown.
+- Send `sendPrepare` once per start attempt; send `sendActivate` once after countdown; use `sendStop` for cancel/stop/teardown. Guard against duplicate commands from rebuilds or repeated clicks.
+- On navigation or dispose, cancel timers/subscriptions, stop WebSocket sessions, stop audio, and clear preview state deterministically.
+- Preserve actionable UI for backend-unavailable, selected-camera-unavailable, preparation-timeout, and no-usable-camera errors. Use `error_code` from `PracticeFeedback` for machine decisions.
 - Preserve deterministic audio stop/dispose behavior, especially around Windows navigation and teardown.
 - Do not persist frames unless the task explicitly introduces a reviewed privacy and storage design.
 

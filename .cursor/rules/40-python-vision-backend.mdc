@@ -11,7 +11,11 @@ alwaysApply: false
 - Run blocking OpenCV, YOLO, and MediaPipe processing outside the asyncio event loop.
 - Preserve task cancellation ordering: await in-flight frame work before closing detectors or releasing the camera.
 - Maintain a bounded real-time pipeline. Do not create unbounded queues or accumulate stale frames.
-- Preserve the shared-camera lock, Windows backend fallback, black-frame rejection, and debounced release unless a tested replacement is introduced.
+- Preserve the shared-camera lock, Windows capture-profile fallback, black-frame rejection, bounded discovery probing/cache, and debounced release unless a tested replacement is introduced.
+- Stable explicit selection uses discovered `camera_device_id`; runtime OpenCV/DirectShow indices are ephemeral. Keep legacy `camera_index` parsing only for compatibility.
+- `GET /cameras` discovery must stay separate from session startup; probing must be bounded, cancellable, and tolerant of warm-up. Black or unusable frames mean the device is not healthy.
+- `prepare` streams preview without scoring; `activate` begins active inference/scoring; legacy `start` combines both. Await in-flight frame work before releasing camera/detector resources.
+- Do not assume vendor-specific cameras, fixed 1080p, or fixed 30 FPS. Add camera lifecycle tests when changing identity, discovery, prepare/activate, stop, or disconnect behavior.
 - `backend/best.pt` is the custom flair-bottle model. Do not download, replace, or reinterpret its classes silently.
 - Distinguish model-load failure from ordinary no-detection behavior.
 - Do not cache hand landmarks across frames; stale landmarks cause ghost-hand artifacts.

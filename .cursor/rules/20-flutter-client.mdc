@@ -16,6 +16,10 @@ alwaysApply: false
 - Keep Dart parsing tolerant where backward compatibility requires defaults, but do not hide contract bugs without observability.
 - Prefer immutable models, `const` constructors, focused methods, and `flutter_lints` compliance.
 - Never add direct camera capture to Flutter. Display the JPEG bytes supplied by the backend.
+- Camera labels come from `GET /cameras` discovery metadata via `CameraDeviceService`; persist explicit choice as `camera_device_id` in local `SettingsService` settings (`null` = Auto-select).
+- Recover gracefully when a saved device is missing from discovery; keep legacy `camera_index` migration one-time only.
+- Gate countdown on the first usable preview JPEG during `PracticeRunPhase.preparingCamera`; gate timer, scoring, combo/hold, and music on `PracticeRunPhase.active` after `sendActivate`.
+- Avoid duplicate `sendPrepare`, `sendActivate`, and `sendStop` from rebuilds or repeated clicks; dispose timers, subscriptions, preview state, discovery work, WebSocket sessions, and audio on navigation/teardown.
 
 Verification for Dart changes:
 

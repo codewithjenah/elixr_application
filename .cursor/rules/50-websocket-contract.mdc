@@ -1,26 +1,58 @@
 ---
 description: Cross-language WebSocket payload and session-control contract
-globs: ["backend/api/websocket.py", "backend/schemas/feedback.py", "lib/services/websocket_service.dart", "lib/data/models/practice_feedback.dart", "lib/features/practice/**/*.dart"]
+globs: ["backend/api/websocket.py", "backend/api/cameras.py", "backend/schemas/feedback.py", "backend/schemas/camera.py", "backend/vision/camera.py", "backend/vision/camera_devices.py", "lib/services/websocket_service.dart", "lib/services/camera_device_service.dart", "lib/services/settings_service.dart", "lib/data/models/practice_feedback.dart", "lib/data/models/camera_device.dart", "lib/features/practice/**/*.dart", "lib/features/profile/profile_settings_screen.dart"]
 alwaysApply: false
 ---
 # WebSocket contract
 
 Treat these files as one public contract:
 
-- Backend schema: `backend/schemas/feedback.py`
-- Backend producer/session loop: `backend/api/websocket.py`
-- Dart parser: `lib/data/models/practice_feedback.dart`
-- Dart connection/control service: `lib/services/websocket_service.dart`
-- Practice consumers: `lib/features/practice/`
+- Backend schema: `backend/schemas/feedback.py`, `backend/schemas/camera.py`
+- Backend producers: `backend/api/websocket.py`, `backend/api/cameras.py`
+- Backend camera identity/open: `backend/vision/camera.py`, `backend/vision/camera_devices.py`
+- Dart parser/models: `lib/data/models/practice_feedback.dart`, `lib/data/models/camera_device.dart`
+- Dart connection/control: `lib/services/websocket_service.dart`
+- Camera discovery/settings: `lib/services/camera_device_service.dart`, `lib/services/settings_service.dart`
+- Practice lifecycle consumers: `lib/features/practice/practice_run_phase.dart`, `lib/features/practice/practice_screen.dart`, `lib/features/practice/live_practice_screen.dart`
+- Settings UI: `lib/features/profile/profile_settings_screen.dart`
+
+## Camera discovery (HTTP)
+
+- `GET /cameras` returns usable cameras with stable `device_id`, `display_name`, `runtime_index`, `is_active`, and `identity_stable`.
+- Optional query `force_refresh=true` bypasses the short-lived discovery cache.
+- Legacy response fields `preferred_index`, `fallback_index`, and `active_index` are migration-only; do not use them for UI labels.
+
+## Client control actions (WebSocket inbound)
+
+- `prepare` — open the selected camera and stream preview only.
+- `activate` — transition a prepared session to active inference/scoring without reopening the camera.
+- `start` — legacy compatibility: prepare and activate immediately.
+- `stop` — cancel the session loop and release the shared camera (with debounce).
+
+Shared prepare/start fields:
+
+- `movement`, `difficulty`, `bottle_detection_enabled`
+- Prefer `camera_device_id` (`null` = Auto-select).
+- Legacy `camera_index` is accepted only when `camera_device_id` is absent.
+
+## Server feedback (`FeedbackMessage`)
+
+Important fields:
+
+- `bottle_detected`, `bottle_count`, `movement`, `score`, `feedback`, `feedback_type`, `posture_status`
+- `frame_jpeg_base64` (may be omitted on fatal errors)
+- `error_code` for machine-readable fatal states
+- `camera_ready`, `session_state` (`preparing`, `active`, `unavailable`)
 
 Rules:
 
 - Keep JSON keys snake_case.
 - Update producer and consumer in the same change.
-- Define required fields, defaults, nullability, and malformed-frame behavior explicitly.
 - Error payloads may omit `frame_jpeg_base64`; the UI must remain stable.
-- Use `error_code` for machine decisions. Do not require Dart to parse human feedback text for new fatal conditions.
-- Preserve `start` and `stop` lifecycle semantics and cleanup on disconnect.
-- Do not add high-frequency control chatter or large fields without considering latency and memory.
+- Clients must use `error_code`, not parse human `feedback` text, for fatal decisions.
+- Preview frames with `session_state: preparing` are not active scored-session frames.
+- Do not start client timer/scoring UI from preview frames; wait for explicit activation.
+- Preserve legacy `start` and `camera_index` compatibility explicitly and test migration behavior.
+- Avoid high-frequency duplicate `prepare`, `activate`, or `stop` control messages.
 - Base64 frames are transient display data; do not persist them by default.
 - Add schema/parser tests or focused fixtures for new fields where practical.

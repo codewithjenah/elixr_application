@@ -41,10 +41,18 @@ Keep Flutter independent of these implementation details except for the document
 ## Camera lifecycle
 
 - Run the backend with `backend/` as the working directory unless model paths are made explicit and tested.
-- Preserve Windows backend fallback behavior and usable-frame checks.
-- A camera that opens but returns black frames is not considered healthy.
-- Any new camera setting must have a clear source: environment variable, config constant, or explicit request field.
-- Release the camera on stop, disconnect, fatal initialization failure, and application teardown.
+- Stable explicit selection uses a discovered physical `camera_device_id` from `GET /cameras` / `vision.camera_devices`. Runtime OpenCV or DirectShow indices are ephemeral implementation details.
+- Keep legacy `camera_index` parsing in `parse_camera_selection` only for migration when `camera_device_id` is absent.
+- `CAMERA_INDEX` and `CAMERA_FALLBACK_INDEX` influence Auto-select try order only; they are not stable physical-camera identities.
+- Preserve lightweight `GET /cameras` discovery separately from strict session startup. Discovery uses bounded probing (`DISCOVERY_PROBE_TIMEOUT_S`, `DISCOVERY_MAX_INDEX`, `DISCOVERY_PROBE_REQUIRED_CONSECUTIVE`) and `DISCOVERY_CACHE_TTL_S` caching with single-flight coordination.
+- Session startup requires consecutive usable frames (`_STARTUP_REQUIRED_CONSECUTIVE_FRAMES`, `_STARTUP_TIMEOUT_S`). A camera that opens but returns black frames is not healthy.
+- Do not assume all cameras share resolution, FPS, or warm-up behavior. Do not hard-code vendor-specific behavior.
+- Preserve shared-camera locking, Windows capture-profile fallback, black-frame rejection, blank-frame recovery, and debounced release (`CAMERA_RELEASE_DEBOUNCE_S`).
+- WebSocket lifecycle: `prepare` opens the camera and streams preview (`session_state: preparing`) without scoring; `activate` transitions to active inference/scoring; legacy `start` combines both; `stop` cancels the session task and schedules camera release.
+- Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record score changes.
+- Await in-flight frame work before releasing camera and detector resources on stop, cancellation, or disconnect.
+- Return machine-readable fatal errors such as `camera_unavailable`, `selected_camera_unavailable`, `invalid_camera_device_id`, `invalid_camera_index`, `session_not_prepared`, `model_load_failed`, `pipeline_init_failed`, and `pipeline_error`.
+- Camera changes require tests for Auto-select, stable device IDs, legacy migration, unavailable saved devices, slow warm-up, reconnects, stop, disconnect, and prepare/activate boundaries where relevant.
 
 ## Model and detector behavior
 

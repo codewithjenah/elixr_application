@@ -42,7 +42,9 @@ FastAPI backend
 
 ### Important boundary
 
-The **Python backend owns the webcam**. Flutter never opens the camera directly. The backend sends annotated JPEG frames and structured feedback to Flutter over the local WebSocket connection.
+The **Python backend owns the webcam**. Flutter never opens the camera directly. The backend sends annotated JPEG frames and structured feedback to Flutter over the local WebSocket connection. Flutter only displays backend-supplied preview and active-session JPEG bytes.
+
+Camera labels shown in Settings come from backend discovery metadata (`display_name`), not from assumed runtime-index ordering.
 
 ## Repository structure
 
@@ -59,7 +61,7 @@ The **Python backend owns the webcam**. Flutter never opens the camera directly.
 │  ├─ app.dart              # Providers, theme, router, splash gate
 │  └─ main.dart             # Firebase bootstrap and runApp
 ├─ backend/
-│  ├─ api/                   # Health and WebSocket endpoints
+│  ├─ api/                   # Health, camera discovery, and WebSocket endpoints
 │  ├─ assessment/
 │  │  ├─ rules/             # One movement evaluator per module
 │  │  ├─ rule_engine.py     # Movement registry and dispatch
@@ -195,20 +197,83 @@ The Flutter client connects to:
 ws://127.0.0.1:8000/ws
 ```
 
-That URL is defined in `lib/core/constants/app_constants.dart`.
+HTTP health and camera discovery use the same host:
+
+```text
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/cameras
+```
+
+Those URLs are defined in `lib/core/constants/app_constants.dart`.
+
+## Camera discovery and selection
+
+The backend is the only webcam owner. Flutter discovers cameras through the backend and persists the user's choice locally (not in Firestore).
+
+### Discovery endpoint
+
+`GET /cameras` returns currently usable cameras with stable identities:
+
+```json
+{
+  "cameras": [
+    {
+      "device_id": "\\\\?\\usb#vid_1234&pid_5678",
+      "display_name": "Integrated Camera",
+      "runtime_index": 0,
+      "is_active": false,
+      "identity_stable": true,
+      "index": 0
+    }
+  ],
+  "active_device_id": null,
+  "preferred_index": 1,
+  "fallback_index": 0,
+  "active_index": null
+}
+```
+
+- `device_id` is the stable identity used for explicit selection.
+- `display_name` is the user-facing label from OS enumeration when available.
+- `runtime_index` is the current OpenCV/DirectShow index and may change after reconnects, reboots, or driver changes.
+- `identity_stable` indicates whether the `device_id` came from OS enumeration (`true`) or an OpenCV-only fallback (`false`, e.g. `opencv:0`).
+- `index` is a legacy migration field equal to `runtime_index`.
+- `preferred_index` / `fallback_index` reflect backend Auto-select try order from environment/config; they are not physical-camera identities.
+- `force_refresh=true` bypasses the short-lived discovery cache for an explicit user refresh.
+
+Discovery probing is bounded (`DISCOVERY_PROBE_TIMEOUT_S`, `DISCOVERY_MAX_INDEX`, `DISCOVERY_PROBE_REQUIRED_CONSECUTIVE`) and cached (`DISCOVERY_CACHE_TTL_S`). Devices that open but produce black or unusable frames are excluded.
+
+### Explicit selection vs Auto-select
+
+| Mode | WebSocket field | Behavior |
+| ---- | --------------- | -------- |
+| Auto-select (recommended) | `camera_device_id: null` (omit legacy `camera_index`) | Backend tries `CAMERA_INDEX`, then `CAMERA_FALLBACK_INDEX` if different |
+| Explicit stable device | `camera_device_id` from discovery | Opens that physical device only; no silent fallback to another camera |
+| Legacy migration | `camera_index` when `camera_device_id` is absent | Compatibility only; Flutter migrates saved settings to `camera_device_id` after discovery |
+
+**Do not assume runtime index `0` is always built-in or index `1` is always external.** Indices are ephemeral. Never document or label cameras by guessed index order.
+
+Camera preferences are stored in local settings (`%APPDATA%\Elixr\settings.json` on Windows) as `camera_device_id` and a cached `camera_display_name`. If a saved device disconnects, practice shows a fatal `selected_camera_unavailable` error (or `camera_unavailable` for Auto-select with no usable camera). Settings keeps the saved preference visible with a warning until the user chooses another camera or Auto-select.
 
 ## Backend configuration
 
 `backend/config.py` contains the implemented camera, inference, scoring, and rule thresholds.
 
-Only these camera settings are currently environment-variable driven:
+### Camera environment variables (Auto-select order only)
 
-| Variable                | Default | Purpose                |
-| ----------------------- | ------: | ---------------------- |
-| `CAMERA_INDEX`          |     `1` | Preferred webcam index |
-| `CAMERA_FALLBACK_INDEX` |     `0` | Fallback webcam index  |
+These influence **internal Auto-select try order only**. They are not stable physical-camera identities.
 
-Example:
+| Variable | Default | Purpose |
+| -------- | ------: | ------- |
+| `CAMERA_INDEX` | `1` | First runtime index tried for Auto-select |
+| `CAMERA_FALLBACK_INDEX` | `0` | Second runtime index tried when different from `CAMERA_INDEX` |
+| `DISCOVERY_MAX_INDEX` | `4` | Maximum runtime index probed when OS enumeration is unavailable |
+| `DISCOVERY_CACHE_TTL_S` | `30` | Discovery result cache lifetime (seconds) |
+| `DISCOVERY_PROBE_TIMEOUT_S` | `1.5` | Per-device discovery warm-up timeout (seconds) |
+| `DISCOVERY_PROBE_REQUIRED_CONSECUTIVE` | `2` | Consecutive usable frames required during discovery |
+| `DISCOVERY_PROBE_READ_SLEEP_S` | `0.03` | Sleep between discovery frame reads (seconds) |
+
+Example (adjust Auto-select order for a specific machine):
 
 ```powershell
 $env:CAMERA_INDEX = "0"
@@ -216,6 +281,8 @@ $env:CAMERA_FALLBACK_INDEX = "1"
 cd backend
 .\run.ps1
 ```
+
+Explicit user selection in the app always uses `camera_device_id` from discovery, not these indices.
 
 Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confidence, scoring weights, and movement thresholds are currently Python constants. Change them deliberately in `backend/config.py`, then test the affected camera and movement behavior.
 
@@ -231,9 +298,68 @@ The client uses snake_case Firestore fields such as `user_id`, `movement_name`, 
 
 Current session persistence stores the final score, duration, selected movement, difficulty, and deduplicated feedback messages. Camera frames are not written to Firestore by the current implementation.
 
-## WebSocket contract
+## Practice session lifecycle
+
+Guided practice and free practice follow the same camera lifecycle. The practice timer and scoring must **not** start while:
+
+- The backend is unavailable.
+- The selected camera is still opening.
+- The preview is black or the client is still waiting for the first usable JPEG frame.
+- The session has not been explicitly activated.
+
+### End-to-end flow
+
+1. **Backend connection** — Flutter connects to `ws://127.0.0.1:8000/ws` (`WebSocketConnectionState.connected`).
+2. **Camera/session preparation** — Flutter sends `{"action":"prepare", ...}` with movement, difficulty, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). Backend opens the camera and streams preview frames with `session_state: "preparing"` without scoring.
+3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout).
+4. **Countdown** — After the first usable frame, Flutter enters `PracticeRunPhase.countdown` and plays countdown audio/SFX.
+5. **Explicit activation** — After countdown, Flutter sends `{"action":"activate"}`. Backend transitions the prepared session to active inference (`session_state: "active"`).
+6. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active`, starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
+7. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends `{"action":"stop"}`; backend cancels the frame loop, closes detectors, and releases the shared camera (with debounce). Disconnect/navigation also stops the session and releases backend camera resources.
+
+Legacy compatibility: `{"action":"start", ...}` still prepares and activates immediately on the backend. New guided/free practice uses `prepare` → `activate`.
+
+### WebSocket contract
 
 Flutter sends control messages such as:
+
+Prepare (preview only):
+
+```json
+{
+  "action": "prepare",
+  "movement": "Hand Stall",
+  "difficulty": "Medium",
+  "bottle_detection_enabled": true,
+  "camera_device_id": "\\\\?\\usb#vid_1234&pid_5678"
+}
+```
+
+Auto-select (omit legacy index):
+
+```json
+{
+  "action": "prepare",
+  "movement": "Hand Stall",
+  "difficulty": "Medium",
+  "bottle_detection_enabled": true,
+  "camera_device_id": null
+}
+```
+
+Activate after countdown:
+
+```json
+{ "action": "activate" }
+```
+
+Stop:
+
+```json
+{ "action": "stop" }
+```
+
+Legacy immediate start:
 
 ```json
 {
@@ -242,12 +368,6 @@ Flutter sends control messages such as:
   "difficulty": "Medium",
   "bottle_detection_enabled": true
 }
-```
-
-or:
-
-```json
-{ "action": "stop" }
 ```
 
 The backend returns the Pydantic `FeedbackMessage` payload. Important fields include:
@@ -262,16 +382,37 @@ feedback_type
 posture_status
 frame_jpeg_base64
 error_code
+camera_ready
+session_state
 ```
+
+`session_state` values used today:
+
+- `preparing` — preview JPEG stream before activation; no scoring updates
+- `active` — movement evaluation and scoring are running
+- `unavailable` — fatal session/camera error (often with `error_code`)
+
+Common `error_code` values:
+
+- `camera_unavailable` — Auto-select found no usable camera
+- `selected_camera_unavailable` — explicit `camera_device_id` could not be opened
+- `invalid_camera_device_id` / `invalid_camera_index` — malformed selection
+- `session_not_prepared` — `activate` with no prepared session
+- `model_load_failed`, `pipeline_init_failed`, `pipeline_error` — vision pipeline failures
 
 The backend currently emits `bottle_count`; the Dart `PracticeFeedback` model does not expose that field yet. Extra JSON fields are ignored, but a future client use of `bottle_count` must update the Dart model and its tests explicitly.
 
 Any contract change must update the backend producer and Dart parser together:
 
 - `backend/schemas/feedback.py`
+- `backend/schemas/camera.py`
 - `backend/api/websocket.py`
+- `backend/api/cameras.py`
 - `lib/data/models/practice_feedback.dart`
+- `lib/data/models/camera_device.dart`
 - `lib/services/websocket_service.dart`
+- `lib/services/camera_device_service.dart`
+- `lib/services/settings_service.dart`
 
 ## Verification
 
@@ -314,8 +455,10 @@ Computer-vision unit tests should prefer synthetic landmarks and detections. A r
 ### Camera unavailable or black
 
 - Close Teams, Zoom, OBS, browser camera tabs, and other webcam consumers.
-- Try the built-in webcam with `$env:CAMERA_INDEX = "0"`.
-- Review backend logs for the selected OpenCV backend and camera index.
+- In Settings → Preferences, refresh the camera list (`GET /cameras?force_refresh=true`) and confirm the selected device appears.
+- For Auto-select issues only, you may adjust `CAMERA_INDEX` / `CAMERA_FALLBACK_INDEX` to change try order on that machine. This does not replace explicit `camera_device_id` selection.
+- If a saved camera was unplugged, choose another device or Auto-select; the backend returns `selected_camera_unavailable` for the missing device.
+- Review backend logs for capture profile, runtime index, and usable-frame rejection.
 - Keep camera ownership in Python; do not add a competing Flutter camera plugin.
 
 ### Model load failed

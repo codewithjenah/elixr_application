@@ -56,6 +56,11 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 8. **Movement names are cross-layer identifiers.** Keep Flutter's catalog, Python `MOVEMENT_CONFIG`, and rule registry aligned.
 9. **Do not commit secrets.** Never add service-account keys, tokens, passwords, personal Firebase credentials, or local environment files.
 10. **Do not claim verification that was not performed.** Separate passed checks from unverified behavior.
+11. **Stable camera selection uses a discovered `camera_device_id`.** Never infer a physical camera from an OpenCV or DirectShow runtime index, and never label index `0` as permanently built-in or index `1` as permanently external.
+12. **Legacy `camera_index` is compatibility-only.** Do not make it the preferred public contract when `camera_device_id` is available.
+13. **Camera discovery, settings persistence, session preparation, usable preview readiness, countdown, activation, timer start, scoring, stop, and teardown form one coordinated cross-layer lifecycle.** Timer and scoring must not begin before successful preparation and explicit activation.
+14. **Camera identity or lifecycle changes require coordinated backend, Flutter, WebSocket contract, documentation, and test updates.**
+15. **Camera discovery probing must remain bounded, cancellable, and tolerant of reasonable warm-up.** Camera cleanup must remain deterministic after preparation failure, stop, cancellation, disconnect, navigation, and application teardown.
 
 ## Controlled development protocol
 
