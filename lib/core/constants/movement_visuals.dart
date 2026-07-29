@@ -6,6 +6,7 @@ abstract final class MovementVisuals {
     'Normal Grip': '🍾',
     "Bartender's Grip": '🤏',
     'Reverse Grip': '🖐️',
+    'Claw Grip': '🦅',
     'Hand Stall': '✋',
     'Forearm Stall': '💪',
     'Elbow Stall': '🦾',

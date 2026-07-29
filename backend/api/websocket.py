@@ -171,7 +171,7 @@ class VisionSession:
         # stream preview JPEGs before model init cost.
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
-        self._hands_rotated_fallback = movement == "Normal Grip"
+        self._hands_rotated_fallback = movement in {"Normal Grip", "Claw Grip"}
         self._hands_bartender_roi = movement == "Bartender's Grip"
         self._pose_needed = movement_requires_pose(movement)
         self.scorer = SessionScorer()

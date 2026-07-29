@@ -23,6 +23,14 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
+    name: 'Claw Grip',
+    difficulty: 'Easy',
+    description:
+        'Hold the upright bottle from above with curled fingers around the upper neck.',
+    requiresHandsDetection: true,
+    enabled: true,
+  ),
+  Movement(
     name: 'Hand Stall',
     difficulty: 'Medium',
     description: 'Balance the bottle on your open palm.',

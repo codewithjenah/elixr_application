@@ -98,6 +98,71 @@ def _evaluate_reverse_grip(hand: HandLandmarks):
     return result
 
 
+def _claw_grip_hand(
+    *,
+    mirrored: bool = False,
+    x_offset: float = 0.0,
+    y_offset: float = 0.0,
+    overrides: dict[int, Point2D] | None = None,
+    missing: tuple[int, ...] = (),
+) -> HandLandmarks:
+    points = {
+        0: Point2D(0.52, 0.32),
+        4: Point2D(0.55, 0.42),
+        5: Point2D(0.50, 0.35),
+        6: Point2D(0.47, 0.38),
+        7: Point2D(0.45, 0.42),
+        8: Point2D(0.43, 0.48),
+        9: Point2D(0.51, 0.34),
+        10: Point2D(0.48, 0.37),
+        11: Point2D(0.46, 0.41),
+        12: Point2D(0.44, 0.48),
+        13: Point2D(0.52, 0.36),
+        14: Point2D(0.49, 0.39),
+        15: Point2D(0.47, 0.43),
+        16: Point2D(0.45, 0.49),
+        17: Point2D(0.53, 0.37),
+        18: Point2D(0.50, 0.40),
+        19: Point2D(0.48, 0.44),
+        20: Point2D(0.46, 0.48),
+    }
+
+    if mirrored:
+        points = {
+            index: Point2D(1.0 - point.x, point.y)
+            for index, point in points.items()
+        }
+
+    points = {
+        index: Point2D(point.x + x_offset, point.y + y_offset)
+        for index, point in points.items()
+    }
+
+    if overrides:
+        points.update(overrides)
+    for index in missing:
+        points.pop(index, None)
+
+    return HandLandmarks(
+        points=points,
+        handedness="Left" if mirrored else "Right",
+    )
+
+
+def _evaluate_claw_grip(
+    hand: HandLandmarks,
+    bottle: BottleDetection | None = None,
+):
+    result, _, _ = evaluate_movement(
+        "Claw Grip",
+        bottle or _bottle(),
+        None,
+        HandsResult(hands=[hand]),
+        None,
+    )
+    return result
+
+
 def _bartender_hand(
     *,
     mirrored: bool = False,
@@ -721,6 +786,194 @@ def test_reverse_grip_handles_missing_pinky_or_thumb():
     )
 
 
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _claw_grip_hand(),
+        _claw_grip_hand(mirrored=True),
+    ],
+    ids=["right-side", "left-side"],
+)
+def test_claw_grip_accepts_reference_like_top_down_hold(hand):
+    result = _evaluate_claw_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == "Good claw grip curled over the upper neck."
+
+
+def test_claw_grip_rejects_hand_around_bottle_body():
+    result = _evaluate_claw_grip(_claw_grip_hand(y_offset=0.20))
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert (
+        "body" in result.feedback.lower()
+        or "neck" in result.feedback.lower()
+        or "mouth" in result.feedback.lower()
+    )
+
+
+def test_claw_grip_rejects_horizontal_bottle():
+    wide_bottle = BottleDetection(
+        x1=260,
+        y1=220,
+        x2=380,
+        y2=260,
+        confidence=0.9,
+    )
+    result = _evaluate_claw_grip(_claw_grip_hand(), bottle=wide_bottle)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "upright" in result.feedback.lower()
+
+
+def test_claw_grip_rejects_wrist_not_above_upper_neck():
+    result = _evaluate_claw_grip(
+        _claw_grip_hand(overrides={0: Point2D(0.52, 0.46)})
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Place your wrist above the bottle mouth and upper neck."
+    )
+
+
+def test_claw_grip_rejects_palm_not_above_mouth():
+    result = _evaluate_claw_grip(
+        _claw_grip_hand(
+            overrides={
+                0: Point2D(0.52, 0.42),
+                9: Point2D(0.51, 0.44),
+            }
+        )
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert (
+        "mouth" in result.feedback.lower()
+        or "neck" in result.feedback.lower()
+    )
+
+
+def test_claw_grip_rejects_bartender_style_pinch():
+    result = _evaluate_claw_grip(_bartender_hand())
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert (
+        "pinch" in result.feedback.lower()
+        or "wrist" in result.feedback.lower()
+    )
+
+
+def test_claw_grip_rejects_normal_overhand_orientation():
+    hand = _grip_hand(
+        wrist=Point2D(0.45, 0.44),
+        middle_mcp=Point2D(0.47, 0.42),
+        thumb_tip=Point2D(0.46, 0.43),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+    result = _evaluate_claw_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "overhand" in result.feedback.lower()
+
+
+def test_claw_grip_rejects_reverse_underhand_orientation():
+    hand = _grip_hand(
+        wrist=Point2D(0.45, 0.40),
+        middle_mcp=Point2D(0.47, 0.46),
+        thumb_tip=Point2D(0.46, 0.46),
+        fingertips=(
+            Point2D(0.48, 0.48),
+            Point2D(0.50, 0.46),
+            Point2D(0.52, 0.44),
+            Point2D(0.54, 0.42),
+        ),
+    )
+    result = _evaluate_claw_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert (
+        "reverse" in result.feedback.lower()
+        or "overhand" in result.feedback.lower()
+    )
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        (4,),
+        (8,),
+        (16, 20),
+    ],
+    ids=["thumb", "index-tip", "other-fingertips"],
+)
+def test_claw_grip_handles_incomplete_landmarks(missing):
+    result = _evaluate_claw_grip(_claw_grip_hand(missing=missing))
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status in ("unknown", "unstable")
+
+
+def test_claw_grip_rejects_extended_open_fingers():
+    result = _evaluate_claw_grip(
+        _claw_grip_hand(
+            overrides={
+                8: Point2D(0.47, 0.34),
+                12: Point2D(0.48, 0.34),
+                16: Point2D(0.49, 0.34),
+                20: Point2D(0.50, 0.34),
+            }
+        )
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "curl" in result.feedback.lower()
+
+
+def test_claw_grip_rejects_insufficient_curled_fingers():
+    result = _evaluate_claw_grip(
+        _claw_grip_hand(
+            overrides={
+                12: Point2D(0.70, 0.70),
+                16: Point2D(0.72, 0.72),
+                20: Point2D(0.74, 0.74),
+            }
+        )
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "curl" in result.feedback.lower()
+
+
+def test_claw_grip_registry_and_requirements():
+    assert movement_requires_hands("Claw Grip") is True
+    assert movement_requires_pose("Claw Grip") is False
+
+    result, _, _ = evaluate_movement(
+        "Claw Grip",
+        _bottle(),
+        None,
+        HandsResult(hands=[_claw_grip_hand()]),
+        None,
+    )
+    assert "coming soon" not in result.feedback.lower()
+
+
 def test_clockwise_point_is_restored_to_original_coordinates():
     restored = hands_detector_module._clockwise_point_to_original(
         Point2D(0.20, 0.25)
@@ -919,11 +1172,13 @@ def test_session_enables_only_its_grip_fallback(monkeypatch):
     websocket_api.VisionSession("Normal Grip")._ensure_detectors()
     websocket_api.VisionSession("Bartender's Grip")._ensure_detectors()
     websocket_api.VisionSession("Reverse Grip")._ensure_detectors()
+    websocket_api.VisionSession("Claw Grip")._ensure_detectors()
 
     assert fallback_settings == [
         (True, False),
         (False, True),
         (False, False),
+        (True, False),
     ]
 
 
@@ -1004,6 +1259,7 @@ def test_movement_requires_hands():
     assert movement_requires_hands("Arm Stall") is True  # legacy alias
     assert movement_requires_hands("Elbow Stall") is True
     assert movement_requires_hands("Normal Grip") is True
+    assert movement_requires_hands("Claw Grip") is True
 
 
 @pytest.mark.parametrize(
@@ -1012,6 +1268,7 @@ def test_movement_requires_hands():
         "Normal Grip",
         "Bartender's Grip",
         "Reverse Grip",
+        "Claw Grip",
         "Hand Stall",
         "Forearm Stall",
         "Elbow Stall",
@@ -1617,6 +1874,7 @@ def test_hand_stall_positive_after_valid_stable_history():
 
 def test_hand_stall_does_not_require_pose():
     assert movement_requires_pose("Hand Stall") is False
+    assert movement_requires_pose("Claw Grip") is False
 
 
 def test_other_stall_pose_requirements_unchanged():

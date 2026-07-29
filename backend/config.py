@@ -108,6 +108,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
     "Normal Grip": {"difficulty": "Easy", "requires_hands": True},
     "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True},
     "Reverse Grip": {"difficulty": "Easy", "requires_hands": True},
+    "Claw Grip": {"difficulty": "Easy", "requires_hands": True},
     "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": False},
     "Forearm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Elbow Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},

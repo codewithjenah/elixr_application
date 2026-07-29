@@ -21,6 +21,10 @@ _POSTURE_SUCCESS: dict[str, str] = {
     "Normal Grip": "Hand looks ready for normal grip. Enable bottle detection for scoring.",
     "Bartender's Grip": "Hand looks ready for bartender's grip. Enable bottle detection for scoring.",
     "Reverse Grip": "Hand looks ready for reverse grip. Enable bottle detection for scoring.",
+    "Claw Grip": (
+        "Hand looks ready for a claw grip. "
+        "Enable bottle detection for complete scoring."
+    ),
     "Hand Stall": "Hand looks steady. Enable bottle detection for stall scoring.",
     "Forearm Stall": "Forearm looks steady. Enable bottle detection for stall scoring.",
     "Elbow Stall": "Elbow looks steady. Enable bottle detection for stall scoring.",

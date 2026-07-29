@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
+import 'package:elixr_application/core/constants/movement_visuals.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/features/movements/movements_presentation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +48,30 @@ void main() {
       expect(movementsGridColumns(1149), 2);
       expect(movementsGridColumns(1150), 3);
       expect(movementsGridColumns(1920), 3);
+    });
+  });
+
+  group('movement catalog', () {
+    test('contains exactly one enabled Claw Grip on Easy', () {
+      final claw = movementCatalog.where((m) => m.name == 'Claw Grip').toList();
+      expect(claw.length, 1);
+      expect(claw.first.enabled, isTrue);
+      expect(claw.first.difficulty, 'Easy');
+      expect(claw.first.requiresHandsDetection, isTrue);
+    });
+
+    test('Easy movements include Claw Grip', () {
+      final easy = movementsByDifficulty('Easy');
+      expect(easy.any((m) => m.name == 'Claw Grip'), isTrue);
+    });
+
+    test('catalog contains ten movements', () {
+      expect(movementCatalog.length, 10);
+    });
+
+    test('Claw Grip has a dedicated emoji mapping', () {
+      expect(MovementVisuals.emojiFor('Claw Grip'), '🦅');
+      expect(MovementVisuals.emojiFor('Claw Grip'), isNot('🍾'));
     });
   });
 

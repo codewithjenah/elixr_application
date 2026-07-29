@@ -4,6 +4,7 @@ from config import MOVEMENT_CONFIG
 from assessment.rules import (
     arm_stall,
     bartenders_grip,
+    claw_grip,
     coming_soon,
     double_hand_stall,
     elbow_stall,
@@ -32,6 +33,7 @@ _RULES: dict[str, EvaluateFn] = {
     "Normal Grip": normal_grip.evaluate,
     "Bartender's Grip": bartenders_grip.evaluate,
     "Reverse Grip": reverse_grip.evaluate,
+    "Claw Grip": claw_grip.evaluate,
     "Hand Stall": hand_stall.evaluate,
     "Forearm Stall": arm_stall.evaluate,
     "Elbow Stall": elbow_stall.evaluate,
