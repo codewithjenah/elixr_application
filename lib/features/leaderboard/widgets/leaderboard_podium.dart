@@ -13,11 +13,13 @@ class LeaderboardPodium extends StatelessWidget {
     super.key,
     required this.podium,
     required this.currentUserId,
+    this.currentUserProfilePictureUrl,
     this.variant = LeaderboardPodiumVariant.full,
   });
 
   final List<LeaderboardEntry> podium;
   final String? currentUserId;
+  final String? currentUserProfilePictureUrl;
   final LeaderboardPodiumVariant variant;
 
   @override
@@ -30,19 +32,31 @@ class LeaderboardPodium extends StatelessWidget {
         : AppSpacing.md;
 
     Widget cardFor(({int rank, LeaderboardEntry entry}) slot) {
+      final isCurrentUser = slot.entry.userId == currentUserId;
       return LeaderboardPodiumCard(
         rank: slot.rank,
         entry: slot.entry,
-        isCurrentUser: slot.entry.userId == currentUserId,
+        isCurrentUser: isCurrentUser,
+        profilePictureUrl: LeaderboardPresentation.profilePictureUrlFor(
+          entry: slot.entry,
+          isCurrentUser: isCurrentUser,
+          currentUserProfilePictureUrl: currentUserProfilePictureUrl,
+        ),
         variant: variant,
       );
     }
 
     Widget cardForRank(int rank, LeaderboardEntry entry) {
+      final isCurrentUser = entry.userId == currentUserId;
       return LeaderboardPodiumCard(
         rank: rank,
         entry: entry,
-        isCurrentUser: entry.userId == currentUserId,
+        isCurrentUser: isCurrentUser,
+        profilePictureUrl: LeaderboardPresentation.profilePictureUrlFor(
+          entry: entry,
+          isCurrentUser: isCurrentUser,
+          currentUserProfilePictureUrl: currentUserProfilePictureUrl,
+        ),
         variant: variant,
       );
     }

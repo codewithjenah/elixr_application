@@ -61,21 +61,26 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     super.dispose();
   }
 
-  void _startBackgroundSync() {
+  void _startBackgroundSync({bool force = false}) {
     final user = context.read<AuthService>().currentUser;
     final userId = user?.id;
     if (userId == null || userId.isEmpty) return;
 
     _controller.startBackgroundSync(
+      force: force,
       userId: userId,
       syncUser: () => _repository.syncCurrentUserLeaderboard(
         userId: userId,
         displayName: user!.fullName,
+        profilePictureUrl: user.profilePictureUrl,
       ),
     );
   }
 
-  void _onRefresh() => _controller.refresh();
+  void _onRefresh() {
+    _controller.refresh();
+    _startBackgroundSync(force: true);
+  }
 
   Widget _centered(Widget child) {
     return Align(
@@ -104,7 +109,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             listenable: _controller,
             builder: (context, _) {
               final entries = _controller.entries;
-              final currentUserId = context.read<AuthService>().currentUser?.id;
+              final currentUser = context.read<AuthService>().currentUser;
+              final currentUserId = currentUser?.id;
+              final currentUserProfilePictureUrl =
+                  currentUser?.profilePictureUrl;
 
               if (_controller.isInitialLoading && entries.isEmpty) {
                 return _centered(
@@ -182,6 +190,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                       LeaderboardPodium(
                         podium: podium,
                         currentUserId: currentUserId,
+                        currentUserProfilePictureUrl:
+                            currentUserProfilePictureUrl,
                         variant: LeaderboardPodiumVariant.full,
                       ),
                     ),
@@ -195,6 +205,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         LeaderboardRankingsSection(
                           rows: rows,
                           currentUserId: currentUserId,
+                          currentUserProfilePictureUrl:
+                              currentUserProfilePictureUrl,
                           footer: loadMoreFooter,
                         ),
                       ),

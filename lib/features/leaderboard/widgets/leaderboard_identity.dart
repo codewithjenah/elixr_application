@@ -28,6 +28,7 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
     required this.initials,
     required this.accent,
     required this.size,
+    this.profilePictureUrl,
     this.highlightRing = false,
   });
 
@@ -35,23 +36,31 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
   final Color accent;
   final double size;
 
+  /// Optional HTTPS Cloud Storage download URL mirrored on the leaderboard row.
+  final String? profilePictureUrl;
+
   /// Subtle current-user ring that does not replace the medal accent.
   final bool highlightRing;
 
   @override
   Widget build(BuildContext context) {
+    final trimmedUrl = profilePictureUrl?.trim();
+    final hasUrl = trimmedUrl != null && trimmedUrl.isNotEmpty;
+
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: [
-            accent.withValues(alpha: 0.35),
-            AppColors.primary.withValues(alpha: 0.18),
-          ],
-        ),
+        gradient: hasUrl
+            ? null
+            : LinearGradient(
+                colors: [
+                  accent.withValues(alpha: 0.35),
+                  AppColors.primary.withValues(alpha: 0.18),
+                ],
+              ),
         border: Border.all(
           color: highlightRing
               ? AppColors.primary.withValues(alpha: 0.75)
@@ -66,6 +75,39 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
                 ),
               ]
             : null,
+      ),
+      child: hasUrl
+          ? ClipOval(
+              child: Image.network(
+                trimmedUrl,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return _initialsContent(context);
+                },
+                errorBuilder: (context, error, stackTrace) =>
+                    _initialsContent(context),
+              ),
+            )
+          : _initialsContent(context),
+    );
+  }
+
+  Widget _initialsContent(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.35),
+            AppColors.primary.withValues(alpha: 0.18),
+          ],
+        ),
       ),
       child: Text(
         initials,

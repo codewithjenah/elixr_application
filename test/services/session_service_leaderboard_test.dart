@@ -34,6 +34,7 @@ void main() {
             required String sessionId,
             required String userId,
             required String displayName,
+            String? profilePictureUrl,
           }) async {
             leaderboardCalls++;
             throw Exception('firestore unavailable');
@@ -68,6 +69,7 @@ void main() {
             required String sessionId,
             required String userId,
             required String displayName,
+            String? profilePictureUrl,
           }) async {
             awardedSessionId = sessionId;
             expect(userId, 'u1');

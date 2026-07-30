@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_presentation.dart';
+import 'package:elixr_application/features/leaderboard/widgets/leaderboard_identity.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podium.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podium_card.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_rank_row.dart';
@@ -15,6 +16,7 @@ LeaderboardEntry entry({
   int sessions = 8,
   double average = 86,
   int best = 95,
+  String? profilePictureUrl,
 }) {
   return LeaderboardEntry(
     userId: id,
@@ -24,6 +26,7 @@ LeaderboardEntry entry({
     scoreSum: average * sessions,
     averageScore: average,
     bestScore: best,
+    profilePictureUrl: profilePictureUrl,
   );
 }
 
@@ -42,7 +45,86 @@ Future<void> setSurface(WidgetTester tester, Size size) async {
 }
 
 void main() {
+  group('LeaderboardInitialsAvatar', () {
+    testWidgets('uses network image when profile URL is present', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardInitialsAvatar(
+            initials: 'AB',
+            accent: const Color(0xFFB8C0CC),
+            size: 40,
+            profilePictureUrl: 'https://example.com/avatar.jpg',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(Image), findsOneWidget);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<NetworkImage>());
+    });
+
+    testWidgets('shows initials when profile URL is absent', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const LeaderboardInitialsAvatar(
+            initials: 'AB',
+            accent: Color(0xFFB8C0CC),
+            size: 40,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('AB'), findsOneWidget);
+      expect(find.byType(Image), findsNothing);
+    });
+
+    testWidgets('falls back to initials when network image fails', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardInitialsAvatar(
+            initials: 'AB',
+            accent: const Color(0xFFB8C0CC),
+            size: 40,
+            profilePictureUrl: 'https://example.com/missing.jpg',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      expect(find.text('AB'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('LeaderboardPodium', () {
+    testWidgets('current user fallback uses in-memory profile URL', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1000, 600));
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardPodium(
+            podium: [entry(id: 'me', name: 'Current', xp: 300)],
+            currentUserId: 'me',
+            currentUserProfilePictureUrl: 'https://example.com/me.jpg',
+            variant: LeaderboardPodiumVariant.full,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(Image), findsOneWidget);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<NetworkImage>());
+    });
+
     testWidgets('wide layout orders cards 2nd, 1st, 3rd', (tester) async {
       await setSurface(tester, const Size(1200, 800));
       final podium = [
@@ -237,6 +319,48 @@ void main() {
       expect(find.text('Fourth'), findsOneWidget);
     });
 
+    testWidgets(
+      'profile URL flows through podium and rank rows without overflow',
+      (tester) async {
+        await setSurface(tester, const Size(1200, 800));
+        final rowEntry = entry(
+          id: '4',
+          name: 'Fourth',
+          xp: 180,
+          profilePictureUrl: 'https://example.com/avatar.jpg',
+        );
+        await tester.pumpWidget(
+          wrap(
+            Column(
+              children: [
+                LeaderboardPodium(
+                  podium: [
+                    entry(
+                      id: '1',
+                      name: 'Gold',
+                      xp: 300,
+                      profilePictureUrl: 'https://example.com/gold.jpg',
+                    ),
+                  ],
+                  currentUserId: null,
+                  variant: LeaderboardPodiumVariant.full,
+                ),
+                LeaderboardRankRow(
+                  rank: 4,
+                  entry: rowEntry,
+                  isCurrentUser: false,
+                ),
+              ],
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(Image), findsWidgets);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('narrow layout uses labeled secondary metrics line', (
       tester,
     ) async {
@@ -281,6 +405,36 @@ void main() {
   });
 
   group('presentation partition still holds for UI inputs', () {
+    test(
+      'profilePictureUrlFor prefers entry URL then current user fallback',
+      () {
+        final row = entry(id: 'me', name: 'Me', xp: 100);
+        expect(
+          LeaderboardPresentation.profilePictureUrlFor(
+            entry: row,
+            isCurrentUser: true,
+            currentUserProfilePictureUrl: 'https://example.com/me.jpg',
+          ),
+          'https://example.com/me.jpg',
+        );
+
+        final mirrored = entry(
+          id: 'me',
+          name: 'Me',
+          xp: 100,
+          profilePictureUrl: 'https://example.com/mirrored.jpg',
+        );
+        expect(
+          LeaderboardPresentation.profilePictureUrlFor(
+            entry: mirrored,
+            isCurrentUser: true,
+            currentUserProfilePictureUrl: 'https://example.com/me.jpg',
+          ),
+          'https://example.com/mirrored.jpg',
+        );
+      },
+    );
+
     test('display order helper remains 2-1-3', () {
       final podium = LeaderboardPresentation.podiumOf([
         entry(id: '1', name: 'A', xp: 3),

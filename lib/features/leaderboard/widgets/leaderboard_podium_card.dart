@@ -13,12 +13,14 @@ class LeaderboardPodiumCard extends StatelessWidget {
     required this.rank,
     required this.entry,
     required this.isCurrentUser,
+    this.profilePictureUrl,
     this.variant = LeaderboardPodiumVariant.full,
   });
 
   final int rank;
   final LeaderboardEntry entry;
   final bool isCurrentUser;
+  final String? profilePictureUrl;
   final LeaderboardPodiumVariant variant;
 
   @override
@@ -91,6 +93,7 @@ class LeaderboardPodiumCard extends StatelessWidget {
             initials: LeaderboardPresentation.initialsFor(entry.displayName),
             accent: accent,
             size: avatarSize,
+            profilePictureUrl: profilePictureUrl,
             highlightRing: isCurrentUser,
           ),
           SizedBox(height: compact ? 8 : 10),

@@ -25,11 +25,13 @@ class DashboardLeaderboard extends StatefulWidget {
     super.key,
     required this.currentUserId,
     required this.displayName,
+    this.profilePictureUrl,
     LeaderboardRepository? repository,
   }) : _repository = repository;
 
   final String? currentUserId;
   final String displayName;
+  final String? profilePictureUrl;
   final LeaderboardRepository? _repository;
 
   @override
@@ -57,14 +59,20 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
   void didUpdateWidget(covariant DashboardLeaderboard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentUserId != widget.currentUserId) {
-      _startBackgroundSync();
+      _syncStartedForUserId = null;
+    }
+    if (oldWidget.currentUserId != widget.currentUserId ||
+        oldWidget.profilePictureUrl != widget.profilePictureUrl) {
+      _startBackgroundSync(
+        force: oldWidget.profilePictureUrl != widget.profilePictureUrl,
+      );
     }
   }
 
-  void _startBackgroundSync() {
+  void _startBackgroundSync({bool force = false}) {
     final userId = widget.currentUserId;
     if (userId == null || userId.isEmpty) return;
-    if (_syncStartedForUserId == userId) return;
+    if (!force && _syncStartedForUserId == userId) return;
     _syncStartedForUserId = userId;
 
     // Non-blocking: streams already render; sync repairs missing awards.
@@ -73,6 +81,7 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
           .syncCurrentUserLeaderboard(
             userId: userId,
             displayName: widget.displayName,
+            profilePictureUrl: widget.profilePictureUrl,
           )
           .catchError((Object error, StackTrace stackTrace) {
             if (kDebugMode) {
@@ -187,6 +196,7 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
               LeaderboardPodium(
                 podium: LeaderboardPresentation.podiumOf(_topPlayers),
                 currentUserId: widget.currentUserId,
+                currentUserProfilePictureUrl: widget.profilePictureUrl,
                 variant: LeaderboardPodiumVariant.compact,
               ),
               const SizedBox(height: AppSpacing.sm),

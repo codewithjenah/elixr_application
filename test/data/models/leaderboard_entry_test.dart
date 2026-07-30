@@ -26,6 +26,44 @@ void main() {
       expect(entry.bestScore, 95);
       expect(entry.level, 2);
       expect(entry.xpIntoLevel, 0);
+      expect(entry.profilePictureUrl, isNull);
+    });
+
+    test('parses profile_picture_url when present', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada Lovelace',
+        'total_xp': 25,
+        'profile_picture_url': 'https://storage.example/avatar.jpg',
+      });
+
+      expect(entry, isNotNull);
+      expect(entry!.profilePictureUrl, 'https://storage.example/avatar.jpg');
+    });
+
+    test('treats missing, empty, or invalid profile_picture_url as null', () {
+      final missing = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+      });
+      expect(missing!.profilePictureUrl, isNull);
+
+      final empty = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'profile_picture_url': '   ',
+      });
+      expect(empty!.profilePictureUrl, isNull);
+
+      final wrongType = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'profile_picture_url': 42,
+      });
+      expect(wrongType!.profilePictureUrl, isNull);
     });
 
     test('tolerates missing optional fields and uses document id', () {

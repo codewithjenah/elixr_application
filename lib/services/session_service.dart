@@ -11,6 +11,7 @@ typedef LeaderboardSessionRecorder =
       required String sessionId,
       required String userId,
       required String displayName,
+      String? profilePictureUrl,
     });
 
 class SessionService extends ChangeNotifier {
@@ -45,6 +46,7 @@ class SessionService extends ChangeNotifier {
     required int score,
     required int durationSeconds,
     required List<PracticeFeedback> feedbackHistory,
+    String? profilePictureUrl,
   }) async {
     final session = Session(
       userId: userId,
@@ -84,6 +86,7 @@ class SessionService extends ChangeNotifier {
         sessionId: sessionId,
         userId: userId,
         displayName: displayName,
+        profilePictureUrl: profilePictureUrl,
       );
     } catch (error, stackTrace) {
       if (kDebugMode) {

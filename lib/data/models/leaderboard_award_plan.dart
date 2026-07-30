@@ -77,12 +77,14 @@ class LeaderboardSyncResult {
     required this.alreadyProcessed,
     required this.newlyProcessed,
     required this.failures,
+    this.publicProfileSynced = false,
   });
 
   final int totalSessionsChecked;
   final int alreadyProcessed;
   final int newlyProcessed;
   final int failures;
+  final bool publicProfileSynced;
 
   static const empty = LeaderboardSyncResult(
     totalSessionsChecked: 0,

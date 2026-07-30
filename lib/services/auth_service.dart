@@ -190,14 +190,15 @@ class AuthService extends ChangeNotifier {
     }
 
     try {
-      await _leaderboardRepository?.syncDisplayName(
+      await _leaderboardRepository?.syncPublicProfile(
         userId: userId,
         displayName: fullName,
+        profilePictureUrl: _currentUser?.profilePictureUrl,
       );
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(
-          'Leaderboard display_name sync failed: userId=$userId error=$error',
+          'Leaderboard public profile sync failed: userId=$userId error=$error',
         );
         debugPrint('$stackTrace');
       }

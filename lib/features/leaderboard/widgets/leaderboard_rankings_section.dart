@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/leaderboard_entry.dart';
+import '../leaderboard_presentation.dart';
 import 'leaderboard_rank_row.dart';
 
 /// Cohesive rankings panel: title, optional column headers, rows, and footer.
@@ -12,11 +13,13 @@ class LeaderboardRankingsSection extends StatelessWidget {
     super.key,
     required this.rows,
     required this.currentUserId,
+    this.currentUserProfilePictureUrl,
     required this.footer,
   });
 
   final List<({int rank, LeaderboardEntry entry})> rows;
   final String? currentUserId;
+  final String? currentUserProfilePictureUrl;
   final Widget footer;
 
   @override
@@ -68,6 +71,11 @@ class LeaderboardRankingsSection extends StatelessWidget {
               rank: rows[i].rank,
               entry: rows[i].entry,
               isCurrentUser: rows[i].entry.userId == currentUserId,
+              profilePictureUrl: LeaderboardPresentation.profilePictureUrlFor(
+                entry: rows[i].entry,
+                isCurrentUser: rows[i].entry.userId == currentUserId,
+                currentUserProfilePictureUrl: currentUserProfilePictureUrl,
+              ),
               showDivider: i > 0,
             ),
           Padding(

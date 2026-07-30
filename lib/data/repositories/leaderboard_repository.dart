@@ -135,6 +135,7 @@ class LeaderboardRepository {
     required String sessionId,
     required String userId,
     required String displayName,
+    String? profilePictureUrl,
   }) async {
     final trimmedName = displayName.trim().isEmpty
         ? 'Trainee'
@@ -195,7 +196,7 @@ class LeaderboardRepository {
 
         // Write whole scores as ints so rules that compare against session.score
         // succeed even when Dart double math produced .0 values for averages.
-        tx.set(leaderboardRef, {
+        final leaderboardData = <String, dynamic>{
           'user_id': userId,
           'display_name': trimmedName,
           'total_xp': plan.totalXp,
@@ -206,7 +207,9 @@ class LeaderboardRepository {
           'last_session_at': lastSessionAt,
           'updated_at': FieldValue.serverTimestamp(),
           'last_awarded_session_id': sessionId,
-        }, SetOptions(merge: true));
+          ...buildPublicProfileFields(profilePictureUrl: profilePictureUrl),
+        };
+        tx.set(leaderboardRef, leaderboardData, SetOptions(merge: true));
       });
     } catch (error, stackTrace) {
       _logError(
@@ -225,12 +228,14 @@ class LeaderboardRepository {
   Future<LeaderboardSyncResult> syncCurrentUserLeaderboard({
     required String userId,
     required String displayName,
+    String? profilePictureUrl,
   }) {
     return runWithSyncGuard(
       userId,
       () => _syncCurrentUserLeaderboardImpl(
         userId: userId,
         displayName: displayName,
+        profilePictureUrl: profilePictureUrl,
       ),
     );
   }
@@ -254,6 +259,7 @@ class LeaderboardRepository {
   Future<LeaderboardSyncResult> _syncCurrentUserLeaderboardImpl({
     required String userId,
     required String displayName,
+    String? profilePictureUrl,
   }) async {
     try {
       final sessionsSnap = await _firestore
@@ -294,6 +300,7 @@ class LeaderboardRepository {
             sessionId: session.id,
             userId: userId,
             displayName: displayName,
+            profilePictureUrl: profilePictureUrl,
           );
           newlyProcessed++;
         } catch (error, stackTrace) {
@@ -308,11 +315,24 @@ class LeaderboardRepository {
         }
       }
 
+      var publicProfileSynced = false;
+      try {
+        await syncPublicProfile(
+          userId: userId,
+          displayName: displayName,
+          profilePictureUrl: profilePictureUrl,
+        );
+        publicProfileSynced = true;
+      } catch (error, stackTrace) {
+        _logError('syncPublicProfile', error, stackTrace, userId: userId);
+      }
+
       return LeaderboardSyncResult(
         totalSessionsChecked: refs.length,
         alreadyProcessed: alreadyProcessed,
         newlyProcessed: newlyProcessed,
         failures: failures,
+        publicProfileSynced: publicProfileSynced,
       );
     } catch (error, stackTrace) {
       _logError(
@@ -325,10 +345,13 @@ class LeaderboardRepository {
     }
   }
 
-  /// Updates public display_name when a leaderboard document already exists.
-  Future<void> syncDisplayName({
+  /// Updates public display metadata on an existing leaderboard document.
+  ///
+  /// Does not create a zero-session entry. Preserves XP and session aggregates.
+  Future<void> syncPublicProfile({
     required String userId,
     required String displayName,
+    String? profilePictureUrl,
   }) async {
     final trimmed = displayName.trim();
     if (trimmed.isEmpty) return;
@@ -342,13 +365,42 @@ class LeaderboardRepository {
       if (!snap.exists) return;
 
       await ref.set({
-        'display_name': trimmed,
+        ...buildPublicProfileFields(
+          displayName: trimmed,
+          profilePictureUrl: profilePictureUrl,
+        ),
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (error, stackTrace) {
-      _logError('syncDisplayName', error, stackTrace, userId: userId);
+      _logError('syncPublicProfile', error, stackTrace, userId: userId);
       rethrow;
     }
+  }
+
+  /// Compatibility delegate for callers that only synchronize display_name.
+  Future<void> syncDisplayName({
+    required String userId,
+    required String displayName,
+  }) {
+    return syncPublicProfile(userId: userId, displayName: displayName);
+  }
+
+  /// Builds merge fields for public profile metadata on leaderboard documents.
+  @visibleForTesting
+  static Map<String, dynamic> buildPublicProfileFields({
+    String? displayName,
+    String? profilePictureUrl,
+  }) {
+    final fields = <String, dynamic>{};
+    final trimmedName = displayName?.trim();
+    if (trimmedName != null && trimmedName.isNotEmpty) {
+      fields['display_name'] = trimmedName;
+    }
+    final trimmedUrl = profilePictureUrl?.trim();
+    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+      fields['profile_picture_url'] = trimmedUrl;
+    }
+    return fields;
   }
 
   static int _readScore(dynamic value) {

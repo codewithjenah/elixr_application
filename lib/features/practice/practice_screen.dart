@@ -426,6 +426,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         onSave: () => sessionService.saveCompletedSession(
           userId: userId,
           displayName: displayName,
+          profilePictureUrl: authUser?.profilePictureUrl,
           movementName: _movement,
           difficulty: _difficulty,
           score: summaryScore,

@@ -59,12 +59,14 @@ class LeaderboardRankRow extends StatefulWidget {
     required this.rank,
     required this.entry,
     required this.isCurrentUser,
+    this.profilePictureUrl,
     this.showDivider = false,
   });
 
   final int rank;
   final LeaderboardEntry entry;
   final bool isCurrentUser;
+  final String? profilePictureUrl;
   final bool showDivider;
 
   @override
@@ -140,6 +142,7 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                           rank: widget.rank,
                           entry: widget.entry,
                           isCurrentUser: widget.isCurrentUser,
+                          profilePictureUrl: widget.profilePictureUrl,
                           avgScore: avgScore,
                         );
                       }
@@ -157,6 +160,7 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                         player: _PlayerCell(
                           entry: widget.entry,
                           isCurrentUser: widget.isCurrentUser,
+                          profilePictureUrl: widget.profilePictureUrl,
                         ),
                         level: Text(
                           'Lv. ${widget.entry.level}',
@@ -273,10 +277,15 @@ class LeaderboardRankingsHeaderRow extends StatelessWidget {
 }
 
 class _PlayerCell extends StatelessWidget {
-  const _PlayerCell({required this.entry, required this.isCurrentUser});
+  const _PlayerCell({
+    required this.entry,
+    required this.isCurrentUser,
+    this.profilePictureUrl,
+  });
 
   final LeaderboardEntry entry;
   final bool isCurrentUser;
+  final String? profilePictureUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -286,6 +295,7 @@ class _PlayerCell extends StatelessWidget {
           initials: LeaderboardPresentation.initialsFor(entry.displayName),
           accent: AppColors.accent,
           size: 32,
+          profilePictureUrl: profilePictureUrl,
           highlightRing: isCurrentUser,
         ),
         const SizedBox(width: 10),
@@ -315,12 +325,14 @@ class _CompactRankRow extends StatelessWidget {
     required this.rank,
     required this.entry,
     required this.isCurrentUser,
+    required this.profilePictureUrl,
     required this.avgScore,
   });
 
   final int rank;
   final LeaderboardEntry entry;
   final bool isCurrentUser;
+  final String? profilePictureUrl;
   final String avgScore;
 
   @override
@@ -354,6 +366,7 @@ class _CompactRankRow extends StatelessWidget {
                     ),
                     accent: AppColors.accent,
                     size: 32,
+                    profilePictureUrl: profilePictureUrl,
                     highlightRing: isCurrentUser,
                   ),
                   const SizedBox(width: 10),

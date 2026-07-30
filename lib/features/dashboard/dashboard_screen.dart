@@ -202,6 +202,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       weeklyTrendPercent: _weeklyTrendPercent,
       currentUserId: user?.id,
       displayName: user?.fullName ?? 'Trainee',
+      profilePictureUrl: user?.profilePictureUrl,
     );
 
     return ScaffoldPage(
@@ -248,6 +249,7 @@ class _MainColumn extends StatelessWidget {
     required this.weeklyTrendPercent,
     required this.currentUserId,
     required this.displayName,
+    this.profilePictureUrl,
   });
 
   final String firstName;
@@ -257,6 +259,7 @@ class _MainColumn extends StatelessWidget {
   final int? weeklyTrendPercent;
   final String? currentUserId;
   final String displayName;
+  final String? profilePictureUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -329,6 +332,7 @@ class _MainColumn extends StatelessWidget {
         DashboardLeaderboard(
           currentUserId: currentUserId,
           displayName: displayName,
+          profilePictureUrl: profilePictureUrl,
         ),
       ],
     );

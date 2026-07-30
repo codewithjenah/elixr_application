@@ -1,6 +1,8 @@
 import '../../core/constants/gamification_rules.dart';
 
-/// Public aggregate ranking row. Never includes email or local image paths.
+/// Public aggregate ranking row. May include a Cloud Storage download URL for
+/// the player's avatar. Never includes email, storage object paths, or local
+/// filesystem paths.
 class LeaderboardEntry {
   const LeaderboardEntry({
     required this.userId,
@@ -10,6 +12,7 @@ class LeaderboardEntry {
     required this.scoreSum,
     required this.averageScore,
     required this.bestScore,
+    this.profilePictureUrl,
     this.lastSessionAt,
     this.updatedAt,
   });
@@ -21,6 +24,9 @@ class LeaderboardEntry {
   final double scoreSum;
   final double averageScore;
   final int bestScore;
+
+  /// HTTPS download URL mirrored from the owner's public profile metadata.
+  final String? profilePictureUrl;
   final String? lastSessionAt;
   final String? updatedAt;
 
@@ -50,9 +56,16 @@ class LeaderboardEntry {
       scoreSum: scoreSum < 0 ? 0 : scoreSum,
       averageScore: averageScore < 0 ? 0 : averageScore,
       bestScore: bestScore < 0 ? 0 : bestScore,
+      profilePictureUrl: _readProfilePictureUrl(map['profile_picture_url']),
       lastSessionAt: _readTimestampString(map['last_session_at']),
       updatedAt: _readTimestampString(map['updated_at']),
     );
+  }
+
+  static String? _readProfilePictureUrl(dynamic value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   static String? _readString(dynamic value) {

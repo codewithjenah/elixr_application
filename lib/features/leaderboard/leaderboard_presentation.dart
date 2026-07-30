@@ -43,4 +43,23 @@ abstract final class LeaderboardPresentation {
     }
     return ('${parts[0][0]}${parts[1][0]}').toUpperCase();
   }
+
+  /// Resolves the avatar URL for a leaderboard row, falling back to the
+  /// authenticated user's profile URL for their own row while Firestore
+  /// backfill is still in flight.
+  static String? profilePictureUrlFor({
+    required LeaderboardEntry entry,
+    required bool isCurrentUser,
+    String? currentUserProfilePictureUrl,
+  }) {
+    final entryUrl = entry.profilePictureUrl?.trim();
+    if (entryUrl != null && entryUrl.isNotEmpty) return entryUrl;
+
+    if (!isCurrentUser) return null;
+
+    final currentUrl = currentUserProfilePictureUrl?.trim();
+    if (currentUrl != null && currentUrl.isNotEmpty) return currentUrl;
+
+    return null;
+  }
 }

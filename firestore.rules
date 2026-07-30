@@ -22,6 +22,7 @@ service cloud.firestore {
       return [
         'user_id',
         'display_name',
+        'profile_picture_url',
         'total_xp',
         'sessions_completed',
         'score_sum',
@@ -53,6 +54,13 @@ service cloud.firestore {
       return value is number && value >= 0;
     }
 
+    function isValidHttpsProfilePictureUrl(value) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= 2048
+        && value.matches('^https://.*');
+    }
+
     function validLeaderboardShape(data) {
       return data.keys().hasOnly(leaderboardKeys())
         && data.user_id is string
@@ -60,6 +68,8 @@ service cloud.firestore {
         && data.display_name is string
         && data.display_name.size() > 0
         && data.display_name.size() <= 80
+        && (!data.keys().hasAny(['profile_picture_url'])
+          || isValidHttpsProfilePictureUrl(data.profile_picture_url))
         && isNonNegInt(data.total_xp)
         && isNonNegInt(data.sessions_completed)
         && data.total_xp == data.sessions_completed * 25
@@ -152,12 +162,14 @@ service cloud.firestore {
         && markerMatchesSession(awardSessionId(), awardSessionScore());
     }
 
-    function validDisplayNameUpdate() {
+    function validPublicProfileMetadataUpdate() {
       return resource.data.user_id == request.auth.uid
         && aggregatesUnchanged()
         && request.resource.data.display_name is string
         && request.resource.data.display_name.size() > 0
-        && request.resource.data.display_name.size() <= 80;
+        && request.resource.data.display_name.size() <= 80
+        && (!request.resource.data.keys().hasAny(['profile_picture_url'])
+          || isValidHttpsProfilePictureUrl(request.resource.data.profile_picture_url));
     }
 
     match /users/{userId} {
@@ -192,7 +204,7 @@ service cloud.firestore {
 
       allow update: if isOwner(userId)
         && validLeaderboardShape(request.resource.data)
-        && (validSessionAwardUpdate() || validDisplayNameUpdate());
+        && (validSessionAwardUpdate() || validPublicProfileMetadataUpdate());
 
       allow delete: if false;
     }

@@ -366,6 +366,41 @@ void main() {
       expect(fake.calls, 2);
     });
 
+    test('profile-only sync still triggers one auto refresh', () async {
+      fake = FakePages([
+        page([e('a', 100)]),
+        page([
+          LeaderboardEntry(
+            userId: 'a',
+            displayName: 'a',
+            totalXp: 100,
+            sessionsCompleted: 1,
+            scoreSum: 0,
+            averageScore: 0,
+            bestScore: 100,
+            profilePictureUrl: 'https://example.com/a.jpg',
+          ),
+        ]),
+      ]);
+      controller = LeaderboardListController(fetchPage: fake.fetch);
+
+      await controller.loadInitial();
+
+        await controller.startBackgroundSync(
+          userId: 'me',
+          syncUser: () async => const LeaderboardSyncResult(
+            totalSessionsChecked: 1,
+            alreadyProcessed: 1,
+            newlyProcessed: 0,
+            failures: 0,
+            publicProfileSynced: true,
+          ),
+        );
+      await pumpEventQueue();
+
+      expect(fake.calls, 2);
+    });
+
     test('refresh resets pagination state but not sync guards', () async {
       fake = FakePages([
         page([e('a', 100)]),

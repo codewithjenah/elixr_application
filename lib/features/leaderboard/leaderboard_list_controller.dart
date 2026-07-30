@@ -81,9 +81,10 @@ class LeaderboardListController extends ChangeNotifier {
   Future<void> startBackgroundSync({
     required String userId,
     required Future<LeaderboardSyncResult> Function() syncUser,
+    bool force = false,
   }) async {
     if (_disposed) return;
-    if (_syncStartedForUserId == userId) return;
+    if (!force && _syncStartedForUserId == userId) return;
     _syncStartedForUserId = userId;
 
     try {
@@ -137,7 +138,8 @@ class LeaderboardListController extends ChangeNotifier {
   }
 
   void _handleSyncResult(LeaderboardSyncResult result) {
-    if (_disposed || result.newlyProcessed <= 0) return;
+    if (_disposed) return;
+    if (result.newlyProcessed <= 0 && !result.publicProfileSynced) return;
 
     if (isInitialLoading) {
       _pendingPostSyncRefresh = true;
