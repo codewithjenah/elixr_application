@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -50,6 +51,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   bool _savingProfile = false;
   bool _savingPassword = false;
   bool _editingEmail = false;
+  int _passwordFormRevision = 0;
 
   @override
   void initState() {
@@ -59,6 +61,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     _nameController = TextEditingController(text: user?.fullName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
     _pickedImagePath = user?.profilePicturePath;
+    _currentPasswordController.addListener(_onPasswordFieldsChanged);
+    _newPasswordController.addListener(_onPasswordFieldsChanged);
+    _confirmPasswordController.addListener(_onPasswordFieldsChanged);
     if (_section == ProfileSettingsSection.preferences) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -66,6 +71,21 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         }
       });
     }
+  }
+
+  void _onPasswordFieldsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _canSubmitPassword {
+    final current = _currentPasswordController.text;
+    final newPass = _newPasswordController.text;
+    final confirm = _confirmPasswordController.text;
+    return current.isNotEmpty &&
+        newPass.isNotEmpty &&
+        confirm.isNotEmpty &&
+        newPass.length >= 6 &&
+        newPass == confirm;
   }
 
   void _openSection(ProfileSettingsSection section) {
@@ -77,6 +97,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   @override
   void dispose() {
+    _currentPasswordController.removeListener(_onPasswordFieldsChanged);
+    _newPasswordController.removeListener(_onPasswordFieldsChanged);
+    _confirmPasswordController.removeListener(_onPasswordFieldsChanged);
     _nameController.dispose();
     _emailController.dispose();
     _currentPasswordController.dispose();
@@ -155,6 +178,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         _currentPasswordController.clear();
         _newPasswordController.clear();
         _confirmPasswordController.clear();
+        setState(() => _passwordFormRevision++);
         _showSuccess('Password updated successfully.');
       }
     } catch (e) {
@@ -226,27 +250,48 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               AppSpacing.lg,
               AppSpacing.md,
             ),
-            child: Column(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Settings',
-                  style: AppTheme.headingMedium.copyWith(
-                    fontSize: 20,
-                    color: context.elixTextPrimary,
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    FluentIcons.settings,
+                    size: 16,
+                    color: AppColors.primary,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Manage your account',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
+                const SizedBox(width: AppSpacing.sm + 2),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Settings',
+                        style: AppTheme.headingMedium.copyWith(
+                          fontSize: 20,
+                          color: context.elixTextPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Manage your Elixr experience',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.xs),
           _SidebarNavItem(
             icon: FluentIcons.contact,
             label: 'Account',
@@ -547,51 +592,45 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
   Widget _buildSecuritySection() {
+    final newPass = _newPasswordController.text;
+    final confirm = _confirmPasswordController.text;
+
+    String? confirmStatus;
+    bool? confirmSuccess;
+    if (confirm.isNotEmpty) {
+      if (newPass == confirm) {
+        confirmStatus = 'Passwords match';
+        confirmSuccess = true;
+      } else {
+        confirmStatus = 'Passwords do not match';
+        confirmSuccess = false;
+      }
+    }
+
     return Column(
+      key: ValueKey(_passwordFormRevision),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Change your password to keep your account secure.',
+          'Update your password and protect access to your Elixr account.',
           style: AppTheme.bodySecondary.copyWith(
             color: context.elixTextSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        _SettingsCard(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              children: [
-                _buildField(
-                  label: 'Current password',
-                  controller: _currentPasswordController,
-                  icon: FluentIcons.lock,
-                  obscure: true,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _buildField(
-                  label: 'New password',
-                  controller: _newPasswordController,
-                  icon: FluentIcons.lock_solid,
-                  obscure: true,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _buildField(
-                  label: 'Confirm new password',
-                  controller: _confirmPasswordController,
-                  icon: FluentIcons.lock_solid,
-                  obscure: true,
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                FilledButton(
-                  onPressed: _savingPassword ? null : _savePassword,
-                  child: _savingPassword
-                      ? const ProgressRing(strokeWidth: 2)
-                      : const Text('Update password'),
-                ),
-              ],
-            ),
-          ),
+        const _SecurityIntroBanner(),
+        const SizedBox(height: AppSpacing.lg),
+        _SecurityFormCard(
+          currentPasswordController: _currentPasswordController,
+          newPasswordController: _newPasswordController,
+          confirmPasswordController: _confirmPasswordController,
+          newPassword: newPass,
+          confirmPassword: confirm,
+          confirmStatus: confirmStatus,
+          confirmSuccess: confirmSuccess,
+          savingPassword: _savingPassword,
+          canSubmit: _canSubmitPassword,
+          onSave: _savePassword,
         ),
       ],
     );
@@ -900,74 +939,501 @@ class _SidebarNavItem extends StatefulWidget {
 
 class _SidebarNavItemState extends State<_SidebarNavItem> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.isSelected || _hovered;
+    final isDark = context.isDarkTheme;
+    final selected = widget.isSelected;
+    final highlighted = selected || _hovered || _focused;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.sm + 2,
-            ),
-            decoration: BoxDecoration(
-              color: widget.isSelected
-                  ? AppColors.primary.withValues(alpha: 0.12)
-                  : _hovered
-                  ? context.elixBorder.withValues(alpha: 0.25)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: widget.isSelected
-                  ? Border.all(color: AppColors.primary.withValues(alpha: 0.2))
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: widget.isSelected
-                        ? AppColors.primary.withValues(alpha: 0.18)
-                        : context.elixBorder.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    widget.icon,
-                    size: 15,
-                    color: active
-                        ? AppColors.primary
-                        : context.elixTextSecondary,
-                  ),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.xs / 2,
+        AppSpacing.md,
+        AppSpacing.xs / 2,
+      ),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: widget.label,
+        child: Focus(
+          onFocusChange: (value) => setState(() => _focused = value),
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent &&
+                (event.logicalKey == LogicalKeyboardKey.enter ||
+                    event.logicalKey == LogicalKeyboardKey.space)) {
+              widget.onTap();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              onTap: widget.onTap,
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm + 2,
+                  vertical: AppSpacing.sm,
                 ),
-                const SizedBox(width: AppSpacing.sm + 4),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary.withValues(alpha: 0.08)
+                      : _hovered
+                      ? (isDark
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : Colors.black.withValues(alpha: 0.03))
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      width: 3,
+                      height: 28,
+                      margin: const EdgeInsets.only(right: AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.primary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.primary.withValues(alpha: 0.16)
+                            : context.elixBorder.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        widget.icon,
+                        size: 15,
+                        color: selected
+                            ? AppColors.primary
+                            : highlighted
+                            ? context.elixTextPrimary
+                            : context.elixTextSecondary,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm + 2),
+                    Expanded(
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.body.copyWith(
+                          fontSize: 14,
+                          color: selected
+                              ? context.elixTextPrimary
+                              : highlighted
+                              ? context.elixTextPrimary
+                              : context.elixTextSecondary,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SecurityIntroBanner extends StatelessWidget {
+  const _SecurityIntroBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 4,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              FluentIcons.shield_solid,
+              size: 16,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm + 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  widget.label,
+                  'Password protection',
                   style: AppTheme.body.copyWith(
                     fontSize: 14,
-                    color: active
-                        ? (widget.isSelected
-                              ? AppColors.primary
-                              : context.elixTextPrimary)
-                        : context.elixTextSecondary,
-                    fontWeight: widget.isSelected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
+                    fontWeight: FontWeight.w600,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Use a strong, unique password that you do not use on other accounts.',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
                   ),
                 ),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SecurityFormCard extends StatelessWidget {
+  const _SecurityFormCard({
+    required this.currentPasswordController,
+    required this.newPasswordController,
+    required this.confirmPasswordController,
+    required this.newPassword,
+    required this.confirmPassword,
+    required this.confirmStatus,
+    required this.confirmSuccess,
+    required this.savingPassword,
+    required this.canSubmit,
+    required this.onSave,
+  });
+
+  final TextEditingController currentPasswordController;
+  final TextEditingController newPasswordController;
+  final TextEditingController confirmPasswordController;
+  final String newPassword;
+  final String confirmPassword;
+  final String? confirmStatus;
+  final bool? confirmSuccess;
+  final bool savingPassword;
+  final bool canSubmit;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasMinLength = newPassword.length >= 6;
+    final passwordsMatch =
+        confirmPassword.isNotEmpty && newPassword == confirmPassword;
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: _SettingsCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      FluentIcons.lock_solid,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm + 4),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Change password',
+                          style: AppTheme.body.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: context.elixTextPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Enter your current password, then choose a new password.',
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _PasswordField(
+                label: 'Current password',
+                controller: currentPasswordController,
+                icon: FluentIcons.lock,
+                onSubmitted: (_) {
+                  if (canSubmit && !savingPassword) onSave();
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _PasswordField(
+                label: 'New password',
+                controller: newPasswordController,
+                icon: FluentIcons.lock_solid,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.xs,
+                children: [
+                  _PasswordRequirement(
+                    label: 'At least 6 characters',
+                    met: hasMinLength,
+                  ),
+                  _PasswordRequirement(
+                    label: 'Passwords must match',
+                    met: passwordsMatch,
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _PasswordField(
+                label: 'Confirm new password',
+                controller: confirmPasswordController,
+                icon: FluentIcons.lock_solid,
+                statusText: confirmStatus,
+                statusIsSuccess: confirmSuccess,
+                onSubmitted: (_) {
+                  if (canSubmit && !savingPassword) onSave();
+                },
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton(
+                onPressed: savingPassword || !canSubmit ? null : onSave,
+                child: savingPassword
+                    ? const ProgressRing(strokeWidth: 2)
+                    : const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.accept, size: 14),
+                          SizedBox(width: AppSpacing.sm),
+                          Text('Update password'),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'After updating, use your new password the next time you sign in.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _PasswordField extends StatefulWidget {
+  const _PasswordField({
+    required this.label,
+    required this.controller,
+    required this.icon,
+    this.statusText,
+    this.statusIsSuccess,
+    this.onSubmitted,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final IconData icon;
+  final String? statusText;
+  final bool? statusIsSuccess;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
+  bool _obscured = true;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final statusColor = widget.statusIsSuccess == true
+        ? AppColors.success
+        : widget.statusIsSuccess == false
+        ? AppColors.warning
+        : context.elixTextSecondary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.label,
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        const SizedBox(height: 6),
+        Focus(
+          onFocusChange: (value) => setState(() => _focused = value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: isDark
+                  ? Colors.white.withValues(alpha: _focused ? 0.05 : 0.025)
+                  : Colors.black.withValues(alpha: _focused ? 0.025 : 0.015),
+              border: Border.all(
+                color: _focused
+                    ? AppColors.primary.withValues(alpha: 0.55)
+                    : context.elixBorder.withValues(alpha: isDark ? 0.55 : 0.8),
+              ),
+            ),
+            child: TextBox(
+              controller: widget.controller,
+              obscureText: _obscured,
+              onSubmitted: widget.onSubmitted,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: 11,
+              ),
+              prefix: Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
+                child: Icon(
+                  widget.icon,
+                  color: _focused
+                      ? AppColors.primary
+                      : context.elixTextSecondary,
+                  size: 16,
+                ),
+              ),
+              suffix: _PasswordVisibilityButton(
+                obscured: _obscured,
+                onToggle: () => setState(() => _obscured = !_obscured),
+              ),
+              style: AppTheme.body.copyWith(
+                color: context.elixTextPrimary,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ),
+        if (widget.statusText != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            children: [
+              Icon(
+                widget.statusIsSuccess == true
+                    ? FluentIcons.check_mark
+                    : FluentIcons.info_solid,
+                size: 12,
+                color: statusColor,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Flexible(
+                child: Text(
+                  widget.statusText!,
+                  style: AppTheme.caption.copyWith(color: statusColor),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _PasswordVisibilityButton extends StatelessWidget {
+  const _PasswordVisibilityButton({
+    required this.obscured,
+    required this.onToggle,
+  });
+
+  final bool obscured;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: obscured ? 'Show password' : 'Hide password',
+      child: IconButton(
+        icon: Icon(
+          obscured ? FluentIcons.view : FluentIcons.hide,
+          size: 15,
+          color: context.elixTextSecondary,
+        ),
+        onPressed: onToggle,
+      ),
+    );
+  }
+}
+
+class _PasswordRequirement extends StatelessWidget {
+  const _PasswordRequirement({required this.label, required this.met});
+
+  final String label;
+  final bool met;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = met
+        ? AppColors.success
+        : context.elixTextSecondary.withValues(alpha: 0.85);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          met ? FluentIcons.check_mark : FluentIcons.circle_ring,
+          size: 12,
+          color: color,
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        Text(
+          label,
+          style: AppTheme.caption.copyWith(
+            color: color,
+            fontWeight: met ? FontWeight.w500 : FontWeight.normal,
+          ),
+        ),
+      ],
     );
   }
 }
