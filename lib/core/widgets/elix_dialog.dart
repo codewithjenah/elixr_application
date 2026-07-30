@@ -108,6 +108,118 @@ class ElixDialog extends StatelessWidget {
     );
   }
 
+  static Future<String?> promptCurrentPassword(
+    BuildContext context, {
+    required String title,
+    required String message,
+  }) {
+    final passwordController = TextEditingController();
+    var obscured = true;
+
+    return show<String>(
+      context,
+      title: title,
+      subtitle: 'Confirm your identity',
+      icon: FluentIcons.lock_solid,
+      iconColor: AppColors.primary,
+      maxWidth: 420,
+      barrierDismissible: false,
+      content: StatefulBuilder(
+        builder: (ctx, setState) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                message,
+                style: AppTheme.body.copyWith(
+                  fontSize: 14,
+                  color: ctx.elixTextSecondary,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Current password',
+                style: AppTheme.caption.copyWith(color: ctx.elixTextSecondary),
+              ),
+              const SizedBox(height: 6),
+              TextBox(
+                controller: passwordController,
+                obscureText: obscured,
+                autofocus: true,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: 11,
+                ),
+                suffix: IconButton(
+                  icon: Icon(
+                    obscured ? FluentIcons.view : FluentIcons.hide,
+                    size: 15,
+                    color: ctx.elixTextSecondary,
+                  ),
+                  onPressed: () => setState(() => obscured = !obscured),
+                ),
+                onSubmitted: (_) {
+                  final password = passwordController.text;
+                  if (password.isNotEmpty) {
+                    Navigator.of(ctx).pop(password);
+                  }
+                },
+              ),
+            ],
+          );
+        },
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElixPrimaryButton(
+          label: 'Confirm',
+          expanded: false,
+          onPressed: () {
+            final password = passwordController.text;
+            if (password.isEmpty) return;
+            Navigator.of(context).pop(password);
+          },
+        ),
+      ],
+    ).whenComplete(passwordController.dispose);
+  }
+
+  static Future<void> emailVerificationSent(
+    BuildContext context,
+    String newEmail,
+  ) {
+    return alert(
+      context,
+      title: 'Verify your new email',
+      message:
+          'Firebase sent a verification link (not a numeric code) to $newEmail. '
+          'Open that inbox, including Spam or Promotions, and tap the link. '
+          'Your current sign-in email stays active until the new address is verified.',
+      icon: FluentIcons.mail,
+      iconColor: AppColors.primary,
+    );
+  }
+
+  static Future<void> currentEmailVerificationSent(
+    BuildContext context,
+    String email,
+  ) {
+    return alert(
+      context,
+      title: 'Verify your email',
+      message:
+          'Firebase sent a verification link (not a numeric code) to $email. '
+          'Check Spam or Promotions if you do not see it within a few minutes.',
+      icon: FluentIcons.mail,
+      iconColor: AppColors.primary,
+    );
+  }
+
   static Future<void> passwordUpdated(BuildContext context) {
     return show<void>(
       context,

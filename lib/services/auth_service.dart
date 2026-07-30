@@ -58,17 +58,17 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateProfile({
+  Future<void> updateProfileDetails({
     required String fullName,
-    required String email,
     String? profilePicturePath,
   }) async {
-    if (_currentUser?.id == null) return;
+    if (_currentUser?.id == null) {
+      throw Exception('Not authenticated');
+    }
     final userId = _currentUser!.id!;
-    _currentUser = await _repository.updateProfile(
+    _currentUser = await _repository.updateProfileDetails(
       userId: userId,
       fullName: fullName,
-      email: email,
       profilePicturePath:
           profilePicturePath ?? _currentUser!.profilePicturePath,
     );
@@ -88,6 +88,31 @@ class AuthService extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  Future<bool> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  }) async {
+    final result = await _repository.requestEmailChange(
+      newEmail: newEmail,
+      currentPassword: currentPassword,
+    );
+    return result == EmailChangeRequestResult.verificationSent;
+  }
+
+  Future<bool> isCurrentEmailVerified() {
+    return _repository.isCurrentEmailVerified();
+  }
+
+  Future<void> requestCurrentEmailVerification() {
+    return _repository.requestCurrentEmailVerification();
+  }
+
+  Future<User?> refreshAuthenticatedUser() async {
+    _currentUser = await _repository.refreshAuthenticatedUser();
+    notifyListeners();
+    return _currentUser;
   }
 
   Future<void> updatePassword({

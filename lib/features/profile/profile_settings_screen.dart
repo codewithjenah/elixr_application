@@ -39,7 +39,8 @@ class ProfileSettingsScreen extends StatefulWidget {
   State<ProfileSettingsScreen> createState() => _ProfileSettingsScreenState();
 }
 
-class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
+class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
+    with WidgetsBindingObserver {
   late ProfileSettingsSection _section;
   late final TextEditingController _nameController;
   late final TextEditingController _emailController;
@@ -50,12 +51,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   String? _pickedImagePath;
   bool _savingProfile = false;
   bool _savingPassword = false;
+  bool _refreshingEmail = false;
   bool _editingEmail = false;
+  String? _pendingEmail;
   int _passwordFormRevision = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _section = widget.initialSection;
     final user = context.read<AuthService>().currentUser;
     _nameController = TextEditingController(text: user?.fullName ?? '');
@@ -97,6 +101,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _currentPasswordController.removeListener(_onPasswordFieldsChanged);
     _newPasswordController.removeListener(_onPasswordFieldsChanged);
     _confirmPasswordController.removeListener(_onPasswordFieldsChanged);
@@ -106,6 +111,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _pendingEmail != null &&
+        !_refreshingEmail) {
+      _refreshVerifiedEmail(showFeedback: false);
+    }
   }
 
   String _initials(String name) {
@@ -124,6 +138,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
   Future<void> _saveProfile() async {
+    if (_savingProfile) return;
+
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
 
@@ -132,15 +148,55 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       return;
     }
 
+    final authService = context.read<AuthService>();
+    final verifiedEmail = authService.currentUser?.email.trim() ?? '';
+    final emailChanged = email.toLowerCase() != verifiedEmail.toLowerCase();
+
+    String? currentPassword;
+    if (emailChanged) {
+      currentPassword = await ElixDialog.promptCurrentPassword(
+        context,
+        title: 'Confirm email change',
+        message:
+            'Enter your current password to confirm changing your email address.',
+      );
+      if (!mounted) return;
+      if (currentPassword == null) return;
+    }
+
     setState(() => _savingProfile = true);
     try {
-      await context.read<AuthService>().updateProfile(
+      var verificationSent = false;
+      var currentEmailVerificationSent = false;
+
+      if (emailChanged) {
+        verificationSent = await authService.requestEmailChange(
+          newEmail: email,
+          currentPassword: currentPassword!,
+        );
+      }
+
+      await authService.updateProfileDetails(
         fullName: name,
-        email: email,
         profilePicturePath: _pickedImagePath,
       );
-      if (mounted) {
-        setState(() => _editingEmail = false);
+
+      if (!emailChanged) {
+        final verified = await authService.isCurrentEmailVerified();
+        if (!verified) {
+          await authService.requestCurrentEmailVerification();
+          currentEmailVerificationSent = true;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => _editingEmail = false);
+      if (verificationSent) {
+        setState(() => _pendingEmail = email);
+        await ElixDialog.emailVerificationSent(context, email);
+      } else if (currentEmailVerificationSent) {
+        await ElixDialog.currentEmailVerificationSent(context, email);
+      } else {
         _showSuccess('Profile updated successfully.');
       }
     } catch (e) {
@@ -148,6 +204,113 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     } finally {
       if (mounted) setState(() => _savingProfile = false);
     }
+  }
+
+  Future<void> _refreshVerifiedEmail({bool showFeedback = true}) async {
+    if (_refreshingEmail) return;
+
+    final pendingEmail = _pendingEmail;
+    setState(() => _refreshingEmail = true);
+    try {
+      final user = await context.read<AuthService>().refreshAuthenticatedUser();
+      if (!mounted) return;
+
+      final confirmedEmail = user?.email.trim() ?? '';
+      final verificationCompleted =
+          pendingEmail != null &&
+          confirmedEmail.toLowerCase() == pendingEmail.toLowerCase();
+
+      if (verificationCompleted) {
+        _emailController.text = confirmedEmail;
+        setState(() => _pendingEmail = null);
+        if (showFeedback) {
+          _showSuccess('Your verified email has been updated.');
+        }
+      } else if (showFeedback) {
+        await ElixDialog.alert(
+          context,
+          title: 'Verification still pending',
+          message:
+              'Firebase still reports your current sign-in email as '
+              '$confirmedEmail. Open the verification link, then try again.',
+          icon: FluentIcons.mail,
+        );
+      }
+    } catch (e) {
+      if (mounted && showFeedback) {
+        _showError(e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingEmail = false);
+    }
+  }
+
+  Future<void> _resendPendingEmailChange() async {
+    final pendingEmail = _pendingEmail;
+    if (pendingEmail == null || _savingProfile) return;
+
+    final password = await ElixDialog.promptCurrentPassword(
+      context,
+      title: 'Resend verification link',
+      message:
+          'Enter your current password to resend the verification link to '
+          '$pendingEmail.',
+    );
+    if (!mounted || password == null) return;
+
+    setState(() => _savingProfile = true);
+    try {
+      final sent = await context.read<AuthService>().requestEmailChange(
+        newEmail: pendingEmail,
+        currentPassword: password,
+      );
+      if (!mounted) return;
+      if (sent) {
+        await ElixDialog.emailVerificationSent(context, pendingEmail);
+      } else {
+        _showSuccess('No email change is pending.');
+      }
+    } catch (e) {
+      if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
+  }
+
+  Widget _buildPendingEmailNotice() {
+    final pendingEmail = _pendingEmail;
+    if (pendingEmail == null) return const SizedBox.shrink();
+
+    return InfoBar(
+      title: const Text('Email verification pending'),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Firebase sent a verification link to $pendingEmail. '
+            'Check Spam or Promotions, open the link, then tap Check status. '
+            'Your current sign-in email stays active until verification completes.',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            children: [
+              Button(
+                onPressed: _savingProfile ? null : _resendPendingEmailChange,
+                child: const Text('Resend link'),
+              ),
+              Button(
+                onPressed: _refreshingEmail ? null : _refreshVerifiedEmail,
+                child: _refreshingEmail
+                    ? const ProgressRing(strokeWidth: 2)
+                    : const Text('Check status'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      severity: InfoBarSeverity.info,
+    );
   }
 
   Future<void> _savePassword() async {
@@ -448,6 +611,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               ),
             ),
           ],
+          if (_pendingEmail != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _buildPendingEmailNotice(),
+          ],
           const SizedBox(height: AppSpacing.lg),
           _AccountRow(
             label: 'Role',
@@ -529,6 +696,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       icon: FluentIcons.mail,
                       keyboardType: TextInputType.emailAddress,
                     ),
+                    if (_pendingEmail != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      _buildPendingEmailNotice(),
+                    ],
                     const SizedBox(height: AppSpacing.lg),
                     FilledButton(
                       onPressed: _savingProfile ? null : _saveProfile,
