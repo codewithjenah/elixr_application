@@ -19,16 +19,48 @@ class MovementsHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Movements',
-          style: AppTheme.headingLarge.copyWith(color: AppColors.primary),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Build your flair foundation, balance, and advanced control.',
-          style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(
+                  alpha: context.isDarkTheme ? 0.18 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.26),
+                ),
+              ),
+              child: const Icon(
+                FluentIcons.more_sports,
+                size: 20,
+                color: AppColors.accentSoft,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Movements',
+                    style: AppTheme.headingLarge.copyWith(
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Build your flair foundation, balance, and advanced control.',
+                    style: AppTheme.bodySecondary.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: AppSpacing.md),
         Wrap(

@@ -100,14 +100,46 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Progress',
-                      style: AppTheme.headingLarge.copyWith(color: _pink),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      'Track your training performance over time',
-                      style: AppTheme.bodySecondary,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(
+                              alpha: context.isDarkTheme ? 0.18 : 0.10,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppColors.accent.withValues(alpha: 0.26),
+                            ),
+                          ),
+                          child: const Icon(
+                            FluentIcons.bar_chart_vertical_fill,
+                            size: 20,
+                            color: AppColors.accentSoft,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Progress',
+                                style: AppTheme.headingLarge.copyWith(
+                                  color: _pink,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.xs),
+                              Text(
+                                'Track your training performance over time',
+                                style: AppTheme.bodySecondary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     if (_stats!.totalSessions == 0)
