@@ -262,7 +262,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     setState(() => _savingProfile = true);
     try {
       var verificationSent = false;
-      var currentEmailVerificationSent = false;
 
       if (emailChanged) {
         verificationSent = await authService.requestEmailChange(
@@ -277,14 +276,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
         newProfileImageContentType: imageContentType,
       );
 
-      if (!emailChanged) {
-        final verified = await authService.isCurrentEmailVerified();
-        if (!verified) {
-          await authService.requestCurrentEmailVerification();
-          currentEmailVerificationSent = true;
-        }
-      }
-
       if (!mounted) return;
       setState(() {
         _editingEmail = false;
@@ -292,8 +283,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
       });
       if (verificationSent) {
         await ElixDialog.emailVerificationSent(context, email);
-      } else if (currentEmailVerificationSent) {
-        await ElixDialog.currentEmailVerificationSent(context, email);
       } else {
         _showSuccess('Profile updated successfully.');
       }
