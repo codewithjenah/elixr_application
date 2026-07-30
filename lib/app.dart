@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'data/repositories/leaderboard_repository.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
@@ -28,7 +29,8 @@ class _ElixrAppState extends State<ElixrApp> {
   @override
   void initState() {
     super.initState();
-    _authService = AuthService()..initialize();
+    _authService = AuthService(leaderboardRepository: LeaderboardRepository())
+      ..initialize();
     _settingsService = SettingsService()..initialize();
     _cameraDeviceService = CameraDeviceService();
     _router = AppRouter.create(_authService);

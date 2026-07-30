@@ -8,9 +8,97 @@ import '../../core/constants/app_constants.dart';
 
 enum EmailChangeRequestResult { unchanged, verificationSent }
 
+enum PendingEmailChangeRecoveryStatus {
+  pending,
+  completed,
+  failed,
+  transientFailure,
+}
+
+class PendingEmailChangeRecoveryResult {
+  const PendingEmailChangeRecoveryResult._({
+    required this.status,
+    this.user,
+    this.message,
+  });
+
+  final PendingEmailChangeRecoveryStatus status;
+  final User? user;
+  final String? message;
+
+  static PendingEmailChangeRecoveryResult pending() {
+    return const PendingEmailChangeRecoveryResult._(
+      status: PendingEmailChangeRecoveryStatus.pending,
+    );
+  }
+
+  static PendingEmailChangeRecoveryResult completed(User user) {
+    return PendingEmailChangeRecoveryResult._(
+      status: PendingEmailChangeRecoveryStatus.completed,
+      user: user,
+    );
+  }
+
+  static PendingEmailChangeRecoveryResult failed(String message) {
+    return PendingEmailChangeRecoveryResult._(
+      status: PendingEmailChangeRecoveryStatus.failed,
+      message: message,
+    );
+  }
+
+  static PendingEmailChangeRecoveryResult transientFailure() {
+    return const PendingEmailChangeRecoveryResult._(
+      status: PendingEmailChangeRecoveryStatus.transientFailure,
+    );
+  }
+}
+
+abstract class AuthRepositoryBase {
+  Future<User> register({
+    required String fullName,
+    required String email,
+    required String password,
+  });
+
+  Future<User> login({required String email, required String password});
+
+  Future<User?> loadPersistedUser();
+
+  Future<void> clearCurrentUser();
+
+  Future<User> updateProfileDetails({
+    required String userId,
+    required String fullName,
+    String? profilePicturePath,
+  });
+
+  Future<EmailChangeRequestResult> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  });
+
+  Future<bool> isCurrentEmailVerified();
+
+  Future<void> requestCurrentEmailVerification();
+
+  Future<User?> refreshAuthenticatedUser();
+
+  Future<void> updatePassword({
+    required String currentPassword,
+    required String newPassword,
+  });
+
+  Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({
+    required String originalUid,
+    required String pendingEmail,
+    required String recoveryPassword,
+    String? originalEmail,
+  });
+}
+
 enum _AuthErrorContext { login, reauthentication, emailChange }
 
-class AuthRepository {
+class AuthRepository implements AuthRepositoryBase {
   AuthRepository({fb.FirebaseAuth? auth, FirestoreHelper? db})
     : _auth = auth ?? fb.FirebaseAuth.instance,
       _db = db ?? FirestoreHelper.instance;
@@ -21,6 +109,7 @@ class AuthRepository {
   final fb.FirebaseAuth _auth;
   final FirestoreHelper _db;
 
+  @override
   Future<User> register({
     required String fullName,
     required String email,
@@ -45,6 +134,7 @@ class AuthRepository {
     }
   }
 
+  @override
   Future<User> login({required String email, required String password}) async {
     try {
       final credential = await _auth.signInWithEmailAndPassword(
@@ -57,6 +147,7 @@ class AuthRepository {
     }
   }
 
+  @override
   Future<User?> loadPersistedUser() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) return null;
@@ -67,10 +158,12 @@ class AuthRepository {
     );
   }
 
+  @override
   Future<void> clearCurrentUser() {
     return _auth.signOut();
   }
 
+  @override
   Future<User> updateProfileDetails({
     required String userId,
     required String fullName,
@@ -93,6 +186,7 @@ class AuthRepository {
     return updated;
   }
 
+  @override
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
@@ -143,6 +237,7 @@ class AuthRepository {
     }
   }
 
+  @override
   Future<bool> isCurrentEmailVerified() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) return false;
@@ -158,6 +253,7 @@ class AuthRepository {
     return _auth.currentUser?.emailVerified ?? firebaseUser.emailVerified;
   }
 
+  @override
   Future<void> requestCurrentEmailVerification() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) throw Exception('Not authenticated');
@@ -198,12 +294,135 @@ class AuthRepository {
     }
   }
 
+  @override
   Future<User?> refreshAuthenticatedUser() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) return null;
     return _loadUserProfile(firebaseUser, reload: true);
   }
 
+  @override
+  Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({
+    required String originalUid,
+    required String pendingEmail,
+    required String recoveryPassword,
+    String? originalEmail,
+  }) async {
+    final trimmedPending = pendingEmail.trim();
+    final trimmedOriginal = originalEmail?.trim() ?? '';
+    var firebaseUser = _auth.currentUser;
+    var needsRecoverySignIn = false;
+
+    if (firebaseUser != null) {
+      try {
+        await firebaseUser.reload().timeout(_authOperationTimeout);
+        firebaseUser = _auth.currentUser;
+        if (firebaseUser == null) {
+          needsRecoverySignIn = true;
+        } else {
+          final authEmail = firebaseUser.email?.trim() ?? '';
+          if (!_emailsDiffer(authEmail, trimmedPending)) {
+            final user = await _loadUserProfile(firebaseUser);
+            if (user.id != originalUid) {
+              return PendingEmailChangeRecoveryResult.failed(
+                'Email verification completed for a different account. '
+                'Sign in again.',
+              );
+            }
+            return PendingEmailChangeRecoveryResult.completed(user);
+          }
+          if (trimmedOriginal.isNotEmpty &&
+              !_emailsDiffer(authEmail, trimmedOriginal)) {
+            return PendingEmailChangeRecoveryResult.pending();
+          }
+          return PendingEmailChangeRecoveryResult.pending();
+        }
+      } on fb.FirebaseAuthException catch (e) {
+        if (_isRecoverableSessionInvalidation(e)) {
+          needsRecoverySignIn = true;
+        } else {
+          return PendingEmailChangeRecoveryResult.transientFailure();
+        }
+      } on TimeoutException {
+        return PendingEmailChangeRecoveryResult.transientFailure();
+      }
+    } else {
+      needsRecoverySignIn = true;
+    }
+
+    if (!needsRecoverySignIn) {
+      return PendingEmailChangeRecoveryResult.pending();
+    }
+
+    return _recoverSessionWithVerifiedEmail(
+      originalUid: originalUid,
+      pendingEmail: trimmedPending,
+      recoveryPassword: recoveryPassword,
+    );
+  }
+
+  Future<PendingEmailChangeRecoveryResult> _recoverSessionWithVerifiedEmail({
+    required String originalUid,
+    required String pendingEmail,
+    required String recoveryPassword,
+  }) async {
+    try {
+      final credential = await _auth
+          .signInWithEmailAndPassword(
+            email: pendingEmail,
+            password: recoveryPassword,
+          )
+          .timeout(_authOperationTimeout);
+      final recovered = credential.user;
+      if (recovered == null) {
+        return PendingEmailChangeRecoveryResult.failed(
+          'Could not restore your session. Sign in with your verified email.',
+        );
+      }
+      if (recovered.uid != originalUid) {
+        await _auth.signOut();
+        return PendingEmailChangeRecoveryResult.failed(
+          'Email verification completed for a different account. '
+          'Sign in again.',
+        );
+      }
+      final user = await _loadUserProfile(recovered, reload: true);
+      return PendingEmailChangeRecoveryResult.completed(user);
+    } on fb.FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          return PendingEmailChangeRecoveryResult.failed(
+            'Could not restore your session automatically. '
+            'Sign in with your verified email and password.',
+          );
+        case 'user-not-found':
+          return PendingEmailChangeRecoveryResult.pending();
+        case 'too-many-requests':
+        case 'network-request-failed':
+          return PendingEmailChangeRecoveryResult.transientFailure();
+        default:
+          return PendingEmailChangeRecoveryResult.transientFailure();
+      }
+    } on TimeoutException {
+      return PendingEmailChangeRecoveryResult.transientFailure();
+    }
+  }
+
+  static bool _isRecoverableSessionInvalidation(
+    fb.FirebaseAuthException error,
+  ) {
+    switch (error.code) {
+      case 'user-token-expired':
+      case 'invalid-user-token':
+      case 'user-disabled':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  @override
   Future<void> updatePassword({
     required String currentPassword,
     required String newPassword,

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/repositories/auth_repository.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
@@ -49,11 +50,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   final _confirmPasswordController = TextEditingController();
 
   String? _pickedImagePath;
+  late final AuthService _authService;
   bool _savingProfile = false;
   bool _savingPassword = false;
   bool _refreshingEmail = false;
   bool _editingEmail = false;
-  String? _pendingEmail;
   int _passwordFormRevision = 0;
 
   @override
@@ -61,19 +62,36 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _section = widget.initialSection;
-    final user = context.read<AuthService>().currentUser;
+    _authService = context.read<AuthService>();
+    final user = _authService.currentUser;
     _nameController = TextEditingController(text: user?.fullName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
     _pickedImagePath = user?.profilePicturePath;
     _currentPasswordController.addListener(_onPasswordFieldsChanged);
     _newPasswordController.addListener(_onPasswordFieldsChanged);
     _confirmPasswordController.addListener(_onPasswordFieldsChanged);
+    _authService.addListener(_onAuthServiceChanged);
     if (_section == ProfileSettingsSection.preferences) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           context.read<CameraDeviceService>().refresh(forceRefresh: true);
         }
       });
+    }
+  }
+
+  void _onAuthServiceChanged() {
+    if (!mounted) return;
+
+    final authService = _authService;
+    final successMessage = authService.takePendingEmailChangeSuccessMessage();
+    if (successMessage != null) {
+      final confirmedEmail = authService.currentUser?.email.trim() ?? '';
+      if (confirmedEmail.isNotEmpty) {
+        _emailController.text = confirmedEmail;
+      }
+      setState(() => _editingEmail = false);
+      _showSuccess(successMessage);
     }
   }
 
@@ -102,6 +120,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _authService.removeListener(_onAuthServiceChanged);
     _currentPasswordController.removeListener(_onPasswordFieldsChanged);
     _newPasswordController.removeListener(_onPasswordFieldsChanged);
     _confirmPasswordController.removeListener(_onPasswordFieldsChanged);
@@ -115,8 +134,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final authService = context.read<AuthService>();
     if (state == AppLifecycleState.resumed &&
-        _pendingEmail != null &&
+        authService.hasPendingEmailChange &&
         !_refreshingEmail) {
       _refreshVerifiedEmail(showFeedback: false);
     }
@@ -192,7 +212,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
       if (!mounted) return;
       setState(() => _editingEmail = false);
       if (verificationSent) {
-        setState(() => _pendingEmail = email);
         await ElixDialog.emailVerificationSent(context, email);
       } else if (currentEmailVerificationSent) {
         await ElixDialog.currentEmailVerificationSent(context, email);
@@ -209,24 +228,28 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   Future<void> _refreshVerifiedEmail({bool showFeedback = true}) async {
     if (_refreshingEmail) return;
 
-    final pendingEmail = _pendingEmail;
+    final authService = context.read<AuthService>();
+    if (!authService.hasPendingEmailChange) return;
+
     setState(() => _refreshingEmail = true);
     try {
-      final user = await context.read<AuthService>().refreshAuthenticatedUser();
+      final status = await authService.checkPendingEmailChange(
+        manual: showFeedback,
+      );
       if (!mounted) return;
 
-      final confirmedEmail = user?.email.trim() ?? '';
-      final verificationCompleted =
-          pendingEmail != null &&
-          confirmedEmail.toLowerCase() == pendingEmail.toLowerCase();
-
-      if (verificationCompleted) {
-        _emailController.text = confirmedEmail;
-        setState(() => _pendingEmail = null);
+      if (status == PendingEmailChangeRecoveryStatus.completed) {
+        final confirmedEmail = authService.currentUser?.email.trim() ?? '';
+        if (confirmedEmail.isNotEmpty) {
+          _emailController.text = confirmedEmail;
+        }
+        setState(() => _editingEmail = false);
         if (showFeedback) {
           _showSuccess('Your verified email has been updated.');
         }
-      } else if (showFeedback) {
+      } else if (showFeedback &&
+          status == PendingEmailChangeRecoveryStatus.pending) {
+        final confirmedEmail = authService.currentUser?.email.trim() ?? '';
         await ElixDialog.alert(
           context,
           title: 'Verification still pending',
@@ -235,6 +258,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
               '$confirmedEmail. Open the verification link, then try again.',
           icon: FluentIcons.mail,
         );
+      } else if (showFeedback &&
+          status == PendingEmailChangeRecoveryStatus.failed) {
+        final message =
+            authService.pendingEmailRecoveryError ??
+            'Could not restore your session automatically. '
+                'Sign in with your verified email.';
+        _showError(message);
       }
     } catch (e) {
       if (mounted && showFeedback) {
@@ -246,7 +276,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   }
 
   Future<void> _resendPendingEmailChange() async {
-    final pendingEmail = _pendingEmail;
+    final authService = context.read<AuthService>();
+    final pendingEmail = authService.pendingEmail;
     if (pendingEmail == null || _savingProfile) return;
 
     final password = await ElixDialog.promptCurrentPassword(
@@ -278,7 +309,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   }
 
   Widget _buildPendingEmailNotice() {
-    final pendingEmail = _pendingEmail;
+    final pendingEmail = context.watch<AuthService>().pendingEmail;
     if (pendingEmail == null) return const SizedBox.shrink();
 
     return InfoBar(
@@ -611,7 +642,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
               ),
             ),
           ],
-          if (_pendingEmail != null) ...[
+          if (context.watch<AuthService>().hasPendingEmailChange) ...[
             const SizedBox(height: AppSpacing.lg),
             _buildPendingEmailNotice(),
           ],
@@ -696,7 +727,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
                       icon: FluentIcons.mail,
                       keyboardType: TextInputType.emailAddress,
                     ),
-                    if (_pendingEmail != null) ...[
+                    if (context.watch<AuthService>().hasPendingEmailChange) ...[
                       const SizedBox(height: AppSpacing.md),
                       _buildPendingEmailNotice(),
                     ],
