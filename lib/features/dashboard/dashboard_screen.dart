@@ -13,6 +13,7 @@ import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import 'dashboard_quests.dart';
 import 'widgets/dashboard_leaderboard.dart';
 
 // Neon accent palette used only on the dashboard.
@@ -784,24 +785,12 @@ class _QuestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final quests = <({String title, int xp, bool done})>[
-      (
-        title: 'Complete 1 Practice Session',
-        xp: 10,
-        done: sessionsToday.isNotEmpty,
-      ),
-      (
-        title: 'Score 80+ in a Session',
-        xp: 15,
-        done: sessionsToday.any((s) => s.score >= 80),
-      ),
-      (
-        title: 'Practice 2 Different Movements',
-        xp: 20,
-        done: sessionsToday.map((s) => s.movementName).toSet().length >= 2,
-      ),
-    ];
-    final doneCount = quests.where((q) => q.done).length;
+    final quests = buildDailyDashboardQuests(
+      sessionsToday: sessionsToday,
+      streakDays: streakDays,
+      date: DateTime.now(),
+    );
+    final doneCount = quests.where((quest) => quest.completed).length;
 
     return _PanelCard(
       accent: _pink,
@@ -831,7 +820,12 @@ class _QuestCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           for (final quest in quests) ...[
-            _QuestTile(title: quest.title, xp: quest.xp, done: quest.done),
+            _QuestTile(
+              title: quest.title,
+              xp: quest.xp,
+              done: quest.completed,
+              isDailyFocus: quest.isDailyFocus,
+            ),
             const SizedBox(height: 8),
           ],
           const SizedBox(height: 4),
@@ -904,24 +898,36 @@ class _QuestCard extends StatelessWidget {
 }
 
 class _QuestTile extends StatelessWidget {
-  const _QuestTile({required this.title, required this.xp, required this.done});
+  const _QuestTile({
+    required this.title,
+    required this.xp,
+    required this.done,
+    required this.isDailyFocus,
+  });
 
   final String title;
   final int xp;
   final bool done;
+  final bool isDailyFocus;
 
   @override
   Widget build(BuildContext context) {
+    final inactive = !isDailyFocus && !done;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      padding: EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: isDailyFocus ? 9 : 7,
+      ),
       decoration: BoxDecoration(
         color: done
-            ? AppColors.success.withValues(alpha: 0.08)
-            : Colors.white.withValues(alpha: 0.03),
+            ? AppColors.success.withValues(alpha: inactive ? 0.05 : 0.08)
+            : Colors.white.withValues(alpha: inactive ? 0.015 : 0.03),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: done
-              ? AppColors.success.withValues(alpha: 0.3)
+              ? AppColors.success.withValues(alpha: inactive ? 0.2 : 0.3)
+              : inactive
+              ? AppColors.border.withValues(alpha: 0.55)
               : AppColors.border,
         ),
       ),
@@ -950,9 +956,13 @@ class _QuestTile extends StatelessWidget {
             child: Text(
               title,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: isDailyFocus ? 11 : 10,
                 fontWeight: FontWeight.w500,
-                color: done ? AppColors.textSecondary : AppColors.textPrimary,
+                color: done
+                    ? AppColors.textSecondary
+                    : inactive
+                    ? AppColors.textSecondary.withValues(alpha: 0.75)
+                    : AppColors.textPrimary,
                 decoration: done ? TextDecoration.lineThrough : null,
               ),
               maxLines: 1,
