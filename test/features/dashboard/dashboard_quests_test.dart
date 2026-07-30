@@ -27,7 +27,7 @@ void main() {
         date: DateTime(2026, 7, 30),
       );
 
-      expect(quests, hasLength(7));
+      expect(quests, hasLength(5));
       expect(quests.where((quest) => quest.isDailyFocus), hasLength(3));
     });
 
@@ -81,7 +81,7 @@ void main() {
 
         expect(
           ids.contains('complete_one_session') &&
-              ids.contains('complete_three_sessions'),
+              ids.contains('complete_two_sessions'),
           isFalse,
         );
       }
@@ -113,13 +113,12 @@ void main() {
       expect(quests.single.completed, isTrue);
     });
 
-    test('complete 3 sessions quest completes at three sessions', () {
+    test('complete 2 sessions quest completes at two sessions', () {
       final quests = _questsForId(
-        questId: 'complete_three_sessions',
+        questId: 'complete_two_sessions',
         sessionsToday: [
           _session(),
           _session(movementName: 'Spin'),
-          _session(movementName: 'Toss'),
         ],
         streakDays: 0,
       );
@@ -182,42 +181,6 @@ void main() {
       expect(quests.single.completed, isFalse);
     });
 
-    test('training duration quest completes at 120 total seconds', () {
-      final quests = _questsForId(
-        questId: 'train_two_minutes',
-        sessionsToday: [
-          _session(durationSeconds: 70),
-          _session(durationSeconds: 50),
-        ],
-        streakDays: 0,
-      );
-
-      expect(quests.single.completed, isTrue);
-    });
-
-    test('negative durations do not reduce the total training time', () {
-      final quests = _questsForId(
-        questId: 'train_two_minutes',
-        sessionsToday: [
-          _session(durationSeconds: 120),
-          _session(durationSeconds: -30),
-        ],
-        streakDays: 0,
-      );
-
-      expect(quests.single.completed, isTrue);
-    });
-
-    test('three-day streak quest completes at three or more streak days', () {
-      final quests = _questsForId(
-        questId: 'three_day_streak',
-        sessionsToday: const [],
-        streakDays: 3,
-      );
-
-      expect(quests.single.completed, isTrue);
-    });
-
     test('includes every quest from the pool', () {
       final quests = buildDailyDashboardQuests(
         sessionsToday: const [],
@@ -227,12 +190,10 @@ void main() {
 
       expect(quests.map((quest) => quest.id).toSet(), {
         'complete_one_session',
-        'complete_three_sessions',
+        'complete_two_sessions',
         'score_80',
         'score_90',
         'two_movements',
-        'train_two_minutes',
-        'three_day_streak',
       });
     });
 

@@ -28,15 +28,13 @@ typedef _QuestDefinition = ({
 
 const _questCanonicalOrder = [
   'complete_one_session',
-  'complete_three_sessions',
+  'complete_two_sessions',
   'score_80',
   'score_90',
   'two_movements',
-  'train_two_minutes',
-  'three_day_streak',
 ];
 
-const _sessionCountQuests = {'complete_one_session', 'complete_three_sessions'};
+const _sessionCountQuests = {'complete_one_session', 'complete_two_sessions'};
 const _scoreQuests = {'score_80', 'score_90'};
 
 final List<_QuestDefinition> _questDefinitions = [
@@ -47,10 +45,10 @@ final List<_QuestDefinition> _questDefinitions = [
     isComplete: _completeOneSession,
   ),
   (
-    id: 'complete_three_sessions',
-    title: 'Complete 3 Practice Sessions',
-    xp: 25,
-    isComplete: _completeThreeSessions,
+    id: 'complete_two_sessions',
+    title: 'Complete 2 Practice Sessions',
+    xp: 15,
+    isComplete: _completeTwoSessions,
   ),
   (
     id: 'score_80',
@@ -69,18 +67,6 @@ final List<_QuestDefinition> _questDefinitions = [
     title: 'Practice 2 Different Movements',
     xp: 20,
     isComplete: _twoDistinctMovements,
-  ),
-  (
-    id: 'train_two_minutes',
-    title: 'Train for 2 Minutes Total',
-    xp: 20,
-    isComplete: _trainTwoMinutes,
-  ),
-  (
-    id: 'three_day_streak',
-    title: 'Maintain a 3-Day Streak',
-    xp: 25,
-    isComplete: _threeDayStreak,
   ),
 ];
 
@@ -177,8 +163,8 @@ DashboardQuest _buildQuest({
 bool _completeOneSession(List<Session> sessionsToday, int streakDays) =>
     sessionsToday.isNotEmpty;
 
-bool _completeThreeSessions(List<Session> sessionsToday, int streakDays) =>
-    sessionsToday.length >= 3;
+bool _completeTwoSessions(List<Session> sessionsToday, int streakDays) =>
+    sessionsToday.length >= 2;
 
 bool _scoreAtLeast80(List<Session> sessionsToday, int streakDays) =>
     sessionsToday.any((session) => session.score >= 80);
@@ -195,14 +181,3 @@ bool _twoDistinctMovements(List<Session> sessionsToday, int streakDays) {
   }
   return movements.length >= 2;
 }
-
-bool _trainTwoMinutes(List<Session> sessionsToday, int streakDays) {
-  var totalSeconds = 0;
-  for (final session in sessionsToday) {
-    totalSeconds += session.durationSeconds < 0 ? 0 : session.durationSeconds;
-  }
-  return totalSeconds >= 120;
-}
-
-bool _threeDayStreak(List<Session> sessionsToday, int streakDays) =>
-    streakDays >= 3;
