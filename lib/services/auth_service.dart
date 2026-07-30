@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../data/models/user.dart';
 import '../data/repositories/auth_repository.dart';
 import '../data/repositories/leaderboard_repository.dart';
+import '../data/repositories/profile_image_repository.dart';
 
 class _PendingEmailChangeState {
   _PendingEmailChangeState({
@@ -33,10 +34,12 @@ class AuthService extends ChangeNotifier {
   AuthService({
     AuthRepositoryBase? repository,
     LeaderboardRepository? leaderboardRepository,
+    ProfileImageRepositoryBase? profileImageRepository,
     Duration? pendingEmailPollInterval,
     Duration? pendingEmailTimeout,
   }) : _repository = repository ?? AuthRepository(),
        _leaderboardRepository = leaderboardRepository,
+       _explicitProfileImageRepository = profileImageRepository,
        _pendingEmailPollInterval =
            pendingEmailPollInterval ?? const Duration(seconds: 5),
        _pendingEmailTimeout = pendingEmailTimeout ?? const Duration(minutes: 2);
@@ -45,6 +48,12 @@ class AuthService extends ChangeNotifier {
   final LeaderboardRepository? _leaderboardRepository;
   final Duration _pendingEmailPollInterval;
   final Duration _pendingEmailTimeout;
+
+  // Lazily constructed so tests that never touch profile-image upload do not
+  // need Firebase Storage initialized.
+  ProfileImageRepositoryBase? _explicitProfileImageRepository;
+  ProfileImageRepositoryBase get _profileImageRepository =>
+      _explicitProfileImageRepository ??= ProfileImageRepository();
 
   User? _currentUser;
   bool _isLoading = true;
@@ -126,20 +135,59 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates the display name and, optionally, uploads a new profile
+  /// avatar to Firebase Cloud Storage.
+  ///
+  /// When [newProfileImageBytes] and [newProfileImageContentType] are both
+  /// provided, the image is uploaded first; Firestore is only updated after
+  /// the upload succeeds. A name-only update never touches Cloud Storage.
   Future<void> updateProfileDetails({
     required String fullName,
-    String? profilePicturePath,
+    Uint8List? newProfileImageBytes,
+    String? newProfileImageContentType,
   }) async {
     if (_currentUser?.id == null) {
       throw Exception('Not authenticated');
     }
     final userId = _currentUser!.id!;
-    _currentUser = await _repository.updateProfileDetails(
-      userId: userId,
-      fullName: fullName,
-      profilePicturePath:
-          profilePicturePath ?? _currentUser!.profilePicturePath,
-    );
+    final previousUser = _currentUser!;
+
+    ProfilePictureUpdate? pictureUpdate;
+    if (newProfileImageBytes != null && newProfileImageContentType != null) {
+      final uploaded = await _profileImageRepository.uploadProfileImage(
+        userId: userId,
+        bytes: newProfileImageBytes,
+        contentType: newProfileImageContentType,
+      );
+      pictureUpdate = ProfilePictureUpdate(
+        url: uploaded.downloadUrl,
+        storagePath: uploaded.storagePath,
+      );
+    }
+
+    try {
+      _currentUser = await _repository.updateProfileDetails(
+        userId: userId,
+        fullName: fullName,
+        profilePictureUpdate: pictureUpdate,
+      );
+    } catch (error) {
+      if (pictureUpdate != null) {
+        // Firestore did not accept the new image reference; do not leave an
+        // orphaned object in Storage, and keep the previous profile intact.
+        await _bestEffortDeleteImage(userId, pictureUpdate.storagePath);
+      }
+      rethrow;
+    }
+
+    notifyListeners();
+
+    if (pictureUpdate != null) {
+      final previousStoragePath = previousUser.profilePictureStoragePath;
+      if (previousStoragePath != null && previousStoragePath.isNotEmpty) {
+        await _bestEffortDeleteImage(userId, previousStoragePath);
+      }
+    }
 
     try {
       await _leaderboardRepository?.syncDisplayName(
@@ -154,8 +202,25 @@ class AuthService extends ChangeNotifier {
         debugPrint('$stackTrace');
       }
     }
+  }
 
-    notifyListeners();
+  /// Best-effort Storage cleanup. Intentionally swallows failures: a
+  /// dangling object is a minor storage-cost issue, not a correctness bug,
+  /// and must never surface as a profile-save failure to the user.
+  Future<void> _bestEffortDeleteImage(String userId, String storagePath) async {
+    try {
+      await _profileImageRepository.deleteProfileImage(
+        authenticatedUid: userId,
+        storagePath: storagePath,
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          'Profile image cleanup failed: userId=$userId path=$storagePath error=$error',
+        );
+        debugPrint('$stackTrace');
+      }
+    }
   }
 
   Future<bool> requestEmailChange({

@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/profile_avatar.dart';
+import '../../data/models/user.dart';
 import '../../services/auth_service.dart';
 import 'profile_settings_screen.dart';
 
@@ -116,7 +118,7 @@ class _ProfileMenuCard extends StatelessWidget {
             name: name,
             subtitle: role,
             initials: initials,
-            imagePath: user?.profilePicturePath,
+            user: user,
             onTap: () => _openSettings(context, ProfileSettingsSection.account),
           ),
           Padding(
@@ -155,14 +157,14 @@ class _ProfileMenuHeader extends StatefulWidget {
     required this.name,
     required this.subtitle,
     required this.initials,
-    required this.imagePath,
+    required this.user,
     required this.onTap,
   });
 
   final String name;
   final String subtitle;
   final String initials;
-  final String? imagePath;
+  final User? user;
   final VoidCallback onTap;
 
   @override
@@ -205,7 +207,8 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
                   ),
                 ),
                 child: ProfileAvatarWidget(
-                  imagePath: widget.imagePath,
+                  networkImageUrl: widget.user?.profilePictureUrl,
+                  legacyLocalPath: widget.user?.profilePicturePath,
                   initials: widget.initials,
                   radius: 22,
                 ),

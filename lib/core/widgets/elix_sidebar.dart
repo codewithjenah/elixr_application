@@ -11,8 +11,8 @@ import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/gamification_rules.dart';
 import '../theme/app_theme.dart';
+import 'profile_avatar.dart';
 import '../../features/profile/profile_menu.dart';
-import '../../features/profile/profile_settings_screen.dart';
 
 // Neon accents matching the dashboard.
 const _pink = AppColors.primary;
@@ -336,7 +336,8 @@ class _ElixSidebarState extends State<ElixSidebar> {
             child: widget.isCollapsed
                 ? Center(
                     child: ProfileAvatarWidget(
-                      imagePath: user?.profilePicturePath,
+                      networkImageUrl: user?.profilePictureUrl,
+                      legacyLocalPath: user?.profilePicturePath,
                       initials: initials,
                       radius: 18,
                     ),
@@ -361,7 +362,8 @@ class _ElixSidebarState extends State<ElixSidebar> {
                               ],
                             ),
                             child: ProfileAvatarWidget(
-                              imagePath: user?.profilePicturePath,
+                              networkImageUrl: user?.profilePictureUrl,
+                              legacyLocalPath: user?.profilePicturePath,
                               initials: initials,
                               radius: 17,
                             ),

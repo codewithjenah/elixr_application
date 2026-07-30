@@ -88,7 +88,7 @@ class FakeAuthRepository implements AuthRepositoryBase {
   Future<User> updateProfileDetails({
     required String userId,
     required String fullName,
-    String? profilePicturePath,
+    ProfilePictureUpdate? profilePictureUpdate,
   }) async {
     throw UnimplementedError();
   }

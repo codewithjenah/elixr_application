@@ -38,6 +38,8 @@ class FirestoreHelper {
       'role': data['role'],
       'created_at': _readCreatedAt(data['created_at']),
       'profile_picture_path': data['profile_picture_path'],
+      'profile_picture_url': data['profile_picture_url'],
+      'profile_picture_storage_path': data['profile_picture_storage_path'],
     };
   }
 
@@ -78,7 +80,11 @@ class FirestoreHelper {
       'email': user.email,
       'role': user.role,
       'created_at': FieldValue.serverTimestamp(),
-      if (user.profilePicturePath != null)
+      if (user.profilePictureUrl != null)
+        'profile_picture_url': user.profilePictureUrl,
+      if (user.profilePictureStoragePath != null)
+        'profile_picture_storage_path': user.profilePictureStoragePath,
+      if (user.profilePictureUrl == null && user.profilePicturePath != null)
         'profile_picture_path': user.profilePicturePath,
     }, SetOptions(merge: true));
   }

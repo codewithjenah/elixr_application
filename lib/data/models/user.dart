@@ -6,6 +6,8 @@ class User {
     this.role = 'Trainee',
     this.createdAt,
     this.profilePicturePath,
+    this.profilePictureUrl,
+    this.profilePictureStoragePath,
   });
 
   final String? id;
@@ -13,7 +15,19 @@ class User {
   final String email;
   final String role;
   final String? createdAt;
+
+  /// Legacy local-filesystem path from the pre-Cloud-Storage avatar flow.
+  /// Only meaningful on the Windows PC where the file was picked; retained
+  /// for one-time migration and local preview, never for cross-device use.
   final String? profilePicturePath;
+
+  /// Cloud Storage download URL for the current profile avatar. Preferred
+  /// source of truth once set, since it works across devices.
+  final String? profilePictureUrl;
+
+  /// Cloud Storage object path backing [profilePictureUrl], used to delete
+  /// the previous avatar when a new one is saved.
+  final String? profilePictureStoragePath;
 
   User copyWith({
     String? id,
@@ -22,6 +36,8 @@ class User {
     String? role,
     String? createdAt,
     String? profilePicturePath,
+    String? profilePictureUrl,
+    String? profilePictureStoragePath,
   }) {
     return User(
       id: id ?? this.id,
@@ -30,6 +46,9 @@ class User {
       role: role ?? this.role,
       createdAt: createdAt ?? this.createdAt,
       profilePicturePath: profilePicturePath ?? this.profilePicturePath,
+      profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
+      profilePictureStoragePath:
+          profilePictureStoragePath ?? this.profilePictureStoragePath,
     );
   }
 
@@ -39,7 +58,10 @@ class User {
       'full_name': fullName,
       'email': email,
       'role': role,
-      if (profilePicturePath != null)
+      if (profilePictureUrl != null) 'profile_picture_url': profilePictureUrl,
+      if (profilePictureStoragePath != null)
+        'profile_picture_storage_path': profilePictureStoragePath,
+      if (profilePictureUrl == null && profilePicturePath != null)
         'profile_picture_path': profilePicturePath,
     };
 
@@ -58,6 +80,8 @@ class User {
       role: map['role'] as String? ?? 'Trainee',
       createdAt: map['created_at'] as String?,
       profilePicturePath: map['profile_picture_path'] as String?,
+      profilePictureUrl: map['profile_picture_url'] as String?,
+      profilePictureStoragePath: map['profile_picture_storage_path'] as String?,
     );
   }
 }

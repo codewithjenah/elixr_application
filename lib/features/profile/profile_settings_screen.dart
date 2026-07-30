@@ -6,7 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/profile_image_repository.dart';
 import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/profile_avatar.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -49,7 +51,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  String? _pickedImagePath;
+  /// A newly picked image not yet uploaded. Cleared after a successful
+  /// save or when the dialog is dismissed and reopened.
+  XFile? _pendingImage;
   late final AuthService _authService;
   bool _savingProfile = false;
   bool _savingPassword = false;
@@ -66,7 +70,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     final user = _authService.currentUser;
     _nameController = TextEditingController(text: user?.fullName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
-    _pickedImagePath = user?.profilePicturePath;
     _currentPasswordController.addListener(_onPasswordFieldsChanged);
     _newPasswordController.addListener(_onPasswordFieldsChanged);
     _confirmPasswordController.addListener(_onPasswordFieldsChanged);
@@ -149,12 +152,62 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 
+  /// Maps a picked file's extension to a Cloud Storage content type, or
+  /// null when the extension is not one of the supported image types.
+  static String? _contentTypeForPath(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return null;
+  }
+
   Future<void> _pickImage() async {
+    if (_savingProfile) return;
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (!mounted) return;
     if (picked != null) {
-      setState(() => _pickedImagePath = picked.path);
+      setState(() => _pendingImage = picked);
     }
+  }
+
+  /// Reads bytes and a content type for whichever image should be uploaded
+  /// with this save, or null when the profile picture is unchanged.
+  ///
+  /// Prefers a newly selected image. Falls back to a one-time migration of
+  /// a legacy local file path when no Cloud Storage URL is saved yet and
+  /// the local file still exists on this PC.
+  Future<({Uint8List bytes, String contentType})?> _resolveImageForUpload(
+    AuthService authService,
+  ) async {
+    final pending = _pendingImage;
+    if (pending != null) {
+      final contentType = _contentTypeForPath(pending.path);
+      if (contentType == null) {
+        throw Exception(
+          'Unsupported image type. Choose a JPEG, PNG, or WebP image.',
+        );
+      }
+      final bytes = await File(pending.path).readAsBytes();
+      return (bytes: bytes, contentType: contentType);
+    }
+
+    final currentUser = authService.currentUser;
+    final hasCloudImage = (currentUser?.profilePictureUrl ?? '').isNotEmpty;
+    final legacyPath = currentUser?.profilePicturePath;
+    if (!hasCloudImage && legacyPath != null && legacyPath.isNotEmpty) {
+      final legacyFile = File(legacyPath);
+      if (legacyFile.existsSync()) {
+        final contentType = _contentTypeForPath(legacyPath);
+        if (contentType != null) {
+          final bytes = await legacyFile.readAsBytes();
+          return (bytes: bytes, contentType: contentType);
+        }
+      }
+    }
+
+    return null;
   }
 
   Future<void> _saveProfile() async {
@@ -169,6 +222,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     }
 
     final authService = context.read<AuthService>();
+    if (!authService.isAuthenticated) {
+      _showError('You must be signed in to update your profile.');
+      return;
+    }
     final verifiedEmail = authService.currentUser?.email.trim() ?? '';
     final emailChanged = email.toLowerCase() != verifiedEmail.toLowerCase();
 
@@ -182,6 +239,24 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
       );
       if (!mounted) return;
       if (currentPassword == null) return;
+    }
+
+    Uint8List? imageBytes;
+    String? imageContentType;
+    try {
+      final resolved = await _resolveImageForUpload(authService);
+      if (resolved != null) {
+        if (resolved.bytes.length > ProfileImageRepository.maxUploadBytes) {
+          _showError('Image is too large. Choose a file smaller than 5 MB.');
+          return;
+        }
+        imageBytes = resolved.bytes;
+        imageContentType = resolved.contentType;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showError(e.toString().replaceFirst('Exception: ', ''));
+      return;
     }
 
     setState(() => _savingProfile = true);
@@ -198,7 +273,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
 
       await authService.updateProfileDetails(
         fullName: name,
-        profilePicturePath: _pickedImagePath,
+        newProfileImageBytes: imageBytes,
+        newProfileImageContentType: imageContentType,
       );
 
       if (!emailChanged) {
@@ -210,7 +286,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
       }
 
       if (!mounted) return;
-      setState(() => _editingEmail = false);
+      setState(() {
+        _editingEmail = false;
+        _pendingImage = null;
+      });
       if (verificationSent) {
         await ElixDialog.emailVerificationSent(context, email);
       } else if (currentEmailVerificationSent) {
@@ -660,6 +739,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   }
 
   Widget _buildProfileSection() {
+    final user = context.watch<AuthService>().currentUser;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -675,13 +756,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GestureDetector(
-                onTap: _pickImage,
+                onTap: _savingProfile ? null : _pickImage,
                 child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
+                  cursor: _savingProfile
+                      ? SystemMouseCursors.basic
+                      : SystemMouseCursors.click,
                   child: Stack(
                     children: [
-                      _ProfileAvatar(
-                        imagePath: _pickedImagePath,
+                      ProfileAvatarWidget(
+                        localPreviewPath: _pendingImage?.path,
+                        networkImageUrl: user?.profilePictureUrl,
+                        legacyLocalPath: user?.profilePicturePath,
                         radius: 48,
                         initials: _initials(_nameController.text),
                       ),
@@ -1725,122 +1810,6 @@ class _SettingsCard extends StatelessWidget {
         border: Border.all(color: context.elixBorder.withValues(alpha: 0.5)),
       ),
       child: child,
-    );
-  }
-}
-
-class _ProfileAvatar extends StatelessWidget {
-  const _ProfileAvatar({
-    required this.imagePath,
-    required this.radius,
-    required this.initials,
-  });
-
-  final String? imagePath;
-  final double radius;
-  final String initials;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = radius * 2;
-    ImageProvider? imageProvider;
-
-    if (imagePath != null && imagePath!.isNotEmpty) {
-      final file = File(imagePath!);
-      if (file.existsSync()) {
-        imageProvider = FileImage(file);
-      }
-    }
-
-    return SizedBox(
-      width: size,
-      height: size,
-      child: ClipOval(
-        child: imageProvider != null
-            ? Image(image: imageProvider, fit: BoxFit.cover)
-            : _DefaultAvatar(radius: radius, initials: initials),
-      ),
-    );
-  }
-}
-
-class _DefaultAvatar extends StatelessWidget {
-  const _DefaultAvatar({required this.radius, required this.initials});
-  final double radius;
-  final String initials;
-
-  @override
-  Widget build(BuildContext context) {
-    return Image.asset(
-      'assets/default_profile.png',
-      fit: BoxFit.cover,
-      errorBuilder: (context, e, stack) => Container(
-        width: radius * 2,
-        height: radius * 2,
-        color: AppColors.primary.withValues(alpha: 0.2),
-        child: Center(
-          child: Text(
-            initials,
-            style: TextStyle(
-              color: AppColors.primary,
-              fontSize: radius * 0.6,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class ProfileAvatarWidget extends StatelessWidget {
-  const ProfileAvatarWidget({
-    super.key,
-    required this.imagePath,
-    required this.initials,
-    this.radius = 20,
-  });
-
-  final String? imagePath;
-  final String initials;
-  final double radius;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = radius * 2;
-    ImageProvider? imageProvider;
-
-    if (imagePath != null && imagePath!.isNotEmpty) {
-      final file = File(imagePath!);
-      if (file.existsSync()) {
-        imageProvider = FileImage(file);
-      }
-    }
-
-    return SizedBox(
-      width: size,
-      height: size,
-      child: ClipOval(
-        child: imageProvider != null
-            ? Image(image: imageProvider, fit: BoxFit.cover)
-            : Image.asset(
-                'assets/default_profile.png',
-                fit: BoxFit.cover,
-                errorBuilder: (context, e, stack) => Container(
-                  color: AppColors.primary.withValues(alpha: 0.2),
-                  child: Center(
-                    child: Text(
-                      initials,
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: radius * 0.7,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-      ),
     );
   }
 }

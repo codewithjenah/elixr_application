@@ -1,10 +1,21 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 
 import '../database/firestore_helper.dart';
 import '../models/user.dart';
 import '../../core/constants/app_constants.dart';
+
+/// A newly uploaded Cloud Storage avatar to persist alongside a profile
+/// update. Presence of this value is what tells the repository to write the
+/// new fields and retire the legacy local-path field.
+class ProfilePictureUpdate {
+  const ProfilePictureUpdate({required this.url, required this.storagePath});
+
+  final String url;
+  final String storagePath;
+}
 
 enum EmailChangeRequestResult { unchanged, verificationSent }
 
@@ -69,7 +80,7 @@ abstract class AuthRepositoryBase {
   Future<User> updateProfileDetails({
     required String userId,
     required String fullName,
-    String? profilePicturePath,
+    ProfilePictureUpdate? profilePictureUpdate,
   });
 
   Future<EmailChangeRequestResult> requestEmailChange({
@@ -167,7 +178,7 @@ class AuthRepository implements AuthRepositoryBase {
   Future<User> updateProfileDetails({
     required String userId,
     required String fullName,
-    String? profilePicturePath,
+    ProfilePictureUpdate? profilePictureUpdate,
   }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) throw Exception('Not authenticated');
@@ -175,10 +186,13 @@ class AuthRepository implements AuthRepositoryBase {
       throw Exception('Authenticated user does not match the profile.');
     }
 
-    final fields = <String, dynamic>{
-      'full_name': fullName,
-      'profile_picture_path': profilePicturePath,
-    };
+    final fields = <String, dynamic>{'full_name': fullName};
+    if (profilePictureUpdate != null) {
+      fields['profile_picture_url'] = profilePictureUpdate.url;
+      fields['profile_picture_storage_path'] = profilePictureUpdate.storagePath;
+      // Retire the legacy local-path field now that a cross-device URL exists.
+      fields['profile_picture_path'] = FieldValue.delete();
+    }
     await _db.updateUserProfileField(userId, fields);
 
     final updated = await _db.getUserById(userId);
