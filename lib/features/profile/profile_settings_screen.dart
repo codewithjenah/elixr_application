@@ -169,8 +169,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     }
 
     setState(() => _savingPassword = true);
+    final authService = context.read<AuthService>();
     try {
-      await context.read<AuthService>().updatePassword(
+      await authService.updatePassword(
         currentPassword: current,
         newPassword: newPass,
       );
@@ -179,7 +180,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         _newPasswordController.clear();
         _confirmPasswordController.clear();
         setState(() => _passwordFormRevision++);
-        _showSuccess('Password updated successfully.');
+        ElixDialog.passwordUpdated(context);
       }
     } catch (e) {
       if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
@@ -1242,7 +1243,17 @@ class _SecurityFormCard extends StatelessWidget {
               FilledButton(
                 onPressed: savingPassword || !canSubmit ? null : onSave,
                 child: savingPassword
-                    ? const ProgressRing(strokeWidth: 2)
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const ProgressRing(strokeWidth: 2),
+                          const SizedBox(width: AppSpacing.sm),
+                          Text(
+                            'Updating password...',
+                            style: AppTheme.body.copyWith(fontSize: 14),
+                          ),
+                        ],
+                      )
                     : const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

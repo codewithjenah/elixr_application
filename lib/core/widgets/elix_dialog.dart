@@ -13,6 +13,7 @@ class ElixDialog extends StatelessWidget {
     this.subtitle,
     this.icon,
     this.iconColor,
+    this.headerAccentColor,
     required this.content,
     this.actions,
     this.maxWidth = 480,
@@ -23,6 +24,7 @@ class ElixDialog extends StatelessWidget {
   final String? subtitle;
   final IconData? icon;
   final Color? iconColor;
+  final Color? headerAccentColor;
   final Widget content;
   final List<Widget>? actions;
   final double maxWidth;
@@ -34,6 +36,7 @@ class ElixDialog extends StatelessWidget {
     String? subtitle,
     IconData? icon,
     Color? iconColor,
+    Color? headerAccentColor,
     required Widget content,
     List<Widget>? actions,
     double maxWidth = 480,
@@ -50,6 +53,7 @@ class ElixDialog extends StatelessWidget {
           subtitle: subtitle,
           icon: icon,
           iconColor: iconColor,
+          headerAccentColor: headerAccentColor,
           content: content,
           actions: actions,
           maxWidth: maxWidth,
@@ -65,6 +69,7 @@ class ElixDialog extends StatelessWidget {
     required String message,
     IconData icon = FluentIcons.info_solid,
     Color? iconColor,
+    Color? headerAccentColor,
     String actionLabel = 'OK',
   }) {
     return show<void>(
@@ -72,8 +77,16 @@ class ElixDialog extends StatelessWidget {
       title: title,
       icon: icon,
       iconColor: iconColor ?? AppColors.primary,
+      headerAccentColor: headerAccentColor,
       maxWidth: 400,
-      content: Text(message, style: AppTheme.body),
+      content: Text(
+        message,
+        style: AppTheme.body.copyWith(
+          fontSize: 14,
+          color: context.elixTextSecondary,
+          height: 1.45,
+        ),
+      ),
       actions: [
         ElixPrimaryButton(
           label: actionLabel,
@@ -91,6 +104,87 @@ class ElixDialog extends StatelessWidget {
       message: message,
       icon: FluentIcons.status_circle_checkmark,
       iconColor: AppColors.success,
+      headerAccentColor: AppColors.success,
+    );
+  }
+
+  static Future<void> passwordUpdated(BuildContext context) {
+    return show<void>(
+      context,
+      title: 'Password updated',
+      subtitle: 'Your sign-in password has been changed',
+      icon: FluentIcons.completed_solid,
+      iconColor: AppColors.success,
+      headerAccentColor: AppColors.success,
+      maxWidth: 420,
+      content: Builder(
+        builder: (ctx) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Your new password is now active on your Elixr account.',
+                style: AppTheme.body.copyWith(
+                  fontSize: 14,
+                  color: ctx.elixTextSecondary,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm + 4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.success.withValues(alpha: 0.22),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        FluentIcons.lock_solid,
+                        size: 14,
+                        color: AppColors.success,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm + 2),
+                    Expanded(
+                      child: Text(
+                        'Use your new password the next time you sign in.',
+                        style: AppTheme.caption.copyWith(
+                          color: ctx.elixTextSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+      actions: [
+        ElixPrimaryButton(
+          label: 'Done',
+          expanded: true,
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
     );
   }
 
@@ -107,6 +201,7 @@ class ElixDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
+    final accent = headerAccentColor ?? AppColors.primary;
 
     return Material(
       type: MaterialType.transparency,
@@ -119,7 +214,7 @@ class ElixDialog extends StatelessWidget {
         decoration: BoxDecoration(
           color: context.elixCardSurface,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+          border: Border.all(color: accent.withValues(alpha: 0.22)),
           boxShadow: [
             BoxShadow(
               color: AppColors.primary.withValues(alpha: 0.08),
@@ -151,7 +246,7 @@ class ElixDialog extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      AppColors.primary.withValues(alpha: 0.12),
+                      accent.withValues(alpha: 0.12),
                       Colors.transparent,
                     ],
                   ),
@@ -190,24 +285,34 @@ class ElixDialog extends StatelessWidget {
                   ],
                 ),
               ),
-              Flexible(child: content),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.sm,
+                  AppSpacing.xl,
+                  AppSpacing.md,
+                ),
+                child: content,
+              ),
               if (actions != null && actions!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xl,
-                    AppSpacing.md,
+                    AppSpacing.sm,
                     AppSpacing.xl,
                     AppSpacing.xl,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      for (var i = 0; i < actions!.length; i++) ...[
-                        if (i > 0) const SizedBox(width: AppSpacing.sm),
-                        actions![i],
-                      ],
-                    ],
-                  ),
+                  child: actions!.length == 1
+                      ? SizedBox(width: double.infinity, child: actions!.first)
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            for (var i = 0; i < actions!.length; i++) ...[
+                              if (i > 0) const SizedBox(width: AppSpacing.sm),
+                              actions![i],
+                            ],
+                          ],
+                        ),
                 ),
             ],
           ),
