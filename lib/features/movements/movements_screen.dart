@@ -11,6 +11,8 @@ import 'movements_presentation.dart';
 import 'widgets/movement_difficulty_section.dart';
 import 'widgets/movements_header.dart';
 
+const _kMovementsContentMaxWidth = 1280.0;
+
 class MovementsScreen extends StatefulWidget {
   const MovementsScreen({super.key});
 
@@ -78,29 +80,37 @@ class _MovementsScreenState extends State<MovementsScreen> {
       content: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MovementsHeader(summary: summary),
-              const SizedBox(height: AppSpacing.xl),
-              MovementDifficultySection(
-                difficulty: 'Easy',
-                movements: movementsByDifficulty('Easy'),
-                stats: _movementStats,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: _kMovementsContentMaxWidth,
               ),
-              const SizedBox(height: AppSpacing.xl),
-              MovementDifficultySection(
-                difficulty: 'Medium',
-                movements: movementsByDifficulty('Medium'),
-                stats: _movementStats,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  MovementsHeader(summary: summary),
+                  const SizedBox(height: AppSpacing.xl),
+                  MovementDifficultySection(
+                    difficulty: 'Easy',
+                    movements: movementsByDifficulty('Easy'),
+                    stats: _movementStats,
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  MovementDifficultySection(
+                    difficulty: 'Medium',
+                    movements: movementsByDifficulty('Medium'),
+                    stats: _movementStats,
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  MovementDifficultySection(
+                    difficulty: 'Hard',
+                    movements: movementsByDifficulty('Hard'),
+                    stats: _movementStats,
+                  ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.xl),
-              MovementDifficultySection(
-                difficulty: 'Hard',
-                movements: movementsByDifficulty('Hard'),
-                stats: _movementStats,
-              ),
-            ],
+            ),
           ),
         ),
       ),

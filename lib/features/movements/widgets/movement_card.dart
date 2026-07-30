@@ -1,11 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/movement_visuals.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/movement.dart';
 import '../movements_presentation.dart';
 import 'movement_prop_picker.dart';
+
+const _kCompactLayoutBreakpoint = 720.0;
 
 class MovementCard extends StatefulWidget {
   const MovementCard({
@@ -26,12 +29,19 @@ class MovementCard extends StatefulWidget {
 class _MovementCardState extends State<MovementCard> {
   bool _hovered = false;
   bool _focused = false;
+  bool _ctaHovered = false;
   bool _activating = false;
 
   bool get _enabled => widget.movement.enabled;
   bool get _practiced => widget.sessionCount > 0;
 
   Color get _accent => difficultyAccentColor(widget.movement.difficulty);
+
+  String get _statusLabel {
+    if (!_enabled) return 'Locked';
+    if (_practiced) return 'Practiced';
+    return 'New';
+  }
 
   String get _actionLabel {
     if (!_enabled) return 'Locked';
@@ -70,166 +80,191 @@ class _MovementCardState extends State<MovementCard> {
     final active = interactive && (_hovered || _focused);
     final isDark = context.isDarkTheme;
 
-    return Semantics(
-      button: interactive,
-      enabled: interactive,
-      label: '${widget.movement.name}. $_actionLabel',
-      child: FocusableActionDetector(
-        enabled: interactive,
-        onShowHoverHighlight: (hovered) {
-          if (!interactive) return;
-          setState(() => _hovered = hovered);
-        },
-        onShowFocusHighlight: (focused) {
-          setState(() => _focused = focused);
-        },
-        mouseCursor: interactive
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              _activate();
-              return null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < _kCompactLayoutBreakpoint;
+        return Semantics(
+          button: interactive,
+          enabled: interactive,
+          label: '${widget.movement.name}. $_actionLabel',
+          child: FocusableActionDetector(
+            enabled: interactive,
+            onShowHoverHighlight: (hovered) {
+              if (!interactive) return;
+              setState(() => _hovered = hovered);
             },
-          ),
-        },
-        child: GestureDetector(
-          onTap: interactive ? _activate : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOut,
-            transform: Matrix4.translationValues(0, active ? -2.0 : 0.0, 0),
-            decoration: BoxDecoration(
-              color: context.elixCardSurface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: active
-                    ? (isDark
-                          ? context.elixTextSecondary.withValues(alpha: 0.55)
-                          : context.elixTextSecondary.withValues(alpha: 0.45))
-                    : context.elixBorder.withValues(alpha: isDark ? 0.7 : 1),
-                width: _focused ? 1.6 : 1,
+            onShowFocusHighlight: (focused) {
+              setState(() => _focused = focused);
+            },
+            mouseCursor: interactive
+                ? SystemMouseCursors.click
+                : SystemMouseCursors.basic,
+            actions: <Type, Action<Intent>>{
+              ActivateIntent: CallbackAction<ActivateIntent>(
+                onInvoke: (_) {
+                  _activate();
+                  return null;
+                },
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(
-                    alpha: isDark
-                        ? (active ? 0.36 : 0.22)
-                        : (active ? 0.12 : 0.07),
+            },
+            child: GestureDetector(
+              onTap: interactive ? _activate : null,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                transform: Matrix4.translationValues(0, active ? -2.0 : 0.0, 0),
+                decoration: BoxDecoration(
+                  color: active
+                      ? _accent.withValues(alpha: isDark ? 0.06 : 0.04)
+                      : context.elixCardSurface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: active
+                        ? _accent.withValues(alpha: isDark ? 0.55 : 0.45)
+                        : context.elixBorder.withValues(
+                            alpha: isDark ? 0.7 : 1,
+                          ),
+                    width: _focused ? 1.6 : 1,
                   ),
-                  blurRadius: active ? 16 : 10,
-                  offset: Offset(0, active ? 5 : 3),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(width: 3, color: _accent),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildIdentity(context),
-                          const SizedBox(height: 6),
-                          SizedBox(
-                            height: 32,
-                            child: Text(
-                              widget.movement.description,
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.3,
-                                color: context.elixTextSecondary,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          _buildMetadata(context),
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.bottomLeft,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildPerformance(context),
-                                  const SizedBox(height: 6),
-                                  _ActionButton(
-                                    label: _actionLabel,
-                                    enabled: interactive,
-                                    accent: _accent,
-                                    onPressed: _activate,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: isDark
+                            ? (active ? 0.32 : 0.18)
+                            : (active ? 0.10 : 0.05),
                       ),
+                      blurRadius: active ? 14 : 8,
+                      offset: Offset(0, active ? 4 : 2),
                     ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        child: Container(width: 4, color: _accent),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                        child: compact
+                            ? _buildStackedLayout(context)
+                            : _buildHorizontalLayout(context),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHorizontalLayout(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _buildVisual(context),
+        const SizedBox(width: 12),
+        Expanded(child: _buildInfoColumn(context)),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 184,
+          child: _buildPerformanceColumn(context, fullWidthCta: true),
         ),
+      ],
+    );
+  }
+
+  Widget _buildStackedLayout(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildVisual(context),
+            const SizedBox(width: 12),
+            Expanded(child: _buildInfoColumn(context)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildPerformanceColumn(context, fullWidthCta: true),
+      ],
+    );
+  }
+
+  Widget _buildVisual(BuildContext context) {
+    return Container(
+      width: 52,
+      height: 52,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: _accent.withValues(alpha: context.isDarkTheme ? 0.14 : 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _accent.withValues(alpha: 0.28)),
+      ),
+      child: Text(
+        MovementVisuals.emojiFor(widget.movement.name),
+        style: const TextStyle(fontSize: 24),
       ),
     );
   }
 
-  Widget _buildIdentity(BuildContext context) {
-    return Row(
+  Widget _buildInfoColumn(BuildContext context) {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 56,
-          height: 56,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: _accent.withValues(alpha: context.isDarkTheme ? 0.14 : 0.10),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _accent.withValues(alpha: 0.28)),
-          ),
-          child: Text(
-            MovementVisuals.emojiFor(widget.movement.name),
-            style: const TextStyle(fontSize: 26),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
+        Row(
+          children: [
+            Expanded(
+              child: Text(
                 widget.movement.name,
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
                   color: context.elixTextPrimary,
                 ),
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6),
-              _DifficultyBadge(
-                label: widget.movement.difficulty,
-                color: _accent,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            _StatusBadge(label: _statusLabel, color: _statusColor(context)),
+          ],
         ),
+        const SizedBox(height: 4),
+        Text(
+          widget.movement.description,
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.35,
+            color: context.elixTextSecondary,
+          ),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (_buildMetadata(context) != null) ...[
+          const SizedBox(height: 6),
+          _buildMetadata(context)!,
+        ],
       ],
     );
   }
 
-  Widget _buildMetadata(BuildContext context) {
+  Color _statusColor(BuildContext context) {
+    if (!_enabled) return context.elixTextSecondary;
+    if (_practiced) return AppColors.success;
+    return AppColors.accent;
+  }
+
+  Widget? _buildMetadata(BuildContext context) {
     final chips = <Widget>[];
     if (widget.movement.requiresHandsDetection) {
       chips.add(
@@ -250,17 +285,41 @@ class _MovementCardState extends State<MovementCard> {
       );
     }
 
-    if (chips.isEmpty) {
-      return const SizedBox(height: 22);
-    }
+    if (chips.isEmpty) return null;
 
-    return SizedBox(
-      height: 22,
-      child: Wrap(spacing: 6, runSpacing: 4, children: chips),
+    return Wrap(spacing: 6, runSpacing: 4, children: chips);
+  }
+
+  Widget _buildPerformanceColumn(
+    BuildContext context, {
+    bool fullWidthCta = false,
+  }) {
+    return Column(
+      crossAxisAlignment: fullWidthCta
+          ? CrossAxisAlignment.stretch
+          : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildPerformanceStats(context, fullWidth: fullWidthCta),
+        const SizedBox(height: 8),
+        _ActionButton(
+          label: _actionLabel,
+          enabled: _enabled,
+          accent: _accent,
+          fullWidth: fullWidthCta,
+          hovered: _ctaHovered,
+          onHoverChanged: (hovered) {
+            if (_enabled) setState(() => _ctaHovered = hovered);
+          },
+        ),
+      ],
     );
   }
 
-  Widget _buildPerformance(BuildContext context) {
+  Widget _buildPerformanceStats(
+    BuildContext context, {
+    bool fullWidth = false,
+  }) {
     if (!_enabled) {
       return Text(
         'Locked',
@@ -274,7 +333,7 @@ class _MovementCardState extends State<MovementCard> {
 
     if (!_practiced) {
       return Text(
-        'Not practiced yet',
+        'Ready to learn',
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
@@ -309,6 +368,7 @@ class _MovementCardState extends State<MovementCard> {
           borderRadius: BorderRadius.circular(4),
           child: SizedBox(
             height: 5,
+            width: fullWidth ? double.infinity : 140,
             child: Stack(
               children: [
                 Container(color: context.elixBorder),
@@ -325,8 +385,8 @@ class _MovementCardState extends State<MovementCard> {
   }
 }
 
-class _DifficultyBadge extends StatelessWidget {
-  const _DifficultyBadge({required this.label, required this.color});
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label, required this.color});
 
   final String label;
   final Color color;
@@ -334,7 +394,7 @@ class _DifficultyBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: context.isDarkTheme ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(8),
@@ -390,63 +450,60 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-class _ActionButton extends StatefulWidget {
+class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.label,
     required this.enabled,
     required this.accent,
-    required this.onPressed,
+    required this.fullWidth,
+    required this.hovered,
+    required this.onHoverChanged,
   });
 
   final String label;
   final bool enabled;
   final Color accent;
-  final VoidCallback onPressed;
-
-  @override
-  State<_ActionButton> createState() => _ActionButtonState();
-}
-
-class _ActionButtonState extends State<_ActionButton> {
-  bool _hovered = false;
+  final bool fullWidth;
+  final bool hovered;
+  final ValueChanged<bool> onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
-    final enabled = widget.enabled;
     final fill = enabled
-        ? widget.accent.withValues(
-            alpha: _hovered
-                ? (context.isDarkTheme ? 0.22 : 0.16)
+        ? accent.withValues(
+            alpha: hovered
+                ? (context.isDarkTheme ? 0.24 : 0.18)
                 : (context.isDarkTheme ? 0.14 : 0.10),
           )
         : context.elixBorder.withValues(alpha: 0.35);
 
     return MouseRegion(
       onEnter: (_) {
-        if (enabled) setState(() => _hovered = true);
+        if (enabled) onHoverChanged(true);
       },
-      onExit: (_) => setState(() => _hovered = false),
+      onExit: (_) => onHoverChanged(false),
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      child: GestureDetector(
-        onTap: enabled ? widget.onPressed : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: enabled
-                  ? widget.accent.withValues(alpha: 0.40)
-                  : context.elixBorder,
-            ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: fullWidth ? double.infinity : null,
+        constraints: fullWidth ? null : const BoxConstraints(minWidth: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: enabled
+                ? accent.withValues(alpha: 0.40)
+                : context.elixBorder,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                widget.label,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                label,
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -454,17 +511,24 @@ class _ActionButtonState extends State<_ActionButton> {
                       ? context.elixTextPrimary
                       : context.elixTextSecondary,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
-              if (enabled) ...[
-                const SizedBox(width: 6),
-                Icon(
+            ),
+            if (enabled) ...[
+              const SizedBox(width: 6),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                transform: Matrix4.translationValues(hovered ? 3.0 : 0.0, 0, 0),
+                child: Icon(
                   FluentIcons.chrome_back_mirrored,
                   size: 10,
                   color: context.elixTextPrimary,
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );

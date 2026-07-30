@@ -40,17 +40,6 @@ void main() {
     });
   });
 
-  group('movementsGridColumns', () {
-    test('uses one, two, or three columns by width', () {
-      expect(movementsGridColumns(500), 1);
-      expect(movementsGridColumns(719), 1);
-      expect(movementsGridColumns(720), 2);
-      expect(movementsGridColumns(1149), 2);
-      expect(movementsGridColumns(1150), 3);
-      expect(movementsGridColumns(1920), 3);
-    });
-  });
-
   group('movement catalog', () {
     test('contains exactly one enabled Claw Grip on Easy', () {
       final claw = movementCatalog.where((m) => m.name == 'Claw Grip').toList();

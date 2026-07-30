@@ -21,10 +21,40 @@ Future<void> setSurface(WidgetTester tester, Size size) async {
   });
 }
 
+Future<void> expectNoOverflow(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  expect(tester.takeException(), isNull);
+}
+
 const easyMovement = Movement(
   name: 'Normal Grip',
   difficulty: 'Easy',
   description: 'Hold the bottle with a standard overhand grip.',
+  requiresHandsDetection: true,
+  enabled: true,
+);
+
+const secondEasyMovement = Movement(
+  name: "Bartender's Grip",
+  difficulty: 'Easy',
+  description: 'Pinch the neck with thumb and index finger.',
+  requiresHandsDetection: true,
+  enabled: true,
+);
+
+const thirdEasyMovement = Movement(
+  name: 'Reverse Grip',
+  difficulty: 'Easy',
+  description: 'Hold the bottle with an underhand grip.',
+  requiresHandsDetection: true,
+  enabled: true,
+);
+
+const fourthEasyMovement = Movement(
+  name: 'Claw Grip',
+  difficulty: 'Easy',
+  description:
+      'Hold the upright bottle from above with curled fingers around the upper neck.',
   requiresHandsDetection: true,
   enabled: true,
 );
@@ -62,9 +92,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('3 of 9 practiced'), findsOneWidget);
-      expect(find.text('6 sessions completed'), findsOneWidget);
-      expect(find.text('84% overall average'), findsOneWidget);
+      expect(find.text('3 of 9'), findsOneWidget);
+      expect(find.text('6'), findsWidgets);
+      expect(find.text('84%'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
     });
 
@@ -83,17 +113,16 @@ void main() {
       );
 
       expect(find.text('No score yet'), findsOneWidget);
-      expect(find.text('0 sessions completed'), findsOneWidget);
+      expect(find.text('0'), findsWidgets);
     });
   });
 
   group('MovementCard', () {
-    testWidgets('shows start state for unpracticed movement', (tester) async {
+    testWidgets('shows new state for unpracticed movement', (tester) async {
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 360,
-            height: 248,
+            width: 900,
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 0,
@@ -103,7 +132,8 @@ void main() {
         ),
       );
 
-      expect(find.text('Not practiced yet'), findsOneWidget);
+      expect(find.text('New'), findsOneWidget);
+      expect(find.text('Ready to learn'), findsOneWidget);
       expect(find.text('Start practice'), findsOneWidget);
       expect(find.text('Hands tracking'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
@@ -116,8 +146,7 @@ void main() {
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 360,
-            height: 248,
+            width: 900,
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 2,
@@ -127,29 +156,19 @@ void main() {
         ),
       );
 
+      expect(find.text('Practiced'), findsOneWidget);
       expect(find.text('2 sessions'), findsOneWidget);
       expect(find.text('Average score 84%'), findsOneWidget);
       expect(find.text('Practice again'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
     });
 
-    testWidgets('practiced card fits a fixed grid cell without overflow', (
-      tester,
-    ) async {
-      final errors = <FlutterErrorDetails>[];
-      final previous = FlutterError.onError;
-      FlutterError.onError = (details) {
-        errors.add(details);
-        previous?.call(details);
-      };
-      addTearDown(() => FlutterError.onError = previous);
-
-      await setSurface(tester, const Size(400, 300));
+    testWidgets('wide desktop layout does not overflow', (tester) async {
+      await setSurface(tester, const Size(1280, 800));
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 360,
-            height: 248,
+            width: 1200,
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 2,
@@ -158,11 +177,28 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
 
+      await expectNoOverflow(tester);
       expect(find.text('Practice again'), findsOneWidget);
-      expect(errors.where((e) => e.toString().contains('OVERFLOWED')), isEmpty);
-      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('narrow layout does not overflow', (tester) async {
+      await setSurface(tester, const Size(400, 800));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 360,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 2,
+              avgScore: 100,
+            ),
+          ),
+        ),
+      );
+
+      await expectNoOverflow(tester);
+      expect(find.text('Practice again'), findsOneWidget);
     });
 
     testWidgets('shows locked state without activation affordance text', (
@@ -171,8 +207,7 @@ void main() {
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 360,
-            height: 248,
+            width: 900,
             child: MovementCard(
               movement: disabledMovement,
               sessionCount: 0,
@@ -190,60 +225,93 @@ void main() {
   });
 
   group('MovementDifficultySection', () {
-    testWidgets('renders section title and responsive grid columns', (
-      tester,
-    ) async {
-      const second = Movement(
-        name: "Bartender's Grip",
-        difficulty: 'Easy',
-        description: 'Pinch the neck with thumb and index finger.',
-        requiresHandsDetection: true,
-        enabled: true,
-      );
-      const third = Movement(
-        name: 'Reverse Grip',
-        difficulty: 'Easy',
-        description: 'Hold the bottle with an underhand grip.',
-        requiresHandsDetection: true,
-        enabled: true,
-      );
-
-      await setSurface(tester, const Size(1280, 800));
+    testWidgets('renders four movements as vertical rows', (tester) async {
+      await setSurface(tester, const Size(1280, 1200));
       await tester.pumpWidget(
         wrap(
-          const MovementDifficultySection(
-            difficulty: 'Easy',
-            movements: [easyMovement, second, third],
-            stats: {'Normal Grip': (count: 1, avgScore: 70)},
+          const SizedBox(
+            width: 1200,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [
+                easyMovement,
+                secondEasyMovement,
+                thirdEasyMovement,
+                fourthEasyMovement,
+              ],
+              stats: {'Normal Grip': (count: 1, avgScore: 70)},
+            ),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Easy — Foundations'), findsOneWidget);
-      expect(find.text('1 of 3 practiced'), findsOneWidget);
-      expect(find.byType(MovementCard), findsNWidgets(3));
+      expect(find.text('1 of 4 practiced'), findsOneWidget);
+      expect(find.byType(MovementCard), findsNWidgets(4));
+      expect(find.byType(GridView), findsNothing);
+
+      final positions = <Offset>[];
+      for (var i = 0; i < 4; i++) {
+        positions.add(tester.getTopLeft(find.byType(MovementCard).at(i)));
+      }
+
+      for (var i = 1; i < positions.length; i++) {
+        expect(positions[i].dx, closeTo(positions[0].dx, 1));
+        expect(positions[i].dy, greaterThan(positions[i - 1].dy));
+      }
     });
 
-    testWidgets('uses a single column on narrow widths', (tester) async {
-      await setSurface(tester, const Size(600, 900));
+    testWidgets('collapses and expands movement rows', (tester) async {
+      await setSurface(tester, const Size(1280, 800));
       await tester.pumpWidget(
         wrap(
-          MovementDifficultySection(
-            difficulty: 'Medium',
-            movements: const [easyMovement, easyMovement],
-            stats: const {},
+          const SizedBox(
+            width: 1200,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [easyMovement, secondEasyMovement],
+              stats: {},
+            ),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
+      expect(find.byType(MovementCard), findsNWidgets(2));
+
+      final transitionFinder = find.descendant(
+        of: find.byType(MovementDifficultySection),
+        matching: find.byType(SizeTransition),
+      );
+
+      await tester.tap(find.text('Easy — Foundations'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
+
+      expect(tester.getSize(transitionFinder).height, lessThan(8));
+
+      await tester.tap(find.text('Easy — Foundations'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 250));
+
+      expect(tester.getSize(transitionFinder).height, greaterThan(80));
+    });
+
+    testWidgets('section practiced count remains correct', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const MovementDifficultySection(
+            difficulty: 'Medium',
+            movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
+            stats: {
+              'Normal Grip': (count: 2, avgScore: 80),
+              "Bartender's Grip": (count: 1, avgScore: 70),
+            },
+          ),
+        ),
+      );
+
       expect(find.text('Medium — Balance and control'), findsOneWidget);
-      final cards = tester.widgetList<MovementCard>(find.byType(MovementCard));
-      expect(cards.length, 2);
-      final first = tester.getTopLeft(find.byType(MovementCard).at(0));
-      final second = tester.getTopLeft(find.byType(MovementCard).at(1));
-      expect(second.dy, greaterThan(first.dy));
+      expect(find.text('2 of 3 practiced'), findsOneWidget);
     });
   });
 
@@ -263,8 +331,7 @@ void main() {
                 ),
               ),
               SizedBox(
-                width: 360,
-                height: 248,
+                width: 900,
                 child: MovementCard(
                   movement: easyMovement,
                   sessionCount: 2,
@@ -276,7 +343,38 @@ void main() {
         ),
       );
 
-      expect(find.text('75% overall average'), findsOneWidget);
+      expect(find.text('75%'), findsOneWidget);
+      expect(find.text('Average score 75%'), findsOneWidget);
+    });
+
+    testWidgets('header and cards render in dark theme', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          brightness: Brightness.dark,
+          Column(
+            children: const [
+              MovementsHeader(
+                summary: MovementsSummary(
+                  practicedCount: 1,
+                  totalMovements: 9,
+                  totalSessions: 2,
+                  overallAverage: 75,
+                ),
+              ),
+              SizedBox(
+                width: 900,
+                child: MovementCard(
+                  movement: easyMovement,
+                  sessionCount: 2,
+                  avgScore: 75,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('75%'), findsOneWidget);
       expect(find.text('Average score 75%'), findsOneWidget);
     });
   });

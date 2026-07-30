@@ -12,9 +12,12 @@ class MovementsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final progress = summary.totalMovements > 0
+        ? summary.practicedCount / summary.totalMovements
+        : 0.0;
     final averageLabel = summary.overallAverage == null
         ? 'No score yet'
-        : '${summary.overallAverage!.round()}% overall average';
+        : '${summary.overallAverage!.round()}%';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,49 +65,116 @@ class MovementsHeader extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.md),
-        Wrap(
-          spacing: AppSpacing.md,
-          runSpacing: AppSpacing.sm,
-          children: [
-            _SummaryChip(
-              label:
-                  '${summary.practicedCount} of ${summary.totalMovements} practiced',
-            ),
-            _SummaryChip(
-              label:
-                  '${summary.totalSessions} session${summary.totalSessions == 1 ? '' : 's'} completed',
-            ),
-            _SummaryChip(label: averageLabel),
-          ],
+        const SizedBox(height: AppSpacing.lg),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: context.elixCardSurface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: context.elixBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: AppSpacing.lg,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  _SummaryStat(
+                    label: 'Practiced',
+                    value:
+                        '${summary.practicedCount} of ${summary.totalMovements}',
+                  ),
+                  _SummaryStat(
+                    label: 'Sessions completed',
+                    value: '${summary.totalSessions}',
+                  ),
+                  _SummaryStat(label: 'Overall average', value: averageLabel),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: SizedBox(
+                        height: 8,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(
+                              color: context.elixBorder.withValues(alpha: 0.5),
+                            ),
+                            FractionallySizedBox(
+                              alignment: Alignment.centerLeft,
+                              widthFactor: progress.clamp(0.0, 1.0),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      AppColors.accent.withValues(alpha: 0.85),
+                                      AppColors.primary.withValues(alpha: 0.85),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    '${(progress * 100).round()}%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-class _SummaryChip extends StatelessWidget {
-  const _SummaryChip({required this.label});
+class _SummaryStat extends StatelessWidget {
+  const _SummaryStat({required this.label, required this.value});
 
   final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.elixBorder),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: context.elixTextSecondary,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: context.elixTextSecondary,
+          ),
         ),
-      ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: context.elixTextPrimary,
+          ),
+        ),
+      ],
     );
   }
 }

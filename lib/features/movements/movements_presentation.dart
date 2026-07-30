@@ -68,10 +68,3 @@ String difficultySectionTitle(String difficulty) {
       return difficulty;
   }
 }
-
-/// Responsive column count for the movements catalog grid.
-int movementsGridColumns(double maxWidth) {
-  if (maxWidth < 720) return 1;
-  if (maxWidth < 1150) return 2;
-  return 3;
-}
