@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/utils/user_name.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
@@ -16,7 +17,9 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _fullNameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _middleNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
@@ -25,7 +28,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _fullNameController.dispose();
+    _firstNameController.dispose();
+    _middleNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
@@ -33,6 +38,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    final nameError = validateUserNameParts(
+      firstName: _firstNameController.text,
+      middleName: _middleNameController.text,
+      lastName: _lastNameController.text,
+    );
+    if (nameError != null) {
+      setState(() => _error = nameError);
+      return;
+    }
+
     if (_passwordController.text != _confirmController.text) {
       setState(() => _error = 'Passwords do not match');
       return;
@@ -47,9 +62,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _error = null;
     });
 
+    final normalized = normalizeUserNameParts(
+      firstName: _firstNameController.text,
+      middleName: _middleNameController.text,
+      lastName: _lastNameController.text,
+    );
+
     try {
       await context.read<AuthService>().register(
-        fullName: _fullNameController.text.trim(),
+        firstName: normalized.firstName,
+        middleName: normalized.middleName,
+        lastName: normalized.lastName,
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
@@ -59,6 +82,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Widget _buildNameFields() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sideBySide = constraints.maxWidth >= 300;
+        final firstNameField = AuthTextField(
+          controller: _firstNameController,
+          placeholder: 'First name',
+          icon: FluentIcons.contact,
+        );
+        final lastNameField = AuthTextField(
+          controller: _lastNameController,
+          placeholder: 'Last name',
+          icon: FluentIcons.contact,
+        );
+
+        if (sideBySide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: firstNameField),
+              const SizedBox(width: AppSpacing.sm + 4),
+              Expanded(child: lastNameField),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            firstNameField,
+            const SizedBox(height: AppSpacing.sm + 4),
+            lastNameField,
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -72,9 +133,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildNameFields(),
+          const SizedBox(height: AppSpacing.sm + 4),
           AuthTextField(
-            controller: _fullNameController,
-            placeholder: 'Full name',
+            controller: _middleNameController,
+            placeholder: 'Middle name (optional)',
             icon: FluentIcons.contact,
           ),
           const SizedBox(height: AppSpacing.sm + 4),

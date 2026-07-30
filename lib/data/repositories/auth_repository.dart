@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../database/firestore_helper.dart';
 import '../models/user.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/user_name.dart';
 
 /// A newly uploaded Cloud Storage avatar to persist alongside a profile
 /// update. Presence of this value is what tells the repository to write the
@@ -66,7 +67,9 @@ class PendingEmailChangeRecoveryResult {
 
 abstract class AuthRepositoryBase {
   Future<User> register({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     required String email,
     required String password,
   });
@@ -79,7 +82,9 @@ abstract class AuthRepositoryBase {
 
   Future<User> updateProfileDetails({
     required String userId,
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     ProfilePictureUpdate? profilePictureUpdate,
   });
 
@@ -122,7 +127,9 @@ class AuthRepository implements AuthRepositoryBase {
 
   @override
   Future<User> register({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     required String email,
     required String password,
   }) async {
@@ -132,9 +139,16 @@ class AuthRepository implements AuthRepositoryBase {
         password: password,
       );
       final uid = credential.user!.uid;
+      final normalized = normalizeUserNameParts(
+        firstName: firstName,
+        middleName: middleName,
+        lastName: lastName,
+      );
       final user = User(
         id: uid,
-        fullName: fullName,
+        firstName: normalized.firstName,
+        middleName: normalized.middleName,
+        lastName: normalized.lastName,
         email: email,
         role: AppConstants.defaultRole,
       );
@@ -177,7 +191,9 @@ class AuthRepository implements AuthRepositoryBase {
   @override
   Future<User> updateProfileDetails({
     required String userId,
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     ProfilePictureUpdate? profilePictureUpdate,
   }) async {
     final firebaseUser = _auth.currentUser;
@@ -186,7 +202,20 @@ class AuthRepository implements AuthRepositoryBase {
       throw Exception('Authenticated user does not match the profile.');
     }
 
-    final fields = <String, dynamic>{'full_name': fullName};
+    final normalized = normalizeUserNameParts(
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+    );
+    final fields = <String, dynamic>{
+      'first_name': normalized.firstName,
+      'last_name': normalized.lastName,
+      'full_name': normalized.fullName,
+      if (normalized.middleName != null)
+        'middle_name': normalized.middleName
+      else
+        'middle_name': FieldValue.delete(),
+    };
     if (profilePictureUpdate != null) {
       fields['profile_picture_url'] = profilePictureUpdate.url;
       fields['profile_picture_storage_path'] = profilePictureUpdate.storagePath;
@@ -521,9 +550,12 @@ class AuthRepository implements AuthRepositoryBase {
 
     var profile = await _db.getUserById(firebaseUser.uid);
     if (profile == null) {
+      final parsed = parseLegacyFullName(firebaseUser.displayName ?? 'Trainee');
       final user = User(
         id: firebaseUser.uid,
-        fullName: firebaseUser.displayName ?? 'Trainee',
+        firstName: parsed.firstName,
+        middleName: parsed.middleName,
+        lastName: parsed.lastName,
         email: authEmail,
         role: AppConstants.defaultRole,
       );

@@ -62,7 +62,9 @@ class FakeAuthRepository implements AuthRepositoryBase {
 
   @override
   Future<User> register({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     required String email,
     required String password,
   }) async {
@@ -87,7 +89,9 @@ class FakeAuthRepository implements AuthRepositoryBase {
   @override
   Future<User> updateProfileDetails({
     required String userId,
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     ProfilePictureUpdate? profilePictureUpdate,
   }) async {
     throw UnimplementedError();
@@ -101,7 +105,12 @@ class FakeAuthRepository implements AuthRepositoryBase {
 }
 
 User _testUser({String? id, String email = 'old@example.com'}) {
-  return User(id: id ?? 'uid-1', fullName: 'Test User', email: email);
+  return User(
+    id: id ?? 'uid-1',
+    firstName: 'Test',
+    lastName: 'User',
+    email: email,
+  );
 }
 
 void main() {

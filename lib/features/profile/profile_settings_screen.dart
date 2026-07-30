@@ -12,6 +12,7 @@ import '../../core/widgets/profile_avatar.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/user_name.dart';
 import '../../services/auth_service.dart';
 import '../../services/camera_device_service.dart';
 import '../../services/settings_service.dart';
@@ -45,7 +46,9 @@ class ProfileSettingsScreen extends StatefulWidget {
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     with WidgetsBindingObserver {
   late ProfileSettingsSection _section;
-  late final TextEditingController _nameController;
+  late final TextEditingController _firstNameController;
+  late final TextEditingController _middleNameController;
+  late final TextEditingController _lastNameController;
   late final TextEditingController _emailController;
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
@@ -68,8 +71,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     _section = widget.initialSection;
     _authService = context.read<AuthService>();
     final user = _authService.currentUser;
-    _nameController = TextEditingController(text: user?.fullName ?? '');
+    _firstNameController = TextEditingController(text: user?.firstName ?? '');
+    _middleNameController = TextEditingController(text: user?.middleName ?? '');
+    _lastNameController = TextEditingController(text: user?.lastName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
+    _firstNameController.addListener(_onNameFieldsChanged);
+    _middleNameController.addListener(_onNameFieldsChanged);
+    _lastNameController.addListener(_onNameFieldsChanged);
     _currentPasswordController.addListener(_onPasswordFieldsChanged);
     _newPasswordController.addListener(_onPasswordFieldsChanged);
     _confirmPasswordController.addListener(_onPasswordFieldsChanged);
@@ -98,6 +106,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     }
   }
 
+  void _onNameFieldsChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onPasswordFieldsChanged() {
     if (mounted) setState(() {});
   }
@@ -124,10 +136,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authService.removeListener(_onAuthServiceChanged);
+    _firstNameController.removeListener(_onNameFieldsChanged);
+    _middleNameController.removeListener(_onNameFieldsChanged);
+    _lastNameController.removeListener(_onNameFieldsChanged);
     _currentPasswordController.removeListener(_onPasswordFieldsChanged);
     _newPasswordController.removeListener(_onPasswordFieldsChanged);
     _confirmPasswordController.removeListener(_onPasswordFieldsChanged);
-    _nameController.dispose();
+    _firstNameController.dispose();
+    _middleNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
@@ -143,6 +160,14 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
         !_refreshingEmail) {
       _refreshVerifiedEmail(showFeedback: false);
     }
+  }
+
+  String _composedDisplayName() {
+    return composeUserFullName(
+      firstName: _firstNameController.text,
+      middleName: _middleNameController.text,
+      lastName: _lastNameController.text,
+    );
   }
 
   String _initials(String name) {
@@ -213,13 +238,27 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   Future<void> _saveProfile() async {
     if (_savingProfile) return;
 
-    final name = _nameController.text.trim();
-    final email = _emailController.text.trim();
-
-    if (name.isEmpty || email.isEmpty) {
-      _showError('Name and email cannot be empty.');
+    final nameError = validateUserNameParts(
+      firstName: _firstNameController.text,
+      middleName: _middleNameController.text,
+      lastName: _lastNameController.text,
+    );
+    if (nameError != null) {
+      _showError(nameError);
       return;
     }
+
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      _showError('Email cannot be empty.');
+      return;
+    }
+
+    final normalized = normalizeUserNameParts(
+      firstName: _firstNameController.text,
+      middleName: _middleNameController.text,
+      lastName: _lastNameController.text,
+    );
 
     final authService = context.read<AuthService>();
     if (!authService.isAuthenticated) {
@@ -271,7 +310,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
       }
 
       await authService.updateProfileDetails(
-        fullName: name,
+        firstName: normalized.firstName,
+        middleName: normalized.middleName,
+        lastName: normalized.lastName,
         newProfileImageBytes: imageBytes,
         newProfileImageContentType: imageContentType,
       );
@@ -757,7 +798,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
                         networkImageUrl: user?.profilePictureUrl,
                         legacyLocalPath: user?.profilePicturePath,
                         radius: 48,
-                        initials: _initials(_nameController.text),
+                        initials: _initials(_composedDisplayName()),
                       ),
                       Positioned(
                         bottom: 0,
@@ -789,11 +830,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildField(
-                      label: 'Full Name',
-                      controller: _nameController,
-                      icon: FluentIcons.contact,
-                    ),
+                    _buildNameFields(),
                     const SizedBox(height: AppSpacing.md),
                     _buildField(
                       label: 'Email',
@@ -910,6 +947,50 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
           onSave: _savePassword,
         ),
       ],
+    );
+  }
+
+  Widget _buildNameFields() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sideBySide = constraints.maxWidth >= 360;
+        final firstNameField = _buildField(
+          label: 'First Name',
+          controller: _firstNameController,
+          icon: FluentIcons.contact,
+        );
+        final lastNameField = _buildField(
+          label: 'Last Name',
+          controller: _lastNameController,
+          icon: FluentIcons.contact,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (sideBySide)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: firstNameField),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: lastNameField),
+                ],
+              )
+            else ...[
+              firstNameField,
+              const SizedBox(height: AppSpacing.md),
+              lastNameField,
+            ],
+            const SizedBox(height: AppSpacing.md),
+            _buildField(
+              label: 'Middle Name (Optional)',
+              controller: _middleNameController,
+              icon: FluentIcons.contact,
+            ),
+          ],
+        );
+      },
     );
   }
 

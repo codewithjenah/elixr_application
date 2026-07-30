@@ -109,12 +109,16 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> register({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     required String email,
     required String password,
   }) async {
     final user = await _repository.register(
-      fullName: fullName,
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
       email: email,
       password: password,
     );
@@ -142,7 +146,9 @@ class AuthService extends ChangeNotifier {
   /// provided, the image is uploaded first; Firestore is only updated after
   /// the upload succeeds. A name-only update never touches Cloud Storage.
   Future<void> updateProfileDetails({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     Uint8List? newProfileImageBytes,
     String? newProfileImageContentType,
   }) async {
@@ -168,7 +174,9 @@ class AuthService extends ChangeNotifier {
     try {
       _currentUser = await _repository.updateProfileDetails(
         userId: userId,
-        fullName: fullName,
+        firstName: firstName,
+        middleName: middleName,
+        lastName: lastName,
         profilePictureUpdate: pictureUpdate,
       );
     } catch (error) {
@@ -192,7 +200,7 @@ class AuthService extends ChangeNotifier {
     try {
       await _leaderboardRepository?.syncPublicProfile(
         userId: userId,
-        displayName: fullName,
+        displayName: _currentUser?.fullName ?? '',
         profilePictureUrl: _currentUser?.profilePictureUrl,
       );
     } catch (error, stackTrace) {

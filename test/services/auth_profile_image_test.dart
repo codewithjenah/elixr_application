@@ -12,21 +12,31 @@ class _FakeAuthRepository implements AuthRepositoryBase {
   int updateCallCount = 0;
   ProfilePictureUpdate? lastPictureUpdate;
   Object? updateProfileError;
+  String? lastFirstName;
+  String? lastMiddleName;
+  String? lastLastName;
 
   @override
   Future<User> updateProfileDetails({
     required String userId,
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     ProfilePictureUpdate? profilePictureUpdate,
   }) async {
     updateCallCount++;
+    lastFirstName = firstName;
+    lastMiddleName = middleName;
+    lastLastName = lastName;
     lastPictureUpdate = profilePictureUpdate;
     if (updateProfileError != null) {
       throw updateProfileError!;
     }
     user = User(
       id: userId,
-      fullName: fullName,
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
       email: user?.email ?? 'user@example.com',
       profilePicturePath: profilePictureUpdate == null
           ? user?.profilePicturePath
@@ -62,7 +72,9 @@ class _FakeAuthRepository implements AuthRepositoryBase {
 
   @override
   Future<User> register({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     required String email,
     required String password,
   }) async {
@@ -126,7 +138,8 @@ User _testUser({
 }) {
   return User(
     id: id,
-    fullName: 'Test User',
+    firstName: 'Test',
+    lastName: 'User',
     email: 'user@example.com',
     profilePictureUrl: profilePictureUrl,
     profilePictureStoragePath: profilePictureStoragePath,
@@ -158,7 +171,10 @@ void main() {
     test('name-only update never calls image upload or delete', () async {
       authService.seedAuthenticatedUser(_testUser());
 
-      await authService.updateProfileDetails(fullName: 'New Name');
+      await authService.updateProfileDetails(
+        firstName: 'New',
+        lastName: 'Name',
+      );
 
       expect(imageRepository.uploadCallCount, 0);
       expect(imageRepository.deleteCallCount, 0);
@@ -174,7 +190,8 @@ void main() {
         authService.addListener(() => notified = true);
 
         await authService.updateProfileDetails(
-          fullName: 'Test User',
+          firstName: 'Test',
+          lastName: 'User',
           newProfileImageBytes: Uint8List.fromList([1, 2, 3]),
           newProfileImageContentType: 'image/jpeg',
         );
@@ -203,14 +220,14 @@ void main() {
         );
 
         await authService.updateProfileDetails(
-          fullName: 'Test User',
+          firstName: 'Test',
+          lastName: 'User',
           newProfileImageBytes: Uint8List.fromList([1, 2, 3]),
           newProfileImageContentType: 'image/jpeg',
         );
 
         expect(imageRepository.deleteCallCount, 1);
         expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
-        // The newly uploaded object must never be the one deleted.
         expect(
           imageRepository.deletedPaths,
           isNot(contains('users/u1/profile/avatar_2.jpg')),
@@ -230,15 +247,14 @@ void main() {
 
       await expectLater(
         authService.updateProfileDetails(
-          fullName: 'Test User',
+          firstName: 'Test',
+          lastName: 'User',
           newProfileImageBytes: Uint8List.fromList([1, 2, 3]),
           newProfileImageContentType: 'image/jpeg',
         ),
         throwsA(isA<Exception>()),
       );
 
-      // Rolled back: only the freshly uploaded object was deleted, and
-      // the previous (still-valid) image was left untouched.
       expect(imageRepository.deleteCallCount, 1);
       expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_2.jpg']);
       expect(
@@ -253,7 +269,8 @@ void main() {
 
       await expectLater(
         authService.updateProfileDetails(
-          fullName: 'Test User',
+          firstName: 'Test',
+          lastName: 'User',
           newProfileImageBytes: Uint8List.fromList([1, 2, 3]),
           newProfileImageContentType: 'image/jpeg',
         ),

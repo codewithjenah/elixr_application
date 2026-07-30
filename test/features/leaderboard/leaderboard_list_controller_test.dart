@@ -386,16 +386,16 @@ void main() {
 
       await controller.loadInitial();
 
-        await controller.startBackgroundSync(
-          userId: 'me',
-          syncUser: () async => const LeaderboardSyncResult(
-            totalSessionsChecked: 1,
-            alreadyProcessed: 1,
-            newlyProcessed: 0,
-            failures: 0,
-            publicProfileSynced: true,
-          ),
-        );
+      await controller.startBackgroundSync(
+        userId: 'me',
+        syncUser: () async => const LeaderboardSyncResult(
+          totalSessionsChecked: 1,
+          alreadyProcessed: 1,
+          newlyProcessed: 0,
+          failures: 0,
+          publicProfileSynced: true,
+        ),
+      );
       await pumpEventQueue();
 
       expect(fake.calls, 2);

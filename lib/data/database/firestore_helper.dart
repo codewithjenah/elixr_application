@@ -33,6 +33,9 @@ class FirestoreHelper {
     final data = doc.data()!;
     return {
       'id': doc.id,
+      'first_name': data['first_name'],
+      'middle_name': data['middle_name'],
+      'last_name': data['last_name'],
       'full_name': data['full_name'],
       'email': data['email'],
       'role': data['role'],
@@ -76,6 +79,10 @@ class FirestoreHelper {
       throw ArgumentError('User id is required');
     }
     await _firestore.collection(FirestoreCollections.users).doc(user.id).set({
+      'first_name': user.firstName,
+      if (user.middleName != null && user.middleName!.isNotEmpty)
+        'middle_name': user.middleName,
+      'last_name': user.lastName,
       'full_name': user.fullName,
       'email': user.email,
       'role': user.role,

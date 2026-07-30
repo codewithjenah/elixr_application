@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/utils/user_name.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -6,6 +7,122 @@ import 'package:flutter_test/flutter_test.dart';
 /// must prefer the URL while staying backward compatible with documents
 /// written before this change.
 void main() {
+  group('UserName composition and parsing', () {
+    test('fullName composes "First Last" when middle name is blank', () {
+      const user = User(
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+      );
+
+      expect(user.fullName, 'Ada Lovelace');
+    });
+
+    test(
+      'fullName composes "First Middle Last" when middle name is present',
+      () {
+        const user = User(
+          firstName: 'Mary',
+          middleName: 'Ann',
+          lastName: 'Evans',
+          email: 'mary@example.com',
+        );
+
+        expect(user.fullName, 'Mary Ann Evans');
+      },
+    );
+
+    test('User.fromMap prefers structured fields', () {
+      final user = User.fromMap({
+        'id': 'u1',
+        'first_name': 'Ada',
+        'middle_name': 'Augusta',
+        'last_name': 'Lovelace',
+        'full_name': 'Legacy Name',
+        'email': 'ada@example.com',
+      });
+
+      expect(user.firstName, 'Ada');
+      expect(user.middleName, 'Augusta');
+      expect(user.lastName, 'Lovelace');
+      expect(user.fullName, 'Ada Augusta Lovelace');
+    });
+
+    test(
+      'User.fromMap still loads a legacy document containing only full_name',
+      () {
+        final user = User.fromMap({
+          'id': 'u1',
+          'full_name': 'Ada Augusta Lovelace',
+          'email': 'ada@example.com',
+        });
+
+        expect(user.firstName, 'Ada');
+        expect(user.middleName, 'Augusta');
+        expect(user.lastName, 'Lovelace');
+        expect(user.fullName, 'Ada Augusta Lovelace');
+      },
+    );
+
+    test('legacy one-token full_name keeps last name empty', () {
+      final user = User.fromMap({
+        'id': 'u1',
+        'full_name': 'Trainee',
+        'email': 'ada@example.com',
+      });
+
+      expect(user.firstName, 'Trainee');
+      expect(user.middleName, isNull);
+      expect(user.lastName, '');
+      expect(user.fullName, 'Trainee');
+    });
+
+    test('User.toMap writes structured fields and matching full_name', () {
+      const user = User(
+        id: 'u1',
+        firstName: 'Ada',
+        middleName: 'Augusta',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+      );
+
+      final map = user.toMap();
+
+      expect(map['first_name'], 'Ada');
+      expect(map['middle_name'], 'Augusta');
+      expect(map['last_name'], 'Lovelace');
+      expect(map['full_name'], 'Ada Augusta Lovelace');
+    });
+
+    test('normalizeUserNameParts collapses repeated whitespace', () {
+      final normalized = normalizeUserNameParts(
+        firstName: '  Ada   Marie  ',
+        middleName: '  ',
+        lastName: '  Lovelace  ',
+      );
+
+      expect(normalized.firstName, 'Ada Marie');
+      expect(normalized.middleName, isNull);
+      expect(normalized.lastName, 'Lovelace');
+      expect(normalized.fullName, 'Ada Marie Lovelace');
+    });
+
+    test('validateUserNameParts enforces required names and length', () {
+      expect(
+        validateUserNameParts(firstName: '', lastName: 'Lovelace'),
+        'First name is required.',
+      );
+      expect(
+        validateUserNameParts(firstName: 'Ada', lastName: ''),
+        'Last name is required.',
+      );
+      expect(
+        validateUserNameParts(firstName: 'A' * 40, lastName: 'B' * 41),
+        'The complete name must be 80 characters or fewer.',
+      );
+    });
+  });
+
   group('User.fromMap profile picture fields', () {
     test('parses the new Cloud Storage fields when present', () {
       final user = User.fromMap({
@@ -48,13 +165,14 @@ void main() {
 
     test('retains both fields through copyWith', () {
       const user = User(
-        fullName: 'Ada',
+        firstName: 'Ada',
+        lastName: '',
         email: 'ada@example.com',
         profilePictureUrl: 'https://storage.example/a.jpg',
         profilePictureStoragePath: 'users/u1/profile/a.jpg',
       );
 
-      final renamed = user.copyWith(fullName: 'Ada L.');
+      final renamed = user.copyWith(firstName: 'Ada', lastName: 'L.');
 
       expect(renamed.profilePictureUrl, user.profilePictureUrl);
       expect(renamed.profilePictureStoragePath, user.profilePictureStoragePath);
@@ -65,7 +183,8 @@ void main() {
     test('writes url and storage path, and omits the legacy path', () {
       const user = User(
         id: 'u1',
-        fullName: 'Ada',
+        firstName: 'Ada',
+        lastName: '',
         email: 'ada@example.com',
         profilePicturePath: r'C:\old\path.png',
         profilePictureUrl: 'https://storage.example/a.jpg',
@@ -82,7 +201,8 @@ void main() {
     test('writes the legacy path only when no URL exists yet', () {
       const user = User(
         id: 'u1',
-        fullName: 'Ada',
+        firstName: 'Ada',
+        lastName: '',
         email: 'ada@example.com',
         profilePicturePath: r'C:\old\path.png',
       );

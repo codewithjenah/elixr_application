@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
@@ -23,6 +24,10 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   int requestEmailChangeCallCount = 0;
   EmailChangeRequestResult requestEmailChangeResult =
       EmailChangeRequestResult.verificationSent;
+  String? lastFirstName;
+  String? lastMiddleName;
+  String? lastLastName;
+  Map<String, dynamic>? lastUpdateFields;
 
   @override
   Future<bool> isCurrentEmailVerified() async {
@@ -47,13 +52,25 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   @override
   Future<User> updateProfileDetails({
     required String userId,
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     ProfilePictureUpdate? profilePictureUpdate,
   }) async {
     updateCallCount++;
+    lastFirstName = firstName;
+    lastMiddleName = middleName;
+    lastLastName = lastName;
+    lastUpdateFields = {
+      'first_name': firstName,
+      'middle_name': middleName ?? FieldValue.delete(),
+      'last_name': lastName,
+    };
     _user = User(
       id: userId,
-      fullName: fullName,
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
       email: _user?.email ?? 'user@example.com',
       profilePictureUrl: profilePictureUpdate?.url ?? _user?.profilePictureUrl,
       profilePictureStoragePath:
@@ -85,7 +102,9 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
 
   @override
   Future<User> register({
-    required String fullName,
+    required String firstName,
+    String? middleName,
+    required String lastName,
     required String email,
     required String password,
   }) async {
@@ -120,7 +139,12 @@ class _NoopProfileImageRepository implements ProfileImageRepositoryBase {
 }
 
 User _testUser() {
-  return User(id: 'u1', fullName: 'Test User', email: 'user@example.com');
+  return User(
+    id: 'u1',
+    firstName: 'Test',
+    lastName: 'User',
+    email: 'user@example.com',
+  );
 }
 
 Future<void> _setSurface(
@@ -131,6 +155,26 @@ Future<void> _setSurface(
   addTearDown(() async {
     await tester.binding.setSurfaceSize(null);
   });
+}
+
+Future<void> _tapSaveChanges(WidgetTester tester) async {
+  final saveButton = find.text('Save changes');
+  await tester.scrollUntilVisible(
+    saveButton,
+    120,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.tap(saveButton);
+  await tester.pumpAndSettle();
+}
+
+Finder _profileTextBoxAt(int index) {
+  return find
+      .descendant(
+        of: find.byType(ProfileSettingsScreen),
+        matching: find.byType(TextBox),
+      )
+      .at(index);
 }
 
 void main() {
@@ -198,16 +242,80 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final nameField = find.byType(TextBox).first;
-      await tester.enterText(nameField, 'Updated Name');
-      await tester.tap(find.text('Save changes'));
-      await tester.pumpAndSettle();
+      await tester.enterText(_profileTextBoxAt(0), 'Updated');
+      await tester.enterText(_profileTextBoxAt(1), 'Name');
+      await _tapSaveChanges(tester);
 
       expect(authRepository.isCurrentEmailVerifiedCallCount, 0);
       expect(authRepository.requestCurrentEmailVerificationCallCount, 0);
       expect(authRepository.requestEmailChangeCallCount, 0);
       expect(authRepository.updateCallCount, 1);
+      expect(authRepository.lastFirstName, 'Updated');
+      expect(authRepository.lastLastName, 'Name');
       expect(find.text('Profile updated successfully.'), findsOneWidget);
+    });
+
+    testWidgets('profile save updates all name components', (tester) async {
+      authService.seedAuthenticatedUser(
+        User(
+          id: 'u1',
+          firstName: 'Ada',
+          middleName: 'Augusta',
+          lastName: 'Lovelace',
+          email: 'user@example.com',
+        ),
+      );
+
+      await _setSurface(tester);
+      await tester.pumpWidget(
+        wrap(
+          const ProfileSettingsScreen(
+            initialSection: ProfileSettingsSection.profile,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(_profileTextBoxAt(0), 'Grace');
+      await tester.enterText(_profileTextBoxAt(1), 'Hopper');
+      await tester.enterText(_profileTextBoxAt(2), 'Marie');
+      await _tapSaveChanges(tester);
+
+      expect(authRepository.lastFirstName, 'Grace');
+      expect(authRepository.lastMiddleName, 'Marie');
+      expect(authRepository.lastLastName, 'Hopper');
+      expect(authService.currentUser?.fullName, 'Grace Marie Hopper');
+    });
+
+    testWidgets('clearing middle name passes null middle name to repository', (
+      tester,
+    ) async {
+      authService.seedAuthenticatedUser(
+        User(
+          id: 'u1',
+          firstName: 'Ada',
+          middleName: 'Augusta',
+          lastName: 'Lovelace',
+          email: 'user@example.com',
+        ),
+      );
+
+      await _setSurface(tester);
+      await tester.pumpWidget(
+        wrap(
+          const ProfileSettingsScreen(
+            initialSection: ProfileSettingsSection.profile,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(_profileTextBoxAt(2), '');
+      await _tapSaveChanges(tester);
+
+      expect(authRepository.lastMiddleName, isNull);
+      expect(authService.currentUser?.middleName, isNull);
+      expect(authService.currentUser?.fullName, 'Ada Lovelace');
     });
 
     test('changed email request still invokes email-change flow', () async {

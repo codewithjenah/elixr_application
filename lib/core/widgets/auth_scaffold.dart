@@ -300,7 +300,18 @@ class _FormPanel extends StatelessWidget {
                 color: context.elixBorder.withValues(alpha: 0.5),
               ),
             ),
-            child: form,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: constraints.maxHeight.isFinite
+                        ? constraints.maxHeight
+                        : 420,
+                  ),
+                  child: SingleChildScrollView(child: form),
+                );
+              },
+            ),
           ),
         ),
       );
@@ -308,11 +319,19 @@ class _FormPanel extends StatelessWidget {
 
     return Container(
       color: isDark ? const Color(0xFF0C0C10) : const Color(0xFFFCFCFE),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-          child: form,
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xxl,
+              vertical: AppSpacing.lg,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(child: form),
+            ),
+          );
+        },
       ),
     );
   }
