@@ -210,7 +210,34 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('YOU'), findsOneWidget);
-      expect(find.textContaining('#1'), findsWidgets);
+      expect(find.text('★ Top 1'), findsOneWidget);
+    });
+
+    testWidgets('podium cards use Top labels for ranks 1 through 3', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1200, 800));
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardPodium(
+            podium: [
+              entry(id: '1', name: 'Gold Player', xp: 300),
+              entry(id: '2', name: 'Silver Player', xp: 275),
+              entry(id: '3', name: 'Bronze Player', xp: 250),
+            ],
+            currentUserId: null,
+            variant: LeaderboardPodiumVariant.full,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('★ Top 1'), findsOneWidget);
+      expect(find.text('Top 2'), findsOneWidget);
+      expect(find.text('Top 3'), findsOneWidget);
+      expect(find.text('#1'), findsNothing);
+      expect(find.text('#2'), findsNothing);
+      expect(find.text('#3'), findsNothing);
     });
 
     testWidgets('compact variant omits Top Performers title', (tester) async {
@@ -317,6 +344,7 @@ void main() {
       expect(find.text('Best Score'), findsOneWidget);
       expect(find.text('Total XP'), findsOneWidget);
       expect(find.text('Fourth'), findsOneWidget);
+      expect(find.text('#4'), findsOneWidget);
     });
 
     testWidgets(

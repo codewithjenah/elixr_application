@@ -41,6 +41,7 @@ class LeaderboardPodiumCard extends StatelessWidget {
         ? (isFirst ? 13.0 : 12.0)
         : (isFirst ? 15.0 : 13.0);
     final xpSize = compact ? (isFirst ? 14.0 : 12.0) : (isFirst ? 16.0 : 14.0);
+    final rankLabel = rank >= 1 && rank <= 3 ? 'Top $rank' : '#$rank';
 
     return Container(
       width: double.infinity,
@@ -81,7 +82,7 @@ class LeaderboardPodiumCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            isFirst ? '★ #$rank' : '#$rank',
+            isFirst ? '★ $rankLabel' : rankLabel,
             style: TextStyle(
               fontSize: compact ? 11 : 12,
               fontWeight: FontWeight.w800,
