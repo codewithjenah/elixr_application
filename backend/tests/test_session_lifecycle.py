@@ -206,6 +206,7 @@ def test_activate_reuses_same_camera_and_resets_state(monkeypatch):
     assert session._movement_state is None
     assert session._last_bottles == []
     assert session._frame_index == 0
+    assert session._hold_validator.is_confirmed is False
 
     active_msg = session.process_tick()
     assert active_msg is not None
@@ -325,6 +326,24 @@ def test_feedback_message_optional_lifecycle_fields_default_none():
     )
     assert msg.camera_ready is None
     assert msg.session_state is None
+    assert msg.hold_progress == 0.0
+    assert msg.hold_confirmed is False
     dumped = msg.model_dump()
     assert "camera_ready" in dumped
     assert "session_state" in dumped
+    assert dumped["hold_progress"] == 0.0
+    assert dumped["hold_confirmed"] is False
+
+
+def test_preview_frames_use_default_hold_values(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+
+    message = session.process_preview_frame()
+    assert message is not None
+    assert message.hold_progress == 0.0
+    assert message.hold_duration_ms == 0
+    assert message.hold_confirmed is False
+    assert message.positive_frame_ratio == 0.0
+    session.close()

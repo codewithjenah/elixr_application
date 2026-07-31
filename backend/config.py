@@ -104,6 +104,13 @@ SCORE_WARNING = -3
 SCORE_ERROR = -8
 SCORE_BASE = 70
 
+# Backend-authoritative hold confirmation (active sessions only).
+HOLD_CONFIRMATION_SECONDS = float(os.getenv("HOLD_CONFIRMATION_SECONDS", "2.5"))
+# Reject hold accumulation when evaluated frames are spaced farther apart.
+HOLD_MAX_FRAME_GAP_SECONDS = float(os.getenv("HOLD_MAX_FRAME_GAP_SECONDS", "0.35"))
+# Minimum share of positive/stable frames in the current hold segment.
+HOLD_MIN_POSITIVE_RATIO = float(os.getenv("HOLD_MIN_POSITIVE_RATIO", "0.85"))
+
 MOVEMENT_CONFIG: dict[str, dict] = {
     "Normal Grip": {"difficulty": "Easy", "requires_hands": True},
     "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True},

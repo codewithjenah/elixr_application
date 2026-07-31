@@ -341,7 +341,8 @@ Guided practice and free practice follow the same camera lifecycle. The practice
 4. **Countdown** — After the first usable frame, Flutter enters `PracticeRunPhase.countdown` and plays countdown audio/SFX.
 5. **Explicit activation** — After countdown, Flutter sends `{"action":"activate"}`. Backend transitions the prepared session to active inference (`session_state: "active"`).
 6. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active`, starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
-7. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends `{"action":"stop"}`; backend cancels the frame loop, closes detectors, and releases the shared camera (with debounce). Disconnect/navigation also stops the session and releases backend camera resources.
+7. **Hold confirmation** — The Python backend accumulates continuous positive/stable hold time during `session_state: active` and emits `hold_progress`, `hold_duration_ms`, `hold_confirmed`, and `positive_frame_ratio` on each evaluated frame. Flutter displays backend `hold_progress` and completes the movement only when `hold_confirmed` is true. Preview and countdown frames never advance hold confirmation.
+8. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends `{"action":"stop"}`; backend cancels the frame loop, closes detectors, and releases the shared camera (with debounce). Disconnect/navigation also stops the session and releases backend camera resources.
 
 Legacy compatibility: `{"action":"start", ...}` still prepares and activates immediately on the backend. New guided/free practice uses `prepare` → `activate`.
 
@@ -410,7 +411,13 @@ frame_jpeg_base64
 error_code
 camera_ready
 session_state
+hold_progress
+hold_duration_ms
+hold_confirmed
+positive_frame_ratio
 ```
+
+Hold confirmation is **backend-authoritative**. Flutter must not run a parallel client-side hold timer. During `session_state: active`, the backend tracks continuous positive/stable frames using monotonic time, resets on invalid feedback or excessive frame gaps, and sets `hold_confirmed: true` once per activated session when the configured duration is reached. Preview, unavailable, and error messages use safe hold defaults (`hold_progress: 0`, `hold_confirmed: false`).
 
 `session_state` values used today:
 

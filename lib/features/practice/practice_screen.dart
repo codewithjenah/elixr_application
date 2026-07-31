@@ -58,11 +58,6 @@ class _PracticeScreenState extends State<PracticeScreen>
   bool _connecting = false;
   String? _sessionError;
   bool _isShowingSummary = false;
-
-  static const _holdDuration = Duration(milliseconds: 2500);
-  Timer? _holdTimer;
-  DateTime? _holdStartAt;
-  double _holdProgress = 0;
   bool _movementConfirmedShowing = false;
 
   late final AnimationController _scorePulseController;
@@ -100,7 +95,6 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   @override
   void dispose() {
-    _holdTimer?.cancel();
     _feedbackSub?.cancel();
     _scorePulseController.dispose();
     _music.dispose();
@@ -113,6 +107,17 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   void _onWsStateChanged() {
+    if (_ws.connectionState == WebSocketConnectionState.disconnected ||
+        _ws.connectionState == WebSocketConnectionState.error) {
+      _music.stop();
+      _sfx.stop();
+      if (mounted) {
+        setState(() {
+          _latestFeedback = null;
+          _currentFrame = null;
+        });
+      }
+    }
     if (mounted) setState(() {});
   }
 
@@ -134,7 +139,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       _ws.sendStop();
       setState(() {
         _sessionError = feedback.feedback;
-        _latestFeedback = feedback;
+        _latestFeedback = null;
         _currentFrame = null;
       });
       return;
@@ -200,7 +205,9 @@ class _PracticeScreenState extends State<PracticeScreen>
       }
     });
 
-    _trackHold(feedback);
+    if (feedback.holdConfirmed) {
+      unawaited(_onMovementConfirmed());
+    }
 
     if (scoreChanged && _lastPulsedScore != feedback.score) {
       _lastPulsedScore = feedback.score;
@@ -215,47 +222,9 @@ class _PracticeScreenState extends State<PracticeScreen>
     _run.enterCountdown();
   }
 
-  void _trackHold(PracticeFeedback feedback) {
-    if (_movementConfirmedShowing || !_run.isTrainingActive) {
-      _resetHold();
-      return;
-    }
-
-    final isCorrect =
-        feedback.feedbackType == 'positive' &&
-        feedback.postureStatus == 'stable';
-
-    if (!isCorrect) {
-      _resetHold();
-      return;
-    }
-
-    _holdStartAt ??= DateTime.now();
-    _holdTimer ??= Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (!mounted || _holdStartAt == null || !_run.isTrainingActive) return;
-      final elapsed = DateTime.now().difference(_holdStartAt!);
-      final progress = (elapsed.inMilliseconds / _holdDuration.inMilliseconds)
-          .clamp(0.0, 1.0);
-      setState(() => _holdProgress = progress);
-      if (progress >= 1.0) _onMovementConfirmed();
-    });
-  }
-
-  void _resetHold() {
-    _holdTimer?.cancel();
-    _holdTimer = null;
-    _holdStartAt = null;
-    if (_holdProgress != 0 && mounted) {
-      setState(() => _holdProgress = 0);
-    } else {
-      _holdProgress = 0;
-    }
-  }
-
   Future<void> _onMovementConfirmed() async {
     if (_movementConfirmedShowing) return;
     _movementConfirmedShowing = true;
-    _resetHold();
 
     _ws.sendStop();
     _run.markCompleted();
@@ -344,7 +313,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _lastPulsedScore = null;
     _combo = 0;
     _bestCombo = 0;
-    _resetHold();
+    _movementConfirmedShowing = false;
   }
 
   Future<void> _cancelPreActive() async {
@@ -593,6 +562,10 @@ class _PracticeScreenState extends State<PracticeScreen>
     required bool isTrainingActive,
     required bool isCameraLive,
   }) {
+    final holdProgress = isTrainingActive
+        ? (_latestFeedback?.holdProgress ?? 0)
+        : 0.0;
+
     return TrainingCameraWorkspace(
       frameBytes: _currentFrame,
       mirrored: context.watch<SettingsService>().cameraMirrored,
@@ -609,12 +582,12 @@ class _PracticeScreenState extends State<PracticeScreen>
       overlays: Stack(
         fit: StackFit.expand,
         children: [
-          if (_holdProgress > 0 && _holdProgress < 1)
+          if (holdProgress > 0 && holdProgress < 1)
             Positioned(
               left: 0,
               right: 0,
               bottom: AppSpacing.lg,
-              child: Center(child: _HoldIndicator(progress: _holdProgress)),
+              child: Center(child: _HoldIndicator(progress: holdProgress)),
             ),
           Positioned(
             right: AppSpacing.lg,

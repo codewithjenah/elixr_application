@@ -45,6 +45,7 @@ Important fields:
 - `frame_jpeg_base64` (may be omitted on fatal errors)
 - `error_code` for machine-readable fatal states
 - `camera_ready`, `session_state` (`preparing`, `active`, `unavailable`)
+- `hold_progress`, `hold_duration_ms`, `hold_confirmed`, `positive_frame_ratio` (backend-authoritative hold confirmation during `active` only)
 
 Rules:
 
@@ -54,6 +55,7 @@ Rules:
 - Clients must use `error_code`, not parse human `feedback` text, for fatal decisions.
 - Preview frames with `session_state: preparing` are not active scored-session frames.
 - Do not start client timer/scoring UI from preview frames; wait for explicit activation.
+- Hold confirmation is backend-authoritative. Flutter displays `hold_progress` and completes only on `hold_confirmed`; do not run a parallel client-side hold timer.
 - Preserve legacy `start` and `camera_index` compatibility explicitly and test migration behavior.
 - Avoid high-frequency duplicate `prepare`, `activate`, or `stop` control messages.
 - Base64 frames are transient display data; do not persist them by default.

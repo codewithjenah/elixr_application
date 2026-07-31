@@ -17,3 +17,8 @@ class FeedbackMessage(BaseModel):
     # session_state: preparing | active | recovering | unavailable
     camera_ready: Optional[bool] = None
     session_state: Optional[str] = None
+    # Backend-authoritative hold confirmation (active sessions only).
+    hold_progress: float = 0.0
+    hold_duration_ms: int = 0
+    hold_confirmed: bool = False
+    positive_frame_ratio: float = 0.0

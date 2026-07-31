@@ -7,6 +7,7 @@ import time
 import cv2
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from assessment.hold_validator import HoldValidator
 from assessment.rule_engine import (
     evaluate_movement,
     movement_requires_hands,
@@ -185,6 +186,7 @@ class VisionSession:
         self._movement_state: dict | None = None
         self._model_checked = False
         self._lifecycle = SESSION_PREPARED
+        self._hold_validator = HoldValidator()
 
     @property
     def lifecycle(self) -> str:
@@ -224,6 +226,7 @@ class VisionSession:
 
         self._ensure_detectors()
         self.scorer.reset()
+        self._hold_validator.activate()
         self._prev_hip_center = None
         self._movement_state = None
         self._last_bottles = []
@@ -346,6 +349,13 @@ class VisionSession:
 
         self.scorer.record(rule_result.feedback_type)
 
+        hold = self._hold_validator.update(
+            feedback_type=rule_result.feedback_type,
+            posture_status=rule_result.posture_status,
+            session_active=self.is_active,
+            timestamp=time.monotonic(),
+        )
+
         annotated = annotate_frame(
             frame,
             bottles,
@@ -376,6 +386,10 @@ class VisionSession:
             frame_jpeg_base64=frame_b64,
             camera_ready=True,
             session_state="active",
+            hold_progress=hold.hold_progress,
+            hold_duration_ms=hold.hold_duration_ms,
+            hold_confirmed=hold.hold_confirmed,
+            positive_frame_ratio=hold.positive_frame_ratio,
         )
 
     def process_tick(self) -> FeedbackMessage | None:
@@ -387,6 +401,7 @@ class VisionSession:
 
     def close(self) -> None:
         self._lifecycle = SESSION_CLOSED
+        self._hold_validator.reset()
         self.camera.release()
         if self.hands_detector is not None:
             self.hands_detector.close()

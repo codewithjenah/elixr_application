@@ -13,6 +13,10 @@ class PracticeFeedback {
     this.errorCode,
     this.cameraReady,
     this.sessionState,
+    this.holdProgress = 0,
+    this.holdDurationMs = 0,
+    this.holdConfirmed = false,
+    this.positiveFrameRatio = 0,
   });
 
   final bool bottleDetected;
@@ -29,6 +33,12 @@ class PracticeFeedback {
 
   /// Optional: preparing | active | recovering | unavailable
   final String? sessionState;
+
+  /// Backend-authoritative hold confirmation (active sessions only).
+  final double holdProgress;
+  final int holdDurationMs;
+  final bool holdConfirmed;
+  final double positiveFrameRatio;
 
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
@@ -58,6 +68,11 @@ class PracticeFeedback {
       errorCode: json['error_code'] as String?,
       cameraReady: json['camera_ready'] as bool?,
       sessionState: json['session_state'] as String?,
+      holdProgress: (json['hold_progress'] as num?)?.toDouble() ?? 0,
+      holdDurationMs: json['hold_duration_ms'] as int? ?? 0,
+      holdConfirmed: json['hold_confirmed'] as bool? ?? false,
+      positiveFrameRatio:
+          (json['positive_frame_ratio'] as num?)?.toDouble() ?? 0,
     );
   }
 }

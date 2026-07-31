@@ -66,7 +66,7 @@ Do not silently ignore malformed frames without considering observability. The c
 - Persist explicit camera choice through `SettingsService` as `camera_device_id` (plus a cached `camera_display_name` for UI only). `null` means Auto-select.
 - Do not persist an OpenCV runtime index as a permanent physical-camera identity. Legacy `camera_index` exists only for one-time migration via `migrateLegacyCameraIndex`.
 - When a saved `camera_device_id` is no longer discoverable, keep the saved preference visible with a warning; do not silently switch to another device.
-- Practice screens use `PracticeRunController` phases: `preparingCamera` → `countdown` → `active`. Gate countdown behind the first inbound preview JPEG during `preparingCamera`. Gate the elapsed timer, scoring UI, combo/hold logic, and music behind `active` after `sendActivate`.
+- Practice screens use `PracticeRunController` phases: `preparingCamera` → `countdown` → `active`. Gate countdown behind the first inbound preview JPEG during `preparingCamera`. Gate the elapsed timer, scoring UI, combo logic, and music behind `active` after `sendActivate`. Hold confirmation is backend-authoritative: display `hold_progress` and complete only on `hold_confirmed` from active-session feedback.
 - Do not advance the practice timer while waiting for the first usable preview frame or during countdown.
 - Send `sendPrepare` once per start attempt; send `sendActivate` once after countdown; use `sendStop` for cancel/stop/teardown. Guard against duplicate commands from rebuilds or repeated clicks.
 - On navigation or dispose, cancel timers/subscriptions, stop WebSocket sessions, stop audio, and clear preview state deterministically.
