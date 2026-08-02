@@ -233,6 +233,22 @@ def test_unknown_movement_helper_rejects_coming_soon_route():
     assert difficulty == "Easy"
 
 
+def test_one_finger_stall_registry_accepts_medium_only():
+    assert validate_movement_name("One Finger Stall") is None
+
+    difficulty, error = validate_movement_difficulty(
+        "One Finger Stall",
+        "Medium",
+    )
+    assert (difficulty, error) == ("Medium", None)
+
+    difficulty, error = validate_movement_difficulty(
+        "One Finger Stall",
+        "Easy",
+    )
+    assert (difficulty, error) == ("Medium", "difficulty_mismatch")
+
+
 def test_dual_camera_selection_rejected():
     with pytest.raises(ValidationError):
         PrepareCommand.model_validate(

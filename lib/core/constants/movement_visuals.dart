@@ -8,6 +8,7 @@ abstract final class MovementVisuals {
     'Reverse Grip': '🖐️',
     'Claw Grip': '🦅',
     'Hand Stall': '✋',
+    'One Finger Stall': '☝️',
     'Forearm Stall': '💪',
     'Elbow Stall': '🦾',
     'Reverse Forearm Stall': '🆙',

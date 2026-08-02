@@ -54,13 +54,33 @@ void main() {
       expect(easy.any((m) => m.name == 'Claw Grip'), isTrue);
     });
 
-    test('catalog contains ten movements', () {
-      expect(movementCatalog.length, 10);
+    test('contains exactly one enabled One Finger Stall on Medium', () {
+      final oneFinger = movementCatalog
+          .where((m) => m.name == 'One Finger Stall')
+          .toList();
+      expect(oneFinger.length, 1);
+      expect(oneFinger.first.enabled, isTrue);
+      expect(oneFinger.first.difficulty, 'Medium');
+      expect(oneFinger.first.requiresHandsDetection, isTrue);
+    });
+
+    test('Medium movements include One Finger Stall', () {
+      final medium = movementsByDifficulty('Medium');
+      expect(medium.any((m) => m.name == 'One Finger Stall'), isTrue);
+    });
+
+    test('catalog contains eleven movements', () {
+      expect(movementCatalog.length, 11);
     });
 
     test('Claw Grip has a dedicated emoji mapping', () {
       expect(MovementVisuals.emojiFor('Claw Grip'), '🦅');
       expect(MovementVisuals.emojiFor('Claw Grip'), isNot('🍾'));
+    });
+
+    test('One Finger Stall has a dedicated emoji mapping', () {
+      expect(MovementVisuals.emojiFor('One Finger Stall'), '☝️');
+      expect(MovementVisuals.emojiFor('One Finger Stall'), isNot('🍾'));
     });
   });
 

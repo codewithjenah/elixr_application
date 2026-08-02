@@ -2303,3 +2303,357 @@ def test_bottle_detection_bottom_center_normalized():
     assert bottom.y == pytest.approx(180 / 480)
     center = bottle.center_normalized(640, 480)
     assert bottom.y > center.y
+
+
+def _one_finger_hand(
+    *,
+    x: float = 0.50,
+    tip_y: float = 0.35,
+    handedness: str = "Right",
+    mirrored: bool = False,
+    other_fingers_extended: int = 0,
+    overrides: dict[int, Point2D] | None = None,
+    missing: tuple[int, ...] = (),
+) -> HandLandmarks:
+    points = {
+        0: Point2D(x, tip_y + 0.28),
+        5: Point2D(x, tip_y + 0.20),
+        6: Point2D(x, tip_y + 0.13),
+        7: Point2D(x, tip_y + 0.06),
+        8: Point2D(x, tip_y),
+        9: Point2D(x + 0.035, tip_y + 0.19),
+        12: Point2D(x + 0.035, tip_y + 0.21),
+        13: Point2D(x + 0.070, tip_y + 0.20),
+        16: Point2D(x + 0.070, tip_y + 0.22),
+        17: Point2D(x + 0.105, tip_y + 0.19),
+        20: Point2D(x + 0.105, tip_y + 0.21),
+    }
+
+    if mirrored:
+        points = {
+            index: Point2D(1.0 - point.x, point.y)
+            for index, point in points.items()
+        }
+
+    other_pairs = ((9, 12), (13, 16), (17, 20))
+    for mcp_index, tip_index in other_pairs[:other_fingers_extended]:
+        mcp = points[mcp_index]
+        points[tip_index] = Point2D(mcp.x, tip_y - 0.02)
+
+    if overrides:
+        points.update(overrides)
+    for index in missing:
+        points.pop(index, None)
+
+    return HandLandmarks(points=points, handedness=handedness)
+
+
+def _bottle_on_index_tip(
+    hand: HandLandmarks,
+    *,
+    offset: tuple[float, float] = (0.0, 0.0),
+    width: int = 40,
+    height: int = 80,
+) -> BottleDetection:
+    tip = hand.points[8]
+    base_x = tip.x + offset[0]
+    base_y = tip.y + offset[1]
+    bx = int(round(base_x * 640))
+    by = int(round(base_y * 480))
+    return BottleDetection(
+        x1=bx - width // 2,
+        y1=by - height,
+        x2=bx + width // 2,
+        y2=by,
+        confidence=0.9,
+    )
+
+
+def _evaluate_one_finger(
+    bottle: BottleDetection | None,
+    hands: HandsResult | None,
+    state: dict | None = None,
+    *,
+    prop_type: str = "bottle",
+):
+    return evaluate_movement(
+        "One Finger Stall",
+        bottle,
+        None,
+        hands,
+        None,
+        state,
+        prop_type=prop_type,
+    )
+
+
+def test_one_finger_stall_accepts_right_hand_reference_geometry():
+    hand = _one_finger_hand(handedness="Right")
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback == "One finger stall locked in."
+
+
+def test_one_finger_stall_accepts_left_mirrored_geometry():
+    hand = _one_finger_hand(
+        x=0.36,
+        handedness="Left",
+        mirrored=True,
+    )
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+
+
+def test_one_finger_stall_accepts_unknown_handedness():
+    hand = _one_finger_hand(handedness="Unknown")
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+
+
+def test_one_finger_stall_selects_nearest_index_tip_regardless_of_hand_order():
+    supporting_hand = _one_finger_hand(x=0.34, handedness="Left")
+    distant_hand = _one_finger_hand(x=0.72, handedness="Right")
+    bottle = _bottle_on_index_tip(supporting_hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[distant_hand, supporting_hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+
+
+def test_one_finger_stall_rejects_missing_hand():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(bottle, HandsResult(hands=[]))
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == "Keep your index finger fully visible."
+
+
+def test_one_finger_stall_rejects_incomplete_required_index_landmarks():
+    hand = _one_finger_hand(missing=(6,))
+    bottle = _bottle_on_index_tip(
+        _one_finger_hand(),
+    )
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == "Keep your index finger fully visible."
+
+
+def test_one_finger_stall_rejects_curled_or_bent_index():
+    hand = _one_finger_hand(
+        overrides={
+            6: Point2D(0.56, 0.48),
+        }
+    )
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == "Extend one index finger straight."
+
+
+def test_one_finger_stall_rejects_open_palm_with_too_many_extended_fingers():
+    hand = _one_finger_hand(other_fingers_extended=3)
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.feedback == (
+        "Curl your other fingers and keep only the index finger extended."
+    )
+
+
+def test_one_finger_stall_allows_one_other_extended_finger():
+    hand = _one_finger_hand(other_fingers_extended=1)
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+
+
+def test_one_finger_stall_ignores_missing_optional_other_finger_landmarks():
+    hand = _one_finger_hand(missing=(9, 12, 13, 16, 17, 20))
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+
+
+def test_one_finger_stall_rejects_tilted_or_wide_prop_bbox():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand, width=100, height=60)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert "upright" in result.feedback.lower()
+
+
+def test_one_finger_stall_rejects_prop_horizontally_away_from_fingertip():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand, offset=(0.08, 0.0))
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.feedback == "Center the bottle over your index fingertip."
+
+
+def test_one_finger_stall_rejects_prop_clearly_below_fingertip():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand, offset=(0.0, 0.05))
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.feedback == "Place the bottle base on the tip of your index finger."
+
+
+def test_one_finger_stall_rejects_excessive_fingertip_distance():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand, offset=(0.06, -0.09))
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.feedback == "Place the bottle base on the tip of your index finger."
+
+
+def test_one_finger_stall_rejects_unstable_bottle_history():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand)
+    state = None
+    for index in range(6):
+        moving = _bottle_on_index_tip(
+            hand,
+            offset=(index * 0.05, 0.0),
+        )
+        state, _ = track_bottle_stability(state, moving)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        state,
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.feedback == "Hold the bottle steady on one finger."
+
+
+def test_one_finger_stall_accepts_valid_stable_history():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, state = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+    assert "bottle_history" in state
+
+
+def test_one_finger_stall_uses_selected_cocktail_shaker_feedback():
+    result, _, _ = _evaluate_one_finger(
+        None,
+        HandsResult(hands=[]),
+        prop_type="shaker",
+    )
+
+    assert result.feedback_type == "error"
+    assert "Cocktail Shaker not detected" in result.feedback
+    assert "bottle" not in result.feedback.lower()
+
+
+def test_one_finger_stall_registry_and_requirements():
+    assert movement_requires_hands("One Finger Stall") is True
+    assert movement_requires_pose("One Finger Stall") is False
+
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand)
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+    assert "coming soon" not in result.feedback.lower()
+
+
+def test_one_finger_stall_invalid_geometry_does_not_update_history():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand, offset=(0.08, 0.0))
+    state = _stable_state(_bottle_on_index_tip(hand))
+
+    result, _, returned_state = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        state,
+    )
+
+    assert result.feedback_type == "warning"
+    assert returned_state is state

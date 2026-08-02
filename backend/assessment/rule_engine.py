@@ -10,6 +10,7 @@ from assessment.rules import (
     elbow_stall,
     hand_stall,
     normal_grip,
+    one_finger_stall,
     reverse_grip,
     shoulder_stall,
     upper_forearm_stall,
@@ -26,6 +27,7 @@ _RULES: dict[str, EvaluateFn] = {
     "Reverse Grip": reverse_grip.evaluate,
     "Claw Grip": claw_grip.evaluate,
     "Hand Stall": hand_stall.evaluate,
+    "One Finger Stall": one_finger_stall.evaluate,
     "Forearm Stall": arm_stall.evaluate,
     "Elbow Stall": elbow_stall.evaluate,
     "Reverse Forearm Stall": upper_forearm_stall.evaluate,
@@ -35,7 +37,13 @@ _RULES: dict[str, EvaluateFn] = {
     "Shoulder Stall": shoulder_stall.evaluate,
     "Double Hand Stall": double_hand_stall.evaluate,
 }
-_PROP_AWARE_MOVEMENTS = {"Hand Stall", "Forearm Stall", "Elbow Stall", "Arm Stall"}
+_PROP_AWARE_MOVEMENTS = {
+    "Hand Stall",
+    "One Finger Stall",
+    "Forearm Stall",
+    "Elbow Stall",
+    "Arm Stall",
+}
 
 
 def movement_requires_hands(movement: str) -> bool:

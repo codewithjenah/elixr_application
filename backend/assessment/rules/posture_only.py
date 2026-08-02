@@ -26,6 +26,10 @@ _POSTURE_SUCCESS: dict[str, str] = {
         "Enable bottle detection for complete scoring."
     ),
     "Hand Stall": "Hand looks steady. Enable bottle detection for stall scoring.",
+    "One Finger Stall": (
+        "Index finger looks ready for a one finger stall. "
+        "Enable bottle detection for complete scoring."
+    ),
     "Forearm Stall": "Forearm looks steady. Enable bottle detection for stall scoring.",
     "Elbow Stall": "Elbow looks steady. Enable bottle detection for stall scoring.",
     "Reverse Forearm Stall": (
@@ -102,7 +106,13 @@ def evaluate_posture_only(
             movement,
             "Hand looks ready. Enable bottle detection for full movement scoring.",
         )
-    elif movement in {"Hand Stall", "Forearm Stall", "Arm Stall", "Elbow Stall"}:
+    elif movement in {
+        "Hand Stall",
+        "One Finger Stall",
+        "Forearm Stall",
+        "Arm Stall",
+        "Elbow Stall",
+    }:
         message = (
             "Posture looks ready. Enable prop detection for stall scoring."
         )

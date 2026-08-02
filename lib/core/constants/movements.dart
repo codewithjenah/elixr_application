@@ -38,6 +38,14 @@ const movementCatalog = <Movement>[
     enabled: true,
   ),
   Movement(
+    name: 'One Finger Stall',
+    difficulty: 'Medium',
+    description:
+        'Balance the selected prop upright on one extended index finger.',
+    requiresHandsDetection: true,
+    enabled: true,
+  ),
+  Movement(
     name: 'Forearm Stall',
     difficulty: 'Medium',
     description: 'Balance the bottle on your forearm.',

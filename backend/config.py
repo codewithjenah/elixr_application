@@ -84,6 +84,18 @@ HAND_STALL_MAX_HORIZONTAL_OFFSET = 0.09
 # Reject when bottle bottom-center sits clearly below the palm (image y).
 HAND_STALL_BELOW_PALM_REJECT = 0.03
 
+# One Finger Stall: one upright prop balanced on an extended index fingertip.
+# All positional values use normalized image coordinates (0-1).
+ONE_FINGER_STALL_UPRIGHT_ASPECT_RATIO = 1.25
+ONE_FINGER_STALL_INDEX_EXTENSION_RATIO = 1.30
+ONE_FINGER_STALL_MIN_STRAIGHT_ANGLE_DEG = 145.0
+ONE_FINGER_STALL_OTHER_FINGER_EXTENSION_RATIO = 1.15
+ONE_FINGER_STALL_MAX_OTHER_EXTENDED_FINGERS = 1
+ONE_FINGER_STALL_BASE_TO_INDEX_TIP = 0.10
+ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET = 0.07
+# Reject when the prop bottom-center sits clearly below the fingertip (image y).
+ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT = 0.035
+
 # Double Hand Stall: two upright bottles, one on each open palm.
 # All geometry thresholds use normalized image coordinates (0-1).
 # Values are intentionally conservative across typical webcam distances.
@@ -118,6 +130,11 @@ MOVEMENT_CONFIG: dict[str, dict] = {
     "Reverse Grip": {"difficulty": "Easy", "requires_hands": True},
     "Claw Grip": {"difficulty": "Easy", "requires_hands": True},
     "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": False},
+    "One Finger Stall": {
+        "difficulty": "Medium",
+        "requires_hands": True,
+        "requires_pose": False,
+    },
     "Forearm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Elbow Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
     "Reverse Forearm Stall": {
