@@ -65,6 +65,54 @@ def movement_is_easy(movement: str) -> bool:
     return cfg is not None and cfg.get("difficulty") == "Easy"
 
 
+def is_known_movement(movement: str) -> bool:
+    """Return True when ``movement`` is registered in MOVEMENT_CONFIG."""
+    return movement in MOVEMENT_CONFIG
+
+
+def validate_movement_name(movement: str) -> str | None:
+    """Validate a movement name against the public registry.
+
+    Returns an error code, or ``None`` when valid. Unknown names must not be
+    silently routed to the ``coming_soon`` evaluator for protocol v1 commands.
+    """
+    if not isinstance(movement, str) or not movement.strip():
+        return "invalid_movement"
+    if movement not in MOVEMENT_CONFIG:
+        return "invalid_movement"
+    return None
+
+
+def configured_difficulty(movement: str) -> str | None:
+    """Return the authoritative difficulty for a known movement, else None."""
+    cfg = MOVEMENT_CONFIG.get(movement)
+    if cfg is None:
+        return None
+    difficulty = cfg.get("difficulty")
+    return str(difficulty) if difficulty is not None else None
+
+
+def validate_movement_difficulty(
+    movement: str,
+    difficulty: str,
+) -> tuple[str | None, str | None]:
+    """Validate movement + difficulty for protocol v1.
+
+    Returns ``(authoritative_difficulty, error_code)``.
+    On success ``error_code`` is ``None`` and difficulty is the configured value.
+    """
+    movement_error = validate_movement_name(movement)
+    if movement_error is not None:
+        return None, movement_error
+
+    expected = configured_difficulty(movement)
+    if expected is None:
+        return None, "invalid_movement"
+    if difficulty != expected:
+        return expected, "difficulty_mismatch"
+    return expected, None
+
+
 def evaluate_movement(
     movement: str,
     bottle: Optional[BottleDetection],

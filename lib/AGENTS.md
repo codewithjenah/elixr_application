@@ -36,18 +36,27 @@ Do not replace these technologies or introduce a second state-management, routin
 
 ## WebSocket client
 
-The contract is shared with the Python backend.
+The contract is shared with the Python backend. Protocol version `1` is the
+current Flutter command format (`protocol_version`, `request_id`, `session_id`).
 
 When changing a message field or action:
 
-1. Update `PracticeFeedback.fromJson` or the relevant Dart model.
-2. Update `WebSocketService` send/receive behavior.
-3. Update the Pydantic schema and backend producer.
+1. Update `PracticeFeedback` / `ws_protocol.dart` transport models.
+2. Update `WebSocketService` send/receive and acknowledgment tracking.
+3. Update the Pydantic schemas and backend producer.
 4. Define defaults and malformed-message behavior.
 5. Add or update tests where practical.
 6. Document compatibility implications.
 
-Do not silently ignore malformed frames without considering observability. The current client intentionally ignores malformed frames; any change should preserve app stability while making debugging possible when appropriate.
+Flutter must not mark a session prepared or active merely because a command was
+sent. `sessionPrepared` / `sessionActive` advance only from a matching
+backend `command_ack` or authoritative feedback for the current `session_id`.
+Pending commands are tracked by `request_id` with bounded timeouts and must be
+completed on acknowledgment, rejection, timeout, disconnect, or dispose.
+
+Malformed or unknown inbound messages must remain non-fatal and observable via
+`lastProtocolError` / `protocolErrorStream` (not silent swallow, not modal spam).
+Legacy feedback frames without `message_type` still parse as feedback.
 
 ## Firebase and models
 
@@ -66,9 +75,9 @@ Do not silently ignore malformed frames without considering observability. The c
 - Persist explicit camera choice through `SettingsService` as `camera_device_id` (plus a cached `camera_display_name` for UI only). `null` means Auto-select.
 - Do not persist an OpenCV runtime index as a permanent physical-camera identity. Legacy `camera_index` exists only for one-time migration via `migrateLegacyCameraIndex`.
 - When a saved `camera_device_id` is no longer discoverable, keep the saved preference visible with a warning; do not silently switch to another device.
-- Practice screens use `PracticeRunController` phases: `preparingCamera` → `countdown` → `active`. Gate countdown behind the first inbound preview JPEG during `preparingCamera`. Gate the elapsed timer, scoring UI, combo logic, and music behind `active` after `sendActivate`. Hold confirmation is backend-authoritative: display `hold_progress` and complete only on `hold_confirmed` from active-session feedback.
+- Practice screens use `PracticeRunController` phases: `preparingCamera` → `countdown` → `active`. Gate countdown behind accepted prepare plus the first inbound preview JPEG during `preparingCamera`. Gate the elapsed timer, scoring UI, combo logic, and music behind accepted `sendActivate` (or matching authoritative active feedback). Hold confirmation is backend-authoritative: display `hold_progress` and complete only on `hold_confirmed` from active-session feedback.
 - Do not advance the practice timer while waiting for the first usable preview frame or during countdown.
-- Send `sendPrepare` once per start attempt; send `sendActivate` once after countdown; use `sendStop` for cancel/stop/teardown. Guard against duplicate commands from rebuilds or repeated clicks.
+- Await `sendPrepare` / `sendActivate` / `sendStop` acknowledgments; do not start countdown merely because prepare was sent. Guard against duplicate commands from rebuilds or repeated clicks while a command is in flight.
 - On navigation or dispose, cancel timers/subscriptions, stop WebSocket sessions, stop audio, and clear preview state deterministically.
 - Preserve actionable UI for backend-unavailable, selected-camera-unavailable, preparation-timeout, and no-usable-camera errors. Use `error_code` from `PracticeFeedback` for machine decisions.
 - Preserve deterministic audio stop/dispose behavior, especially around Windows navigation and teardown.

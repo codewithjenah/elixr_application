@@ -10,6 +10,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/ws_protocol.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
@@ -42,6 +43,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _connecting = false;
   String? _sessionError;
   bool _leaving = false;
+  bool _commandInFlight = false;
 
   static const _wideBreakpoint = 1100.0;
   static const _panelWidth = 370.0;
@@ -87,7 +89,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: true,
         fatalMessage: feedback.feedback,
       );
-      _ws.sendStop();
+      unawaited(_ws.sendStop());
       setState(() {
         _sessionError = feedback.feedback;
         _currentFrame = null;
@@ -151,6 +153,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       _connect();
       return;
     }
+    if (_commandInFlight) return;
     if (_run.phase != PracticeRunPhase.idle &&
         _run.phase != PracticeRunPhase.error) {
       return;
@@ -171,19 +174,56 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     final settings = context.read<SettingsService>();
     // A generic movement keeps the vision pipeline (camera + detection
     // overlays) running; the user practices freely and nothing is scored.
-    _ws.sendPrepare(
-      movement: 'Normal Grip',
-      difficulty: 'Easy',
-      cameraDeviceId: cameraDeviceId,
-      legacyCameraIndex: cameraDeviceId == null
-          ? settings.pendingLegacyCameraIndex
-          : null,
-    );
+    _commandInFlight = true;
+    try {
+      final ack = await _ws.sendPrepare(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        cameraDeviceId: cameraDeviceId,
+        legacyCameraIndex: cameraDeviceId == null
+            ? settings.pendingLegacyCameraIndex
+            : null,
+      );
+      if (!mounted) return;
+      if (!_run.isPreparingCamera) return;
+
+      if (!ack.accepted) {
+        final message =
+            ack.message ?? ack.errorCode ?? 'Camera preparation was rejected.';
+        _run.onPreviewFeedback(
+          hasJpegFrame: false,
+          isFatal: true,
+          fatalMessage: message,
+        );
+        unawaited(_ws.sendStop());
+        setState(() {
+          _sessionError = message;
+          _currentFrame = null;
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is CommandTimeoutException
+          ? 'Camera preparation timed out. Check the backend and try again.'
+          : 'Camera preparation failed. Check the backend and try again.';
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: message,
+      );
+      unawaited(_ws.sendStop());
+      setState(() {
+        _sessionError = message;
+        _currentFrame = null;
+      });
+    } finally {
+      _commandInFlight = false;
+    }
   }
 
   void _onPreparationTimeout() {
     if (!mounted) return;
-    _ws.sendStop();
+    unawaited(_ws.sendStop());
     unawaited(_music.stop());
     unawaited(_sfx.stop());
     setState(() {
@@ -195,21 +235,61 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   Future<void> _beginSessionAfterCountdown() async {
     if (!mounted) return;
     if (!_run.isCountdown) return;
+    if (_commandInFlight) return;
     if (!_ws.isConnected) {
       _run.cancelToIdle();
       _connect();
       return;
     }
 
-    _ws.sendActivate();
-    _run.enterActive();
-    _sfx.stop();
-    _music.start();
-    if (mounted) setState(() {});
+    _commandInFlight = true;
+    try {
+      final ack = await _ws.sendActivate();
+      if (!mounted) return;
+      if (!_run.isCountdown) return;
+
+      if (!ack.accepted) {
+        final message =
+            ack.message ?? ack.errorCode ?? 'Session activation was rejected.';
+        _run.onPreviewFeedback(
+          hasJpegFrame: false,
+          isFatal: true,
+          fatalMessage: message,
+        );
+        unawaited(_ws.sendStop());
+        setState(() {
+          _sessionError = message;
+          _currentFrame = null;
+        });
+        return;
+      }
+
+      _run.enterActive();
+      _sfx.stop();
+      _music.start();
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is CommandTimeoutException
+          ? 'Session activation timed out. Try starting again.'
+          : 'Session activation failed. Try starting again.';
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: message,
+      );
+      unawaited(_ws.sendStop());
+      setState(() {
+        _sessionError = message;
+        _currentFrame = null;
+      });
+    } finally {
+      _commandInFlight = false;
+    }
   }
 
   Future<void> _cancelPreActive() async {
-    _ws.sendStop();
+    unawaited(_ws.sendStop());
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
@@ -228,7 +308,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       return;
     }
 
-    _ws.sendStop();
+    unawaited(_ws.sendStop());
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
@@ -249,7 +329,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _feedbackSub = null;
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
-    _ws.sendStop();
+    unawaited(_ws.sendStop());
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
@@ -402,7 +482,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                     TrainingActionKind.retry || TrainingActionKind.start =>
                       _ws.isConnected ? _startSession : _connect,
                   },
-                  isLoading: _connecting,
+                  isLoading: _connecting || _commandInFlight,
                 ),
               );
 

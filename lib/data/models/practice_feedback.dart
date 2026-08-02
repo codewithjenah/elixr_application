@@ -17,6 +17,9 @@ class PracticeFeedback {
     this.holdDurationMs = 0,
     this.holdConfirmed = false,
     this.positiveFrameRatio = 0,
+    this.protocolVersion,
+    this.messageType,
+    this.sessionId,
   });
 
   final bool bottleDetected;
@@ -39,6 +42,11 @@ class PracticeFeedback {
   final int holdDurationMs;
   final bool holdConfirmed;
   final double positiveFrameRatio;
+
+  /// Optional protocol v1 envelope fields (absent on legacy frames).
+  final int? protocolVersion;
+  final String? messageType;
+  final String? sessionId;
 
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
@@ -73,6 +81,9 @@ class PracticeFeedback {
       holdConfirmed: json['hold_confirmed'] as bool? ?? false,
       positiveFrameRatio:
           (json['positive_frame_ratio'] as num?)?.toDouble() ?? 0,
+      protocolVersion: json['protocol_version'] as int?,
+      messageType: json['message_type'] as String?,
+      sessionId: json['session_id'] as String?,
     );
   }
 }

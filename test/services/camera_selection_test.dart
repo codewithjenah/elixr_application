@@ -12,9 +12,14 @@ void main() {
       final payload = WebSocketService.buildStartPayload(
         movement: 'Hand Stall',
         difficulty: 'Medium',
+        sessionId: 'session-1',
+        requestId: 'req-1',
       );
 
       expect(payload['action'], 'start');
+      expect(payload['protocol_version'], 1);
+      expect(payload['session_id'], 'session-1');
+      expect(payload['request_id'], 'req-1');
       expect(payload['movement'], 'Hand Stall');
       expect(payload['difficulty'], 'Medium');
       expect(payload['bottle_detection_enabled'], isTrue);
@@ -28,6 +33,8 @@ void main() {
         movement: 'Normal Grip',
         difficulty: 'Easy',
         cameraDeviceId: r'\\?\usb#vid_1234&pid_5678',
+        sessionId: 'session-2',
+        requestId: 'req-2',
       );
 
       expect(payload['camera_device_id'], r'\\?\usb#vid_1234&pid_5678');
@@ -39,8 +46,11 @@ void main() {
         movement: 'Normal Grip',
         difficulty: 'Easy',
         cameraDeviceId: 'dev-b',
+        sessionId: 'session-3',
+        requestId: 'req-3',
       );
       expect(payload['action'], 'prepare');
+      expect(payload['protocol_version'], 1);
       expect(payload['camera_device_id'], 'dev-b');
       expect(payload.containsKey('camera_index'), isFalse);
     });
@@ -50,6 +60,8 @@ void main() {
         movement: 'Normal Grip',
         difficulty: 'Easy',
         legacyCameraIndex: 1,
+        sessionId: 'session-4',
+        requestId: 'req-4',
       );
       expect(payload.containsKey('camera_device_id'), isFalse);
       expect(payload['camera_index'], 1);

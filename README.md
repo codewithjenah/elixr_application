@@ -336,24 +336,27 @@ Guided practice and free practice follow the same camera lifecycle. The practice
 ### End-to-end flow
 
 1. **Backend connection** — Flutter connects to `ws://127.0.0.1:8000/ws` (`WebSocketConnectionState.connected`).
-2. **Camera/session preparation** — Flutter sends `{"action":"prepare", ...}` with movement, difficulty, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). Backend opens the camera and streams preview frames with `session_state: "preparing"` without scoring.
-3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout).
+2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring.
+3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout). Countdown must not start merely because prepare was sent.
 4. **Countdown** — After the first usable frame, Flutter enters `PracticeRunPhase.countdown` and plays countdown audio/SFX.
-5. **Explicit activation** — After countdown, Flutter sends `{"action":"activate"}`. Backend transitions the prepared session to active inference (`session_state: "active"`).
-6. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active`, starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
+5. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. Backend activates only the matching prepared session and returns `command_ack` with `session_state: "active"`.
+6. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active` only after accepted activation (or matching authoritative active feedback), starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
 7. **Hold confirmation** — The Python backend accumulates continuous positive/stable hold time during `session_state: active` and emits `hold_progress`, `hold_duration_ms`, `hold_confirmed`, and `positive_frame_ratio` on each evaluated frame. Flutter displays backend `hold_progress` and completes the movement only when `hold_confirmed` is true. Preview and countdown frames never advance hold confirmation.
-8. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends `{"action":"stop"}`; backend cancels the frame loop, closes detectors, and releases the shared camera (with debounce). Disconnect/navigation also stops the session and releases backend camera resources.
+8. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends protocol v1 `stop` for the current `session_id`; backend cancels the frame loop, closes detectors, and releases the shared camera (with debounce). A stale `session_id` cannot stop a newer session. Disconnect/navigation also stops the session and releases backend camera resources.
 
-Legacy compatibility: `{"action":"start", ...}` still prepares and activates immediately on the backend. New guided/free practice uses `prepare` → `activate`.
+Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided/free practice uses protocol v1 `prepare` → `activate`.
 
 ### WebSocket contract
 
-Flutter sends control messages such as:
+Primary protocol for new Flutter clients is **version 1**.
 
 Prepare (preview only):
 
 ```json
 {
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
   "action": "prepare",
   "movement": "Hand Stall",
   "difficulty": "Medium",
@@ -362,42 +365,47 @@ Prepare (preview only):
 }
 ```
 
-Auto-select (omit legacy index):
-
-```json
-{
-  "action": "prepare",
-  "movement": "Hand Stall",
-  "difficulty": "Medium",
-  "bottle_detection_enabled": true,
-  "camera_device_id": null
-}
-```
-
 Activate after countdown:
 
 ```json
-{ "action": "activate" }
+{
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "activate"
+}
 ```
 
 Stop:
 
 ```json
-{ "action": "stop" }
-```
-
-Legacy immediate start:
-
-```json
 {
-  "action": "start",
-  "movement": "Hand Stall",
-  "difficulty": "Medium",
-  "bottle_detection_enabled": true
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "stop"
 }
 ```
 
-The backend returns the Pydantic `FeedbackMessage` payload. Important fields include:
+Every version-1 command receives a correlated acknowledgment:
+
+```json
+{
+  "protocol_version": 1,
+  "message_type": "command_ack",
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "activate",
+  "accepted": true,
+  "session_state": "active",
+  "error_code": null,
+  "message": null
+}
+```
+
+Malformed JSON or payloads without a usable `request_id` receive `message_type: "protocol_error"` and the connection stays open.
+
+Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields:
 
 ```text
 bottle_detected
@@ -417,12 +425,15 @@ hold_confirmed
 positive_frame_ratio
 ```
 
+Flutter treats missing `message_type` as legacy feedback. Flutter session flags advance only from matching acknowledgments/feedback for the current `session_id`, never from merely sending a command.
+
 Hold confirmation is **backend-authoritative**. Flutter must not run a parallel client-side hold timer. During `session_state: active`, the backend tracks continuous positive/stable frames using monotonic time, resets on invalid feedback or excessive frame gaps, and sets `hold_confirmed: true` once per activated session when the configured duration is reached. Preview, unavailable, and error messages use safe hold defaults (`hold_progress: 0`, `hold_confirmed: false`).
 
 `session_state` values used today:
 
 - `preparing` — preview JPEG stream before activation; no scoring updates
 - `active` — movement evaluation and scoring are running
+- `idle` — no active practice session (used on successful stop acknowledgments)
 - `unavailable` — fatal session/camera error (often with `error_code`)
 
 Common `error_code` values:
@@ -431,17 +442,24 @@ Common `error_code` values:
 - `selected_camera_unavailable` — explicit `camera_device_id` could not be opened
 - `invalid_camera_device_id` / `invalid_camera_index` — malformed selection
 - `session_not_prepared` — `activate` with no prepared session
+- `session_id_mismatch` — command targeted a stale practice attempt
+- `invalid_movement` / `difficulty_mismatch` / `invalid_boolean` — strict v1 validation
+- `invalid_json` / `invalid_command` / `unknown_action` / `unsupported_protocol_version`
 - `model_load_failed`, `pipeline_init_failed`, `pipeline_error` — vision pipeline failures
+- `command_timeout` — Flutter-side bounded wait for acknowledgment
 
 The backend currently emits `bottle_count`; the Dart `PracticeFeedback` model does not expose that field yet. Extra JSON fields are ignored, but a future client use of `bottle_count` must update the Dart model and its tests explicitly.
 
 Any contract change must update the backend producer and Dart parser together:
 
 - `backend/schemas/feedback.py`
+- `backend/schemas/commands.py`
+- `backend/schemas/protocol.py`
 - `backend/schemas/camera.py`
 - `backend/api/websocket.py`
 - `backend/api/cameras.py`
 - `lib/data/models/practice_feedback.dart`
+- `lib/data/models/ws_protocol.dart`
 - `lib/data/models/camera_device.dart`
 - `lib/services/websocket_service.dart`
 - `lib/services/camera_device_service.dart`

@@ -206,23 +206,38 @@ void main() {
         movement: 'Normal Grip',
         difficulty: 'Easy',
         cameraDeviceId: 'dev-b',
+        sessionId: 'session-a',
+        requestId: 'req-a',
       );
       expect(payload['action'], 'prepare');
+      expect(payload['protocol_version'], 1);
+      expect(payload['session_id'], 'session-a');
+      expect(payload['request_id'], 'req-a');
       expect(payload['movement'], 'Normal Grip');
       expect(payload['camera_device_id'], 'dev-b');
       expect(payload['bottle_detection_enabled'], isTrue);
     });
 
     test('buildActivatePayload uses activate action', () {
-      expect(WebSocketService.buildActivatePayload()['action'], 'activate');
+      final payload = WebSocketService.buildActivatePayload(
+        sessionId: 'session-b',
+        requestId: 'req-b',
+      );
+      expect(payload['action'], 'activate');
+      expect(payload['protocol_version'], 1);
+      expect(payload['session_id'], 'session-b');
+      expect(payload['request_id'], 'req-b');
     });
 
     test('legacy start payload remains available', () {
       final payload = WebSocketService.buildStartPayload(
         movement: 'Hand Stall',
         difficulty: 'Medium',
+        sessionId: 'session-c',
+        requestId: 'req-c',
       );
       expect(payload['action'], 'start');
+      expect(payload['protocol_version'], 1);
     });
   });
 

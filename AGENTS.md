@@ -47,7 +47,7 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 ## Non-negotiable invariants
 
 1. **Python owns the camera.** Do not add direct Flutter camera capture or a second webcam owner.
-2. **Keep the WebSocket contract synchronized.** A field change must update every producer, parser, test, and relevant documentation.
+2. **Keep the WebSocket contract synchronized.** A field change must update every producer, parser, test, and relevant documentation. Protocol version 1 commands use `request_id` / `session_id` with backend `command_ack`; Flutter session flags must not advance on send alone.
 3. **Do not block the asyncio event loop with CV inference.** Preserve the `asyncio.to_thread` or an equivalent bounded worker strategy.
 4. **Release resources deterministically.** Cameras, model wrappers, MediaPipe detectors, WebSockets, stream subscriptions, timers, animation controllers, scroll controllers, and audio players must have clear cleanup paths.
 5. **Do not weaken authentication or Firestore authorization.** UI checks are not security controls; Firestore rules remain authoritative.

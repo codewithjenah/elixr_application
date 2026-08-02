@@ -48,7 +48,15 @@ Keep Flutter independent of these implementation details except for the document
 - Session startup requires consecutive usable frames (`_STARTUP_REQUIRED_CONSECUTIVE_FRAMES`, `_STARTUP_TIMEOUT_S`). A camera that opens but returns black frames is not healthy.
 - Do not assume all cameras share resolution, FPS, or warm-up behavior. Do not hard-code vendor-specific behavior.
 - Preserve shared-camera locking, Windows capture-profile fallback, black-frame rejection, blank-frame recovery, and debounced release (`CAMERA_RELEASE_DEBOUNCE_S`).
-- WebSocket lifecycle: `prepare` opens the camera and streams preview (`session_state: preparing`) without scoring; `activate` transitions to active inference/scoring; legacy `start` combines both; `stop` cancels the session task and schedules camera release.
+- WebSocket lifecycle: version-1 `prepare` / `activate` / `stop` require
+  `protocol_version`, `request_id`, and `session_id`, and receive a correlated
+  `command_ack` only after the backend completes the corresponding work.
+  `prepare` opens the camera and streams preview (`session_state: preparing`)
+  without scoring; `activate` transitions to active inference/scoring; legacy
+  `start` (no protocol version) still combines both; `stop` cancels the session
+  task and schedules camera release. Stale `session_id` values must not stop or
+  activate a newer session. Malformed JSON and invalid v1 commands return
+  structured errors without closing a healthy connection.
 - Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record score changes.
 - Await in-flight frame work before releasing camera and detector resources on stop, cancellation, or disconnect.
 - Return machine-readable fatal errors such as `camera_unavailable`, `selected_camera_unavailable`, `invalid_camera_device_id`, `invalid_camera_index`, `session_not_prepared`, `model_load_failed`, `pipeline_init_failed`, and `pipeline_error`.
@@ -81,15 +89,24 @@ Keep Flutter independent of these implementation details except for the document
 
 ## WebSocket schema
 
-`schemas.feedback.FeedbackMessage` is a public cross-language contract.
+Primary contract documentation lives in the root `README.md` (protocol version 1).
 
-When it changes:
+`schemas.feedback.FeedbackMessage` remains the feedback payload. Version-1
+sessions also stamp `protocol_version`, `message_type: "feedback"`, and
+`session_id`. Inbound commands use `schemas.commands`; acknowledgments and
+uncorrelated failures use `schemas.protocol` (`command_ack`, `protocol_error`).
+
+When the contract changes:
 
 - Update every creation site in the backend.
-- Update Dart parsing and defaults.
+- Update Dart parsing (`ws_protocol.dart`, `PracticeFeedback`) and defaults.
 - Preserve error payloads that may not contain frame bytes.
-- Use stable machine-readable `error_code` values for fatal conditions.
-- Keep human feedback suitable for display but do not require clients to parse human text to identify errors.
+- Use stable machine-readable `error_code` values for fatal conditions and
+  command rejections.
+- Keep human feedback suitable for display but do not require clients to parse
+  human text to identify errors.
+- Isolate legacy commands (no `protocol_version`) from strict version-1
+  validation so legacy permissiveness cannot weaken v1.
 
 ## Error handling and logging
 
