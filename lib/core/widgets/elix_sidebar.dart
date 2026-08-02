@@ -55,6 +55,11 @@ const _sidebarItems = [
   ),
   SidebarItem(label: 'History', icon: FluentIcons.clock, route: '/history'),
   SidebarItem(
+    label: 'Calendar',
+    icon: FluentIcons.calendar,
+    route: '/calendar',
+  ),
+  SidebarItem(
     label: 'Progress',
     icon: FluentIcons.bar_chart_vertical_fill,
     route: '/progress',

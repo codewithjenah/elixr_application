@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
+import '../../features/calendar/calendar_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/leaderboard/leaderboard_screen.dart';
@@ -94,6 +95,15 @@ class AppRouter {
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
                 child: const HistoryScreen(),
+              ),
+            ),
+            GoRoute(
+              path: '/calendar',
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: CalendarScreen(
+                  initialDate: state.uri.queryParameters['date'],
+                ),
               ),
             ),
             GoRoute(

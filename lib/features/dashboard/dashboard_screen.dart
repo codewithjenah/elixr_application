@@ -13,7 +13,9 @@ import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import '../calendar/utils/calendar_metrics.dart';
 import 'dashboard_quests.dart';
+import 'widgets/dashboard_calendar_card.dart';
 import 'widgets/dashboard_leaderboard.dart';
 
 // Neon accent palette used only on the dashboard.
@@ -88,70 +90,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // ---- derived data -------------------------------------------------------
 
-  DateTime? _sessionDate(Session s) {
-    if (s.createdAt == null) return null;
-    return DateTime.tryParse(s.createdAt!)?.toLocal();
-  }
-
   List<Session> get _sessionsToday {
-    final now = DateTime.now();
+    final today = normalizeDate(DateTime.now());
     return _sessions.where((s) {
-      final d = _sessionDate(s);
-      return d != null &&
-          d.year == now.year &&
-          d.month == now.month &&
-          d.day == now.day;
+      final d = parseSessionLocalDate(s);
+      return d != null && d == today;
     }).toList();
   }
 
   int get _sessionsThisWeek {
     final now = DateTime.now();
-    final startOfWeek = DateTime(
-      now.year,
-      now.month,
-      now.day,
+    final startOfWeek = normalizeDate(
+      now,
     ).subtract(Duration(days: now.weekday - 1));
     return _sessions.where((s) {
-      final d = _sessionDate(s);
+      final d = parseSessionLocalDate(s);
       return d != null && !d.isBefore(startOfWeek);
     }).length;
   }
 
-  Set<DateTime> get _practicedDays {
-    return _sessions
-        .map(_sessionDate)
-        .whereType<DateTime>()
-        .map((d) => DateTime(d.year, d.month, d.day))
-        .toSet();
-  }
+  Set<DateTime> get _practicedDays => practicedDates(_sessions);
 
-  int get _streakDays {
-    final days = _practicedDays;
-    if (days.isEmpty) return 0;
-    final now = DateTime.now();
-    var cursor = DateTime(now.year, now.month, now.day);
-    // A streak may still be alive if today hasn't been practiced yet.
-    if (!days.contains(cursor)) {
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    var streak = 0;
-    while (days.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    return streak;
-  }
+  int get _streakDays => currentStreak(_practicedDays);
 
   int? get _weeklyTrendPercent {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = normalizeDate(DateTime.now());
     double? avgBetween(int fromDaysAgo, int toDaysAgo) {
       final scores = _sessions
           .where((s) {
-            final d = _sessionDate(s);
+            final d = parseSessionLocalDate(s);
             if (d == null) return false;
-            final day = DateTime(d.year, d.month, d.day);
-            final diff = today.difference(day).inDays;
+            final diff = today.difference(d).inDays;
             return diff >= toDaysAgo && diff <= fromDaysAgo;
           })
           .map((s) => s.score);
@@ -767,7 +736,14 @@ class _RightRail extends StatelessWidget {
       children: [
         _QuestCard(sessionsToday: sessionsToday, streakDays: streakDays),
         const SizedBox(height: AppSpacing.md),
-        _CalendarCard(practicedDays: practicedDays),
+        DashboardCalendarCard(
+          practicedDays: practicedDays,
+          onViewCalendar: () => context.go('/calendar'),
+          onDateSelected: (date) {
+            final value = DateFormat('yyyy-MM-dd').format(date);
+            context.go('/calendar?date=$value');
+          },
+        ),
         const SizedBox(height: AppSpacing.md),
         _TopPerformanceCard(bestSession: bestSession),
       ],
@@ -1027,145 +1003,6 @@ class _GaugePainter extends CustomPainter {
   @override
   bool shouldRepaint(_GaugePainter oldDelegate) =>
       oldDelegate.progress != progress;
-}
-
-// ---- Practice Calendar ------------------------------------------------------
-
-class _CalendarCard extends StatelessWidget {
-  const _CalendarCard({required this.practicedDays});
-
-  final Set<DateTime> practicedDays;
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final firstOfMonth = DateTime(now.year, now.month, 1);
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-    // Sunday-first offset (DateTime.weekday: Mon=1..Sun=7)
-    final leadingEmpty = firstOfMonth.weekday % 7;
-    final today = DateTime(now.year, now.month, now.day);
-
-    return _PanelCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Row(
-                children: [
-                  Icon(FluentIcons.calendar, size: 14, color: _violet),
-                  SizedBox(width: 6),
-                  Text(
-                    'Practice Calendar',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                DateFormat.yMMMM().format(now),
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              for (final d in const [
-                'Sun',
-                'Mon',
-                'Tue',
-                'Wed',
-                'Thu',
-                'Fri',
-                'Sat',
-              ])
-                Expanded(
-                  child: Text(
-                    d,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          for (var week = 0; week * 7 < leadingEmpty + daysInMonth; week++) ...[
-            Row(
-              children: [
-                for (var dow = 0; dow < 7; dow++)
-                  Expanded(
-                    child: _calendarCell(
-                      week * 7 + dow - leadingEmpty + 1,
-                      daysInMonth,
-                      now,
-                      today,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _calendarCell(int day, int daysInMonth, DateTime now, DateTime today) {
-    if (day < 1 || day > daysInMonth) {
-      return const SizedBox(height: 30);
-    }
-    final date = DateTime(now.year, now.month, day);
-    final practiced = practicedDays.contains(date);
-    final isToday = date == today;
-
-    return SizedBox(
-      height: 30,
-      child: Center(
-        child: Container(
-          width: 24,
-          height: 24,
-          alignment: Alignment.center,
-          decoration: isToday
-              ? const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [_pink, _purple]),
-                )
-              : practiced
-              ? BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _purple.withValues(alpha: 0.28),
-                  border: Border.all(color: _purple.withValues(alpha: 0.55)),
-                )
-              : null,
-          child: Text(
-            '$day',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: isToday || practiced
-                  ? FontWeight.w700
-                  : FontWeight.w400,
-              color: isToday
-                  ? Colors.white
-                  : practiced
-                  ? AppColors.textPrimary
-                  : AppColors.textSecondary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ---- Top Performance --------------------------------------------------------
