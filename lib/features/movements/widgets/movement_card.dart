@@ -6,7 +6,6 @@ import '../../../core/constants/movement_visuals.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/movement.dart';
 import '../movements_presentation.dart';
-import 'movement_prop_picker.dart';
 
 const _kCompactLayoutBreakpoint = 720.0;
 
@@ -30,10 +29,12 @@ class _MovementCardState extends State<MovementCard> {
   bool _hovered = false;
   bool _focused = false;
   bool _ctaHovered = false;
+  bool _bottleHovered = false;
   bool _activating = false;
 
   bool get _enabled => widget.movement.enabled;
   bool get _practiced => widget.sessionCount > 0;
+  bool get _isMedium => widget.movement.difficulty == 'Medium';
 
   Color get _accent => difficultyAccentColor(widget.movement.difficulty);
 
@@ -45,29 +46,22 @@ class _MovementCardState extends State<MovementCard> {
 
   String get _actionLabel {
     if (!_enabled) return 'Locked';
+    if (_isMedium) return 'Practice with Bottle';
     if (_practiced) return 'Practice again';
     return 'Start practice';
   }
 
-  Future<void> _activate() async {
+  void _startPractice() {
     if (!_enabled || _activating) return;
     _activating = true;
     try {
-      var prop = 'bottle';
-      if (widget.movement.difficulty == 'Medium') {
-        final choice = await showMovementPropPicker(
-          context,
-          widget.movement.name,
-        );
-        if (choice == null || !mounted) return;
-        prop = choice;
-      }
       if (!mounted) return;
       final encoded = Uri.encodeComponent(widget.movement.name);
+      // Prop is not included: app_router ignores unused query params and the
+      // practice/session stack does not yet carry prop end to end.
       context.go(
         '/practice?movement=$encoded'
-        '&difficulty=${widget.movement.difficulty}'
-        '&prop=$prop',
+        '&difficulty=${widget.movement.difficulty}',
       );
     } finally {
       _activating = false;
@@ -102,13 +96,13 @@ class _MovementCardState extends State<MovementCard> {
             actions: <Type, Action<Intent>>{
               ActivateIntent: CallbackAction<ActivateIntent>(
                 onInvoke: (_) {
-                  _activate();
+                  _startPractice();
                   return null;
                 },
               ),
             },
             child: GestureDetector(
-              onTap: interactive ? _activate : null,
+              onTap: interactive ? _startPractice : null,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
@@ -174,7 +168,7 @@ class _MovementCardState extends State<MovementCard> {
         Expanded(child: _buildInfoColumn(context)),
         const SizedBox(width: 16),
         SizedBox(
-          width: 184,
+          width: _isMedium && _enabled ? 220 : 184,
           child: _buildPerformanceColumn(context, fullWidthCta: true),
         ),
       ],
@@ -302,15 +296,60 @@ class _MovementCardState extends State<MovementCard> {
       children: [
         _buildPerformanceStats(context, fullWidth: fullWidthCta),
         const SizedBox(height: 8),
-        _ActionButton(
-          label: _actionLabel,
-          enabled: _enabled,
+        if (_isMedium && _enabled)
+          _buildMediumPropActions(context)
+        else
+          _ActionButton(
+            label: _actionLabel,
+            enabled: _enabled,
+            accent: _accent,
+            fullWidth: fullWidthCta,
+            hovered: _ctaHovered,
+            onHoverChanged: (hovered) {
+              if (_enabled) setState(() => _ctaHovered = hovered);
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildMediumPropActions(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Practice with',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: context.elixTextSecondary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        _PropActionChip(
+          emoji: '🍾',
+          label: 'Bottle',
+          enabled: true,
           accent: _accent,
-          fullWidth: fullWidthCta,
-          hovered: _ctaHovered,
+          hovered: _bottleHovered,
           onHoverChanged: (hovered) {
-            if (_enabled) setState(() => _ctaHovered = hovered);
+            setState(() => _bottleHovered = hovered);
           },
+          onTap: _startPractice,
+          semanticLabel: 'Practice with Bottle',
+        ),
+        const SizedBox(height: 8),
+        const _PropActionChip(
+          emoji: '🍸',
+          label: 'Cocktail Shaker',
+          enabled: false,
+          accent: AppColors.warning,
+          hovered: false,
+          onHoverChanged: null,
+          onTap: null,
+          comingSoon: true,
+          semanticLabel:
+              'Cocktail Shaker. Coming soon. This option is unavailable.',
         ),
       ],
     );
@@ -532,5 +571,123 @@ class _ActionButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _PropActionChip extends StatelessWidget {
+  const _PropActionChip({
+    required this.emoji,
+    required this.label,
+    required this.enabled,
+    required this.accent,
+    required this.hovered,
+    required this.onHoverChanged,
+    required this.onTap,
+    required this.semanticLabel,
+    this.comingSoon = false,
+  });
+
+  final String emoji;
+  final String label;
+  final bool enabled;
+  final Color accent;
+  final bool hovered;
+  final ValueChanged<bool>? onHoverChanged;
+  final VoidCallback? onTap;
+  final String semanticLabel;
+  final bool comingSoon;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = enabled
+        ? accent.withValues(
+            alpha: hovered
+                ? (context.isDarkTheme ? 0.24 : 0.18)
+                : (context.isDarkTheme ? 0.14 : 0.10),
+          )
+        : context.elixBorder.withValues(alpha: 0.35);
+
+    final chip = Semantics(
+      button: enabled,
+      enabled: enabled,
+      label: semanticLabel,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        onShowHoverHighlight: (value) {
+          if (enabled) onHoverChanged?.call(value);
+        },
+        mouseCursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        actions: enabled
+            ? <Type, Action<Intent>>{
+                ActivateIntent: CallbackAction<ActivateIntent>(
+                  onInvoke: (_) {
+                    onTap?.call();
+                    return null;
+                  },
+                ),
+              }
+            : const <Type, Action<Intent>>{},
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? onTap : () {},
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: enabled
+                    ? accent.withValues(alpha: 0.40)
+                    : context.elixBorder,
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: enabled
+                              ? context.elixTextPrimary
+                              : context.elixTextSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (comingSoon)
+                        Text(
+                          'Coming soon',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!enabled && comingSoon) {
+      return Tooltip(message: 'Coming soon', child: chip);
+    }
+    return chip;
   }
 }

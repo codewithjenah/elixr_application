@@ -6,11 +6,45 @@ import 'package:elixr_application/features/movements/widgets/movement_difficulty
 import 'package:elixr_application/features/movements/widgets/movements_header.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 Widget wrap(Widget child, {Brightness brightness = Brightness.dark}) {
   return FluentApp(
     theme: brightness == Brightness.dark ? AppTheme.dark : AppTheme.light,
     home: ScaffoldPage(content: child),
+  );
+}
+
+Widget wrapWithRouter({
+  required GoRouter router,
+  Brightness brightness = Brightness.dark,
+}) {
+  return FluentApp.router(
+    theme: brightness == Brightness.dark ? AppTheme.dark : AppTheme.light,
+    routeInformationParser: router.routeInformationParser,
+    routerDelegate: router.routerDelegate,
+    routeInformationProvider: router.routeInformationProvider,
+  );
+}
+
+GoRouter practiceTrackingRouter({
+  required Widget home,
+  required List<String> navigatedLocations,
+}) {
+  return GoRouter(
+    initialLocation: '/movements',
+    routes: [
+      GoRoute(path: '/movements', builder: (context, state) => home),
+      GoRoute(
+        path: '/practice',
+        builder: (context, state) {
+          navigatedLocations.add(state.uri.toString());
+          return const ScaffoldPage(
+            content: Center(child: Text('Practice screen')),
+          );
+        },
+      ),
+    ],
   );
 }
 
@@ -65,6 +99,22 @@ const disabledMovement = Movement(
   description: 'A future advanced movement.',
   requiresHandsDetection: false,
   enabled: false,
+);
+
+const mediumMovement = Movement(
+  name: 'Hand Stall',
+  difficulty: 'Medium',
+  description: 'Balance the bottle on your open palm.',
+  requiresHandsDetection: true,
+  enabled: true,
+);
+
+const hardMovement = Movement(
+  name: 'Shoulder Stall',
+  difficulty: 'Hard',
+  description: 'Balance the bottle steadily on either shoulder.',
+  requiresHandsDetection: true,
+  enabled: true,
 );
 
 void main() {
@@ -221,6 +271,167 @@ void main() {
       expect(find.text('Locked'), findsWidgets);
       expect(find.text('Start practice'), findsNothing);
       expect(find.text('Practice again'), findsNothing);
+    });
+
+    testWidgets('Medium card shows inline Bottle and Cocktail Shaker actions', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: mediumMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Practice with'), findsOneWidget);
+      expect(find.text('Bottle'), findsOneWidget);
+      expect(find.text('Cocktail Shaker'), findsOneWidget);
+      expect(find.text('Coming soon'), findsOneWidget);
+      expect(find.text('Start practice'), findsNothing);
+      expect(find.text('Practice again'), findsNothing);
+      expect(
+        find.text('Choose the prop you want to practice with.'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('Medium Bottle navigates without showing prop dialog', (
+      tester,
+    ) async {
+      final navigated = <String>[];
+      late final GoRouter router;
+      router = practiceTrackingRouter(
+        home: ScaffoldPage(
+          content: const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: mediumMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
+          ),
+        ),
+        navigatedLocations: navigated,
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(wrapWithRouter(router: router));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Choose the prop you want to practice with.'),
+        findsNothing,
+      );
+
+      await tester.tap(find.text('Bottle'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Choose the prop you want to practice with.'),
+        findsNothing,
+      );
+      expect(find.text('Practice screen'), findsOneWidget);
+      expect(navigated, hasLength(1));
+      expect(navigated.single, contains('movement=Hand%20Stall'));
+      expect(navigated.single, contains('difficulty=Medium'));
+    });
+
+    testWidgets('Medium Cocktail Shaker is disabled and does not navigate', (
+      tester,
+    ) async {
+      final navigated = <String>[];
+      late final GoRouter router;
+      router = practiceTrackingRouter(
+        home: ScaffoldPage(
+          content: const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: mediumMovement,
+              sessionCount: 1,
+              avgScore: 70,
+            ),
+          ),
+        ),
+        navigatedLocations: navigated,
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(wrapWithRouter(router: router));
+      await tester.pumpAndSettle();
+
+      final shakerSemantics = tester.getSemantics(find.text('Cocktail Shaker'));
+      expect(shakerSemantics.flagsCollection.isEnabled.toBoolOrNull(), isFalse);
+
+      await tester.tap(find.text('Cocktail Shaker'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(navigated, isEmpty);
+      expect(find.text('Practice screen'), findsNothing);
+      expect(find.text('Hand Stall'), findsOneWidget);
+    });
+
+    testWidgets('Easy and Hard cards keep a single practice CTA', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          Column(
+            children: const [
+              SizedBox(
+                width: 900,
+                child: MovementCard(
+                  movement: easyMovement,
+                  sessionCount: 0,
+                  avgScore: 0,
+                ),
+              ),
+              SizedBox(
+                width: 900,
+                child: MovementCard(
+                  movement: hardMovement,
+                  sessionCount: 2,
+                  avgScore: 88,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Start practice'), findsOneWidget);
+      expect(find.text('Practice again'), findsOneWidget);
+      expect(find.text('Practice with'), findsNothing);
+      expect(find.text('Bottle'), findsNothing);
+      expect(find.text('Cocktail Shaker'), findsNothing);
+    });
+
+    testWidgets('Medium compact layout does not overflow with prop actions', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(400, 800));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 360,
+            child: MovementCard(
+              movement: mediumMovement,
+              sessionCount: 2,
+              avgScore: 80,
+            ),
+          ),
+        ),
+      );
+
+      await expectNoOverflow(tester);
+      expect(find.text('Practice with'), findsOneWidget);
+      expect(find.text('Bottle'), findsOneWidget);
+      expect(find.text('Cocktail Shaker'), findsOneWidget);
     });
   });
 
