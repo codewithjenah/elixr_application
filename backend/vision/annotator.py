@@ -31,22 +31,17 @@ def annotate_frame(
     pose: PoseLandmarks | None = None,
     prop_label: str = "Bottle",
 ) -> np.ndarray:
+    """Draw CV geometry while leaving the readable prop label to Flutter.
+
+    ``prop_label`` remains part of the signature for compatibility with
+    existing callers, but Flutter renders it outside the mirrored image.
+    """
     out = frame.copy()
 
     for prop in bottles or []:
         cv2.rectangle(out, (prop.x1, prop.y1), (prop.x2, prop.y2), GREEN, 2)
         cx, cy = int(prop.center.x), int(prop.center.y)
         cv2.circle(out, (cx, cy), 4, GREEN, -1)
-        cv2.putText(
-            out,
-            prop_label,
-            (prop.x1, max(16, prop.y1 - 8)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            GREEN,
-            1,
-            cv2.LINE_AA,
-        )
 
     if pose is not None:
         h, w = out.shape[:2]

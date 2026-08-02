@@ -40,6 +40,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   Uint8List? _currentFrame;
+  PracticeFeedback? _latestFeedback;
   bool _bottleDetected = false;
   bool _connecting = false;
   String? _sessionError;
@@ -94,6 +95,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       setState(() {
         _sessionError = feedback.feedback;
         _currentFrame = null;
+        _latestFeedback = null;
       });
       return;
     }
@@ -130,6 +132,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     setState(() {
       _sessionError = null;
       _bottleDetected = feedback.bottleDetected;
+      _latestFeedback = feedback;
       if (feedback.frameJpegBytes != null) {
         _currentFrame = feedback.frameJpegBytes;
       }
@@ -162,6 +165,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
 
     _sessionError = null;
     _currentFrame = null;
+    _latestFeedback = null;
     _bottleDetected = false;
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
@@ -298,6 +302,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (mounted) {
       setState(() {
         _currentFrame = null;
+        _latestFeedback = null;
         _bottleDetected = false;
         _sessionError = null;
       });
@@ -317,6 +322,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (mounted) {
       setState(() {
         _currentFrame = null;
+        _latestFeedback = null;
         _bottleDetected = false;
         _sessionError = null;
       });
@@ -410,6 +416,8 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 onRetry: _connect,
                 countdownActive: _run.isCountdown,
                 onCountdownComplete: _beginSessionAfterCountdown,
+                overlayFeedback: isCameraLive ? _latestFeedback : null,
+                showFeedbackMessage: false,
                 statusItems: [
                   if (isTrainingActive)
                     TrainingCameraStatusItem(

@@ -34,6 +34,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
     this.countdownActive = false,
     this.isPreparingCamera = false,
     this.overlayFeedback,
+    this.showFeedbackMessage = true,
     this.overlays,
     this.statusItems = const [],
   });
@@ -50,6 +51,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
   final bool countdownActive;
   final bool isPreparingCamera;
   final PracticeFeedback? overlayFeedback;
+  final bool showFeedbackMessage;
   final Widget? overlays;
   final List<TrainingCameraStatusItem> statusItems;
 
@@ -146,6 +148,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
         frameBytes: frameBytes!,
         mirrored: mirrored,
         overlayFeedback: isSessionActive ? overlayFeedback : null,
+        showFeedbackMessage: showFeedbackMessage,
         aspectRatio: _frameAspectRatio,
       );
     }
@@ -305,12 +308,14 @@ class _MirroredCameraFeed extends StatelessWidget {
     required this.mirrored,
     required this.aspectRatio,
     this.overlayFeedback,
+    this.showFeedbackMessage = true,
   });
 
   final Uint8List frameBytes;
   final bool mirrored;
   final double aspectRatio;
   final PracticeFeedback? overlayFeedback;
+  final bool showFeedbackMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -321,6 +326,7 @@ class _MirroredCameraFeed extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             Transform.flip(
+              key: const ValueKey('camera-frame-transform'),
               flipX: mirrored,
               child: Image.memory(
                 frameBytes,
@@ -333,7 +339,10 @@ class _MirroredCameraFeed extends StatelessWidget {
                 top: 0,
                 left: 0,
                 right: 0,
-                child: _FrameHudOverlay(feedback: overlayFeedback!),
+                child: _FrameHudOverlay(
+                  feedback: overlayFeedback!,
+                  showFeedbackMessage: showFeedbackMessage,
+                ),
               ),
           ],
         ),
@@ -343,9 +352,13 @@ class _MirroredCameraFeed extends StatelessWidget {
 }
 
 class _FrameHudOverlay extends StatelessWidget {
-  const _FrameHudOverlay({required this.feedback});
+  const _FrameHudOverlay({
+    required this.feedback,
+    this.showFeedbackMessage = true,
+  });
 
   final PracticeFeedback feedback;
+  final bool showFeedbackMessage;
 
   Color _feedbackColor() {
     switch (feedback.feedbackType) {
@@ -396,28 +409,63 @@ class _FrameHudOverlay extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    feedback.movement,
-                    style: AppTheme.body.copyWith(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          feedback.movement,
+                          style: AppTheme.body.copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Flexible(
+                        child: Container(
+                          key: const ValueKey('frame-prop-label'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x33101018),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Text(
+                            feedback.propType.displayLabel,
+                            style: AppTheme.caption.copyWith(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    feedbackText,
-                    style: AppTheme.body.copyWith(
-                      fontSize: 15,
-                      height: 1.3,
-                      color: accent,
-                      fontWeight: FontWeight.w500,
+                  if (showFeedbackMessage) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      feedbackText,
+                      style: AppTheme.body.copyWith(
+                        fontSize: 15,
+                        height: 1.3,
+                        color: accent,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  ],
                 ],
               ),
             ),
