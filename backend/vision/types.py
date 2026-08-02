@@ -9,7 +9,7 @@ class Point2D:
 
 
 @dataclass(frozen=True)
-class BottleDetection:
+class PropDetection:
     x1: int
     y1: int
     x2: int
@@ -38,6 +38,11 @@ class BottleDetection:
     def bottom_center_normalized(self, width: int, height: int) -> Point2D:
         c = self.bottom_center
         return Point2D(x=c.x / width, y=c.y / height)
+
+
+# Compatibility name retained while movement rules migrate to prop-neutral
+# geometry. Both bottle and shaker detections use the same bounding-box shape.
+BottleDetection = PropDetection
 
 
 @dataclass

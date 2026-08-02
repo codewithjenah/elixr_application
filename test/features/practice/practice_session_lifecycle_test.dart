@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -198,6 +199,31 @@ void main() {
       expect(feedback.cameraReady, isNull);
       expect(feedback.sessionState, isNull);
     });
+
+    test('parses shaker prop and defaults legacy feedback to bottle', () {
+      final shaker = PracticeFeedback.fromJson({
+        'prop_type': 'shaker',
+        'bottle_detected': true,
+        'bottle_count': 1,
+        'movement': 'Hand Stall',
+        'score': 80,
+        'feedback': 'Good',
+        'feedback_type': 'positive',
+        'posture_status': 'stable',
+      });
+      final legacy = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Hand Stall',
+        'score': 80,
+        'feedback': 'Good',
+        'feedback_type': 'positive',
+        'posture_status': 'stable',
+      });
+
+      expect(shaker.propType, TrainingProp.shaker);
+      expect(shaker.bottleCount, 1);
+      expect(legacy.propType, TrainingProp.bottle);
+    });
   });
 
   group('WebSocket prepare/activate payloads', () {
@@ -216,6 +242,7 @@ void main() {
       expect(payload['movement'], 'Normal Grip');
       expect(payload['camera_device_id'], 'dev-b');
       expect(payload['bottle_detection_enabled'], isTrue);
+      expect(payload['prop_type'], 'bottle');
     });
 
     test('buildActivatePayload uses activate action', () {
@@ -233,11 +260,13 @@ void main() {
       final payload = WebSocketService.buildStartPayload(
         movement: 'Hand Stall',
         difficulty: 'Medium',
+        prop: TrainingProp.shaker,
         sessionId: 'session-c',
         requestId: 'req-c',
       );
       expect(payload['action'], 'start');
       expect(payload['protocol_version'], 1);
+      expect(payload['prop_type'], 'shaker');
     });
   });
 

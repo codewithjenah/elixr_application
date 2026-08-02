@@ -53,11 +53,15 @@ def evaluate(
     hands: Optional[HandsResult],
     prev_hip_center: Optional[Point2D],
     movement_state: Optional[dict] = None,
+    *,
+    prop_label: str = "Bottle",
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
     # Pose is unused: Hand Stall requires MediaPipe Hands + bottle geometry.
     _ = pose
+    prop_name = prop_label.strip() or "prop"
+    prop_name_lower = prop_name.lower()
 
-    bottle_check = check_bottle_visible(bottle)
+    bottle_check = check_bottle_visible(bottle, prop_label=prop_name)
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
@@ -94,7 +98,7 @@ def evaluate(
     if not _is_upright(bottle):
         return (
             RuleResult(
-                feedback="Keep the bottle upright on your palm.",
+                feedback=f"Keep the {prop_name_lower} upright on your palm.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -106,7 +110,9 @@ def evaluate(
     if bottle_base.y > palm.y + HAND_STALL_BELOW_PALM_REJECT:
         return (
             RuleResult(
-                feedback="Place the bottle base directly on your open palm.",
+                feedback=(
+                    f"Place the {prop_name_lower} base directly on your open palm."
+                ),
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -117,7 +123,7 @@ def evaluate(
     if abs(bottle_base.x - palm.x) > HAND_STALL_MAX_HORIZONTAL_OFFSET:
         return (
             RuleResult(
-                feedback="Move the bottle directly above your palm.",
+                feedback=f"Move the {prop_name_lower} directly above your palm.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -128,7 +134,9 @@ def evaluate(
     if _dist(bottle_base, palm) > HAND_STALL_BASE_TO_PALM:
         return (
             RuleResult(
-                feedback="Place the bottle base directly on your open palm.",
+                feedback=(
+                    f"Place the {prop_name_lower} base directly on your open palm."
+                ),
                 feedback_type="warning",
                 posture_status="unstable",
             ),
@@ -141,7 +149,7 @@ def evaluate(
     if not stable:
         return (
             RuleResult(
-                feedback="Hold the bottle steady on your open palm.",
+                feedback=f"Hold the {prop_name_lower} steady on your open palm.",
                 feedback_type="warning",
                 posture_status="unstable",
             ),

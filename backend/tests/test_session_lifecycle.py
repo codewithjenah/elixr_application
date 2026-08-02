@@ -55,6 +55,24 @@ class StubBottleDetector:
         return []
 
 
+class StubPropDetector:
+    instances: list["StubPropDetector"] = []
+
+    def __init__(self, *, prop_type: str, enabled: bool):
+        self.prop_type = prop_type
+        self.enabled = enabled
+        self.ensure_calls = 0
+        self.detect_calls = 0
+        StubPropDetector.instances.append(self)
+
+    def ensure_ready(self):
+        self.ensure_calls += 1
+
+    def detect(self, current_frame):
+        self.detect_calls += 1
+        return []
+
+
 class StubHandsDetector:
     def __init__(self, **kwargs):
         self.detect_calls = 0
@@ -130,6 +148,56 @@ def test_prepare_opens_one_camera_session(monkeypatch):
     assert session.hands_detector is None
     assert session._model_checked is False
 
+    session.close()
+
+
+def test_shaker_session_preserves_prop_and_loads_only_after_activation(monkeypatch):
+    _patch_vision(monkeypatch)
+    StubPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", StubPropDetector)
+
+    session = websocket_api.VisionSession("Hand Stall", prop_type="shaker")
+    session.start()
+
+    preview = session.process_preview_frame()
+    assert preview is not None
+    assert preview.prop_type == "shaker"
+    detector = StubPropDetector.instances[-1]
+    assert detector.ensure_calls == 0
+
+    assert session.activate() is True
+    active = session.process_frame()
+
+    assert active is not None
+    assert active.prop_type == "shaker"
+    assert detector.ensure_calls == 1
+    session.close()
+
+
+def test_model_load_failure_is_structured_session_fatal_feedback(monkeypatch):
+    _patch_vision(monkeypatch)
+
+    class FailingDetector:
+        def __init__(self, *, enabled: bool):
+            self.enabled = enabled
+
+        def ensure_ready(self):
+            raise websocket_api.ModelLoadError("broken weights")
+
+        def detect(self, current_frame):
+            raise AssertionError("detection should not run after load failure")
+
+    monkeypatch.setattr(websocket_api, "BottleDetector", FailingDetector)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.activate()
+
+    message = session.process_frame()
+
+    assert message is not None
+    assert message.error_code == "model_load_failed"
+    assert message.session_state == "unavailable"
+    assert message.frame_jpeg_base64 is None
     session.close()
 
 

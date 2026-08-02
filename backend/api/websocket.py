@@ -27,6 +27,7 @@ from schemas.commands import (
     PROTOCOL_VERSION,
     ActivateCommand,
     PrepareCommand,
+    PropType,
     StartCommand,
     StopCommand,
     parse_v1_command,
@@ -35,10 +36,11 @@ from schemas.feedback import FeedbackMessage
 from schemas.protocol import CommandAck, ProtocolError
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
+from vision.prop_detector import PropDetector
 from vision.camera import CameraCapture, camera_display_name, release_shared_camera
 from vision.hands_detector import HandsDetector
 from vision.pose_detector import PoseDetector
-from vision.types import BottleDetection, Point2D
+from vision.types import Point2D, PropDetection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -125,6 +127,15 @@ def parse_camera_selection(
     return None, None, None
 
 
+def parse_prop_type(raw: Any) -> tuple[PropType, str | None]:
+    """Parse the optional prop field used by legacy prepare/start payloads."""
+    if raw is None:
+        return "bottle", None
+    if isinstance(raw, str) and raw.strip() in {"bottle", "shaker"}:
+        return raw.strip(), None
+    return "bottle", "invalid_prop_type"
+
+
 def _camera_unavailable_message(
     *,
     camera_device_id: str | None = None,
@@ -193,6 +204,8 @@ def _validation_error_code(exc: ValidationError) -> str:
             return "invalid_camera_index"
         if "camera_device_id" in loc:
             return "invalid_camera_device_id"
+        if "prop_type" in loc:
+            return "invalid_prop_type"
         if err_type.startswith("bool_type") or "bool" in err_type:
             return "invalid_boolean"
     return "invalid_command"
@@ -213,6 +226,9 @@ def _human_error_message(error_code: str) -> str:
         "invalid_boolean": "Boolean fields must be true or false JSON booleans.",
         "invalid_camera_device_id": "Invalid camera_device_id.",
         "invalid_camera_index": "Invalid camera_index.",
+        "invalid_prop_type": (
+            "Invalid prop_type. Choose 'bottle' or 'shaker'."
+        ),
         "camera_unavailable": (
             "No usable camera is available. Check that a camera is connected "
             "and not being used by another application."
@@ -234,12 +250,20 @@ class VisionSession:
         self,
         movement: str,
         *,
+        prop_type: PropType = "bottle",
         camera_index: int | None = None,
         camera_device_id: str | None = None,
         bottle_detection_enabled: bool = True,
         session_id: str | None = None,
     ):
+        if prop_type not in {"bottle", "shaker"}:
+            raise ValueError("invalid_prop_type")
+
         self.movement = movement
+        self.prop_type = prop_type
+        self.prop_display_name = (
+            "Cocktail Shaker" if prop_type == "shaker" else "Bottle"
+        )
         self.camera_index = camera_index
         self.camera_device_id = camera_device_id
         self.bottle_detection_enabled = bottle_detection_enabled
@@ -249,8 +273,16 @@ class VisionSession:
             camera_index=camera_index,
             camera_device_id=camera_device_id,
         )
-        # Bottle weights load lazily on activate / first evaluated frame.
-        self.bottle_detector = BottleDetector(enabled=bottle_detection_enabled)
+        # Prop weights load lazily on the first evaluated frame. Keep the
+        # bottle wrapper for compatibility with older tests/scripts.
+        if prop_type == "bottle":
+            self.prop_detector = BottleDetector(enabled=bottle_detection_enabled)
+        else:
+            self.prop_detector = PropDetector(
+                prop_type=prop_type,
+                enabled=bottle_detection_enabled,
+            )
+        self.bottle_detector = self.prop_detector
         # MediaPipe detectors are deferred so prepare can open the camera and
         # stream preview JPEGs before model init cost.
         self.hands_detector: HandsDetector | None = None
@@ -261,7 +293,7 @@ class VisionSession:
         self.scorer = SessionScorer()
 
         self._frame_index = 0
-        self._last_bottles: list[BottleDetection] = []
+        self._last_bottles: list[PropDetection] = []
 
         # Do not cache hands landmarks.
         # Hands move fast, and caching causes ghost/stuck finger dots.
@@ -330,16 +362,17 @@ class VisionSession:
         self._model_checked = True
 
         try:
-            self.bottle_detector.ensure_ready()
+            self.prop_detector.ensure_ready()
         except ModelLoadError:
             return self._stamp(
                 FeedbackMessage(
                     bottle_detected=False,
+                    prop_type=self.prop_type,
                     movement=self.movement,
                     score=0,
                     feedback=(
-                        "Model load failed. Check that best.pt exists in the backend "
-                        "folder and ultralytics is installed."
+                        f"{self.prop_display_name} model load failed. "
+                        "Check the backend model files and ultralytics installation."
                     ),
                     feedback_type="error",
                     posture_status="unknown",
@@ -371,6 +404,7 @@ class VisionSession:
             FeedbackMessage(
                 bottle_detected=False,
                 bottle_count=0,
+                prop_type=self.prop_type,
                 movement=self.movement,
                 score=self.scorer.score,
                 feedback="Preparing camera…",
@@ -402,7 +436,7 @@ class VisionSession:
         bottles = self._last_bottles
 
         if self.bottle_detection_enabled and run_yolo:
-            bottles = self.bottle_detector.detect(frame)
+            bottles = self.prop_detector.detect(frame)
             self._last_bottles = bottles
         elif not self.bottle_detection_enabled:
             bottles = []
@@ -435,6 +469,8 @@ class VisionSession:
             self._movement_state,
             bottle_detection_enabled=self.bottle_detection_enabled,
             bottles=bottles if self.bottle_detection_enabled else None,
+            prop_type=self.prop_type,
+            prop_label=self.prop_display_name,
         )
 
         self.scorer.record(rule_result.feedback_type)
@@ -455,6 +491,7 @@ class VisionSession:
             self.movement,
             self.scorer.score,
             pose=pose,
+            prop_label=self.prop_display_name,
         )
 
         _, buffer = cv2.imencode(
@@ -469,6 +506,7 @@ class VisionSession:
             FeedbackMessage(
                 bottle_detected=len(bottles) > 0,
                 bottle_count=len(bottles),
+                prop_type=self.prop_type,
                 movement=self.movement,
                 score=self.scorer.score,
                 feedback=rule_result.feedback,
@@ -525,6 +563,7 @@ async def _cv_session_loop(
     websocket: WebSocket,
     movement: str,
     *,
+    prop_type: PropType = "bottle",
     camera_index: int | None = None,
     camera_device_id: str | None = None,
     bottle_detection_enabled: bool = True,
@@ -543,6 +582,7 @@ async def _cv_session_loop(
     try:
         session = VisionSession(
             movement,
+            prop_type=prop_type,
             camera_index=camera_index,
             camera_device_id=camera_device_id,
             bottle_detection_enabled=bottle_detection_enabled,
@@ -553,6 +593,7 @@ async def _cv_session_loop(
 
         error = FeedbackMessage(
             bottle_detected=False,
+            prop_type=prop_type,
             movement=movement,
             score=0,
             feedback=(
@@ -588,6 +629,7 @@ async def _cv_session_loop(
         )
         error = FeedbackMessage(
             bottle_detected=False,
+            prop_type=prop_type,
             movement=movement,
             score=0,
             feedback=feedback,
@@ -688,6 +730,7 @@ async def _cv_session_loop(
 
         error = FeedbackMessage(
             bottle_detected=False,
+            prop_type=prop_type,
             movement=movement,
             score=0,
             feedback="Vision pipeline error. Check backend logs for details.",
@@ -722,12 +765,29 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
     difficulty = data.get("difficulty", difficulty)
 
     bottle_detection_enabled = bool(data.get("bottle_detection_enabled", True))
+    prop_type, prop_error = parse_prop_type(data.get("prop_type"))
+    if prop_error is not None:
+        error = FeedbackMessage(
+            bottle_detected=False,
+            prop_type=prop_type,
+            movement=movement,
+            score=0,
+            feedback=_human_error_message(prop_error),
+            feedback_type="error",
+            posture_status="unknown",
+            frame_jpeg_base64=None,
+            error_code=prop_error,
+            camera_ready=False,
+            session_state="unavailable",
+        )
+        return None, error
 
     camera_device_id, camera_index, camera_error = parse_camera_selection(data)
 
     if camera_error is not None:
         error = FeedbackMessage(
             bottle_detected=False,
+            prop_type=prop_type,
             movement=movement,
             score=0,
             feedback=(
@@ -747,6 +807,7 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
         {
             "movement": movement,
             "difficulty": difficulty,
+            "prop_type": prop_type,
             "camera_device_id": camera_device_id,
             "camera_index": camera_index,
             "bottle_detection_enabled": bottle_detection_enabled,
@@ -825,6 +886,7 @@ async def websocket_endpoint(websocket: WebSocket):
     async def start_session_loop(
         *,
         movement_name: str,
+        prop_type: PropType,
         camera_device_id: str | None,
         camera_index: int | None,
         bottle_detection_enabled: bool,
@@ -854,6 +916,7 @@ async def websocket_endpoint(websocket: WebSocket):
             _cv_session_loop(
                 websocket,
                 movement_name,
+                prop_type=prop_type,
                 camera_index=camera_index,
                 camera_device_id=camera_device_id,
                 bottle_detection_enabled=bottle_detection_enabled,
@@ -906,6 +969,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         ok, error_code, error_message = await start_session_loop(
             movement_name=movement,
+            prop_type=command.prop_type,
             camera_device_id=command.camera_device_id,
             camera_index=command.camera_index,
             bottle_detection_enabled=command.bottle_detection_enabled,
@@ -1076,15 +1140,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
         try:
             command = parse_v1_command(data)
-        except ValueError as exc:
-            code = str(exc) if str(exc) in {
-                "unknown_action",
-                "invalid_camera_device_id",
-                "invalid_camera_index",
-            } else "unknown_action"
-            if code == "unknown_action" and not isinstance(action, str):
+        except ValidationError as exc:
+            code = _validation_error_code(exc)
+            if code in {"missing_request_id", "missing_session_id"}:
                 await send_protocol_error(
-                    error_code="invalid_command",
+                    error_code=code,
                     request_id=request_id,
                     session_id=session_id,
                 )
@@ -1102,11 +1162,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 message=_human_error_message(code),
             )
             return
-        except ValidationError as exc:
-            code = _validation_error_code(exc)
-            if code in {"missing_request_id", "missing_session_id"}:
+        except ValueError as exc:
+            code = str(exc) if str(exc) in {
+                "unknown_action",
+                "invalid_camera_device_id",
+                "invalid_camera_index",
+            } else "unknown_action"
+            if code == "unknown_action" and not isinstance(action, str):
                 await send_protocol_error(
-                    error_code=code,
+                    error_code="invalid_command",
                     request_id=request_id,
                     session_id=session_id,
                 )
@@ -1146,6 +1210,7 @@ async def websocket_endpoint(websocket: WebSocket):
             assert parsed is not None
             movement = parsed["movement"]
             difficulty = parsed["difficulty"]
+            prop_type = parsed["prop_type"]
             camera_device_id = parsed["camera_device_id"]
             camera_index = parsed["camera_index"]
             bottle_detection_enabled = parsed["bottle_detection_enabled"]
@@ -1153,6 +1218,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             await start_session_loop(
                 movement_name=movement,
+                prop_type=prop_type,
                 camera_device_id=camera_device_id,
                 camera_index=camera_index,
                 bottle_detection_enabled=bottle_detection_enabled,
@@ -1163,11 +1229,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
             explicit = camera_device_id is not None or camera_index is not None
             logger.info(
-                "CV session %s (legacy): %s (%s, bottle_detection=%s, "
+                "CV session %s (legacy): %s (%s, prop=%s, bottle_detection=%s, "
                 "camera_mode=%s, camera_device_id=%s, camera_index=%s)",
                 "started" if start_active else "prepared",
                 movement,
                 difficulty,
+                prop_type,
                 bottle_detection_enabled,
                 "explicit" if explicit else "auto-select",
                 camera_device_id,
@@ -1179,6 +1246,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if session is None or not (session.is_prepared or session.is_active):
                 error = FeedbackMessage(
                     bottle_detected=False,
+                    prop_type=getattr(session, "prop_type", "bottle"),
                     movement=movement,
                     score=0,
                     feedback=(

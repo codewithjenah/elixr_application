@@ -1288,6 +1288,21 @@ def test_evaluate_movement_no_bottle():
     assert result.feedback_type == "error"
 
 
+def test_shaker_medium_feedback_uses_selected_prop_label():
+    result, _, _ = evaluate_movement(
+        "Hand Stall",
+        None,
+        None,
+        _hands_near(),
+        None,
+        prop_type="shaker",
+    )
+
+    assert result.feedback_type == "error"
+    assert "Cocktail Shaker not detected" in result.feedback
+    assert "bottle" not in result.feedback.lower()
+
+
 def test_posture_only_requires_hands():
     result, _, _ = evaluate_movement(
         "Hand Stall",

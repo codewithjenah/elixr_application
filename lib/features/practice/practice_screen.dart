@@ -11,6 +11,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/auth_service.dart';
 import '../../services/practice_music_service.dart';
@@ -33,10 +34,12 @@ class PracticeScreen extends StatefulWidget {
     super.key,
     required this.movement,
     required this.difficulty,
+    this.prop = TrainingProp.bottle,
   });
 
   final String movement;
   final String difficulty;
+  final TrainingProp prop;
 
   @override
   State<PracticeScreen> createState() => _PracticeScreenState();
@@ -46,6 +49,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     with SingleTickerProviderStateMixin {
   late final String _movement = widget.movement;
   late final String _difficulty = widget.difficulty;
+  late final TrainingProp _prop = widget.prop;
 
   final _ws = WebSocketService();
   final _music = PracticeMusicService();
@@ -271,6 +275,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       final ack = await _ws.sendPrepare(
         movement: _movement,
         difficulty: _difficulty,
+        prop: _prop,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
@@ -478,6 +483,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           profilePictureUrl: authUser?.profilePictureUrl,
           movementName: _movement,
           difficulty: _difficulty,
+          prop: _prop,
           score: summaryScore,
           durationSeconds: summaryDuration,
           feedbackHistory: summaryFeedbacks.reversed.toList(),
@@ -744,6 +750,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           sessionActive: isTrainingActive,
           bottleDetected: _latestFeedback?.bottleDetected,
         ),
+        propLabel: _prop.displayLabel,
         postureLabel: postureDisplayLabel(
           isTrainingActive ? _latestFeedback?.postureStatus : null,
         ),
@@ -753,6 +760,8 @@ class _PracticeScreenState extends State<PracticeScreen>
           _InfoRow(label: 'Movement', value: _movement),
           const SizedBox(height: AppSpacing.sm),
           _InfoRow(label: 'Difficulty', value: _difficulty),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(label: 'Prop', value: _prop.displayLabel),
           if (_bestCombo > 1) ...[
             const SizedBox(height: AppSpacing.sm),
             _InfoRow(label: 'Best Combo', value: 'x$_bestCombo'),

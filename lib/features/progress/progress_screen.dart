@@ -555,7 +555,7 @@ class _ScoreTrendChart extends StatelessWidget {
             barWidth: 3,
             dotData: FlDotData(
               show: true,
-              getDotPainter: (spot, _, __, ___) => FlDotCirclePainter(
+              getDotPainter: (spot, _, _, _) => FlDotCirclePainter(
                 radius: 3.5,
                 color: _pink,
                 strokeWidth: 1.5,
@@ -715,7 +715,7 @@ class _MovementChartState extends State<_MovementChart> {
           touchTooltipData: BarTouchTooltipData(
             getTooltipColor: (_) => _panelColor,
             tooltipBorder: const BorderSide(color: _purple),
-            getTooltipItem: (group, _, rod, __) => BarTooltipItem(
+            getTooltipItem: (group, _, rod, _) => BarTooltipItem(
               '${entries[group.x].key}\n',
               const TextStyle(
                 color: AppColors.textPrimary,

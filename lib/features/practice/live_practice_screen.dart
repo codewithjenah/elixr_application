@@ -10,6 +10,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
@@ -179,6 +180,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       final ack = await _ws.sendPrepare(
         movement: 'Normal Grip',
         difficulty: 'Easy',
+        prop: TrainingProp.bottle,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex

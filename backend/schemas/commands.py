@@ -20,6 +20,7 @@ MAX_MOVEMENT_LENGTH = 128
 MAX_DIFFICULTY_LENGTH = 64
 MAX_DEVICE_ID_LENGTH = 1024
 MAX_CAMERA_INDEX = 10
+PropType = Literal["bottle", "shaker"]
 
 NonEmptyId = Annotated[str, Field(min_length=1, max_length=MAX_ID_LENGTH)]
 
@@ -44,6 +45,7 @@ class PrepareCommand(_CommandBase):
     movement: Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]
     difficulty: Annotated[str, Field(min_length=1, max_length=MAX_DIFFICULTY_LENGTH)]
     bottle_detection_enabled: StrictBool = True
+    prop_type: PropType = "bottle"
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
 
@@ -103,6 +105,7 @@ class StartCommand(_CommandBase):
     movement: Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]
     difficulty: Annotated[str, Field(min_length=1, max_length=MAX_DIFFICULTY_LENGTH)]
     bottle_detection_enabled: StrictBool = True
+    prop_type: PropType = "bottle"
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
 

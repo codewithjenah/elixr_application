@@ -10,6 +10,7 @@ import '../../features/movements/movements_screen.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../features/progress/progress_screen.dart';
+import '../../data/models/training_prop.dart';
 import '../../services/auth_service.dart';
 import '../widgets/app_shell.dart';
 import 'page_transitions.dart';
@@ -53,9 +54,16 @@ class AppRouter {
                 state.uri.queryParameters['movement'] ?? 'Hand Stall';
             final difficulty =
                 state.uri.queryParameters['difficulty'] ?? 'Easy';
+            final prop = TrainingProp.fromProtocolValue(
+              state.uri.queryParameters['prop'],
+            );
             return fadeTransitionPage(
               key: state.pageKey,
-              child: PracticeScreen(movement: movement, difficulty: difficulty),
+              child: PracticeScreen(
+                movement: movement,
+                difficulty: difficulty,
+                prop: prop,
+              ),
             );
           },
         ),

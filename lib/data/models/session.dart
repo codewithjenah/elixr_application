@@ -1,3 +1,5 @@
+import 'training_prop.dart';
+
 class Session {
   const Session({
     this.id,
@@ -7,6 +9,7 @@ class Session {
     required this.score,
     required this.durationSeconds,
     this.createdAt,
+    this.propType = TrainingProp.bottle,
   });
 
   final String? id;
@@ -16,6 +19,7 @@ class Session {
   final int score;
   final int durationSeconds;
   final String? createdAt;
+  final TrainingProp propType;
 
   Map<String, dynamic> toMap() {
     return {
@@ -26,6 +30,7 @@ class Session {
       'score': score,
       'duration_seconds': durationSeconds,
       'created_at': createdAt,
+      'prop_type': propType.protocolValue,
     };
   }
 
@@ -38,6 +43,7 @@ class Session {
       score: (map['score'] as num).toInt(),
       durationSeconds: (map['duration_seconds'] as num).toInt(),
       createdAt: map['created_at'] as String?,
+      propType: TrainingProp.fromProtocolValue(map['prop_type']),
     );
   }
 }

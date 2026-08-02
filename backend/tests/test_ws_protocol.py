@@ -14,6 +14,7 @@ from assessment.rule_engine import validate_movement_difficulty, validate_moveme
 from schemas.commands import (
     ActivateCommand,
     PrepareCommand,
+    StartCommand,
     StopCommand,
     parse_v1_command,
 )
@@ -120,6 +121,55 @@ def test_valid_prepare_command_parses():
     assert isinstance(cmd, PrepareCommand)
     assert cmd.movement == "Normal Grip"
     assert cmd.bottle_detection_enabled is True
+    assert cmd.prop_type == "bottle"
+
+
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+def test_prepare_and_start_accept_supported_props(prop_type):
+    prepare = parse_v1_command(_prepare_payload(prop_type=prop_type))
+    start = parse_v1_command(
+        _prepare_payload(
+            action="start",
+            prop_type=prop_type,
+            request_id="req-start",
+        )
+    )
+
+    assert isinstance(prepare, PrepareCommand)
+    assert isinstance(start, StartCommand)
+    assert prepare.prop_type == prop_type
+    assert start.prop_type == prop_type
+
+
+def test_missing_prop_defaults_to_bottle():
+    payload = _prepare_payload()
+    payload.pop("prop_type", None)
+
+    command = parse_v1_command(payload)
+
+    assert isinstance(command, PrepareCommand)
+    assert command.prop_type == "bottle"
+
+
+def test_unknown_prop_is_rejected_with_structured_ack(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload(prop_type="cup"))
+        ack = await _wait_for_ack(ws, "req-1")()
+
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "invalid_prop_type"
+        assert "bottle" in ack["message"]
+        assert StubCamera.open_calls == 0
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
 
 
 def test_valid_activate_and_stop_parse():

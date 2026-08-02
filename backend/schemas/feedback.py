@@ -2,12 +2,13 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-from schemas.commands import PROTOCOL_VERSION
+from schemas.commands import PROTOCOL_VERSION, PropType
 
 
 class FeedbackMessage(BaseModel):
     bottle_detected: bool
     bottle_count: int = 0
+    prop_type: Optional[PropType] = None
     movement: str
     score: int
     feedback: str

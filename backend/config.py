@@ -36,14 +36,15 @@ FPS_LOG_INTERVAL = 60
 MIN_TARGET_FPS = 15
 MAX_TARGET_FPS = 30
 
-# Custom YOLO model settings
-# Your trained best.pt from Roboflow has one class:
-# class 0 = flair_bottle
+# Custom YOLO model settings. The selected prop detector resolves class IDs
+# from each model's declared names at load time; do not assume class zero.
 YOLO_CONFIDENCE = 0.4
 # NMS IoU threshold: collapse overlapping boxes on the same bottle.
 YOLO_IOU = 0.45
+# Kept as a compatibility constant for older imports; PropDetector performs
+# model-specific class resolution instead of using this value for filtering.
 CUSTOM_BOTTLE_CLASS_ID = 0
-# Hard cap on how many bottles can be detected/tracked at once.
+# Hard cap on how many selected props can be detected/tracked at once.
 MAX_BOTTLES = 2
 
 HAND_BOTTLE_PROXIMITY = 0.15

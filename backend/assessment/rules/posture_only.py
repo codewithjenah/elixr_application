@@ -54,6 +54,8 @@ def evaluate_posture_only(
     pose: Optional[PoseLandmarks],
     hands: Optional[HandsResult],
     prev_hip_center: Optional[Point2D],
+    *,
+    prop_label: str = "Bottle",
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
     if movement == "Double Hand Stall":
         usable = usable_hands_with_palms(hands)
@@ -95,10 +97,17 @@ def evaluate_posture_only(
         if hands_check:
             return hands_check, prev_hip_center, None
 
-    message = _POSTURE_SUCCESS.get(
-        movement,
-        "Hand looks ready. Enable bottle detection for full movement scoring.",
-    )
+    if prop_label.strip().lower() == "bottle":
+        message = _POSTURE_SUCCESS.get(
+            movement,
+            "Hand looks ready. Enable bottle detection for full movement scoring.",
+        )
+    elif movement in {"Hand Stall", "Forearm Stall", "Arm Stall", "Elbow Stall"}:
+        message = (
+            "Posture looks ready. Enable prop detection for stall scoring."
+        )
+    else:
+        message = "Posture looks ready. Enable prop detection for full scoring."
     return (
         RuleResult(feedback=message, feedback_type="positive", posture_status="stable"),
         prev_hip_center,

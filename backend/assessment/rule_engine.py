@@ -18,16 +18,7 @@ from assessment.rules.base import RuleResult
 from assessment.rules.posture_only import evaluate_posture_only
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
 
-EvaluateFn = Callable[
-    [
-        Optional[BottleDetection],
-        Optional[PoseLandmarks],
-        Optional[HandsResult],
-        Optional[Point2D],
-        Optional[dict],
-    ],
-    tuple[RuleResult, Optional[Point2D], Optional[dict]],
-]
+EvaluateFn = Callable[..., tuple[RuleResult, Optional[Point2D], Optional[dict]]]
 
 _RULES: dict[str, EvaluateFn] = {
     "Normal Grip": normal_grip.evaluate,
@@ -44,6 +35,7 @@ _RULES: dict[str, EvaluateFn] = {
     "Shoulder Stall": shoulder_stall.evaluate,
     "Double Hand Stall": double_hand_stall.evaluate,
 }
+_PROP_AWARE_MOVEMENTS = {"Hand Stall", "Forearm Stall", "Elbow Stall", "Arm Stall"}
 
 
 def movement_requires_hands(movement: str) -> bool:
@@ -123,9 +115,21 @@ def evaluate_movement(
     *,
     bottle_detection_enabled: bool = True,
     bottles: Optional[list[BottleDetection]] = None,
+    prop_type: str = "bottle",
+    prop_label: str | None = None,
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
+    resolved_prop_label = prop_label or (
+        "Cocktail Shaker" if prop_type == "shaker" else "Bottle"
+    )
+
     if not bottle_detection_enabled and bottle is None:
-        return evaluate_posture_only(movement, pose, hands, prev_hip_center)
+        return evaluate_posture_only(
+            movement,
+            pose,
+            hands,
+            prev_hip_center,
+            prop_label=resolved_prop_label,
+        )
 
     # Double Hand Stall scores two bottles; keep other movements on primary bottle.
     if movement == "Double Hand Stall":
@@ -144,5 +148,15 @@ def evaluate_movement(
         )
 
     if movement in _RULES:
-        return _RULES[movement](bottle, pose, hands, prev_hip_center, movement_state)
+        evaluate = _RULES[movement]
+        if movement in _PROP_AWARE_MOVEMENTS:
+            return evaluate(
+                bottle,
+                pose,
+                hands,
+                prev_hip_center,
+                movement_state,
+                prop_label=resolved_prop_label,
+            )
+        return evaluate(bottle, pose, hands, prev_hip_center, movement_state)
     return coming_soon.evaluate(bottle, pose, hands, prev_hip_center, movement_state)

@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/movement_visuals.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/movement.dart';
+import '../../../data/models/training_prop.dart';
 import '../movements_presentation.dart';
 
 const _kCompactLayoutBreakpoint = 720.0;
@@ -30,6 +31,9 @@ class _MovementCardState extends State<MovementCard> {
   bool _focused = false;
   bool _ctaHovered = false;
   bool _bottleHovered = false;
+  bool _shakerHovered = false;
+  bool _bottleFocused = false;
+  bool _shakerFocused = false;
   bool _activating = false;
 
   bool get _enabled => widget.movement.enabled;
@@ -46,22 +50,21 @@ class _MovementCardState extends State<MovementCard> {
 
   String get _actionLabel {
     if (!_enabled) return 'Locked';
-    if (_isMedium) return 'Practice with Bottle';
+    if (_isMedium) return 'Choose a prop';
     if (_practiced) return 'Practice again';
     return 'Start practice';
   }
 
-  void _startPractice() {
+  void _startPractice([TrainingProp prop = TrainingProp.bottle]) {
     if (!_enabled || _activating) return;
     _activating = true;
     try {
       if (!mounted) return;
       final encoded = Uri.encodeComponent(widget.movement.name);
-      // Prop is not included: app_router ignores unused query params and the
-      // practice/session stack does not yet carry prop end to end.
       context.go(
         '/practice?movement=$encoded'
-        '&difficulty=${widget.movement.difficulty}',
+        '&difficulty=${widget.movement.difficulty}'
+        '&prop=${prop.protocolValue}',
       );
     } finally {
       _activating = false;
@@ -71,6 +74,7 @@ class _MovementCardState extends State<MovementCard> {
   @override
   Widget build(BuildContext context) {
     final interactive = _enabled;
+    final cardInteractive = interactive && !_isMedium;
     final active = interactive && (_hovered || _focused);
     final isDark = context.isDarkTheme;
 
@@ -78,11 +82,11 @@ class _MovementCardState extends State<MovementCard> {
       builder: (context, constraints) {
         final compact = constraints.maxWidth < _kCompactLayoutBreakpoint;
         return Semantics(
-          button: interactive,
+          button: cardInteractive,
           enabled: interactive,
           label: '${widget.movement.name}. $_actionLabel',
           child: FocusableActionDetector(
-            enabled: interactive,
+            enabled: cardInteractive,
             onShowHoverHighlight: (hovered) {
               if (!interactive) return;
               setState(() => _hovered = hovered);
@@ -96,13 +100,13 @@ class _MovementCardState extends State<MovementCard> {
             actions: <Type, Action<Intent>>{
               ActivateIntent: CallbackAction<ActivateIntent>(
                 onInvoke: (_) {
-                  _startPractice();
+                  if (cardInteractive) _startPractice();
                   return null;
                 },
               ),
             },
             child: GestureDetector(
-              onTap: interactive ? _startPractice : null,
+              onTap: cardInteractive ? _startPractice : null,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
@@ -332,24 +336,32 @@ class _MovementCardState extends State<MovementCard> {
           enabled: true,
           accent: _accent,
           hovered: _bottleHovered,
+          focused: _bottleFocused,
           onHoverChanged: (hovered) {
             setState(() => _bottleHovered = hovered);
           },
-          onTap: _startPractice,
+          onFocusChanged: (focused) {
+            setState(() => _bottleFocused = focused);
+          },
+          onTap: () => _startPractice(TrainingProp.bottle),
           semanticLabel: 'Practice with Bottle',
         ),
         const SizedBox(height: 8),
-        const _PropActionChip(
+        _PropActionChip(
           emoji: '🍸',
           label: 'Cocktail Shaker',
-          enabled: false,
-          accent: AppColors.warning,
-          hovered: false,
-          onHoverChanged: null,
-          onTap: null,
-          comingSoon: true,
-          semanticLabel:
-              'Cocktail Shaker. Coming soon. This option is unavailable.',
+          enabled: true,
+          accent: _accent,
+          hovered: _shakerHovered,
+          focused: _shakerFocused,
+          onHoverChanged: (hovered) {
+            setState(() => _shakerHovered = hovered);
+          },
+          onFocusChanged: (focused) {
+            setState(() => _shakerFocused = focused);
+          },
+          onTap: () => _startPractice(TrainingProp.shaker),
+          semanticLabel: 'Practice with Cocktail Shaker',
         ),
       ],
     );
@@ -581,10 +593,11 @@ class _PropActionChip extends StatelessWidget {
     required this.enabled,
     required this.accent,
     required this.hovered,
+    required this.focused,
     required this.onHoverChanged,
+    required this.onFocusChanged,
     required this.onTap,
     required this.semanticLabel,
-    this.comingSoon = false,
   });
 
   final String emoji;
@@ -592,10 +605,11 @@ class _PropActionChip extends StatelessWidget {
   final bool enabled;
   final Color accent;
   final bool hovered;
-  final ValueChanged<bool>? onHoverChanged;
-  final VoidCallback? onTap;
+  final bool focused;
+  final ValueChanged<bool> onHoverChanged;
+  final ValueChanged<bool> onFocusChanged;
+  final VoidCallback onTap;
   final String semanticLabel;
-  final bool comingSoon;
 
   @override
   Widget build(BuildContext context) {
@@ -614,7 +628,10 @@ class _PropActionChip extends StatelessWidget {
       child: FocusableActionDetector(
         enabled: enabled,
         onShowHoverHighlight: (value) {
-          if (enabled) onHoverChanged?.call(value);
+          if (enabled) onHoverChanged(value);
+        },
+        onShowFocusHighlight: (value) {
+          if (enabled) onFocusChanged(value);
         },
         mouseCursor: enabled
             ? SystemMouseCursors.click
@@ -623,7 +640,7 @@ class _PropActionChip extends StatelessWidget {
             ? <Type, Action<Intent>>{
                 ActivateIntent: CallbackAction<ActivateIntent>(
                   onInvoke: (_) {
-                    onTap?.call();
+                    onTap();
                     return null;
                   },
                 ),
@@ -631,7 +648,7 @@ class _PropActionChip extends StatelessWidget {
             : const <Type, Action<Intent>>{},
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: enabled ? onTap : () {},
+          onTap: enabled ? onTap : null,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             width: double.infinity,
@@ -641,8 +658,9 @@ class _PropActionChip extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: enabled
-                    ? accent.withValues(alpha: 0.40)
+                    ? accent.withValues(alpha: focused ? 0.75 : 0.40)
                     : context.elixBorder,
+                width: focused ? 1.6 : 1,
               ),
             ),
             child: Row(
@@ -666,15 +684,6 @@ class _PropActionChip extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (comingSoon)
-                        Text(
-                          'Coming soon',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -685,9 +694,6 @@ class _PropActionChip extends StatelessWidget {
       ),
     );
 
-    if (!enabled && comingSoon) {
-      return Tooltip(message: 'Coming soon', child: chip);
-    }
     return chip;
   }
 }

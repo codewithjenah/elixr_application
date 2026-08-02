@@ -35,7 +35,8 @@ Flutter Windows client
 FastAPI backend
   ├─ WebSocket session orchestration
   ├─ Shared OpenCV webcam capture
-  ├─ Custom YOLO bottle detection (backend/best.pt)
+  ├─ Prop-aware YOLO detection (backend/models/bottle_best.pt,
+  │  backend/models/shaker_best.pt)
   ├─ MediaPipe Hands and Pose landmarks
   ├─ Movement-specific rule engine
   ├─ Rolling session score
@@ -68,11 +69,10 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 │  │  ├─ rules/             # One movement evaluator per module
 │  │  ├─ rule_engine.py     # Movement registry and dispatch
 │  │  └─ scoring.py         # Bounded rolling score
-│  ├─ models/               # Bundled MediaPipe model assets
+│  ├─ models/               # YOLO prop and bundled MediaPipe model assets
 │  ├─ schemas/              # Pydantic WebSocket payloads
 │  ├─ tests/                # Pytest rule-engine, camera, and session-lifecycle tests
 │  ├─ vision/               # Camera, detectors, types, annotation
-│  ├─ best.pt               # Custom flair-bottle YOLO model
 │  ├─ config.py             # Vision and scoring constants
 │  ├─ main.py               # FastAPI application factory
 │  ├─ requirements.txt
@@ -133,7 +133,8 @@ cd ..
 
 The repository already contains:
 
-- `backend/best.pt` for bottle detection.
+- `backend/models/bottle_best.pt` for bottle detection.
+- `backend/models/shaker_best.pt` for cocktail-shaker detection.
 - `backend/models/hand_landmarker.task`.
 - `backend/models/pose_landmarker_lite.task`.
 
@@ -300,7 +301,10 @@ Firestore uses five top-level collections:
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 
-Current session persistence stores the final score, duration, selected movement, difficulty, and deduplicated feedback messages. Camera frames are not written to Firestore by the current implementation.
+Current session persistence stores the final score, duration, selected movement,
+difficulty, selected prop (`prop_type`, defaulting to `bottle` for old records),
+and deduplicated feedback messages. Camera frames are not written to Firestore
+by the current implementation.
 
 ### Leaderboard
 
@@ -336,7 +340,7 @@ Guided practice and free practice follow the same camera lifecycle. The practice
 ### End-to-end flow
 
 1. **Backend connection** — Flutter connects to `ws://127.0.0.1:8000/ws` (`WebSocketConnectionState.connected`).
-2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring.
+2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, selected `prop_type`, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring.
 3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout). Countdown must not start merely because prepare was sent.
 4. **Countdown** — After the first usable frame, Flutter enters `PracticeRunPhase.countdown` and plays countdown audio/SFX.
 5. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. Backend activates only the matching prepared session and returns `command_ack` with `session_state: "active"`.
@@ -360,6 +364,7 @@ Prepare (preview only):
   "action": "prepare",
   "movement": "Hand Stall",
   "difficulty": "Medium",
+  "prop_type": "shaker",
   "bottle_detection_enabled": true,
   "camera_device_id": "\\\\?\\usb#vid_1234&pid_5678"
 }
@@ -410,6 +415,7 @@ Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and 
 ```text
 bottle_detected
 bottle_count
+prop_type
 movement
 score
 feedback
@@ -441,6 +447,7 @@ Common `error_code` values:
 - `camera_unavailable` — Auto-select found no usable camera
 - `selected_camera_unavailable` — explicit `camera_device_id` could not be opened
 - `invalid_camera_device_id` / `invalid_camera_index` — malformed selection
+- `invalid_prop_type` — prop is not `bottle` or `shaker`
 - `session_not_prepared` — `activate` with no prepared session
 - `session_id_mismatch` — command targeted a stale practice attempt
 - `invalid_movement` / `difficulty_mismatch` / `invalid_boolean` — strict v1 validation
@@ -448,7 +455,9 @@ Common `error_code` values:
 - `model_load_failed`, `pipeline_init_failed`, `pipeline_error` — vision pipeline failures
 - `command_timeout` — Flutter-side bounded wait for acknowledgment
 
-The backend currently emits `bottle_count`; the Dart `PracticeFeedback` model does not expose that field yet. Extra JSON fields are ignored, but a future client use of `bottle_count` must update the Dart model and its tests explicitly.
+`bottle_detected` and `bottle_count` remain compatibility fields and are
+populated from the selected prop's detections. New feedback also includes
+`prop_type`; legacy feedback without it defaults to `bottle` in Dart.
 
 Any contract change must update the backend producer and Dart parser together:
 
@@ -514,8 +523,10 @@ Computer-vision unit tests should prefer synthetic landmarks and detections. A r
 
 ### Model load failed
 
-- Start Uvicorn with `backend` as the working directory so the relative `best.pt` path resolves.
-- Confirm `backend/best.pt` exists.
+- Confirm both `backend/models/bottle_best.pt` and
+  `backend/models/shaker_best.pt` exist.
+- The detector resolves these paths relative to the backend source and loads
+  only the prop selected for the session.
 - Reinstall the pinned Python requirements in the active virtual environment.
 
 ### Firebase permission or index error

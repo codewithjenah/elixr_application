@@ -1,6 +1,7 @@
 import 'package:elixr_application/data/models/feedback.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -88,5 +89,36 @@ void main() {
     );
 
     expect(id, awardedSessionId);
+  });
+
+  test('completed shaker session saves its selected prop', () async {
+    Session? saved;
+    final service = SessionService(
+      saveSessionOverride: (session) async {
+        saved = session;
+        return 'session-shaker';
+      },
+      recordCompletedSessionOverride:
+          ({
+            required String sessionId,
+            required String userId,
+            required String displayName,
+            String? profilePictureUrl,
+          }) async {},
+    );
+
+    await service.saveCompletedSession(
+      userId: 'u1',
+      displayName: 'Ada',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
+      score: 92,
+      durationSeconds: 45,
+      feedbackHistory: const [],
+      prop: TrainingProp.shaker,
+    );
+
+    expect(saved?.propType, TrainingProp.shaker);
+    expect(saved?.toMap()['prop_type'], 'shaker');
   });
 }

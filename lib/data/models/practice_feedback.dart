@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'training_prop.dart';
+
 class PracticeFeedback {
   const PracticeFeedback({
     required this.bottleDetected,
+    this.bottleCount = 0,
     required this.movement,
     required this.score,
     required this.feedback,
@@ -20,9 +23,11 @@ class PracticeFeedback {
     this.protocolVersion,
     this.messageType,
     this.sessionId,
+    this.propType = TrainingProp.bottle,
   });
 
   final bool bottleDetected;
+  final int bottleCount;
   final String movement;
   final int score;
   final String feedback;
@@ -47,6 +52,7 @@ class PracticeFeedback {
   final int? protocolVersion;
   final String? messageType;
   final String? sessionId;
+  final TrainingProp propType;
 
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
@@ -67,6 +73,7 @@ class PracticeFeedback {
 
     return PracticeFeedback(
       bottleDetected: json['bottle_detected'] as bool? ?? false,
+      bottleCount: (json['bottle_count'] as num?)?.toInt() ?? 0,
       movement: json['movement'] as String? ?? '',
       score: json['score'] as int? ?? 0,
       feedback: json['feedback'] as String? ?? '',
@@ -84,6 +91,7 @@ class PracticeFeedback {
       protocolVersion: json['protocol_version'] as int?,
       messageType: json['message_type'] as String?,
       sessionId: json['session_id'] as String?,
+      propType: TrainingProp.fromProtocolValue(json['prop_type']),
     );
   }
 }

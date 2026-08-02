@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../core/constants/app_constants.dart';
 import '../data/models/practice_feedback.dart';
+import '../data/models/training_prop.dart';
 import '../data/models/ws_protocol.dart';
 
 enum WebSocketConnectionState { disconnected, connecting, connected, error }
@@ -122,6 +123,7 @@ class WebSocketService extends ChangeNotifier {
   Future<CommandAck> sendPrepare({
     required String movement,
     required String difficulty,
+    TrainingProp prop = TrainingProp.bottle,
     String? cameraDeviceId,
     int? legacyCameraIndex,
     String? sessionId,
@@ -137,6 +139,7 @@ class WebSocketService extends ChangeNotifier {
       payload: buildPreparePayload(
         movement: movement,
         difficulty: difficulty,
+        prop: prop,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: legacyCameraIndex,
         sessionId: resolvedSessionId,
@@ -168,6 +171,7 @@ class WebSocketService extends ChangeNotifier {
   Future<CommandAck> sendStart({
     required String movement,
     required String difficulty,
+    TrainingProp prop = TrainingProp.bottle,
     String? cameraDeviceId,
     int? legacyCameraIndex,
     String? sessionId,
@@ -183,6 +187,7 @@ class WebSocketService extends ChangeNotifier {
       payload: buildStartPayload(
         movement: movement,
         difficulty: difficulty,
+        prop: prop,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: legacyCameraIndex,
         sessionId: resolvedSessionId,
@@ -223,6 +228,7 @@ class WebSocketService extends ChangeNotifier {
   static Map<String, dynamic> buildPreparePayload({
     required String movement,
     required String difficulty,
+    TrainingProp prop = TrainingProp.bottle,
     String? cameraDeviceId,
     int? legacyCameraIndex,
     required String sessionId,
@@ -232,6 +238,7 @@ class WebSocketService extends ChangeNotifier {
       action: 'prepare',
       movement: movement,
       difficulty: difficulty,
+      prop: prop,
       cameraDeviceId: cameraDeviceId,
       legacyCameraIndex: legacyCameraIndex,
       sessionId: sessionId,
@@ -258,6 +265,7 @@ class WebSocketService extends ChangeNotifier {
   static Map<String, dynamic> buildStartPayload({
     required String movement,
     required String difficulty,
+    TrainingProp prop = TrainingProp.bottle,
     String? cameraDeviceId,
     int? legacyCameraIndex,
     required String sessionId,
@@ -267,6 +275,7 @@ class WebSocketService extends ChangeNotifier {
       action: 'start',
       movement: movement,
       difficulty: difficulty,
+      prop: prop,
       cameraDeviceId: cameraDeviceId,
       legacyCameraIndex: legacyCameraIndex,
       sessionId: sessionId,
@@ -292,6 +301,7 @@ class WebSocketService extends ChangeNotifier {
     required String action,
     required String movement,
     required String difficulty,
+    required TrainingProp prop,
     String? cameraDeviceId,
     int? legacyCameraIndex,
     required String sessionId,
@@ -304,6 +314,7 @@ class WebSocketService extends ChangeNotifier {
       'action': action,
       'movement': movement,
       'difficulty': difficulty,
+      'prop_type': prop.protocolValue,
       'bottle_detection_enabled': true,
     };
 

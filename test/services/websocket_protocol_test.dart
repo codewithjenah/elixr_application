@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/services/websocket_service.dart';
@@ -133,6 +134,7 @@ void main() {
         expect(sent.last['action'], 'prepare');
         expect(sent.last['session_id'], 'session-fixed');
         expect(sent.last['request_id'], isNotEmpty);
+        expect(sent.last['prop_type'], 'bottle');
         expect(service.sessionPrepared, isFalse);
         expect(service.sessionActive, isFalse);
 
@@ -401,6 +403,19 @@ void main() {
         await sub.cancel();
       },
     );
+  });
+
+  test('shaker prepare payload preserves the selected prop', () {
+    final payload = WebSocketService.buildPreparePayload(
+      movement: 'Hand Stall',
+      difficulty: 'Medium',
+      prop: TrainingProp.shaker,
+      sessionId: 'session-shaker',
+      requestId: 'req-shaker',
+    );
+
+    expect(payload['prop_type'], 'shaker');
+    expect(payload['bottle_detection_enabled'], isTrue);
   });
 
   group('guided-practice countdown still follows lifecycle helpers', () {

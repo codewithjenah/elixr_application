@@ -34,6 +34,7 @@ Treat these files as one public contract:
 Shared prepare/start fields:
 
 - `movement`, `difficulty`, `bottle_detection_enabled`
+- `prop_type` (`bottle` or `shaker`, defaults to `bottle` when omitted)
 - Prefer `camera_device_id` (`null` = Auto-select).
 - Legacy `camera_index` is accepted only when `camera_device_id` is absent.
 
@@ -41,7 +42,7 @@ Shared prepare/start fields:
 
 Important fields:
 
-- `bottle_detected`, `bottle_count`, `movement`, `score`, `feedback`, `feedback_type`, `posture_status`
+- `bottle_detected`, `bottle_count`, `prop_type`, `movement`, `score`, `feedback`, `feedback_type`, `posture_status`
 - `frame_jpeg_base64` (may be omitted on fatal errors)
 - `error_code` for machine-readable fatal states
 - `camera_ready`, `session_state` (`preparing`, `active`, `unavailable`)
@@ -57,6 +58,8 @@ Rules:
 - Do not start client timer/scoring UI from preview frames; wait for explicit activation.
 - Hold confirmation is backend-authoritative. Flutter displays `hold_progress` and completes only on `hold_confirmed`; do not run a parallel client-side hold timer.
 - Preserve legacy `start` and `camera_index` compatibility explicitly and test migration behavior.
+- Keep `bottle_detected` and `bottle_count` populated from the selected prop
+  for protocol-v1 compatibility; `prop_type` is the canonical prop field.
 - Avoid high-frequency duplicate `prepare`, `activate`, or `stop` control messages.
 - Base64 frames are transient display data; do not persist them by default.
 - Add schema/parser tests or focused fixtures for new fields where practical.

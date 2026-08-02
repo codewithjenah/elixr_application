@@ -10,7 +10,7 @@ Use Python 3.11 for the current pinned dependency set unless the dependency pins
 - FastAPI and Uvicorn.
 - Pydantic response schemas.
 - OpenCV camera capture and JPEG encoding.
-- Ultralytics YOLO with `backend/best.pt`.
+- Ultralytics YOLO with the selected prop model under `backend/models/`.
 - MediaPipe Hand and Pose landmarker task assets.
 - Movement-specific rule modules.
 - Pytest rule-engine, camera, and session-lifecycle tests. (`pytest` is not currently listed in `backend/requirements.txt`.)
@@ -64,7 +64,9 @@ Keep Flutter independent of these implementation details except for the document
 
 ## Model and detector behavior
 
-- `best.pt` is the custom bottle detector and currently expects class `0` as the flair bottle.
+- `PropDetector` selects `bottle_best.pt` or `shaker_best.pt` and resolves the
+  expected class from each model's declared names; class zero must not be
+  assumed for every prop.
 - Keep model load failures distinguishable from ordinary “no bottle detected” results.
 - Do not download or replace model assets silently.
 - Avoid caching fast-changing hand landmarks; stale landmarks create ghost-hand artifacts.

@@ -31,22 +31,25 @@ class TrainingStatusRow extends StatelessWidget {
   const TrainingStatusRow({
     super.key,
     required this.detection,
+    this.propLabel = 'Bottle',
     this.postureLabel,
   });
 
   final TrainingDetectionStatus detection;
+  final String propLabel;
   final String? postureLabel;
 
   @override
   Widget build(BuildContext context) {
+    final objectLabel = propLabel.trim().isEmpty ? 'Prop' : propLabel;
     final (label, color, icon) = switch (detection) {
       TrainingDetectionStatus.detected => (
-        'Bottle detected',
+        '$objectLabel detected',
         AppColors.success,
         FluentIcons.status_circle_checkmark,
       ),
       TrainingDetectionStatus.searching => (
-        'Searching for bottle',
+        'Searching for ${objectLabel.toLowerCase()}',
         AppColors.warning,
         FluentIcons.search,
       ),

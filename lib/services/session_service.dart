@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../data/models/feedback.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/session.dart';
+import '../data/models/training_prop.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/session_repository.dart';
 
@@ -46,6 +47,7 @@ class SessionService extends ChangeNotifier {
     required int score,
     required int durationSeconds,
     required List<PracticeFeedback> feedbackHistory,
+    TrainingProp prop = TrainingProp.bottle,
     String? profilePictureUrl,
   }) async {
     final session = Session(
@@ -54,6 +56,7 @@ class SessionService extends ChangeNotifier {
       difficulty: difficulty,
       score: score,
       durationSeconds: durationSeconds,
+      propType: prop,
     );
     final saveSession = _saveSessionOverride ?? repository.saveSession;
     final sessionId = await saveSession(session);

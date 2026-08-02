@@ -26,6 +26,10 @@ def _dist(a: Point2D, b: Point2D) -> float:
     return math.hypot(a.x - b.x, a.y - b.y)
 
 
+def _prop_name(prop_label: str) -> str:
+    return prop_label.strip() or "prop"
+
+
 def _nearest_pose_point(
     pose: Optional[PoseLandmarks],
     indices: tuple[int, ...],
@@ -182,10 +186,15 @@ def pose_nearest_shoulder(
     return best
 
 
-def check_bottle_visible(bottle: Optional[BottleDetection]) -> Optional[RuleResult]:
+def check_bottle_visible(
+    bottle: Optional[BottleDetection],
+    *,
+    prop_label: str = "Bottle",
+) -> Optional[RuleResult]:
     if bottle is None:
+        prop_name = _prop_name(prop_label)
         return RuleResult(
-            feedback="Bottle not detected. Keep the bottle visible.",
+            feedback=f"{prop_name} not detected. Keep the {prop_name.lower()} visible.",
             feedback_type="error",
             posture_status="unknown",
         )
@@ -238,6 +247,7 @@ def check_stall_proximity(
     *,
     success_message: str,
     threshold: float = STALL_PROXIMITY,
+    prop_label: str = "Bottle",
 ) -> RuleResult:
     if target is None:
         return RuleResult(
@@ -249,8 +259,9 @@ def check_stall_proximity(
     bottle_center = bottle.center_normalized(640, 480)
     dist = _dist(bottle_center, target)
     if dist > threshold:
+        prop_name = _prop_name(prop_label)
         return RuleResult(
-            feedback="Align the bottle over the stall point.",
+            feedback=f"Align the {prop_name.lower()} over the stall point.",
             feedback_type="warning",
             posture_status="unstable",
         )

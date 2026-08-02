@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from vision.types import BottleDetection, HandsResult, PoseLandmarks
+from vision.types import HandsResult, PoseLandmarks, PropDetection
 
 GREEN = (183, 231, 110)
 YELLOW = (107, 183, 255)
@@ -22,20 +22,31 @@ _POSE_CONNECTIONS = (
 
 def annotate_frame(
     frame: np.ndarray,
-    bottles: list[BottleDetection] | None,
+    bottles: list[PropDetection] | None,
     hands: HandsResult | None,
     feedback: str,
     feedback_type: str,
     movement: str,
     score: int,
     pose: PoseLandmarks | None = None,
+    prop_label: str = "Bottle",
 ) -> np.ndarray:
     out = frame.copy()
 
-    for bottle in bottles or []:
-        cv2.rectangle(out, (bottle.x1, bottle.y1), (bottle.x2, bottle.y2), GREEN, 2)
-        cx, cy = int(bottle.center.x), int(bottle.center.y)
+    for prop in bottles or []:
+        cv2.rectangle(out, (prop.x1, prop.y1), (prop.x2, prop.y2), GREEN, 2)
+        cx, cy = int(prop.center.x), int(prop.center.y)
         cv2.circle(out, (cx, cy), 4, GREEN, -1)
+        cv2.putText(
+            out,
+            prop_label,
+            (prop.x1, max(16, prop.y1 - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            GREEN,
+            1,
+            cv2.LINE_AA,
+        )
 
     if pose is not None:
         h, w = out.shape[:2]

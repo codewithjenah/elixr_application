@@ -57,6 +57,7 @@ class FirestoreHelper {
       'difficulty': data['difficulty'],
       'score': data['score'],
       'duration_seconds': data['duration_seconds'],
+      'prop_type': data['prop_type'],
       'created_at': _readCreatedAt(data['created_at']),
     };
   }
@@ -123,6 +124,7 @@ class FirestoreHelper {
       'difficulty': session.difficulty,
       'score': session.score,
       'duration_seconds': session.durationSeconds,
+      'prop_type': session.propType.protocolValue,
       'created_at': FieldValue.serverTimestamp(),
     });
     return doc.id;

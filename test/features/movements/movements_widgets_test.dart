@@ -292,7 +292,7 @@ void main() {
       expect(find.text('Practice with'), findsOneWidget);
       expect(find.text('Bottle'), findsOneWidget);
       expect(find.text('Cocktail Shaker'), findsOneWidget);
-      expect(find.text('Coming soon'), findsOneWidget);
+      expect(find.text('Coming soon'), findsNothing);
       expect(find.text('Start practice'), findsNothing);
       expect(find.text('Practice again'), findsNothing);
       expect(
@@ -340,9 +340,10 @@ void main() {
       expect(navigated, hasLength(1));
       expect(navigated.single, contains('movement=Hand%20Stall'));
       expect(navigated.single, contains('difficulty=Medium'));
+      expect(navigated.single, contains('prop=bottle'));
     });
 
-    testWidgets('Medium Cocktail Shaker is disabled and does not navigate', (
+    testWidgets('Medium Cocktail Shaker is enabled and navigates with shaker', (
       tester,
     ) async {
       final navigated = <String>[];
@@ -366,14 +367,16 @@ void main() {
       await tester.pumpAndSettle();
 
       final shakerSemantics = tester.getSemantics(find.text('Cocktail Shaker'));
-      expect(shakerSemantics.flagsCollection.isEnabled.toBoolOrNull(), isFalse);
+      expect(shakerSemantics.flagsCollection.isEnabled.toBoolOrNull(), isTrue);
 
-      await tester.tap(find.text('Cocktail Shaker'), warnIfMissed: false);
+      await tester.tap(find.text('Cocktail Shaker'));
       await tester.pumpAndSettle();
 
-      expect(navigated, isEmpty);
-      expect(find.text('Practice screen'), findsNothing);
-      expect(find.text('Hand Stall'), findsOneWidget);
+      expect(navigated, hasLength(1));
+      expect(navigated.single, contains('movement=Hand%20Stall'));
+      expect(navigated.single, contains('difficulty=Medium'));
+      expect(navigated.single, contains('prop=shaker'));
+      expect(find.text('Practice screen'), findsOneWidget);
     });
 
     testWidgets('Easy and Hard cards keep a single practice CTA', (
