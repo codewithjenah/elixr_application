@@ -71,6 +71,185 @@ _release_timer: Optional[threading.Timer] = None
 # is stale and skip releasing a camera that has since been reused.
 _release_generation = 0
 
+# Latest-frame-only capture producer (never an unbounded/FIFO queue).
+_capture_producer: Optional["_CaptureProducer"] = None
+_latest_frame_slot: Optional["_LatestFrameSlot"] = None
+_producer_blank_streak = 0
+
+
+@dataclass(frozen=True)
+class CapturedFrame:
+    """One camera frame with capture metadata for latency tracking."""
+
+    frame: np.ndarray
+    captured_at_monotonic: float
+    sequence: int
+
+
+class _LatestFrameSlot:
+    """Single-slot buffer: a newer frame always overwrites an unconsumed one."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._latest: CapturedFrame | None = None
+        self._overwrite_count = 0
+
+    def publish(self, captured: CapturedFrame) -> None:
+        with self._condition:
+            if self._latest is not None:
+                self._overwrite_count += 1
+            self._latest = captured
+            self._condition.notify_all()
+
+    def take(self, timeout: float | None = None) -> CapturedFrame | None:
+        with self._condition:
+            if self._latest is None and timeout is not None and timeout > 0:
+                self._condition.wait(timeout)
+            latest = self._latest
+            self._latest = None
+            return latest
+
+    def clear(self) -> None:
+        with self._condition:
+            self._latest = None
+
+    @property
+    def overwrite_count(self) -> int:
+        with self._condition:
+            return self._overwrite_count
+
+    @property
+    def has_frame(self) -> bool:
+        with self._condition:
+            return self._latest is not None
+
+
+class _CaptureProducer:
+    """Background reader that keeps only the newest usable camera frame."""
+
+    def __init__(
+        self,
+        cap: cv2.VideoCapture,
+        *,
+        width: int,
+        height: int,
+        slot: _LatestFrameSlot,
+    ) -> None:
+        self._cap = cap
+        self._width = width
+        self._height = height
+        self._slot = slot
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="elixr-camera-capture",
+            daemon=True,
+        )
+        self._sequence = 0
+        self.blank_streak = 0
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self, timeout: float = 2.0) -> None:
+        self._stop.set()
+        self._thread.join(timeout=timeout)
+        if self._thread.is_alive():
+            logger.warning("Camera capture producer did not stop within %.1fs", timeout)
+
+    @property
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def _run(self) -> None:
+        global _producer_blank_streak
+
+        while not self._stop.is_set():
+            cap = self._cap
+            # Never read after the owning release path has closed the capture.
+            if getattr(cap, "released", False) or not cap.isOpened():
+                break
+
+            try:
+                ok, frame = cap.read()
+            except Exception:
+                logger.exception("Camera capture producer read failed")
+                break
+
+            if self._stop.is_set():
+                break
+
+            if not ok or frame is None or not _frame_is_usable(frame):
+                self.blank_streak += 1
+                _producer_blank_streak = self.blank_streak
+                if self.blank_streak == 1 or self.blank_streak % 30 == 0:
+                    logger.warning(
+                        "Camera capture producer blank frame (streak=%s)",
+                        self.blank_streak,
+                    )
+                if _STARTUP_READ_SLEEP_S > 0:
+                    self._stop.wait(_STARTUP_READ_SLEEP_S)
+                continue
+
+            self.blank_streak = 0
+            _producer_blank_streak = 0
+
+            if frame.shape[1] != self._width or frame.shape[0] != self._height:
+                frame = cv2.resize(
+                    frame,
+                    (self._width, self._height),
+                    interpolation=cv2.INTER_AREA,
+                )
+
+            # Own the buffer so the producer can overwrite the next OpenCV read.
+            owned = np.ascontiguousarray(frame)
+            self._sequence += 1
+            self._slot.publish(
+                CapturedFrame(
+                    frame=owned,
+                    captured_at_monotonic=time.monotonic(),
+                    sequence=self._sequence,
+                )
+            )
+
+
+def _stop_capture_producer() -> None:
+    """Stop the capture producer. Safe under ``_CAMERA_LOCK`` (producer never takes it)."""
+    global _capture_producer, _latest_frame_slot, _producer_blank_streak
+
+    producer = _capture_producer
+    _capture_producer = None
+    if producer is not None:
+        producer.stop()
+    if _latest_frame_slot is not None:
+        _latest_frame_slot.clear()
+    _producer_blank_streak = 0
+
+
+def _start_capture_producer(cap: cv2.VideoCapture, *, width: int, height: int) -> None:
+    """Replace any running producer with one bound to ``cap``."""
+    global _capture_producer, _latest_frame_slot, _producer_blank_streak
+
+    _stop_capture_producer()
+    slot = _LatestFrameSlot()
+    _latest_frame_slot = slot
+    _producer_blank_streak = 0
+    producer = _CaptureProducer(cap, width=width, height=height, slot=slot)
+    _capture_producer = producer
+    producer.start()
+
+
+def latest_frame_overwrite_count() -> int:
+    """Test helper: how many times a newer frame replaced an unconsumed one."""
+    if _latest_frame_slot is None:
+        return 0
+    return _latest_frame_slot.overwrite_count
+
+
+def capture_producer_is_alive() -> bool:
+    """Test helper: whether the latest-frame producer thread is running."""
+    return _capture_producer is not None and _capture_producer.is_alive
+
 
 class CameraReadStatus(Enum):
     OK = "ok"
@@ -265,6 +444,10 @@ def _release_shared_unlocked() -> None:
     global _shared_cap, _shared_index, _shared_device_id, _shared_profile
 
     _cancel_pending_release()
+
+    # Stop the producer before releasing VideoCapture so it cannot read a
+    # closed/replaced capture.
+    _stop_capture_producer()
 
     if _shared_cap is not None:
         _shared_cap.release()
@@ -507,6 +690,9 @@ def _try_reuse_shared_capture(
         )
         return False
 
+    # Stop the producer so the probe owns exclusive VideoCapture reads.
+    _stop_capture_producer()
+
     ok, _ = _probe_stable_startup(
         _shared_cap,
         timeout_s=min(_STARTUP_TIMEOUT_S, 1.0),
@@ -690,6 +876,8 @@ class CameraCapture:
         self._last_recovery_at = 0.0
         self._requested_device_id = camera_device_id
         self._active_device_id: str | None = None
+        self._last_captured_at_monotonic: float | None = None
+        self._last_capture_sequence: int | None = None
 
         if camera_device_id is not None:
             self._auto = False
@@ -726,6 +914,14 @@ class CameraCapture:
     @property
     def last_read_status(self) -> CameraReadStatus:
         return self._last_read_status
+
+    @property
+    def last_captured_at_monotonic(self) -> float | None:
+        return self._last_captured_at_monotonic
+
+    @property
+    def last_capture_sequence(self) -> int | None:
+        return self._last_capture_sequence
 
     def _resolve_allowed_indices(self) -> list[int] | None:
         """Return candidate indices, or ``None`` when explicit device is missing."""
@@ -769,6 +965,7 @@ class CameraCapture:
         self._blank_frame_streak = 0
         preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
         self._used_fallback = self._auto and index != preferred
+        _start_capture_producer(cap, width=self._width, height=self._height)
 
     def open(self) -> bool:
         allowed = self._resolve_allowed_indices()
@@ -808,6 +1005,10 @@ class CameraCapture:
                     and _shared_index != getattr(self, "_auto_preferred", CAMERA_INDEX)
                 )
                 self._last_read_status = CameraReadStatus.OK
+                assert _shared_cap is not None
+                _start_capture_producer(
+                    _shared_cap, width=self._width, height=self._height
+                )
                 logger.info(
                     "Camera ready (reused): active_index=%s device_id=%s "
                     "profile=%s used_fallback=%s",
@@ -997,7 +1198,80 @@ class CameraCapture:
 
         return None
 
+    def _read_from_latest_slot(self) -> Optional[np.ndarray]:
+        """Consume the newest producer frame; recover if blanks persist."""
+        global _producer_blank_streak
+
+        slot = _latest_frame_slot
+        if slot is None:
+            return None
+
+        captured = slot.take(timeout=_STARTUP_READ_SLEEP_S)
+        if captured is not None:
+            self._blank_frame_streak = 0
+            _producer_blank_streak = 0
+            self._last_captured_at_monotonic = captured.captured_at_monotonic
+            self._last_capture_sequence = captured.sequence
+            self._last_read_status = CameraReadStatus.OK
+            return captured.frame
+
+        with _CAMERA_LOCK:
+            producer = _capture_producer
+            streak = (
+                producer.blank_streak
+                if producer is not None
+                else max(self._blank_frame_streak, _producer_blank_streak)
+            )
+            self._blank_frame_streak = streak
+
+            recoveries = 0
+            while (
+                self._blank_frame_streak >= _MAX_BLANK_FRAME_STREAK
+                and recoveries < _MAX_RECOVERY_ATTEMPTS_PER_READ
+                and self._recovery_allowed()
+            ):
+                if not self._recover_unlocked():
+                    self._last_read_status = CameraReadStatus.UNAVAILABLE
+                    return None
+                recoveries += 1
+                # Recovery restarts the producer; try one fresh take outside.
+                break
+
+            if recoveries > 0:
+                pass
+            elif (
+                _shared_cap is None
+                or not _shared_cap.isOpened()
+                or self._last_read_status == CameraReadStatus.UNAVAILABLE
+            ):
+                self._last_read_status = CameraReadStatus.UNAVAILABLE
+                return None
+            else:
+                self._last_read_status = CameraReadStatus.TEMPORARY_MISS
+                return None
+
+        # After a successful recovery, wait briefly for the new producer.
+        slot = _latest_frame_slot
+        if slot is None:
+            self._last_read_status = CameraReadStatus.TEMPORARY_MISS
+            return None
+        captured = slot.take(timeout=max(_STARTUP_READ_SLEEP_S, 0.1))
+        if captured is None:
+            self._last_read_status = CameraReadStatus.TEMPORARY_MISS
+            return None
+        self._blank_frame_streak = 0
+        self._last_captured_at_monotonic = captured.captured_at_monotonic
+        self._last_capture_sequence = captured.sequence
+        self._last_read_status = CameraReadStatus.OK
+        return captured.frame
+
     def read(self) -> Optional[np.ndarray]:
+        # Production/session path: dedicated producer keeps only the newest frame.
+        if _capture_producer is not None and _capture_producer.is_alive:
+            return self._read_from_latest_slot()
+
+        # Direct path preserves injected-capture unit tests and any caller that
+        # owns ``_shared_cap`` without starting the producer.
         with _CAMERA_LOCK:
             recoveries = 0
 
@@ -1005,6 +1279,10 @@ class CameraCapture:
                 frame = self._read_frame_once_unlocked()
                 if frame is not None:
                     self._last_read_status = CameraReadStatus.OK
+                    self._last_captured_at_monotonic = time.monotonic()
+                    self._last_capture_sequence = (
+                        (self._last_capture_sequence or 0) + 1
+                    )
                     return frame
 
                 if (

@@ -500,6 +500,8 @@ class WebSocketService extends ChangeNotifier {
   }
 
   void _reconcileFromSessionState(String sessionState) {
+    final previousPrepared = _sessionPrepared;
+    final previousActive = _sessionActive;
     switch (sessionState) {
       case 'preparing':
         _sessionPrepared = true;
@@ -514,7 +516,11 @@ class WebSocketService extends ChangeNotifier {
       default:
         return;
     }
-    if (!_disposing) notifyListeners();
+    if ((previousPrepared != _sessionPrepared ||
+            previousActive != _sessionActive) &&
+        !_disposing) {
+      notifyListeners();
+    }
   }
 
   void _recordProtocolError(ProtocolErrorMessage error) {
@@ -578,6 +584,7 @@ class WebSocketService extends ChangeNotifier {
   }
 
   void _setState(WebSocketConnectionState state) {
+    if (_connectionState == state) return;
     _connectionState = state;
     if (!_disposing) notifyListeners();
   }

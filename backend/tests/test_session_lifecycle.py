@@ -28,6 +28,8 @@ class StubCamera:
         self.active_index = kwargs.get("camera_index") or 0
         self.active_device_id = kwargs.get("camera_device_id")
         self.used_fallback = False
+        self.last_captured_at_monotonic = None
+        self.last_capture_sequence = None
         StubCamera.instances.append(self)
 
     def open(self) -> bool:
@@ -36,6 +38,8 @@ class StubCamera:
 
     def read(self):
         self.read_count += 1
+        self.last_captured_at_monotonic = 1000.0 + self.read_count
+        self.last_capture_sequence = self.read_count
         return _frame()
 
     def release(self) -> None:
@@ -415,3 +419,86 @@ def test_preview_frames_use_default_hold_values(monkeypatch):
     assert message.hold_confirmed is False
     assert message.positive_frame_ratio == 0.0
     session.close()
+
+
+def test_pipeline_timing_does_not_change_feedback_payload(monkeypatch):
+    _patch_vision(monkeypatch)
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(
+                feedback="Hold steady",
+                feedback_type="positive",
+                posture_status="stable",
+            ),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    assert session.activate() is True
+    message = session.process_frame()
+    assert message is not None
+    assert message.feedback == "Hold steady"
+    assert message.feedback_type == "positive"
+    assert message.session_state == "active"
+    assert message.frame_jpeg_base64
+    assert session.timings._counts["total"] >= 1
+    assert session.timings._frame_age_count >= 1
+    session.close()
+
+
+def test_cv_session_loop_keeps_one_processing_task_in_flight(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
+    monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
+
+    in_flight = {"count": 0, "max": 0}
+    original = websocket_api.VisionSession.process_tick
+
+    def slow_tick(self):
+        in_flight["count"] += 1
+        in_flight["max"] = max(in_flight["max"], in_flight["count"])
+        try:
+            return original(self)
+        finally:
+            in_flight["count"] -= 1
+
+    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", slow_tick)
+
+    async def _run():
+        sent = []
+
+        async def fake_send(text):
+            sent.append(text)
+
+        ws = MagicMock()
+        ws.send_text = fake_send
+        session_ref: dict = {"session": None}
+        task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                ws,
+                "Hand Stall",
+                session_ref=session_ref,
+                start_active=False,
+                send_text=fake_send,
+            )
+        )
+
+        for _ in range(50):
+            if session_ref.get("session") is not None and len(sent) >= 3:
+                break
+            await asyncio.sleep(0.02)
+
+        await websocket_api._stop_session_task(task)
+        assert task.done()
+        assert in_flight["max"] == 1
+        assert len(sent) >= 1
+
+    asyncio.run(_run())

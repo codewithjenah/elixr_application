@@ -9,7 +9,7 @@ from typing import Callable, Literal, Optional
 import numpy as np
 from ultralytics import YOLO
 
-from config import MAX_BOTTLES, YOLO_CONFIDENCE, YOLO_IOU
+from config import MAX_BOTTLES, YOLO_CONFIDENCE, YOLO_IMGSZ, YOLO_IOU
 from vision.types import PropDetection
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,17 @@ _CLASS_ALIASES: dict[PropType, set[str]] = {
 
 class ModelLoadError(RuntimeError):
     """Raised when a selected prop model cannot be loaded or configured."""
+
+
+def _resolve_model_device(model: YOLO) -> str:
+    """Best-effort device label for observability (does not force GPU/FP16)."""
+    device = getattr(model, "device", None)
+    if device is not None:
+        return str(device)
+    overrides = getattr(model, "overrides", None)
+    if isinstance(overrides, Mapping) and overrides.get("device") is not None:
+        return str(overrides["device"])
+    return "cpu"
 
 
 def _normalize_class_name(name: str) -> str:
@@ -208,12 +219,16 @@ class PropDetector:
         self._model = model
         self._resolved_class_id = class_id
         self._class_names = class_names
+        device = _resolve_model_device(model)
         logger.info(
-            "Loaded prop detector: prop=%s path=%s classes=%s resolved_class_id=%s",
+            "Loaded prop detector: prop=%s path=%s classes=%s "
+            "resolved_class_id=%s device=%s imgsz=%s",
             self._prop_type,
             self._model_path,
             self._class_names,
             self._resolved_class_id,
+            device,
+            YOLO_IMGSZ,
         )
         return model
 
@@ -231,6 +246,7 @@ class PropDetector:
                 conf=self._confidence,
                 iou=YOLO_IOU,
                 max_det=MAX_BOTTLES,
+                imgsz=YOLO_IMGSZ,
             )
         except Exception:
             logger.exception("YOLO inference failed for prop=%s", self._prop_type)

@@ -38,6 +38,8 @@ class StubCamera:
         self.active_index = kwargs.get("camera_index") or 0
         self.active_device_id = kwargs.get("camera_device_id")
         self.used_fallback = False
+        self.last_captured_at_monotonic = None
+        self.last_capture_sequence = None
         StubCamera.instances.append(self)
 
     def open(self) -> bool:
@@ -46,6 +48,8 @@ class StubCamera:
 
     def read(self):
         self.read_count += 1
+        self.last_captured_at_monotonic = 1000.0 + self.read_count
+        self.last_capture_sequence = self.read_count
         return _frame()
 
     def release(self) -> None:

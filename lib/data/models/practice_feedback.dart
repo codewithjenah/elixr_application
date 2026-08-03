@@ -64,6 +64,30 @@ class PracticeFeedback {
           (feedback.contains('Camera unavailable') ||
               feedback.contains('Model load failed')));
 
+  /// Semantic UI fields only (excludes JPEG bytes).
+  bool semanticEquals(PracticeFeedback? other) {
+    if (identical(this, other)) return true;
+    if (other == null) return false;
+    return bottleDetected == other.bottleDetected &&
+        bottleCount == other.bottleCount &&
+        movement == other.movement &&
+        score == other.score &&
+        feedback == other.feedback &&
+        feedbackType == other.feedbackType &&
+        postureStatus == other.postureStatus &&
+        errorCode == other.errorCode &&
+        cameraReady == other.cameraReady &&
+        sessionState == other.sessionState &&
+        holdProgress == other.holdProgress &&
+        holdDurationMs == other.holdDurationMs &&
+        holdConfirmed == other.holdConfirmed &&
+        positiveFrameRatio == other.positiveFrameRatio &&
+        protocolVersion == other.protocolVersion &&
+        messageType == other.messageType &&
+        sessionId == other.sessionId &&
+        propType == other.propType;
+  }
+
   factory PracticeFeedback.fromJson(Map<String, dynamic> json) {
     Uint8List? frameBytes;
     final frameB64 = json['frame_jpeg_base64'] as String?;

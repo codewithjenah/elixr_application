@@ -34,6 +34,7 @@ class _FakeModel:
         assert kwargs["conf"] == pytest.approx(0.4)
         assert kwargs["iou"] == pytest.approx(0.45)
         assert kwargs["max_det"] == 2
+        assert kwargs["imgsz"] == 640
         return [_FakeResult(self._boxes)]
 
 

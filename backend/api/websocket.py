@@ -22,6 +22,7 @@ from config import (
     JPEG_QUALITY,
     TARGET_FPS,
     YOLO_FRAME_SKIP,
+    YOLO_IMGSZ,
 )
 from schemas.commands import (
     PROTOCOL_VERSION,
@@ -54,6 +55,69 @@ SESSION_ACTIVE = "active"
 SESSION_CLOSED = "closed"
 
 SendText = Callable[[str], Awaitable[None]]
+
+_PIPELINE_STAGE_ORDER = (
+    "camera",
+    "yolo",
+    "hands",
+    "pose",
+    "evaluate",
+    "annotate",
+    "jpeg",
+    "encode",
+    "send",
+    "total",
+)
+
+
+class _PipelineTimings:
+    """Rolling stage timings logged at the FPS interval (not every frame)."""
+
+    def __init__(self) -> None:
+        self._sums: dict[str, float] = {name: 0.0 for name in _PIPELINE_STAGE_ORDER}
+        self._counts: dict[str, int] = {name: 0 for name in _PIPELINE_STAGE_ORDER}
+        self._frame_age_sum = 0.0
+        self._frame_age_count = 0
+        self._frame_age_max = 0.0
+
+    def add(self, stage: str, seconds: float) -> None:
+        if stage not in self._sums:
+            self._sums[stage] = 0.0
+            self._counts[stage] = 0
+        self._sums[stage] += seconds
+        self._counts[stage] += 1
+
+    def add_frame_age(self, seconds: float) -> None:
+        self._frame_age_sum += seconds
+        self._frame_age_count += 1
+        if seconds > self._frame_age_max:
+            self._frame_age_max = seconds
+
+    def reset(self) -> None:
+        for name in list(self._sums):
+            self._sums[name] = 0.0
+            self._counts[name] = 0
+        self._frame_age_sum = 0.0
+        self._frame_age_count = 0
+        self._frame_age_max = 0.0
+
+    def format_averages_ms(self, *, frame_budget_ms: float) -> str:
+        parts: list[str] = []
+        for name in _PIPELINE_STAGE_ORDER:
+            count = self._counts.get(name, 0)
+            if count <= 0:
+                continue
+            avg_ms = (self._sums[name] / count) * 1000.0
+            over = "!" if avg_ms > frame_budget_ms and name == "total" else ""
+            if name != "total" and avg_ms > frame_budget_ms * 0.35:
+                over = "!"
+            parts.append(f"{name}={avg_ms:.1f}ms{over}")
+        if self._frame_age_count > 0:
+            avg_age = (self._frame_age_sum / self._frame_age_count) * 1000.0
+            max_age = self._frame_age_max * 1000.0
+            parts.append(f"frame_age_avg={avg_age:.1f}ms")
+            parts.append(f"frame_age_max={max_age:.1f}ms")
+        return ", ".join(parts)
 
 
 def parse_camera_index(raw) -> tuple[int | None, str | None]:
@@ -302,6 +366,7 @@ class VisionSession:
         self._model_checked = False
         self._lifecycle = SESSION_PREPARED
         self._hold_validator = HoldValidator()
+        self.timings = _PipelineTimings()
 
     @property
     def lifecycle(self) -> str:
@@ -387,20 +452,30 @@ class VisionSession:
 
     def process_preview_frame(self) -> FeedbackMessage | None:
         """Encode a JPEG preview without model load, evaluation, or scoring."""
+        total_start = time.perf_counter()
+
+        t0 = time.perf_counter()
         frame = self.camera.read()
+        self.timings.add("camera", time.perf_counter() - t0)
 
         if frame is None:
             return None
 
+        captured_at = self.camera.last_captured_at_monotonic
+        if captured_at is not None:
+            self.timings.add_frame_age(time.monotonic() - captured_at)
+
+        t0 = time.perf_counter()
         _, buffer = cv2.imencode(
             ".jpg",
             frame,
             [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
         )
+        self.timings.add("jpeg", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
-
-        return self._stamp(
+        message = self._stamp(
             FeedbackMessage(
                 bottle_detected=False,
                 bottle_count=0,
@@ -415,18 +490,29 @@ class VisionSession:
                 session_state="preparing",
             )
         )
+        self.timings.add("encode", time.perf_counter() - t0)
+        self.timings.add("total", time.perf_counter() - total_start)
+        return message
 
     def process_frame(self) -> FeedbackMessage | None:
+        total_start = time.perf_counter()
         self._ensure_detectors()
         model_error = self._check_model()
 
         if model_error is not None:
             return model_error
 
+        t0 = time.perf_counter()
         frame = self.camera.read()
+        self.timings.add("camera", time.perf_counter() - t0)
 
         if frame is None:
             return None
+
+        processing_start = time.monotonic()
+        captured_at = self.camera.last_captured_at_monotonic
+        if captured_at is not None:
+            self.timings.add_frame_age(processing_start - captured_at)
 
         self._frame_index += 1
 
@@ -436,7 +522,9 @@ class VisionSession:
         bottles = self._last_bottles
 
         if self.bottle_detection_enabled and run_yolo:
+            t0 = time.perf_counter()
             bottles = self.prop_detector.detect(frame)
+            self.timings.add("yolo", time.perf_counter() - t0)
             self._last_bottles = bottles
         elif not self.bottle_detection_enabled:
             bottles = []
@@ -451,15 +539,23 @@ class VisionSession:
         # This prevents "naiiwan yung daliri" / ghost hand dots.
         assert self.hands_detector is not None
         if movement_requires_hands(self.movement):
+            t0 = time.perf_counter()
             hands = self.hands_detector.detect(
                 frame,
                 bottle=bottle,
             )
+            self.timings.add("hands", time.perf_counter() - t0)
         else:
             hands = None
 
-        pose = self.pose_detector.detect(frame) if self.pose_detector else None
+        if self.pose_detector:
+            t0 = time.perf_counter()
+            pose = self.pose_detector.detect(frame)
+            self.timings.add("pose", time.perf_counter() - t0)
+        else:
+            pose = None
 
+        t0 = time.perf_counter()
         rule_result, self._prev_hip_center, self._movement_state = evaluate_movement(
             self.movement,
             bottle,
@@ -472,6 +568,7 @@ class VisionSession:
             prop_type=self.prop_type,
             prop_label=self.prop_display_name,
         )
+        self.timings.add("evaluate", time.perf_counter() - t0)
 
         self.scorer.record(rule_result.feedback_type)
 
@@ -482,6 +579,7 @@ class VisionSession:
             timestamp=time.monotonic(),
         )
 
+        t0 = time.perf_counter()
         annotated = annotate_frame(
             frame,
             bottles,
@@ -493,16 +591,19 @@ class VisionSession:
             pose=pose,
             prop_label=self.prop_display_name,
         )
+        self.timings.add("annotate", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         _, buffer = cv2.imencode(
             ".jpg",
             annotated,
             [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
         )
+        self.timings.add("jpeg", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
-
-        return self._stamp(
+        message = self._stamp(
             FeedbackMessage(
                 bottle_detected=len(bottles) > 0,
                 bottle_count=len(bottles),
@@ -521,6 +622,9 @@ class VisionSession:
                 positive_frame_ratio=hold.positive_frame_ratio,
             )
         )
+        self.timings.add("encode", time.perf_counter() - t0)
+        self.timings.add("total", time.perf_counter() - total_start)
+        return message
 
     def process_tick(self) -> FeedbackMessage | None:
         if self._lifecycle == SESSION_ACTIVE:
@@ -675,13 +779,20 @@ async def _cv_session_loop(
     )
 
     interval = 1.0 / TARGET_FPS
-    frame_count = 0
+    frame_budget_ms = interval * 1000.0
+    processed_frame_count = 0
+    loop_ticks = 0
     loop_start = time.perf_counter()
     frame_task: asyncio.Task | None = None
 
     try:
         while True:
             tick = time.perf_counter()
+            loop_ticks += 1
+
+            # At most one frame-processing operation in flight.
+            if frame_task is not None and not frame_task.done():
+                raise RuntimeError("CV session violated single in-flight processing invariant")
 
             frame_task = asyncio.create_task(
                 asyncio.to_thread(session.process_tick)
@@ -701,21 +812,35 @@ async def _cv_session_loop(
                     await _send(message.model_dump_json())
                     break
 
+                t_send = time.perf_counter()
                 await _send(message.model_dump_json())
+                session.timings.add("send", time.perf_counter() - t_send)
+                processed_frame_count += 1
 
-            frame_count += 1
-
-            if frame_count % FPS_LOG_INTERVAL == 0:
+            if processed_frame_count > 0 and processed_frame_count % FPS_LOG_INTERVAL == 0:
                 elapsed = time.perf_counter() - loop_start
-                actual_fps = frame_count / elapsed if elapsed > 0 else 0
-
+                actual_fps = (
+                    processed_frame_count / elapsed if elapsed > 0 else 0.0
+                )
+                stage_summary = session.timings.format_averages_ms(
+                    frame_budget_ms=frame_budget_ms
+                )
                 logger.info(
-                    "CV session FPS: %.1f (target=%s, yolo_skip=%s, lifecycle=%s)",
+                    "CV session FPS: %.1f (target=%s, yolo_skip=%s, imgsz=%s, "
+                    "lifecycle=%s, processed=%s, ticks=%s) stages: %s",
                     actual_fps,
                     TARGET_FPS,
                     YOLO_FRAME_SKIP,
+                    YOLO_IMGSZ,
                     session.lifecycle,
+                    processed_frame_count,
+                    loop_ticks,
+                    stage_summary,
                 )
+                session.timings.reset()
+                processed_frame_count = 0
+                loop_ticks = 0
+                loop_start = time.perf_counter()
 
             processing = time.perf_counter() - tick
             sleep_time = max(0.0, interval - processing)

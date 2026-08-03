@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -22,7 +21,8 @@ class TrainingCameraStatusItem {
 class TrainingCameraWorkspace extends StatelessWidget {
   const TrainingCameraWorkspace({
     super.key,
-    required this.frameBytes,
+    this.frameBytes,
+    this.frameListenable,
     required this.mirrored,
     required this.connectionState,
     required this.connecting,
@@ -39,7 +39,11 @@ class TrainingCameraWorkspace extends StatelessWidget {
     this.statusItems = const [],
   });
 
+  /// Static frame for tests / simple callers. Ignored when [frameListenable] is set.
   final Uint8List? frameBytes;
+
+  /// High-frequency JPEG updates. Only the camera image rebuilds on changes.
+  final ValueListenable<Uint8List?>? frameListenable;
   final bool mirrored;
   final WebSocketConnectionState connectionState;
   final bool connecting;
@@ -143,16 +147,22 @@ class TrainingCameraWorkspace extends StatelessWidget {
       );
     }
 
-    if (frameBytes != null) {
-      return _MirroredCameraFeed(
-        frameBytes: frameBytes!,
+    final listenable = frameListenable;
+    if (listenable != null) {
+      return _CameraFeedSurface(
+        frameListenable: listenable,
         mirrored: mirrored,
         overlayFeedback: isSessionActive ? overlayFeedback : null,
         showFeedbackMessage: showFeedbackMessage,
         aspectRatio: _frameAspectRatio,
+        placeholder: _buildWaitingOrIdlePlaceholder(),
       );
     }
 
+    return _buildFrameOrPlaceholder(frameBytes);
+  }
+
+  Widget _buildWaitingOrIdlePlaceholder() {
     if (isPreparingCamera || isSessionActive) {
       return _CenteredMessage(
         child: Text(
@@ -200,6 +210,20 @@ class TrainingCameraWorkspace extends StatelessWidget {
     }
 
     return const SizedBox.shrink();
+  }
+
+  Widget _buildFrameOrPlaceholder(Uint8List? bytes) {
+    if (bytes != null) {
+      return _MirroredCameraFeed(
+        frameBytes: bytes,
+        mirrored: mirrored,
+        overlayFeedback: isSessionActive ? overlayFeedback : null,
+        showFeedbackMessage: showFeedbackMessage,
+        aspectRatio: _frameAspectRatio,
+      );
+    }
+
+    return _buildWaitingOrIdlePlaceholder();
   }
 
   Widget _buildErrorSurface(BuildContext context) {
@@ -293,6 +317,68 @@ class _StatusStrip extends StatelessWidget {
                     color: item.color ?? AppColors.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CameraFeedSurface extends StatelessWidget {
+  const _CameraFeedSurface({
+    required this.frameListenable,
+    required this.mirrored,
+    required this.aspectRatio,
+    required this.placeholder,
+    this.overlayFeedback,
+    this.showFeedbackMessage = true,
+  });
+
+  final ValueListenable<Uint8List?> frameListenable;
+  final bool mirrored;
+  final double aspectRatio;
+  final Widget placeholder;
+  final PracticeFeedback? overlayFeedback;
+  final bool showFeedbackMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    // Keep image + HUD in one AspectRatio Stack (same as _MirroredCameraFeed).
+    // Do not wrap the HUD in its own full-frame AspectRatio — that gives the
+    // dark gradient tight max-height of the whole feed and washes it out.
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspectRatio,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ValueListenableBuilder<Uint8List?>(
+              valueListenable: frameListenable,
+              builder: (context, bytes, _) {
+                if (bytes == null) {
+                  return placeholder;
+                }
+                return Transform.flip(
+                  key: const ValueKey('camera-frame-transform'),
+                  flipX: mirrored,
+                  child: Image.memory(
+                    bytes,
+                    fit: BoxFit.fill,
+                    gaplessPlayback: true,
+                  ),
+                );
+              },
+            ),
+            if (overlayFeedback != null)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: _FrameHudOverlay(
+                  feedback: overlayFeedback!,
+                  showFeedbackMessage: showFeedbackMessage,
                 ),
               ),
           ],
@@ -407,6 +493,7 @@ class _FrameHudOverlay extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(

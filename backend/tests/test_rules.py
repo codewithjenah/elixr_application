@@ -1191,9 +1191,12 @@ def test_session_passes_primary_bottle_to_hand_detector(
 
     class StubCamera:
         def __init__(self, *args, **kwargs):
-            pass
+            self.last_captured_at_monotonic = None
+            self.last_capture_sequence = None
 
         def read(self):
+            self.last_captured_at_monotonic = 1.0
+            self.last_capture_sequence = 1
             return frame
 
         def release(self):
@@ -2116,9 +2119,12 @@ def test_double_hand_stall_session_receives_both_detections(monkeypatch):
 
     class StubCamera:
         def __init__(self, *args, **kwargs):
-            pass
+            self.last_captured_at_monotonic = None
+            self.last_capture_sequence = None
 
         def read(self):
+            self.last_captured_at_monotonic = 1.0
+            self.last_capture_sequence = 1
             return frame
 
         def release(self):
@@ -2183,9 +2189,12 @@ def test_other_movements_still_use_primary_bottle(monkeypatch):
 
     class StubCamera:
         def __init__(self, *args, **kwargs):
-            pass
+            self.last_captured_at_monotonic = None
+            self.last_capture_sequence = None
 
         def read(self):
+            self.last_captured_at_monotonic = 1.0
+            self.last_capture_sequence = 1
             return frame
 
         def release(self):

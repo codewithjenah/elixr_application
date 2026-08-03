@@ -58,7 +58,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   final _feedbackHistory = <PracticeFeedback>[];
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
-  Uint8List? _currentFrame;
+  final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
   PracticeFeedback? _latestFeedback;
   bool _connecting = false;
   String? _sessionError;
@@ -103,6 +103,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   void dispose() {
     _feedbackSub?.cancel();
     _scorePulseController.dispose();
+    _frameBytes.dispose();
     _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
@@ -117,10 +118,10 @@ class _PracticeScreenState extends State<PracticeScreen>
         _ws.connectionState == WebSocketConnectionState.error) {
       _music.stop();
       _sfx.stop();
+      _frameBytes.value = null;
       if (mounted) {
         setState(() {
           _latestFeedback = null;
-          _currentFrame = null;
         });
       }
     }
@@ -129,6 +130,16 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   void _onRunChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _publishFrame(Uint8List? bytes) {
+    if (bytes != null) {
+      _frameBytes.value = bytes;
+    }
+  }
+
+  void _clearFrame() {
+    _frameBytes.value = null;
   }
 
   void _onFeedback(PracticeFeedback feedback) {
@@ -143,22 +154,21 @@ class _PracticeScreenState extends State<PracticeScreen>
         fatalMessage: feedback.feedback,
       );
       unawaited(_ws.sendStop());
+      _clearFrame();
       setState(() {
         _sessionError = feedback.feedback;
         _latestFeedback = null;
-        _currentFrame = null;
       });
       return;
     }
 
     // Preparing: store frame; first JPEG starts countdown once.
     if (_run.isPreparingCamera) {
-      setState(() {
-        _sessionError = null;
-        if (feedback.frameJpegBytes != null) {
-          _currentFrame = feedback.frameJpegBytes;
-        }
-      });
+      _publishFrame(feedback.frameJpegBytes);
+      final hadError = _sessionError != null;
+      if (hadError) {
+        setState(() => _sessionError = null);
+      }
       final startCountdown = _run.onPreviewFeedback(
         hasJpegFrame: feedback.frameJpegBytes != null,
         isFatal: false,
@@ -171,12 +181,10 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     // Countdown: keep refreshing preview frames only.
     if (_run.isCountdown) {
-      setState(() {
-        _sessionError = null;
-        if (feedback.frameJpegBytes != null) {
-          _currentFrame = feedback.frameJpegBytes;
-        }
-      });
+      _publishFrame(feedback.frameJpegBytes);
+      if (_sessionError != null) {
+        setState(() => _sessionError = null);
+      }
       return;
     }
 
@@ -185,31 +193,53 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     final previousScore = _latestFeedback?.score;
     final scoreChanged = previousScore != feedback.score;
-    setState(() {
-      _sessionError = null;
-      if (feedback.feedbackType == 'positive') {
-        _combo++;
-        if (_combo > _bestCombo) _bestCombo = _combo;
-      } else if (feedback.feedbackType == 'error' ||
-          feedback.feedbackType == 'warning') {
-        _combo = 0;
+    final semanticChanged = !feedback.semanticEquals(_latestFeedback);
+    final historyChanged =
+        _feedbackHistory.isEmpty ||
+        _feedbackHistory.last.feedback != feedback.feedback;
+
+    var comboChanged = false;
+    var nextCombo = _combo;
+    var nextBest = _bestCombo;
+    if (feedback.feedbackType == 'positive') {
+      nextCombo = _combo + 1;
+      if (nextCombo > _bestCombo) nextBest = nextCombo;
+      comboChanged = nextCombo != _combo || nextBest != _bestCombo;
+    } else if (feedback.feedbackType == 'error' ||
+        feedback.feedbackType == 'warning') {
+      if (_combo != 0) {
+        nextCombo = 0;
+        comboChanged = true;
       }
-      if (previousScore != null && feedback.score > previousScore) {
-        _scorePopupDelta = feedback.score - previousScore;
-        _scorePopupTrigger++;
-      }
-      _latestFeedback = feedback;
-      if (feedback.frameJpegBytes != null) {
-        _currentFrame = feedback.frameJpegBytes;
-      }
-      if (_feedbackHistory.isEmpty ||
-          _feedbackHistory.last.feedback != feedback.feedback) {
-        _feedbackHistory.insert(0, feedback);
-        if (_feedbackHistory.length > 50) {
-          _feedbackHistory.removeLast();
+    }
+
+    var scorePopupChanged = false;
+    if (previousScore != null && feedback.score > previousScore) {
+      _scorePopupDelta = feedback.score - previousScore;
+      _scorePopupTrigger++;
+      scorePopupChanged = true;
+    }
+
+    _publishFrame(feedback.frameJpegBytes);
+
+    if (semanticChanged ||
+        comboChanged ||
+        historyChanged ||
+        scorePopupChanged ||
+        _sessionError != null) {
+      setState(() {
+        _sessionError = null;
+        _combo = nextCombo;
+        _bestCombo = nextBest;
+        _latestFeedback = feedback;
+        if (historyChanged) {
+          _feedbackHistory.insert(0, feedback);
+          if (_feedbackHistory.length > 50) {
+            _feedbackHistory.removeLast();
+          }
         }
-      }
-    });
+      });
+    }
 
     if (feedback.holdConfirmed) {
       unawaited(_onMovementConfirmed());
@@ -295,7 +325,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         unawaited(_ws.sendStop());
         setState(() {
           _sessionError = message;
-          _currentFrame = null;
+          _clearFrame();
         });
       }
     } catch (error) {
@@ -311,7 +341,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       unawaited(_ws.sendStop());
       setState(() {
         _sessionError = message;
-        _currentFrame = null;
+        _clearFrame();
       });
     } finally {
       _commandInFlight = false;
@@ -325,7 +355,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     unawaited(_sfx.stop());
     setState(() {
       _sessionError = _run.errorMessage;
-      _currentFrame = null;
+      _clearFrame();
     });
   }
 
@@ -356,7 +386,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         unawaited(_ws.sendStop());
         setState(() {
           _sessionError = message;
-          _currentFrame = null;
+          _clearFrame();
         });
         return;
       }
@@ -378,7 +408,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       unawaited(_ws.sendStop());
       setState(() {
         _sessionError = message;
-        _currentFrame = null;
+        _clearFrame();
       });
     } finally {
       _commandInFlight = false;
@@ -393,7 +423,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   void _clearSessionState() {
     _feedbackHistory.clear();
     _sessionError = null;
-    _currentFrame = null;
+    _clearFrame();
     _latestFeedback = null;
     _lastPulsedScore = null;
     _combo = 0;
@@ -653,7 +683,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         : 0.0;
 
     return TrainingCameraWorkspace(
-      frameBytes: _currentFrame,
+      frameListenable: _frameBytes,
       mirrored: context.watch<SettingsService>().cameraMirrored,
       connectionState: _ws.connectionState,
       connecting: _connecting,

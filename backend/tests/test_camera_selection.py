@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import time
 
 from config import CAMERA_FALLBACK_INDEX, CAMERA_INDEX, FRAME_HEIGHT, FRAME_WIDTH, TARGET_FPS
 from vision import camera as camera_mod
@@ -84,6 +85,7 @@ def _opened(cap: _FakeCap, index: int = 0) -> tuple[_FakeCap, camera_mod.Capture
 
 
 def _reset_shared() -> None:
+    camera_mod._stop_capture_producer()
     camera_mod._shared_cap = None
     camera_mod._shared_index = None
     camera_mod._shared_device_id = None
@@ -1087,3 +1089,139 @@ def test_recovery_passes_prefer_after_failed_profile(monkeypatch):
     assert seen["prefer_after"] == failed_profile
 
     camera_mod._release_shared_unlocked()
+
+# ---------------------------------------------------------------------------
+# Latest-frame capture producer
+# ---------------------------------------------------------------------------
+
+
+class _SlowSequenceCap(_FakeCap):
+    """Yields marked frames; tracks reads after release."""
+
+    def __init__(self, frames: list[np.ndarray], *, read_delay_s: float = 0.0):
+        super().__init__()
+        self._frames = list(frames)
+        self._read_delay_s = read_delay_s
+        self.reads_after_release = 0
+
+    def read(self):
+        if self.released:
+            self.reads_after_release += 1
+            return False, None
+        if self._read_delay_s > 0:
+            time.sleep(self._read_delay_s)
+        self.reads += 1
+        if not self._frames:
+            return True, _usable_frame()
+        return True, self._frames.pop(0)
+
+
+def test_latest_frame_slot_overwrites_unconsumed_frame():
+    slot = camera_mod._LatestFrameSlot()
+    first = camera_mod.CapturedFrame(_usable_frame(), 1.0, 1)
+    second = camera_mod.CapturedFrame(_usable_frame(h=64, w=80), 2.0, 2)
+    slot.publish(first)
+    slot.publish(second)
+    assert slot.overwrite_count == 1
+    taken = slot.take(timeout=0)
+    assert taken is not None
+    assert taken.sequence == 2
+    assert taken.frame.shape[0] == 64
+    assert slot.take(timeout=0) is None
+
+
+def test_capture_producer_keeps_only_newest_frame(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    _reset_shared()
+
+    frames = [_usable_frame() for _ in range(8)]
+    for i, frame in enumerate(frames):
+        frame[0, 0] = i + 1
+    cap = _SlowSequenceCap(frames)
+    camera_mod._start_capture_producer(cap, width=64, height=48)
+
+    deadline = time.monotonic() + 2.0
+    while camera_mod.latest_frame_overwrite_count() < 3 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert camera_mod.latest_frame_overwrite_count() >= 1
+    assert camera_mod.capture_producer_is_alive()
+
+    capture = camera_mod.CameraCapture(camera_index=1)
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+
+    got = capture.read()
+    assert got is not None
+    # Newest published marker should be greater than the first frame's marker.
+    assert int(got[0, 0, 0]) >= 2
+
+    camera_mod._release_shared_unlocked()
+    assert camera_mod.capture_producer_is_alive() is False
+    assert cap.released is True
+    time.sleep(0.05)
+    assert cap.reads_after_release == 0
+
+
+def test_capture_producer_stops_before_release_and_recovery(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_MAX_BLANK_FRAME_STREAK", 2)
+    monkeypatch.setattr(camera_mod, "_RECOVERY_COOLDOWN_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    _reset_shared()
+
+    blank = _FakeCap(usable=False)
+    healthy = _FakeCap(usable=True)
+    camera_mod._shared_cap = blank
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(blank, width=64, height=48)
+    assert camera_mod.capture_producer_is_alive()
+
+    def fake_open(index: int, **_kwargs):
+        return _opened(healthy, index)
+
+    monkeypatch.setattr(camera_mod, "_open_video_capture", fake_open)
+
+    capture = camera_mod.CameraCapture(camera_index=1)
+    deadline = time.monotonic() + 2.0
+    while camera_mod._producer_blank_streak < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    frame = capture.read()
+    assert frame is not None
+    assert blank.released is True
+    assert camera_mod._shared_cap is healthy
+    assert camera_mod.capture_producer_is_alive()
+    assert camera_mod._capture_producer._cap is healthy
+
+    camera_mod._release_shared_unlocked()
+    assert camera_mod.capture_producer_is_alive() is False
+
+
+def test_stop_and_recovery_do_not_deadlock_with_producer(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    _reset_shared()
+
+    cap = _FakeCap(usable=True)
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(cap, width=64, height=48)
+
+    capture = camera_mod.CameraCapture(camera_index=1)
+    frame = None
+    deadline = time.monotonic() + 2.0
+    while frame is None and time.monotonic() < deadline:
+        frame = capture.read()
+        if frame is None:
+            time.sleep(0.01)
+    assert frame is not None
+    capture.release()
+    # Scheduled release path joins the producer under the camera lock.
+    camera_mod._run_scheduled_release(camera_mod._release_generation)
+    assert camera_mod.capture_producer_is_alive() is False
+    assert cap.released is True

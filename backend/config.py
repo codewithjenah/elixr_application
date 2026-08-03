@@ -47,6 +47,29 @@ CUSTOM_BOTTLE_CLASS_ID = 0
 # Hard cap on how many selected props can be detected/tracked at once.
 MAX_BOTTLES = 2
 
+
+def _load_yolo_imgsz() -> int:
+    """Ultralytics inference size. Default 640 preserves current accuracy."""
+    raw = os.getenv("YOLO_IMGSZ", "640")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"YOLO_IMGSZ must be an integer (got {raw!r})"
+        ) from exc
+    if value < 32 or value > 1280:
+        raise ValueError(
+            f"YOLO_IMGSZ must be between 32 and 1280 (got {value})"
+        )
+    if value % 32 != 0:
+        raise ValueError(
+            f"YOLO_IMGSZ must be a multiple of 32 (got {value})"
+        )
+    return value
+
+
+YOLO_IMGSZ = _load_yolo_imgsz()
+
 HAND_BOTTLE_PROXIMITY = 0.15
 STALL_PROXIMITY = 0.12
 # Wider tolerance for arm/elbow stalls, which rest away from the palm.
