@@ -100,34 +100,57 @@ class _MovementSetlistDialogBodyState
       icon: FluentIcons.music_in_collection,
       iconColor: AppColors.primary,
       maxWidth: 560,
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Movements',
-              style: AppTheme.body.copyWith(
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
+      scrollableContent: true,
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Movements',
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final difficulty in _difficultyOrder) ...[
+            _buildDifficultyGroup(context, difficulty),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          if (!_canSave)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text(
+                'Select at least one movement.',
+                style: AppTheme.caption.copyWith(color: AppColors.error),
               ),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            for (final difficulty in _difficultyOrder) ...[
-              _buildDifficultyGroup(context, difficulty),
-              const SizedBox(height: AppSpacing.sm),
-            ],
-            if (!_canSave)
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: Text(
-                  'Select at least one movement.',
-                  style: AppTheme.caption.copyWith(color: AppColors.error),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Pace',
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final seconds in _intervalOptions)
+                _SelectChip(
+                  label: '${seconds}s',
+                  selected: _intervalSeconds == seconds,
+                  color: AppColors.accent,
+                  onTap: () => setState(() => _intervalSeconds = seconds),
                 ),
-              ),
-            const SizedBox(height: AppSpacing.sm),
+            ],
+          ),
+          if (musicTrackCatalog.length > 1) ...[
+            const SizedBox(height: AppSpacing.md),
             Text(
-              'Pace',
+              'Session Music',
               style: AppTheme.body.copyWith(
                 fontWeight: FontWeight.w700,
                 color: context.elixTextPrimary,
@@ -138,47 +161,23 @@ class _MovementSetlistDialogBodyState
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: [
-                for (final seconds in _intervalOptions)
+                _SelectChip(
+                  label: 'Shuffle',
+                  selected: _musicTrackId == null,
+                  color: AppColors.primarySoft,
+                  onTap: () => setState(() => _musicTrackId = null),
+                ),
+                for (final track in musicTrackCatalog)
                   _SelectChip(
-                    label: '${seconds}s',
-                    selected: _intervalSeconds == seconds,
-                    color: AppColors.accent,
-                    onTap: () => setState(() => _intervalSeconds = seconds),
+                    label: track.displayName,
+                    selected: _musicTrackId == track.id,
+                    color: AppColors.primarySoft,
+                    onTap: () => setState(() => _musicTrackId = track.id),
                   ),
               ],
             ),
-            if (musicTrackCatalog.length > 1) ...[
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                'Session Music',
-                style: AppTheme.body.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: context.elixTextPrimary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  _SelectChip(
-                    label: 'Shuffle',
-                    selected: _musicTrackId == null,
-                    color: AppColors.primarySoft,
-                    onTap: () => setState(() => _musicTrackId = null),
-                  ),
-                  for (final track in musicTrackCatalog)
-                    _SelectChip(
-                      label: track.displayName,
-                      selected: _musicTrackId == track.id,
-                      color: AppColors.primarySoft,
-                      onTap: () => setState(() => _musicTrackId = track.id),
-                    ),
-                ],
-              ),
-            ],
           ],
-        ),
+        ],
       ),
       actions: [
         Button(

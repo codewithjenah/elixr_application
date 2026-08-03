@@ -26,10 +26,10 @@ class MovementRotationOverlay extends StatelessWidget {
         final accent = difficultyAccentColor(current.difficulty);
 
         return Positioned(
-          top: AppSpacing.md,
-          left: AppSpacing.md,
+          right: AppSpacing.md,
+          bottom: 48,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 240),
+            constraints: const BoxConstraints(maxWidth: 220),
             child: Container(
               padding: const EdgeInsets.all(AppSpacing.sm + 2),
               decoration: BoxDecoration(

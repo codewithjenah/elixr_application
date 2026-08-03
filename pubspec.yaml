@@ -71,6 +71,8 @@ flutter:
     - assets/music/practice.mp3
     - assets/music/countdown.mp3
     - assets/music/congrats.mp3
+    - assets/music/just_dance_1.mp3
+    - assets/music/just_dance_2.mp3
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -18,6 +18,7 @@ class ElixDialog extends StatelessWidget {
     this.actions,
     this.maxWidth = 480,
     this.maxHeight,
+    this.scrollableContent = false,
   });
 
   final String title;
@@ -29,6 +30,10 @@ class ElixDialog extends StatelessWidget {
   final List<Widget>? actions;
   final double maxWidth;
   final double? maxHeight;
+
+  /// When true, the content area scrolls inside [maxHeight] instead of
+  /// expanding the dialog past the viewport.
+  final bool scrollableContent;
 
   static Future<T?> show<T>(
     BuildContext context, {
@@ -343,7 +348,9 @@ class ElixDialog extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: scrollableContent
+                ? MainAxisSize.max
+                : MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
@@ -397,15 +404,28 @@ class ElixDialog extends StatelessWidget {
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.xl,
-                  AppSpacing.sm,
-                  AppSpacing.xl,
-                  AppSpacing.md,
+              if (scrollableContent)
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.xl,
+                      AppSpacing.sm,
+                      AppSpacing.xl,
+                      AppSpacing.md,
+                    ),
+                    child: content,
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xl,
+                    AppSpacing.sm,
+                    AppSpacing.xl,
+                    AppSpacing.md,
+                  ),
+                  child: content,
                 ),
-                child: content,
-              ),
               if (actions != null && actions!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(

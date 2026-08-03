@@ -488,7 +488,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 onRetry: _connect,
                 countdownActive: _run.isCountdown,
                 onCountdownComplete: _beginSessionAfterCountdown,
-                overlayFeedback: isCameraLive ? _latestFeedback : null,
+                overlayFeedback: isTrainingActive
+                    ? null
+                    : (isCameraLive ? _latestFeedback : null),
                 showFeedbackMessage: false,
                 overlays: isTrainingActive
                     ? MovementRotationOverlay(controller: _rotation)

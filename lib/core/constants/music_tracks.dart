@@ -14,6 +14,16 @@ const musicTrackCatalog = <MusicTrack>[
     displayName: 'Classic Loop',
     assetPath: 'music/practice.mp3',
   ),
+  MusicTrack(
+    id: 'just_dance_1',
+    displayName: 'Just Dance 1',
+    assetPath: 'music/just_dance_1.mp3',
+  ),
+  MusicTrack(
+    id: 'just_dance_2',
+    displayName: 'Just Dance 2',
+    assetPath: 'music/just_dance_2.mp3',
+  ),
 ];
 
 /// Resolves [selectedId] to a catalog entry, or a random entry when
