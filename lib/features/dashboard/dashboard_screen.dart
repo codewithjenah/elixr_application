@@ -8,7 +8,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/movements.dart';
 import '../../data/models/session.dart';
+import '../progress/training_recommendation.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
@@ -17,6 +19,7 @@ import '../calendar/utils/calendar_metrics.dart';
 import 'dashboard_quests.dart';
 import 'widgets/dashboard_calendar_card.dart';
 import 'widgets/dashboard_leaderboard.dart';
+import 'widgets/recommended_practice_card.dart';
 
 // Neon accent palette used only on the dashboard.
 const _purple = AppColors.accent;
@@ -38,7 +41,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _sessionRepo = SessionRepository();
   ProgressStats? _stats;
   List<Session> _sessions = const [];
+  TrainingRecommendation? _trainingRecommendation;
   bool _loading = true;
+  String? _loadedUserId;
   SessionService? _sessionService;
 
   @override
@@ -68,14 +73,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadStats() async {
     if (!mounted) return;
     final user = context.read<AuthService>().currentUser;
-    if (user?.id == null) return;
+    final userId = user?.id;
+    if (userId == null) {
+      if (mounted) {
+        setState(() {
+          _stats = null;
+          _sessions = const [];
+          _trainingRecommendation = null;
+          _loadedUserId = null;
+          _loading = false;
+        });
+      }
+      return;
+    }
 
-    final stats = await _progressRepo.getStatsForUser(user!.id!);
-    final sessions = await _sessionRepo.getSessionsForUser(user.id!);
+    if (_loadedUserId != userId) {
+      setState(() {
+        _loading = true;
+        _trainingRecommendation = null;
+      });
+    }
+
+    final stats = await _progressRepo.getStatsForUser(userId);
+    final sessions = await _sessionRepo.getSessionsForUser(userId);
+    if (!mounted || context.read<AuthService>().currentUser?.id != userId) {
+      return;
+    }
+
+    final recommendation = buildTrainingRecommendation(
+      sessions: sessions,
+      movements: movementCatalog,
+    );
     if (mounted) {
       setState(() {
         _stats = stats;
         _sessions = sessions;
+        _trainingRecommendation = recommendation;
+        _loadedUserId = userId;
         _loading = false;
       });
     }
@@ -173,6 +207,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       currentUserId: user?.id,
       displayName: user?.fullName ?? 'Trainee',
       profilePictureUrl: user?.profilePictureUrl,
+      trainingRecommendation: _trainingRecommendation,
+      recommendationLoading: _loading,
     );
 
     return ScaffoldPage(
@@ -219,6 +255,8 @@ class _MainColumn extends StatelessWidget {
     required this.weeklyTrendPercent,
     required this.currentUserId,
     required this.displayName,
+    required this.trainingRecommendation,
+    required this.recommendationLoading,
     this.profilePictureUrl,
   });
 
@@ -229,6 +267,8 @@ class _MainColumn extends StatelessWidget {
   final int? weeklyTrendPercent;
   final String? currentUserId;
   final String displayName;
+  final TrainingRecommendation? trainingRecommendation;
+  final bool recommendationLoading;
   final String? profilePictureUrl;
 
   @override
@@ -242,6 +282,11 @@ class _MainColumn extends StatelessWidget {
           firstName: firstName,
           greeting: greeting,
           sessionCount: stats?.totalSessions ?? 0,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        RecommendedPracticeCard(
+          recommendation: trainingRecommendation,
+          loading: recommendationLoading,
         ),
         const SizedBox(height: AppSpacing.md),
         // Stat cards

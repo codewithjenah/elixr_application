@@ -5,12 +5,15 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import 'training_recommendation.dart';
+import 'widgets/movement_mastery_section.dart';
 
 // Neon accent palette shared with the dashboard.
 const _purple = AppColors.accent;
@@ -32,6 +35,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   final _sessionRepo = SessionRepository();
   ProgressStats? _stats;
   List<Session> _sessions = const [];
+  TrainingRecommendation? _trainingRecommendation;
   bool _loading = true;
   SessionService? _sessionService;
 
@@ -65,10 +69,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
     final stats = await _repo.getStatsForUser(userId);
     final sessions = await _sessionRepo.getSessionsForUser(userId);
+    final recommendation = buildTrainingRecommendation(
+      sessions: sessions,
+      movements: movementCatalog,
+    );
     if (mounted) {
       setState(() {
         _stats = stats;
         _sessions = sessions;
+        _trainingRecommendation = recommendation;
         _loading = false;
       });
     }
@@ -140,6 +149,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    const SizedBox(height: AppSpacing.xl),
+                    MovementMasterySection(
+                      masteries: _trainingRecommendation?.masteries ?? const [],
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     if (_stats!.totalSessions == 0)
