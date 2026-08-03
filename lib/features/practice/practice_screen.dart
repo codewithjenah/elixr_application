@@ -155,6 +155,8 @@ class _PracticeScreenState extends State<PracticeScreen>
       await _ws.stopPracticeSession();
     } on CommandTimeoutException {
       // Expected when the backend is slow or unavailable.
+    } on CommandAckMismatchException {
+      // Stop ack did not match; session identity was already cleared.
     } on CommandDisconnectedException {
       // Expected during navigation or dispose.
     }

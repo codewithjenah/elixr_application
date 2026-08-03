@@ -52,6 +52,10 @@ class WebSocketService extends ChangeNotifier {
   Future<CommandAck>? _inFlightStop;
   String? _inFlightStopSessionId;
 
+  /// Stops for a different session wait here until the in-flight stop settles.
+  final List<_QueuedStopRequest> _queuedStops = [];
+  bool _stopQueueDrainScheduled = false;
+
   static const int _maxTrackedProtocolErrors = 20;
   static const int _maxIdLength = 128;
 
@@ -203,8 +207,10 @@ class WebSocketService extends ChangeNotifier {
   /// Idempotent stop for the current (or explicit) practice session.
   ///
   /// Concurrent callers for the same session share one wire command and one
-  /// completion future. Clears [currentSessionId] immediately so a new attempt
-  /// can allocate a fresh identity before the stop acknowledgment arrives.
+  /// completion future. Stops for different sessions are serialized: a later
+  /// session waits for the in-flight stop to settle before sending its own
+  /// payload. Clears [currentSessionId] immediately so a new attempt can
+  /// allocate a fresh identity before the stop acknowledgment arrives.
   Future<CommandAck> stopPracticeSession({String? sessionId}) {
     final resolvedSessionId = sessionId ?? _currentSessionId;
     if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
@@ -224,6 +230,36 @@ class WebSocketService extends ChangeNotifier {
       }
     }
 
+    for (final queued in _queuedStops) {
+      if (queued.sessionId == resolvedSessionId) {
+        return queued.completer.future;
+      }
+    }
+
+    if (_hasDifferentSessionStopInFlight(resolvedSessionId)) {
+      final completer = Completer<CommandAck>();
+      _queuedStops.add(
+        _QueuedStopRequest(sessionId: resolvedSessionId, completer: completer),
+      );
+      return completer.future;
+    }
+
+    return _startStop(resolvedSessionId);
+  }
+
+  bool _hasDifferentSessionStopInFlight(String sessionId) {
+    if (_inFlightStop != null && _inFlightStopSessionId != sessionId) {
+      return true;
+    }
+    for (final pending in _pending.values) {
+      if (pending.action == 'stop' && pending.sessionId != sessionId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<CommandAck> _startStop(String resolvedSessionId) {
     if (_currentSessionId == resolvedSessionId) {
       _currentSessionId = null;
       _sessionPrepared = false;
@@ -245,11 +281,72 @@ class WebSocketService extends ChangeNotifier {
             _inFlightStop = null;
             _inFlightStopSessionId = null;
           }
+          _scheduleStopQueueDrain();
         });
 
     _inFlightStop = future;
     _inFlightStopSessionId = resolvedSessionId;
     return future;
+  }
+
+  void _scheduleStopQueueDrain() {
+    if (_stopQueueDrainScheduled) return;
+    _stopQueueDrainScheduled = true;
+    scheduleMicrotask(() {
+      _stopQueueDrainScheduled = false;
+      unawaited(_drainStopQueue());
+    });
+  }
+
+  Future<void> _drainStopQueue() async {
+    while (_queuedStops.isNotEmpty) {
+      if (!isConnected || _outboundSink == null) {
+        _failQueuedStops(CommandDisconnectedException('', 'stop'));
+        return;
+      }
+
+      final next = _queuedStops.first;
+
+      if (_inFlightStop != null && _inFlightStopSessionId == next.sessionId) {
+        _queuedStops.removeAt(0);
+        try {
+          final ack = await _inFlightStop!;
+          if (!next.completer.isCompleted) {
+            next.completer.complete(ack);
+          }
+        } catch (error, stackTrace) {
+          if (!next.completer.isCompleted) {
+            next.completer.completeError(error, stackTrace);
+          }
+        }
+        continue;
+      }
+
+      if (_hasDifferentSessionStopInFlight(next.sessionId)) {
+        return;
+      }
+
+      _queuedStops.removeAt(0);
+      try {
+        final ack = await _startStop(next.sessionId);
+        if (!next.completer.isCompleted) {
+          next.completer.complete(ack);
+        }
+      } catch (error, stackTrace) {
+        if (!next.completer.isCompleted) {
+          next.completer.completeError(error, stackTrace);
+        }
+      }
+    }
+  }
+
+  void _failQueuedStops(Object error) {
+    while (_queuedStops.isNotEmpty) {
+      final queued = _queuedStops.removeAt(0);
+      if (!queued.completer.isCompleted) {
+        queued.completer.completeError(error);
+      }
+    }
   }
 
   /// Legacy alias; prefer [stopPracticeSession] for practice teardown.
@@ -387,17 +484,20 @@ class WebSocketService extends ChangeNotifier {
     // Deterministic duplicate-action handling: one in-flight command per action.
     for (final pending in _pending.values) {
       if (pending.action == action) {
-        if (action == 'stop') {
-          if (pending.sessionId == sessionId) {
-            return pending.completer.future;
-          }
+        if (action == 'stop' && pending.sessionId == sessionId) {
+          return pending.completer.future;
+        }
+        if (action != 'stop') {
           return Future.error(
-            StateError(
-              'A stop for session ${pending.sessionId} is already pending',
-            ),
+            StateError('A $action command is already pending'),
           );
         }
-        return Future.error(StateError('A $action command is already pending'));
+        // Different-session stops are serialized by [stopPracticeSession].
+        return Future.error(
+          StateError(
+            'A stop for session ${pending.sessionId} is already pending',
+          ),
+        );
       }
     }
 
@@ -596,12 +696,15 @@ class WebSocketService extends ChangeNotifier {
           _currentSessionId = ack.sessionId;
         }
       case 'stop':
-        _sessionPrepared = false;
-        _sessionActive = false;
         final stopSessionId = ack.sessionId ?? pendingSessionId;
-        if (stopSessionId != null &&
-            (_currentSessionId == null || stopSessionId == _currentSessionId)) {
-          _currentSessionId = null;
+        if (stopSessionId == null ||
+            _currentSessionId == null ||
+            stopSessionId == _currentSessionId) {
+          _sessionPrepared = false;
+          _sessionActive = false;
+          if (stopSessionId != null && _currentSessionId == stopSessionId) {
+            _currentSessionId = null;
+          }
         }
       default:
         if (ack.sessionState != null) {
@@ -668,6 +771,9 @@ class WebSocketService extends ChangeNotifier {
         entry.completer.completeError(error);
       }
     }
+    _inFlightStop = null;
+    _inFlightStopSessionId = null;
+    _failQueuedStops(error);
   }
 
   void _clearSessionFlags({bool notify = true}) {
@@ -807,4 +913,11 @@ class _PendingCommand {
   final String sessionId;
   final Completer<CommandAck> completer;
   final Timer timer;
+}
+
+class _QueuedStopRequest {
+  _QueuedStopRequest({required this.sessionId, required this.completer});
+
+  final String sessionId;
+  final Completer<CommandAck> completer;
 }

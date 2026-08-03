@@ -8,6 +8,19 @@ import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Mirrors practice-screen teardown: controlled stop failures must not escape.
+Future<void> _swallowControlledStopFailures(Future<CommandAck> future) async {
+  try {
+    await future;
+  } on CommandTimeoutException {
+    // Expected when the backend is slow or unavailable.
+  } on CommandAckMismatchException {
+    // Stop ack did not match; session identity was already cleared.
+  } on CommandDisconnectedException {
+    // Expected during navigation or dispose.
+  }
+}
+
 void main() {
   group('WsMessageDecoder', () {
     const decoder = WsMessageDecoder();
@@ -672,40 +685,269 @@ void main() {
       },
     );
 
-    test('stop for a different session does not join pending stop', () async {
-      service.beginPracticeAttempt();
-      final sessionA = service.currentSessionId!;
+    test(
+      'different-session stops serialize without premature wire send',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionA = service.currentSessionId!;
 
-      final stopA = service.stopPracticeSession(sessionId: sessionA);
-      await Future<void>.delayed(Duration.zero);
+        final stopA = service.stopPracticeSession(sessionId: sessionA);
+        await Future<void>.delayed(Duration.zero);
 
-      final stopPayloads = sent
-          .where((payload) => payload['action'] == 'stop')
-          .toList();
-      expect(stopPayloads, hasLength(1));
-      expect(stopPayloads.single['session_id'], sessionA);
+        final stopPayloads = sent
+            .where((payload) => payload['action'] == 'stop')
+            .toList();
+        expect(stopPayloads, hasLength(1));
+        expect(stopPayloads.single['session_id'], sessionA);
+        final stopARequestId = stopPayloads.single['request_id'] as String;
 
-      final stopB = service.stopPracticeSession(sessionId: 'session-b-other');
-      await expectLater(stopB, throwsA(isA<StateError>()));
-      expect(
-        sent.where((payload) => payload['action'] == 'stop'),
-        hasLength(1),
-      );
-      expect(identical(stopA, stopB), isFalse);
+        final stopB = service.stopPracticeSession(sessionId: 'session-b-other');
+        await Future<void>.delayed(Duration.zero);
 
-      await push({
-        'protocol_version': 1,
-        'message_type': 'command_ack',
-        'request_id': stopPayloads.single['request_id'],
-        'session_id': sessionA,
-        'action': 'stop',
-        'accepted': true,
-        'session_state': 'idle',
-      });
-      final ackA = await stopA;
-      expect(ackA.accepted, isTrue);
-      expect(ackA.action, 'stop');
-    });
+        expect(
+          sent.where((payload) => payload['action'] == 'stop'),
+          hasLength(1),
+        );
+        expect(identical(stopA, stopB), isFalse);
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopARequestId,
+          'session_id': sessionA,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        final ackA = await stopA;
+        expect(ackA.accepted, isTrue);
+        expect(ackA.requestId, stopARequestId);
+
+        await Future<void>.delayed(Duration.zero);
+        final allStopPayloads = sent
+            .where((payload) => payload['action'] == 'stop')
+            .toList();
+        expect(allStopPayloads, hasLength(2));
+        expect(allStopPayloads.last['session_id'], 'session-b-other');
+        final stopBRequestId = allStopPayloads.last['request_id'] as String;
+        expect(stopBRequestId, isNot(stopARequestId));
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopBRequestId,
+          'session_id': 'session-b-other',
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        final ackB = await stopB;
+        expect(ackB.accepted, isTrue);
+        expect(ackB.requestId, stopBRequestId);
+        expect(ackB.requestId, isNot(ackA.requestId));
+      },
+    );
+
+    test(
+      'queued stop B still sends after stop A times out while connected',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionA = service.currentSessionId!;
+
+        final stopA = service.stopPracticeSession(sessionId: sessionA);
+        await Future<void>.delayed(Duration.zero);
+        final stopARequestId = sent.last['request_id'] as String;
+
+        final stopB = service.stopPracticeSession(
+          sessionId: 'session-b-timeout',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          sent.where((payload) => payload['action'] == 'stop'),
+          hasLength(1),
+        );
+
+        await expectLater(stopA, throwsA(isA<CommandTimeoutException>()));
+        await Future<void>.delayed(Duration.zero);
+
+        final stopPayloads = sent
+            .where((payload) => payload['action'] == 'stop')
+            .toList();
+        expect(stopPayloads, hasLength(2));
+        expect(stopPayloads.last['session_id'], 'session-b-timeout');
+        final stopBRequestId = stopPayloads.last['request_id'] as String;
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopBRequestId,
+          'session_id': 'session-b-timeout',
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        final ackB = await stopB;
+        expect(ackB.accepted, isTrue);
+        expect(ackB.requestId, stopBRequestId);
+        expect(ackB.requestId, isNot(stopARequestId));
+      },
+    );
+
+    test(
+      'queued stop B still sends after stop A ack mismatch while connected',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionA = service.currentSessionId!;
+
+        final stopA = service.stopPracticeSession(sessionId: sessionA);
+        await Future<void>.delayed(Duration.zero);
+        final stopARequestId = sent.last['request_id'] as String;
+
+        final stopB = service.stopPracticeSession(
+          sessionId: 'session-b-mismatch',
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final mismatchExpectation = expectLater(
+          stopA,
+          throwsA(isA<CommandAckMismatchException>()),
+        );
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopARequestId,
+          'session_id': sessionA,
+          'action': 'activate',
+          'accepted': true,
+          'session_state': 'active',
+        });
+        await mismatchExpectation;
+        await Future<void>.delayed(Duration.zero);
+
+        final stopPayloads = sent
+            .where((payload) => payload['action'] == 'stop')
+            .toList();
+        expect(stopPayloads, hasLength(2));
+        expect(stopPayloads.last['session_id'], 'session-b-mismatch');
+        final stopBRequestId = stopPayloads.last['request_id'] as String;
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopBRequestId,
+          'session_id': 'session-b-mismatch',
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        final ackB = await stopB;
+        expect(ackB.accepted, isTrue);
+      },
+    );
+
+    test(
+      'late stop ack for session A does not clear newer session B lifecycle',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionA = service.currentSessionId!;
+        final prepareA = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: sessionA,
+        );
+        await Future<void>.delayed(Duration.zero);
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': sent.last['request_id'],
+          'session_id': sessionA,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepareA;
+
+        final stopA = service.stopPracticeSession(sessionId: sessionA);
+        await Future<void>.delayed(Duration.zero);
+        final stopARequestId = sent.last['request_id'] as String;
+
+        final sessionB = service.beginPracticeAttempt();
+        final prepareB = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: sessionB,
+        );
+        await Future<void>.delayed(Duration.zero);
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': sent.last['request_id'],
+          'session_id': sessionB,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepareB;
+        expect(service.currentSessionId, sessionB);
+        expect(service.sessionPrepared, isTrue);
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopARequestId,
+          'session_id': sessionA,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        await stopA;
+        expect(service.currentSessionId, sessionB);
+        expect(service.sessionPrepared, isTrue);
+
+        final stopB = service.stopPracticeSession(sessionId: sessionB);
+        await Future<void>.delayed(Duration.zero);
+        expect(service.currentSessionId, isNull);
+
+        final stopBPayloads = sent
+            .where(
+              (payload) =>
+                  payload['action'] == 'stop' &&
+                  payload['session_id'] == sessionB,
+            )
+            .toList();
+        expect(stopBPayloads, hasLength(1));
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopBPayloads.single['request_id'],
+          'session_id': sessionB,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        await stopB;
+        expect(service.currentSessionId, isNull);
+        expect(service.sessionPrepared, isFalse);
+      },
+    );
+
+    test(
+      'controlled stop failures complete without unhandled async errors',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionId = service.currentSessionId!;
+
+        final stopFuture = service.stopPracticeSession(sessionId: sessionId);
+        await Future<void>.delayed(Duration.zero);
+
+        final handled = _swallowControlledStopFailures(stopFuture);
+        unawaited(handled);
+
+        await expectLater(handled, completes);
+        await expectLater(stopFuture, throwsA(isA<CommandTimeoutException>()));
+      },
+    );
 
     test('correct ack still completes pending command normally', () async {
       service.beginPracticeAttempt();
