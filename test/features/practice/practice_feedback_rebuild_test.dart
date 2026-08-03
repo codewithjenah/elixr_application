@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/features/practice/practice_feedback_controller.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +12,9 @@ const _headerKey = ValueKey<String>('rebuild-header');
 const _panelKey = ValueKey<String>('rebuild-panel');
 const _scoreKey = ValueKey<String>('rebuild-score');
 const _holdKey = ValueKey<String>('rebuild-hold');
+const _comboKey = ValueKey<String>('rebuild-combo');
+const _bestComboKey = ValueKey<String>('rebuild-best-combo');
+const _popupKey = ValueKey<String>('rebuild-popup');
 
 final _jpegA = Uint8List.fromList(
   base64Decode(
@@ -39,6 +43,7 @@ PracticeFeedback _base({
   double positiveFrameRatio = 0.9,
   TrainingProp propType = TrainingProp.bottle,
   String? sessionState = 'active',
+  bool holdConfirmed = false,
 }) {
   return PracticeFeedback(
     bottleDetected: bottleDetected,
@@ -53,93 +58,11 @@ PracticeFeedback _base({
     positiveFrameRatio: positiveFrameRatio,
     propType: propType,
     sessionState: sessionState,
+    holdConfirmed: holdConfirmed,
   );
 }
 
-/// Mirrors [LivePracticeScreen] active-feedback rebuild gating.
-class _FreePracticeFeedbackHarness extends StatefulWidget {
-  const _FreePracticeFeedbackHarness({required this.onFeedback});
-
-  final void Function(void Function(PracticeFeedback) apply) onFeedback;
-
-  @override
-  State<_FreePracticeFeedbackHarness> createState() =>
-      _FreePracticeFeedbackHarnessState();
-}
-
-class _FreePracticeFeedbackHarnessState
-    extends State<_FreePracticeFeedbackHarness> {
-  final ValueNotifier<Uint8List?> frameBytes = ValueNotifier<Uint8List?>(null);
-  PracticeFeedback? latest;
-  bool bottleDetected = false;
-  int headerBuilds = 0;
-  int panelBuilds = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.onFeedback(applyFeedback);
-  }
-
-  @override
-  void dispose() {
-    frameBytes.dispose();
-    super.dispose();
-  }
-
-  void applyFeedback(PracticeFeedback feedback) {
-    if (feedback.frameJpegBytes != null) {
-      frameBytes.value = feedback.frameJpegBytes;
-    }
-    final visibleChanged =
-        bottleDetected != feedback.bottleDetected ||
-        !feedback.freePracticeVisibleEquals(latest);
-    if (visibleChanged) {
-      setState(() {
-        bottleDetected = feedback.bottleDetected;
-        latest = feedback;
-      });
-    } else {
-      latest = feedback;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Builder(
-            builder: (context) {
-              headerBuilds++;
-              return Text(
-                'Free header ${latest?.movement ?? '-'} '
-                'detected=$bottleDetected',
-                key: _headerKey,
-              );
-            },
-          ),
-        ),
-        ValueListenableBuilder<Uint8List?>(
-          valueListenable: frameBytes,
-          builder: (context, bytes, _) =>
-              Text('frame=${bytes?.length ?? 0}', key: const ValueKey('frame')),
-        ),
-        Builder(
-          builder: (context) {
-            panelBuilds++;
-            return Text(
-              'panel ${latest?.propType.displayLabel ?? '-'}',
-              key: _panelKey,
-            );
-          },
-        ),
-      ],
-    );
-  }
-}
-
-/// Mirrors [PracticeScreen] active-feedback rebuild gating with scoped score/hold.
+/// Widget harness wired to [PracticeFeedbackController].
 class _ScoredPracticeFeedbackHarness extends StatefulWidget {
   const _ScoredPracticeFeedbackHarness({required this.onFeedback});
 
@@ -152,14 +75,23 @@ class _ScoredPracticeFeedbackHarness extends StatefulWidget {
 
 class _ScoredPracticeFeedbackHarnessState
     extends State<_ScoredPracticeFeedbackHarness> {
-  final ValueNotifier<Uint8List?> frameBytes = ValueNotifier<Uint8List?>(null);
-  final ValueNotifier<int?> scoreNotifier = ValueNotifier<int?>(null);
-  final ValueNotifier<double> holdNotifier = ValueNotifier<double>(0);
-  PracticeFeedback? latest;
+  final controller = PracticeFeedbackController();
+  final frameBytes = ValueNotifier<Uint8List?>(null);
+  final scoreNotifier = ValueNotifier<int?>(null);
+  final holdNotifier = ValueNotifier<double>(0);
+  final comboNotifier = ValueNotifier<ComboState>(const ComboState());
+  final scorePopupNotifier = ValueNotifier<ScorePopupState>(
+    const ScorePopupState(),
+  );
+
   int headerBuilds = 0;
   int panelBuilds = 0;
   int scoreBuilds = 0;
   int holdBuilds = 0;
+  int comboBuilds = 0;
+  int bestComboBuilds = 0;
+  int popupBuilds = 0;
+  int holdConfirmations = 0;
 
   @override
   void initState() {
@@ -172,6 +104,8 @@ class _ScoredPracticeFeedbackHarnessState
     frameBytes.dispose();
     scoreNotifier.dispose();
     holdNotifier.dispose();
+    comboNotifier.dispose();
+    scorePopupNotifier.dispose();
     super.dispose();
   }
 
@@ -179,14 +113,24 @@ class _ScoredPracticeFeedbackHarnessState
     if (feedback.frameJpegBytes != null) {
       frameBytes.value = feedback.frameJpegBytes;
     }
+
+    final result = controller.applyActiveFeedback(feedback);
     scoreNotifier.value = feedback.score;
     holdNotifier.value = feedback.holdProgress;
 
-    final chromeChanged = !feedback.scoredPracticeChromeEquals(latest);
-    if (chromeChanged) {
-      setState(() => latest = feedback);
-    } else {
-      latest = feedback;
+    if (result.comboChanged) {
+      comboNotifier.value = result.comboState;
+    }
+    if (result.scorePopupChanged) {
+      scorePopupNotifier.value = result.scorePopupState;
+    }
+
+    if (result.needsChromeRebuild) {
+      setState(() {});
+    }
+
+    if (result.holdConfirmed) {
+      holdConfirmations++;
     }
   }
 
@@ -198,7 +142,7 @@ class _ScoredPracticeFeedbackHarnessState
           builder: (context) {
             headerBuilds++;
             return Text(
-              'Scored header ${latest?.movement ?? '-'}',
+              'Scored header ${controller.latestFeedback?.movement ?? '-'}',
               key: _headerKey,
             );
           },
@@ -207,7 +151,8 @@ class _ScoredPracticeFeedbackHarnessState
           builder: (context) {
             panelBuilds++;
             return Text(
-              'panel posture=${latest?.postureStatus ?? '-'}',
+              'panel posture=${controller.latestFeedback?.postureStatus ?? '-'} '
+              'history=${controller.feedbackHistory.length}',
               key: _panelKey,
             );
           },
@@ -226,6 +171,103 @@ class _ScoredPracticeFeedbackHarnessState
             return Text('hold=$hold', key: _holdKey);
           },
         ),
+        ValueListenableBuilder<ComboState>(
+          valueListenable: comboNotifier,
+          builder: (context, comboState, _) {
+            comboBuilds++;
+            return Text('combo=${comboState.combo}', key: _comboKey);
+          },
+        ),
+        ValueListenableBuilder<ComboState>(
+          valueListenable: comboNotifier,
+          builder: (context, comboState, _) {
+            bestComboBuilds++;
+            return Text('best=${comboState.bestCombo}', key: _bestComboKey);
+          },
+        ),
+        ValueListenableBuilder<ScorePopupState>(
+          valueListenable: scorePopupNotifier,
+          builder: (context, popupState, _) {
+            popupBuilds++;
+            return Text(
+              'popup=${popupState.trigger}:${popupState.delta}',
+              key: _popupKey,
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _FreePracticeFeedbackHarness extends StatefulWidget {
+  const _FreePracticeFeedbackHarness({required this.onFeedback});
+
+  final void Function(void Function(PracticeFeedback) apply) onFeedback;
+
+  @override
+  State<_FreePracticeFeedbackHarness> createState() =>
+      _FreePracticeFeedbackHarnessState();
+}
+
+class _FreePracticeFeedbackHarnessState
+    extends State<_FreePracticeFeedbackHarness> {
+  final controller = PracticeFeedbackController();
+  final frameBytes = ValueNotifier<Uint8List?>(null);
+  int headerBuilds = 0;
+  int panelBuilds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onFeedback(applyFeedback);
+  }
+
+  @override
+  void dispose() {
+    frameBytes.dispose();
+    super.dispose();
+  }
+
+  void applyFeedback(PracticeFeedback feedback) {
+    if (feedback.frameJpegBytes != null) {
+      frameBytes.value = feedback.frameJpegBytes;
+    }
+    if (controller.applyFreePracticeFeedback(feedback)) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Builder(
+            builder: (context) {
+              headerBuilds++;
+              return Text(
+                'Free header ${controller.latestFeedback?.movement ?? '-'} '
+                'detected=${controller.latestFeedback?.bottleDetected ?? false}',
+                key: _headerKey,
+              );
+            },
+          ),
+        ),
+        ValueListenableBuilder<Uint8List?>(
+          valueListenable: frameBytes,
+          builder: (context, bytes, _) =>
+              Text('frame=${bytes?.length ?? 0}', key: const ValueKey('frame')),
+        ),
+        Builder(
+          builder: (context) {
+            panelBuilds++;
+            return Text(
+              'panel ${controller.latestFeedback?.propType.displayLabel ?? '-'}',
+              key: _panelKey,
+            );
+          },
+        ),
       ],
     );
   }
@@ -239,6 +281,43 @@ Widget _wrap(Widget child) {
 }
 
 void main() {
+  group('PracticeFeedbackController', () {
+    test('deduplicates consecutive identical feedback history entries', () {
+      final controller = PracticeFeedbackController();
+      controller.applyActiveFeedback(_base(feedback: 'Keep steady'));
+      controller.applyActiveFeedback(_base(feedback: 'Keep steady'));
+      expect(controller.feedbackHistory.length, 1);
+
+      controller.applyActiveFeedback(_base(feedback: 'Lower elbow'));
+      expect(controller.feedbackHistory.length, 2);
+      expect(controller.feedbackHistory.first.feedback, 'Lower elbow');
+
+      controller.applyActiveFeedback(_base(feedback: 'Lower elbow'));
+      expect(controller.feedbackHistory.length, 2);
+    });
+
+    test('positive frames increment combo without chrome rebuild', () {
+      final controller = PracticeFeedbackController();
+      controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', score: 70),
+      );
+      final first = controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', score: 70),
+      );
+      expect(first.comboChanged, isTrue);
+      expect(first.chromeChanged, isFalse);
+      expect(controller.comboState.combo, 2);
+
+      final second = controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', score: 72),
+      );
+      expect(second.comboChanged, isTrue);
+      expect(second.chromeChanged, isFalse);
+      expect(second.needsChromeRebuild, isFalse);
+      expect(controller.comboState.combo, 3);
+    });
+  });
+
   group('PracticeFeedback rebuild equality', () {
     test('freePracticeVisibleEquals ignores score and hold fields', () {
       final a = _base(score: 10, holdProgress: 0.1, holdDurationMs: 50);
@@ -252,12 +331,6 @@ void main() {
       final b = _base(score: 80, holdProgress: 0.8, positiveFrameRatio: 0.99);
       expect(a.scoredPracticeChromeEquals(b), isTrue);
       expect(a.semanticEquals(b), isFalse);
-    });
-
-    test('freePracticeVisibleEquals reacts to bottle detection', () {
-      final a = _base(bottleDetected: true);
-      final b = _base(bottleDetected: false);
-      expect(a.freePracticeVisibleEquals(b), isFalse);
     });
   });
 
@@ -336,6 +409,7 @@ void main() {
       final panelsAfterFirst = state.panelBuilds;
       final scoreAfterFirst = state.scoreBuilds;
       final holdAfterFirst = state.holdBuilds;
+      final comboAfterFirst = state.comboBuilds;
 
       apply(
         _base(
@@ -350,6 +424,7 @@ void main() {
 
       expect(state.headerBuilds, headersAfterFirst);
       expect(state.panelBuilds, panelsAfterFirst);
+      expect(state.comboBuilds, comboAfterFirst);
       expect(state.scoreBuilds, greaterThan(scoreAfterFirst));
       expect(state.holdBuilds, greaterThan(holdAfterFirst));
       expect(find.text('score=84'), findsOneWidget);
@@ -358,6 +433,94 @@ void main() {
       apply(_base(score: 84, holdProgress: 0.65, feedback: 'New tip'));
       await tester.pump();
       expect(state.headerBuilds, greaterThan(headersAfterFirst));
+      expect(find.textContaining('history=2'), findsOneWidget);
+    });
+
+    testWidgets('positive combo updates rebuild only combo listeners', (
+      tester,
+    ) async {
+      late void Function(PracticeFeedback) apply;
+      await tester.pumpWidget(
+        _wrap(
+          _ScoredPracticeFeedbackHarness(
+            onFeedback: (handler) => apply = handler,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final state = tester.state<_ScoredPracticeFeedbackHarnessState>(
+        find.byType(_ScoredPracticeFeedbackHarness),
+      );
+      apply(_base(feedbackType: 'positive', score: 70));
+      await tester.pump();
+      final headersAfterFirst = state.headerBuilds;
+      final panelsAfterFirst = state.panelBuilds;
+      final comboAfterFirst = state.comboBuilds;
+
+      apply(_base(feedbackType: 'positive', score: 72));
+      await tester.pump();
+
+      expect(state.headerBuilds, headersAfterFirst);
+      expect(state.panelBuilds, panelsAfterFirst);
+      expect(state.comboBuilds, greaterThan(comboAfterFirst));
+      expect(find.text('combo=2'), findsOneWidget);
+    });
+
+    testWidgets('duplicate feedback does not grow history', (tester) async {
+      late void Function(PracticeFeedback) apply;
+      await tester.pumpWidget(
+        _wrap(
+          _ScoredPracticeFeedbackHarness(
+            onFeedback: (handler) => apply = handler,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      apply(_base(feedback: 'Keep steady'));
+      await tester.pump();
+      apply(_base(feedback: 'Keep steady', score: 71));
+      await tester.pump();
+      expect(find.textContaining('history=1'), findsOneWidget);
+
+      apply(_base(feedback: 'Lower elbow', score: 72));
+      await tester.pump();
+      expect(find.textContaining('history=2'), findsOneWidget);
+
+      apply(_base(feedback: 'Lower elbow', score: 73));
+      await tester.pump();
+      expect(find.textContaining('history=2'), findsOneWidget);
+    });
+
+    testWidgets('posture changes rebuild chrome and hold confirmation works', (
+      tester,
+    ) async {
+      late void Function(PracticeFeedback) apply;
+      await tester.pumpWidget(
+        _wrap(
+          _ScoredPracticeFeedbackHarness(
+            onFeedback: (handler) => apply = handler,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final state = tester.state<_ScoredPracticeFeedbackHarnessState>(
+        find.byType(_ScoredPracticeFeedbackHarness),
+      );
+      apply(_base(postureStatus: 'stable'));
+      await tester.pump();
+      final panelsAfterFirst = state.panelBuilds;
+
+      apply(_base(postureStatus: 'unstable'));
+      await tester.pump();
+      expect(state.panelBuilds, greaterThan(panelsAfterFirst));
+      expect(find.textContaining('posture=unstable'), findsOneWidget);
+
+      apply(_base(holdConfirmed: true));
+      await tester.pump();
+      expect(state.holdConfirmations, 1);
     });
   });
 }

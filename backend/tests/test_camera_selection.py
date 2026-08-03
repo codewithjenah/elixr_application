@@ -87,6 +87,8 @@ def _opened(cap: _FakeCap, index: int = 0) -> tuple[_FakeCap, camera_mod.Capture
 
 def _reset_shared() -> None:
     camera_mod._stop_capture_producer()
+    with camera_mod._abandoned_producers_lock:
+        camera_mod._abandoned_producers.clear()
     camera_mod._shared_cap = None
     camera_mod._shared_index = None
     camera_mod._shared_device_id = None
@@ -1203,7 +1205,8 @@ def test_blocked_producer_release_does_not_race_with_read(monkeypatch):
     # Release while producer is blocked in read() longer than join timeout.
     camera_mod._release_shared_unlocked()
 
-    assert camera_mod.capture_producer_shutdown_completed()
+    assert camera_mod.capture_producer_draining() is True
+    assert camera_mod.capture_producer_shutdown_completed() is False
     assert camera_mod.capture_producer_is_alive() is False
     # Must not have released during the blocked read.
     assert cap.release_while_reading is False
@@ -1215,6 +1218,7 @@ def test_blocked_producer_release_does_not_race_with_read(monkeypatch):
         time.sleep(0.02)
     assert cap.released is True
     assert cap.release_while_reading is False
+    assert camera_mod.capture_producer_shutdown_completed() is True
 
 
 def test_blocked_producer_cannot_publish_into_replacement_slot(monkeypatch):
@@ -1375,3 +1379,142 @@ def test_stop_and_recovery_do_not_deadlock_with_producer(monkeypatch):
     camera_mod._run_scheduled_release(camera_mod._release_generation)
     assert camera_mod.capture_producer_is_alive() is False
     assert cap.released is True
+
+
+def test_producer_exit_before_ownership_transfer_caller_releases_once(monkeypatch):
+    """Producer exits between timed join failure and ownership transfer."""
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_PRODUCER_JOIN_TIMEOUT_S", 0.05)
+    _reset_shared()
+
+    read_entered = threading.Event()
+    allow_read_finish = threading.Event()
+    transfer_gate = threading.Event()
+
+    class _RaceCap(_FakeCap):
+        def read(self):
+            read_entered.set()
+            allow_read_finish.wait(timeout=2.0)
+            self.reads += 1
+            return True, _usable_frame()
+
+    cap = _RaceCap()
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(cap, width=64, height=48)
+    assert read_entered.wait(timeout=2.0)
+
+    original_transfer = camera_mod._CaptureProducer.try_transfer_release_ownership
+
+    def transfer_after_test_unblocks(self):
+        transfer_gate.set()
+        allow_read_finish.set()
+        self._thread.join(timeout=2.0)
+        return original_transfer(self)
+
+    monkeypatch.setattr(
+        camera_mod._CaptureProducer,
+        "try_transfer_release_ownership",
+        transfer_after_test_unblocks,
+    )
+
+    outcome = camera_mod._stop_capture_producer()
+    assert transfer_gate.wait(timeout=2.0)
+    assert outcome == camera_mod._ProducerShutdownOutcome.CALLER_RELEASES
+    assert camera_mod.capture_producer_draining() is False
+    assert cap.released is False
+
+    if not getattr(cap, "released", False):
+        cap.release()
+    assert cap.released is True
+
+
+def test_abandoned_producer_reported_draining_until_exit(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_PRODUCER_JOIN_TIMEOUT_S", 0.05)
+    _reset_shared()
+
+    block_gate = threading.Event()
+    read_entered = threading.Event()
+
+    class _BlockingCap(_FakeCap):
+        def read(self):
+            read_entered.set()
+            block_gate.wait(timeout=2.0)
+            self.reads += 1
+            return True, _usable_frame()
+
+    cap = _BlockingCap()
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(cap, width=64, height=48)
+    assert read_entered.wait(timeout=2.0)
+
+    outcome = camera_mod._stop_capture_producer()
+    assert outcome == camera_mod._ProducerShutdownOutcome.PRODUCER_RELEASES
+    assert camera_mod.abandoned_producer_count() >= 1
+    assert camera_mod.capture_producer_draining() is True
+    assert camera_mod.capture_producer_shutdown_completed() is False
+    assert cap.released is False
+
+    block_gate.set()
+    deadline = time.monotonic() + 2.0
+    while camera_mod.capture_producer_draining() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert camera_mod.capture_producer_shutdown_completed() is True
+    assert cap.released is True
+
+
+def test_release_never_overlaps_active_read(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_PRODUCER_JOIN_TIMEOUT_S", 0.05)
+    _reset_shared()
+
+    block_gate = threading.Event()
+    read_entered = threading.Event()
+
+    class _OverlapTrackingCap(_FakeCap):
+        def __init__(self):
+            super().__init__()
+            self.read_active = False
+            self.release_during_read = False
+
+        def read(self):
+            self.read_active = True
+            read_entered.set()
+            block_gate.wait(timeout=2.0)
+            if self.released:
+                self.release_during_read = True
+            self.reads += 1
+            self.read_active = False
+            return True, _usable_frame()
+
+        def release(self) -> None:
+            if self.read_active:
+                self.release_during_read = True
+            super().release()
+
+    cap = _OverlapTrackingCap()
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(cap, width=64, height=48)
+    assert read_entered.wait(timeout=2.0)
+
+    camera_mod._release_shared_unlocked()
+    assert cap.release_during_read is False
+
+    block_gate.set()
+    deadline = time.monotonic() + 2.0
+    while not cap.released and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert cap.released is True
+    assert cap.release_during_read is False
+    assert camera_mod.capture_producer_shutdown_completed() is True

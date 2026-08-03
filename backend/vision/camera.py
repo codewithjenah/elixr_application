@@ -3,7 +3,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from typing import Any, Optional
 
 import cv2
@@ -77,6 +77,26 @@ _latest_frame_slot: Optional["_LatestFrameSlot"] = None
 _producer_blank_streak = 0
 _PRODUCER_JOIN_TIMEOUT_S = 2.0
 
+# Abandoned producers remain tracked until their thread exits (diagnostics/tests).
+_abandoned_producers: list["_CaptureProducer"] = []
+_abandoned_producers_lock = threading.Lock()
+
+
+class _CaptureOwnership(Enum):
+    """Exactly one party releases each ``VideoCapture``."""
+
+    CALLER = auto()  # stop/join path or shared release owns release
+    PRODUCER = auto()  # abandoned producer releases after read returns
+    RELEASED = auto()  # capture already released
+
+
+class _ProducerShutdownOutcome(Enum):
+    """Who must (or did) release the capture after stopping a producer."""
+
+    CALLER_RELEASES = auto()
+    PRODUCER_RELEASES = auto()
+    ALREADY_RELEASED = auto()
+
 
 @dataclass(frozen=True)
 class CapturedFrame:
@@ -148,9 +168,9 @@ class _CaptureProducer:
         )
         self._sequence = 0
         self.blank_streak = 0
-        # When join times out during a blocked read, this producer keeps exclusive
-        # ownership of ``_cap`` and releases it after the read returns.
-        self._abandoned = False
+        self._ownership = _CaptureOwnership.CALLER
+        self._ownership_lock = threading.Lock()
+        self._thread_exited = threading.Event()
         self._read_in_flight = False
 
     def start(self) -> None:
@@ -160,21 +180,35 @@ class _CaptureProducer:
         """Prevent further publishes into the session's latest-frame slot."""
         self._slot = None
 
-    def stop(self, timeout: float = 2.0) -> bool:
-        """Signal stop and join.
-
-        Returns True when the producer thread exited (safe for the caller to
-        release ``VideoCapture``). Returns False when the thread is still alive
-        after ``timeout`` — typically a blocked ``cap.read()``.
-        """
+    def request_stop_and_join(self, timeout: float = 2.0) -> _ProducerShutdownOutcome:
+        """Signal stop, join, and report who must release ``VideoCapture``."""
         self.detach_slot()
         self._stop.set()
         self._thread.join(timeout=timeout)
-        return not self._thread.is_alive()
+        return self._shutdown_outcome_after_join()
 
-    def abandon(self) -> None:
-        """Transfer capture ownership to this still-running producer."""
-        self._abandoned = True
+    def try_transfer_release_ownership(self) -> bool:
+        """Atomically assign release to this producer if it is still running."""
+        with self._ownership_lock:
+            if self._thread_exited.is_set() or not self._thread.is_alive():
+                if not self._thread_exited.is_set():
+                    self._thread_exited.set()
+                return False
+            self._ownership = _CaptureOwnership.PRODUCER
+            return True
+
+    def _shutdown_outcome_after_join(self) -> _ProducerShutdownOutcome:
+        with self._ownership_lock:
+            if self._thread.is_alive():
+                return _ProducerShutdownOutcome.PRODUCER_RELEASES
+            if self._ownership == _CaptureOwnership.RELEASED:
+                return _ProducerShutdownOutcome.ALREADY_RELEASED
+            return _ProducerShutdownOutcome.CALLER_RELEASES
+
+    @property
+    def ownership(self) -> _CaptureOwnership:
+        with self._ownership_lock:
+            return self._ownership
 
     @property
     def is_alive(self) -> bool:
@@ -252,26 +286,51 @@ class _CaptureProducer:
                     )
                 )
         finally:
-            if self._abandoned:
-                try:
-                    if not getattr(self._cap, "released", False):
-                        self._cap.release()
-                        logger.info(
-                            "Abandoned camera capture producer released VideoCapture"
+            with self._ownership_lock:
+                if self._ownership == _CaptureOwnership.PRODUCER:
+                    try:
+                        if not getattr(self._cap, "released", False):
+                            self._cap.release()
+                            logger.info(
+                                "Abandoned camera capture producer released "
+                                "VideoCapture"
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Abandoned camera capture producer failed to release"
                         )
-                except Exception:
-                    logger.exception(
-                        "Abandoned camera capture producer failed to release"
-                    )
+                    self._ownership = _CaptureOwnership.RELEASED
+                self._thread_exited.set()
+            _unregister_abandoned_producer(self)
 
 
-def _stop_capture_producer(*, join_timeout: float | None = None) -> bool:
+def _register_abandoned_producer(producer: "_CaptureProducer") -> None:
+    with _abandoned_producers_lock:
+        if producer not in _abandoned_producers:
+            _abandoned_producers.append(producer)
+
+
+def _unregister_abandoned_producer(producer: "_CaptureProducer") -> None:
+    with _abandoned_producers_lock:
+        try:
+            _abandoned_producers.remove(producer)
+        except ValueError:
+            pass
+
+
+def _prune_abandoned_producers() -> None:
+    with _abandoned_producers_lock:
+        _abandoned_producers[:] = [
+            producer for producer in _abandoned_producers if producer.is_alive
+        ]
+
+
+def _stop_capture_producer(*, join_timeout: float | None = None) -> _ProducerShutdownOutcome:
     """Stop the capture producer. Safe under ``_CAMERA_LOCK`` (producer never takes it).
 
-    Returns True when shutdown completed and the caller may release the
-    associated ``VideoCapture``. Returns False when the producer was abandoned
-    because a read is still in flight — that producer owns and will release the
-    capture; the caller must not call ``release()`` on the same object.
+    Returns who must release the associated ``VideoCapture``. When the outcome is
+    ``PRODUCER_RELEASES``, the abandoned producer owns release and the caller must
+    not call ``release()`` on the same object.
     """
     global _capture_producer, _latest_frame_slot, _producer_blank_streak
 
@@ -285,22 +344,24 @@ def _stop_capture_producer(*, join_timeout: float | None = None) -> bool:
     _producer_blank_streak = 0
 
     if producer is None:
-        return True
+        return _ProducerShutdownOutcome.CALLER_RELEASES
 
-    # Detach before joining so a blocked producer cannot publish into a new slot.
-    producer.detach_slot()
-    stopped = producer.stop(timeout=join_timeout)
-    if stopped:
-        return True
+    outcome = producer.request_stop_and_join(timeout=join_timeout)
+    if outcome != _ProducerShutdownOutcome.PRODUCER_RELEASES:
+        return outcome
 
-    producer.abandon()
-    logger.warning(
-        "Camera capture producer still alive after %.1fs join "
-        "(read_in_flight=%s); deferring VideoCapture.release to the producer",
-        join_timeout,
-        producer.read_in_flight,
-    )
-    return False
+    if producer.try_transfer_release_ownership():
+        _register_abandoned_producer(producer)
+        logger.warning(
+            "Camera capture producer still alive after %.1fs join "
+            "(read_in_flight=%s); deferring VideoCapture.release to the producer",
+            join_timeout,
+            producer.read_in_flight,
+        )
+        return _ProducerShutdownOutcome.PRODUCER_RELEASES
+
+    # Producer exited between timed join failure and ownership transfer.
+    return producer._shutdown_outcome_after_join()
 
 
 def _start_capture_producer(
@@ -319,8 +380,8 @@ def _start_capture_producer(
 
     previous = _capture_producer
     same_cap = previous is not None and previous.cap is cap
-    stopped = _stop_capture_producer(join_timeout=join_timeout)
-    if same_cap and not stopped:
+    outcome = _stop_capture_producer(join_timeout=join_timeout)
+    if same_cap and outcome == _ProducerShutdownOutcome.PRODUCER_RELEASES:
         # Abandoned producer still owns this VideoCapture; do not attach a
         # second reader to the same device handle.
         return False
@@ -346,9 +407,23 @@ def capture_producer_is_alive() -> bool:
     return _capture_producer is not None and _capture_producer.is_alive
 
 
+def capture_producer_draining() -> bool:
+    """True when an abandoned producer thread is still exiting."""
+    _prune_abandoned_producers()
+    with _abandoned_producers_lock:
+        return any(producer.is_alive for producer in _abandoned_producers)
+
+
+def abandoned_producer_count() -> int:
+    """How many abandoned producers are still tracked (alive or not yet pruned)."""
+    _prune_abandoned_producers()
+    with _abandoned_producers_lock:
+        return len(_abandoned_producers)
+
+
 def capture_producer_shutdown_completed() -> bool:
-    """True when no active producer is registered (abandoned threads are untracked)."""
-    return _capture_producer is None
+    """True when no active or draining abandoned producer remains."""
+    return _capture_producer is None and not capture_producer_draining()
 
 
 class CameraReadStatus(Enum):
@@ -558,15 +633,16 @@ def _release_shared_unlocked() -> None:
     # Stop the producer before releasing VideoCapture so it cannot read a
     # closed/replaced capture. When shutdown cannot complete (blocked read),
     # ownership of the capture transfers to the abandoned producer.
-    producer_stopped = _stop_capture_producer()
+    outcome = _stop_capture_producer()
 
     if _shared_cap is not None:
-        if producer_stopped:
-            _shared_cap.release()
-            logger.info("Camera released")
-            if sys.platform == "win32":
-                time.sleep(_RELEASE_DELAY_S)
-        else:
+        if outcome == _ProducerShutdownOutcome.CALLER_RELEASES:
+            if not getattr(_shared_cap, "released", False):
+                _shared_cap.release()
+                logger.info("Camera released")
+                if sys.platform == "win32":
+                    time.sleep(_RELEASE_DELAY_S)
+        elif outcome == _ProducerShutdownOutcome.PRODUCER_RELEASES:
             logger.warning(
                 "Camera release deferred; capture producer still owns VideoCapture"
             )
@@ -806,7 +882,7 @@ def _try_reuse_shared_capture(
         return False
 
     # Stop the producer so the probe owns exclusive VideoCapture reads.
-    if not _stop_capture_producer():
+    if _stop_capture_producer() == _ProducerShutdownOutcome.PRODUCER_RELEASES:
         # Abandoned producer still owns this handle; force a fresh open.
         logger.warning(
             "Shared camera %s cannot be reused; capture producer still draining",

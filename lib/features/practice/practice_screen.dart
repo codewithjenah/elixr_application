@@ -19,6 +19,7 @@ import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
+import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
 import 'session_summary_sheet.dart';
@@ -55,13 +56,16 @@ class _PracticeScreenState extends State<PracticeScreen>
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
-  final _feedbackHistory = <PracticeFeedback>[];
+  final _feedback = PracticeFeedbackController();
+  final _comboNotifier = ValueNotifier<ComboState>(const ComboState());
+  final _scorePopupNotifier = ValueNotifier<ScorePopupState>(
+    const ScorePopupState(),
+  );
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
   final ValueNotifier<int?> _scoreNotifier = ValueNotifier<int?>(null);
   final ValueNotifier<double> _holdProgressNotifier = ValueNotifier<double>(0);
-  PracticeFeedback? _latestFeedback;
   bool _connecting = false;
   String? _sessionError;
   bool _isShowingSummary = false;
@@ -71,11 +75,6 @@ class _PracticeScreenState extends State<PracticeScreen>
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
   int? _lastPulsedScore;
-
-  int _combo = 0;
-  int _bestCombo = 0;
-  int _scorePopupTrigger = 0;
-  int _scorePopupDelta = 0;
 
   static const _wideBreakpoint = 1100.0;
   static const _panelWidth = 370.0;
@@ -108,6 +107,8 @@ class _PracticeScreenState extends State<PracticeScreen>
     _frameBytes.dispose();
     _scoreNotifier.dispose();
     _holdProgressNotifier.dispose();
+    _comboNotifier.dispose();
+    _scorePopupNotifier.dispose();
     _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
@@ -127,7 +128,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       _holdProgressNotifier.value = 0;
       if (mounted) {
         setState(() {
-          _latestFeedback = null;
+          _feedback.latestFeedback = null;
         });
       }
       return;
@@ -166,7 +167,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       _holdProgressNotifier.value = 0;
       setState(() {
         _sessionError = feedback.feedback;
-        _latestFeedback = null;
+        _feedback.latestFeedback = null;
       });
       return;
     }
@@ -200,65 +201,30 @@ class _PracticeScreenState extends State<PracticeScreen>
     // Only active training updates score UI / combo / history / hold.
     if (!_run.isTrainingActive) return;
 
-    final previousScore = _latestFeedback?.score;
-    final scoreChanged = previousScore != feedback.score;
-    final chromeChanged = !feedback.scoredPracticeChromeEquals(_latestFeedback);
-    final historyChanged =
-        _feedbackHistory.isEmpty ||
-        _feedbackHistory.last.feedback != feedback.feedback;
-
-    var comboChanged = false;
-    var nextCombo = _combo;
-    var nextBest = _bestCombo;
-    if (feedback.feedbackType == 'positive') {
-      nextCombo = _combo + 1;
-      if (nextCombo > _bestCombo) nextBest = nextCombo;
-      comboChanged = nextCombo != _combo || nextBest != _bestCombo;
-    } else if (feedback.feedbackType == 'error' ||
-        feedback.feedbackType == 'warning') {
-      if (_combo != 0) {
-        nextCombo = 0;
-        comboChanged = true;
-      }
-    }
-
-    var scorePopupChanged = false;
-    if (previousScore != null && feedback.score > previousScore) {
-      _scorePopupDelta = feedback.score - previousScore;
-      _scorePopupTrigger++;
-      scorePopupChanged = true;
-    }
+    final result = _feedback.applyActiveFeedback(feedback);
 
     _publishFrame(feedback.frameJpegBytes);
     _scoreNotifier.value = feedback.score;
     _holdProgressNotifier.value = feedback.holdProgress;
 
-    if (chromeChanged ||
-        comboChanged ||
-        historyChanged ||
-        scorePopupChanged ||
-        _sessionError != null) {
-      setState(() {
-        _sessionError = null;
-        _combo = nextCombo;
-        _bestCombo = nextBest;
-        _latestFeedback = feedback;
-        if (historyChanged) {
-          _feedbackHistory.insert(0, feedback);
-          if (_feedbackHistory.length > 50) {
-            _feedbackHistory.removeLast();
-          }
-        }
-      });
-    } else {
-      _latestFeedback = feedback;
+    if (result.comboChanged) {
+      _comboNotifier.value = result.comboState;
+    }
+    if (result.scorePopupChanged) {
+      _scorePopupNotifier.value = result.scorePopupState;
     }
 
-    if (feedback.holdConfirmed) {
+    if (result.needsChromeRebuild || _sessionError != null) {
+      setState(() {
+        _sessionError = null;
+      });
+    }
+
+    if (result.holdConfirmed) {
       unawaited(_onMovementConfirmed());
     }
 
-    if (scoreChanged && _lastPulsedScore != feedback.score) {
+    if (result.scoreChanged && _lastPulsedScore != feedback.score) {
       _lastPulsedScore = feedback.score;
       _scorePulseController.forward(from: 0);
     }
@@ -430,19 +396,18 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   bool get _hasSessionData =>
       _run.elapsedSeconds > 0 ||
-      _feedbackHistory.isNotEmpty ||
-      _latestFeedback != null;
+      _feedback.feedbackHistory.isNotEmpty ||
+      _feedback.latestFeedback != null;
 
   void _clearSessionState() {
-    _feedbackHistory.clear();
+    _feedback.reset();
     _sessionError = null;
     _clearFrame();
     _scoreNotifier.value = null;
     _holdProgressNotifier.value = 0;
-    _latestFeedback = null;
+    _comboNotifier.value = const ComboState();
+    _scorePopupNotifier.value = const ScorePopupState();
     _lastPulsedScore = null;
-    _combo = 0;
-    _bestCombo = 0;
     _movementConfirmedShowing = false;
   }
 
@@ -488,7 +453,8 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (!_hasSessionData && _run.elapsedSeconds == 0) {
       // Still show summary for an activated session with zero elapsed when
       // there was at least a score snapshot; otherwise return to catalog.
-      if (_latestFeedback == null && _feedbackHistory.isEmpty) {
+      if (_feedback.latestFeedback == null &&
+          _feedback.feedbackHistory.isEmpty) {
         _run.cancelToIdle();
         _clearSessionState();
         if (mounted) router.go('/movements');
@@ -504,10 +470,10 @@ class _PracticeScreenState extends State<PracticeScreen>
       return;
     }
 
-    final summaryScore = _latestFeedback?.score ?? 0;
+    final summaryScore = _feedback.latestFeedback?.score ?? 0;
     final summaryDuration = _run.elapsedSeconds;
     final summaryFeedbacks = List<PracticeFeedback>.unmodifiable(
-      _feedbackHistory.reversed.toList(),
+      _feedback.feedbackHistory.reversed.toList(),
     );
 
     _isShowingSummary = true;
@@ -705,7 +671,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       onRetry: _connect,
       countdownActive: _run.isCountdown,
       onCountdownComplete: _beginSessionAfterCountdown,
-      overlayFeedback: isTrainingActive ? _latestFeedback : null,
+      overlayFeedback: isTrainingActive ? _feedback.latestFeedback : null,
       overlays: Stack(
         fit: StackFit.expand,
         children: [
@@ -727,13 +693,25 @@ class _PracticeScreenState extends State<PracticeScreen>
           Positioned(
             right: AppSpacing.lg,
             bottom: AppSpacing.lg,
-            child: ComboBadge(combo: isTrainingActive ? _combo : 0),
+            child: ValueListenableBuilder<ComboState>(
+              valueListenable: _comboNotifier,
+              builder: (context, comboState, _) {
+                return ComboBadge(
+                  combo: isTrainingActive ? comboState.combo : 0,
+                );
+              },
+            ),
           ),
           Positioned.fill(
             child: Center(
-              child: ScorePopup(
-                trigger: _scorePopupTrigger,
-                delta: _scorePopupDelta,
+              child: ValueListenableBuilder<ScorePopupState>(
+                valueListenable: _scorePopupNotifier,
+                builder: (context, popupState, _) {
+                  return ScorePopup(
+                    trigger: popupState.trigger,
+                    delta: popupState.delta,
+                  );
+                },
               ),
             ),
           ),
@@ -822,25 +800,33 @@ class _PracticeScreenState extends State<PracticeScreen>
       statusContent: TrainingStatusRow(
         detection: resolveDetectionStatus(
           sessionActive: isTrainingActive,
-          bottleDetected: _latestFeedback?.bottleDetected,
+          bottleDetected: _feedback.latestFeedback?.bottleDetected,
         ),
         propLabel: _prop.displayLabel,
         postureLabel: postureDisplayLabel(
-          isTrainingActive ? _latestFeedback?.postureStatus : null,
+          isTrainingActive ? _feedback.latestFeedback?.postureStatus : null,
         ),
       ),
-      supportingContent: Column(
-        children: [
-          _InfoRow(label: 'Movement', value: _movement),
-          const SizedBox(height: AppSpacing.sm),
-          _InfoRow(label: 'Difficulty', value: _difficulty),
-          const SizedBox(height: AppSpacing.sm),
-          _InfoRow(label: 'Prop', value: _prop.displayLabel),
-          if (_bestCombo > 1) ...[
-            const SizedBox(height: AppSpacing.sm),
-            _InfoRow(label: 'Best Combo', value: 'x$_bestCombo'),
-          ],
-        ],
+      supportingContent: ValueListenableBuilder<ComboState>(
+        valueListenable: _comboNotifier,
+        builder: (context, comboState, _) {
+          return Column(
+            children: [
+              _InfoRow(label: 'Movement', value: _movement),
+              const SizedBox(height: AppSpacing.sm),
+              _InfoRow(label: 'Difficulty', value: _difficulty),
+              const SizedBox(height: AppSpacing.sm),
+              _InfoRow(label: 'Prop', value: _prop.displayLabel),
+              if (comboState.bestCombo > 1) ...[
+                const SizedBox(height: AppSpacing.sm),
+                _InfoRow(
+                  label: 'Best Combo',
+                  value: 'x${comboState.bestCombo}',
+                ),
+              ],
+            ],
+          );
+        },
       ),
       compactStatusNote: (_sessionError ?? _run.errorMessage) != null
           ? Text(
