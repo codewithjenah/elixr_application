@@ -96,6 +96,35 @@ class CommandDisconnectedException implements Exception {
       'CommandDisconnectedException(action=$action, requestId=$requestId)';
 }
 
+/// Controlled failure when a correlated ack does not match the pending command.
+class CommandAckMismatchException implements Exception {
+  CommandAckMismatchException({
+    required this.requestId,
+    required this.pendingAction,
+    required this.pendingSessionId,
+    required this.ackAction,
+    this.ackSessionId,
+    required this.actionMismatch,
+    required this.sessionMismatch,
+  });
+
+  final String requestId;
+  final String pendingAction;
+  final String pendingSessionId;
+  final String ackAction;
+  final String? ackSessionId;
+  final bool actionMismatch;
+  final bool sessionMismatch;
+
+  String get errorCode =>
+      actionMismatch ? 'ack_action_mismatch' : 'ack_session_mismatch';
+
+  @override
+  String toString() =>
+      'CommandAckMismatchException(requestId=$requestId, pending=$pendingAction/'
+      '$pendingSessionId, ack=$ackAction/$ackSessionId)';
+}
+
 sealed class WsInboundMessage {
   const WsInboundMessage();
 }

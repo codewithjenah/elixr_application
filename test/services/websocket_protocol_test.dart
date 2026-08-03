@@ -577,7 +577,7 @@ void main() {
       },
     );
 
-    test('mismatched ack action does not mutate lifecycle state', () async {
+    test('mismatched ack action does not complete with CommandAck', () async {
       service.beginPracticeAttempt();
       final sessionId = service.currentSessionId!;
       final prepare = service.sendPrepare(
@@ -588,6 +588,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final requestId = sent.last['request_id'];
 
+      final mismatchExpectation = expectLater(
+        prepare,
+        throwsA(isA<CommandAckMismatchException>()),
+      );
       await push({
         'protocol_version': 1,
         'message_type': 'command_ack',
@@ -597,8 +601,9 @@ void main() {
         'accepted': true,
         'session_state': 'idle',
       });
-      await prepare;
+      await mismatchExpectation;
       expect(service.sessionPrepared, isFalse);
+      expect(service.sessionActive, isFalse);
       expect(service.lastProtocolError?.errorCode, 'ack_action_mismatch');
     });
 
@@ -635,7 +640,7 @@ void main() {
     );
 
     test(
-      'ack session_id mismatch against pending command is recorded',
+      'ack session_id mismatch against pending command fails the future',
       () async {
         service.beginPracticeAttempt();
         final sessionId = service.currentSessionId!;
@@ -647,6 +652,10 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         final requestId = sent.last['request_id'];
 
+        final mismatchExpectation = expectLater(
+          prepare,
+          throwsA(isA<CommandAckMismatchException>()),
+        );
         await push({
           'protocol_version': 1,
           'message_type': 'command_ack',
@@ -656,11 +665,74 @@ void main() {
           'accepted': true,
           'session_state': 'preparing',
         });
-        await prepare;
+        await mismatchExpectation;
         expect(service.sessionPrepared, isFalse);
+        expect(service.sessionActive, isFalse);
         expect(service.lastProtocolError?.errorCode, 'ack_session_mismatch');
       },
     );
+
+    test('stop for a different session does not join pending stop', () async {
+      service.beginPracticeAttempt();
+      final sessionA = service.currentSessionId!;
+
+      final stopA = service.stopPracticeSession(sessionId: sessionA);
+      await Future<void>.delayed(Duration.zero);
+
+      final stopPayloads = sent
+          .where((payload) => payload['action'] == 'stop')
+          .toList();
+      expect(stopPayloads, hasLength(1));
+      expect(stopPayloads.single['session_id'], sessionA);
+
+      final stopB = service.stopPracticeSession(sessionId: 'session-b-other');
+      await expectLater(stopB, throwsA(isA<StateError>()));
+      expect(
+        sent.where((payload) => payload['action'] == 'stop'),
+        hasLength(1),
+      );
+      expect(identical(stopA, stopB), isFalse);
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': stopPayloads.single['request_id'],
+        'session_id': sessionA,
+        'action': 'stop',
+        'accepted': true,
+        'session_state': 'idle',
+      });
+      final ackA = await stopA;
+      expect(ackA.accepted, isTrue);
+      expect(ackA.action, 'stop');
+    });
+
+    test('correct ack still completes pending command normally', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+      final prepare = service.sendPrepare(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        sessionId: sessionId,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'prepare',
+        'accepted': true,
+        'session_state': 'preparing',
+      });
+      final ack = await prepare;
+      expect(ack, isA<CommandAck>());
+      expect(ack.accepted, isTrue);
+      expect(ack.action, 'prepare');
+      expect(service.sessionPrepared, isTrue);
+      expect(service.sessionActive, isFalse);
+    });
 
     test(
       'feedback with session_id is ignored when current session is null',

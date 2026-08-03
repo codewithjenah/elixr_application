@@ -388,7 +388,14 @@ class WebSocketService extends ChangeNotifier {
     for (final pending in _pending.values) {
       if (pending.action == action) {
         if (action == 'stop') {
-          return pending.completer.future;
+          if (pending.sessionId == sessionId) {
+            return pending.completer.future;
+          }
+          return Future.error(
+            StateError(
+              'A stop for session ${pending.sessionId} is already pending',
+            ),
+          );
         }
         return Future.error(StateError('A $action command is already pending'));
       }
@@ -511,10 +518,24 @@ class WebSocketService extends ChangeNotifier {
         );
       }
 
-      final mayApplyLifecycle =
-          !actionMismatch &&
-          !sessionMismatch &&
-          _ackMatchesCurrentSession(ack, pending);
+      if (actionMismatch || sessionMismatch) {
+        if (!pending.completer.isCompleted) {
+          pending.completer.completeError(
+            CommandAckMismatchException(
+              requestId: ack.requestId,
+              pendingAction: pending.action,
+              pendingSessionId: pending.sessionId,
+              ackAction: ack.action,
+              ackSessionId: ack.sessionId,
+              actionMismatch: actionMismatch,
+              sessionMismatch: sessionMismatch,
+            ),
+          );
+        }
+        return;
+      }
+
+      final mayApplyLifecycle = _ackMatchesCurrentSession(ack, pending);
 
       if (mayApplyLifecycle) {
         if (ack.accepted) {
