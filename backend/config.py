@@ -16,6 +16,9 @@ CAMERA_FALLBACK_INDEX = int(os.getenv("CAMERA_FALLBACK_INDEX", "0"))
 # Keep the webcam open briefly when sessions restart.
 CAMERA_RELEASE_DEBOUNCE_S = 2.0
 
+# Upper bound for protocol-v1 prepare acknowledgment (camera open + startup probe).
+SESSION_PREP_TIMEOUT_S = float(os.getenv("SESSION_PREP_TIMEOUT_S", "15.0"))
+
 # Lightweight GET /cameras discovery (separate from strict session startup).
 DISCOVERY_MAX_INDEX = int(os.getenv("DISCOVERY_MAX_INDEX", "4"))
 DISCOVERY_CACHE_TTL_S = float(os.getenv("DISCOVERY_CACHE_TTL_S", "30"))

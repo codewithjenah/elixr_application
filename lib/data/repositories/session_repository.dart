@@ -8,6 +8,20 @@ class SessionRepository {
 
   final FirestoreHelper _db;
 
+  String allocateSessionId() => _db.allocateSessionId();
+
+  Future<void> saveSessionWithFeedbacks({
+    required String sessionId,
+    required Session session,
+    required List<Feedback> feedbacks,
+  }) {
+    return _db.saveSessionWithFeedbacks(
+      sessionId: sessionId,
+      session: session,
+      feedbacks: feedbacks,
+    );
+  }
+
   Future<String> saveSession(Session session) {
     return _db.insertSession(session);
   }

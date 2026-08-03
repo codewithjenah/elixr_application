@@ -150,6 +150,16 @@ class _PracticeScreenState extends State<PracticeScreen>
     _frameBytes.value = null;
   }
 
+  Future<void> _stopWebSocketSession() async {
+    try {
+      await _ws.stopPracticeSession();
+    } on CommandTimeoutException {
+      // Expected when the backend is slow or unavailable.
+    } on CommandDisconnectedException {
+      // Expected during navigation or dispose.
+    }
+  }
+
   void _onFeedback(PracticeFeedback feedback) {
     if (!mounted) return;
 
@@ -161,7 +171,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         isFatal: true,
         fatalMessage: feedback.feedback,
       );
-      unawaited(_ws.sendStop());
+      unawaited(_stopWebSocketSession());
       _clearFrame();
       _scoreNotifier.value = null;
       _holdProgressNotifier.value = 0;
@@ -241,7 +251,6 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (_movementConfirmedShowing) return;
     _movementConfirmedShowing = true;
 
-    unawaited(_ws.sendStop());
     _run.markCompleted();
     await _music.stop();
     if (mounted) setState(() {});
@@ -269,6 +278,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     }
 
     _clearSessionState();
+    _ws.beginPracticeAttempt();
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
 
@@ -301,7 +311,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           isFatal: true,
           fatalMessage: message,
         );
-        unawaited(_ws.sendStop());
+        unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
           _clearFrame();
@@ -317,7 +327,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         isFatal: true,
         fatalMessage: message,
       );
-      unawaited(_ws.sendStop());
+      unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
         _clearFrame();
@@ -329,7 +339,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   void _onPreparationTimeout() {
     if (!mounted) return;
-    unawaited(_ws.sendStop());
+    unawaited(_stopWebSocketSession());
     unawaited(_music.stop());
     unawaited(_sfx.stop());
     setState(() {
@@ -362,7 +372,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           isFatal: true,
           fatalMessage: message,
         );
-        unawaited(_ws.sendStop());
+        unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
           _clearFrame();
@@ -384,7 +394,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         isFatal: true,
         fatalMessage: message,
       );
-      unawaited(_ws.sendStop());
+      unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
         _clearFrame();
@@ -412,7 +422,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   Future<void> _cancelPreActive() async {
-    unawaited(_ws.sendStop());
+    await _stopWebSocketSession();
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
@@ -443,7 +453,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     final userId = authUser?.id;
     final displayName = authUser?.fullName ?? 'Trainee';
 
-    unawaited(_ws.sendStop());
+    await _stopWebSocketSession();
     if (_run.phase == PracticeRunPhase.active) {
       _run.markCompleted();
     }
@@ -488,7 +498,8 @@ class _PracticeScreenState extends State<PracticeScreen>
         durationSeconds: summaryDuration,
         feedbacks: summaryFeedbacks,
         heldSteady: heldSteady,
-        onSave: () => sessionService.saveCompletedSession(
+        onSave: (existingSessionId) => sessionService.saveCompletedSession(
+          existingSessionId: existingSessionId,
           userId: userId,
           displayName: displayName,
           profilePictureUrl: authUser?.profilePictureUrl,

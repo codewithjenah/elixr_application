@@ -663,3 +663,151 @@ def test_activate_before_prepare_rejected(monkeypatch):
         await asyncio.wait_for(task, timeout=2)
 
     asyncio.run(_run())
+
+
+@pytest.mark.parametrize("value,expected", [("false", False), ("true", True)])
+def test_legacy_boolean_string_literals(value, expected):
+    parsed, error = websocket_api.parse_legacy_boolean(value)
+    assert error is None
+    assert parsed is expected
+
+
+@pytest.mark.parametrize("value", ["maybe", 1, 0])
+def test_legacy_boolean_rejects_unsafe_coercions(value):
+    parsed, error = websocket_api.parse_legacy_boolean(value)
+    assert error == "invalid_boolean"
+
+
+def test_legacy_false_string_not_truthy(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            {
+                "action": "start",
+                "movement": "Hand Stall",
+                "difficulty": "Medium",
+                "bottle_detection_enabled": "false",
+                "camera_device_id": None,
+            }
+        )
+        deadline = asyncio.get_event_loop().time() + 2
+        while asyncio.get_event_loop().time() < deadline:
+            if StubCamera.instances:
+                break
+            await asyncio.sleep(0.01)
+        assert StubCamera.instances, "legacy start never opened camera"
+        parsed, error = websocket_api.parse_legacy_boolean("false")
+        assert error is None and parsed is False
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_legacy_invalid_boolean_returns_error(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            {
+                "action": "prepare",
+                "movement": "Hand Stall",
+                "difficulty": "Medium",
+                "bottle_detection_enabled": "maybe",
+            }
+        )
+        await asyncio.sleep(0.1)
+        messages = _decode_sent(ws)
+        assert messages
+        assert messages[0]["error_code"] == "invalid_boolean"
+        assert StubCamera.open_calls == 0
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_prepare_timeout_clears_session_task_and_identity(monkeypatch):
+    import time
+
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+    monkeypatch.setattr(websocket_api, "SESSION_PREP_TIMEOUT_S", 0.1)
+
+    def slow_open(self) -> bool:
+        time.sleep(0.5)
+        StubCamera.open_calls += 1
+        return True
+
+    monkeypatch.setattr(StubCamera, "open", slow_open)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            _prepare_payload(
+                request_id="req-timeout",
+                session_id="session-timeout",
+            )
+        )
+        ack = await _wait_for_ack(ws, "req-timeout", timeout=3)()
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "prepare_timeout"
+        assert ack["session_state"] == "idle"
+
+        await asyncio.sleep(0.2)
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=3)
+
+    asyncio.run(_run())
+
+
+def test_prepare_ack_sent_only_after_camera_open(monkeypatch):
+    """command_ack for prepare must not precede successful session.start()."""
+    import time
+
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+
+    open_started = {"n": 0}
+    open_finished = {"n": 0}
+
+    def gated_open(self) -> bool:
+        open_started["n"] += 1
+        time.sleep(0.15)
+        StubCamera.open_calls += 1
+        open_finished["n"] += 1
+        return True
+
+    monkeypatch.setattr(StubCamera, "open", gated_open)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload(request_id="req-order", session_id="session-order"))
+
+        await asyncio.sleep(0.05)
+        assert open_started["n"] == 1
+        assert open_finished["n"] == 0
+        assert not any(
+            m.get("message_type") == "command_ack" and m.get("request_id") == "req-order"
+            for m in _decode_sent(ws)
+        )
+
+        ack = await _wait_for_ack(ws, "req-order")()
+        assert ack["accepted"] is True
+        assert open_finished["n"] == 1
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())

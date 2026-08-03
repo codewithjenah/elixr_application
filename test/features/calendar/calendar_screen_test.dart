@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/models/feedback.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/features/calendar/calendar_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/session_service.dart';
-import 'package:fluent_ui/fluent_ui.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide Feedback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -123,8 +124,12 @@ void main() {
           ),
         );
     sessionService = SessionService(
-      saveSessionOverride: (_) async => 'session-id',
-      saveFeedbacksOverride: (_) async {},
+      saveCompletedSessionAtomicOverride:
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+          }) async {},
       recordCompletedSessionOverride:
           ({
             required sessionId,

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/database/firestore_helper.dart';
 import '../data/models/feedback.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/session.dart';
@@ -15,23 +16,30 @@ typedef LeaderboardSessionRecorder =
       String? profilePictureUrl,
     });
 
+typedef CompletedSessionAtomicSaver =
+    Future<void> Function({
+      required String sessionId,
+      required Session session,
+      required List<Feedback> feedbacks,
+    });
+
 class SessionService extends ChangeNotifier {
   SessionService({
     SessionRepository? repository,
     LeaderboardRepository? leaderboardRepository,
-    Future<String> Function(Session session)? saveSessionOverride,
-    Future<void> Function(List<Feedback> feedbacks)? saveFeedbacksOverride,
+    CompletedSessionAtomicSaver? saveCompletedSessionAtomicOverride,
+    String Function()? allocateSessionIdOverride,
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
-       _saveSessionOverride = saveSessionOverride,
-       _saveFeedbacksOverride = saveFeedbacksOverride,
+       _saveCompletedSessionAtomicOverride = saveCompletedSessionAtomicOverride,
+       _allocateSessionIdOverride = allocateSessionIdOverride,
        _recordCompletedSessionOverride = recordCompletedSessionOverride;
 
   SessionRepository? _repositoryOrNull;
   LeaderboardRepository? _leaderboardRepositoryOrNull;
-  final Future<String> Function(Session session)? _saveSessionOverride;
-  final Future<void> Function(List<Feedback> feedbacks)? _saveFeedbacksOverride;
+  final CompletedSessionAtomicSaver? _saveCompletedSessionAtomicOverride;
+  final String Function()? _allocateSessionIdOverride;
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
 
   SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
@@ -49,8 +57,13 @@ class SessionService extends ChangeNotifier {
     required List<PracticeFeedback> feedbackHistory,
     TrainingProp prop = TrainingProp.bottle,
     String? profilePictureUrl,
+    String? existingSessionId,
   }) async {
+    final allocateSessionId =
+        _allocateSessionIdOverride ?? repository.allocateSessionId;
+    final sessionId = existingSessionId ?? allocateSessionId();
     final session = Session(
+      id: sessionId,
       userId: userId,
       movementName: movementName,
       difficulty: difficulty,
@@ -58,27 +71,16 @@ class SessionService extends ChangeNotifier {
       durationSeconds: durationSeconds,
       propType: prop,
     );
-    final saveSession = _saveSessionOverride ?? repository.saveSession;
-    final sessionId = await saveSession(session);
+    final feedbacks = _buildDedupedFeedbacks(sessionId, feedbackHistory);
 
-    final seen = <String>{};
-    final feedbacks = <Feedback>[];
-    for (final item in feedbackHistory.reversed) {
-      if (seen.add(item.feedback)) {
-        feedbacks.add(
-          Feedback(
-            sessionId: sessionId,
-            message: item.feedback,
-            feedbackType: item.feedbackType,
-          ),
-        );
-      }
-    }
-
-    if (feedbacks.isNotEmpty) {
-      final saveFeedbacks = _saveFeedbacksOverride ?? repository.saveFeedbacks;
-      await saveFeedbacks(feedbacks);
-    }
+    final saveAtomic =
+        _saveCompletedSessionAtomicOverride ??
+        repository.saveSessionWithFeedbacks;
+    await saveAtomic(
+      sessionId: sessionId,
+      session: session,
+      feedbacks: feedbacks,
+    );
 
     // Leaderboard sync must not erase a successfully saved practice session.
     try {
@@ -103,5 +105,28 @@ class SessionService extends ChangeNotifier {
 
     notifyListeners();
     return sessionId;
+  }
+
+  static List<Feedback> _buildDedupedFeedbacks(
+    String sessionId,
+    List<PracticeFeedback> feedbackHistory,
+  ) {
+    final seen = <String>{};
+    final feedbacks = <Feedback>[];
+    var index = 0;
+    for (final item in feedbackHistory.reversed) {
+      if (seen.add(item.feedback)) {
+        feedbacks.add(
+          Feedback(
+            id: FirestoreHelper.feedbackDocumentId(sessionId, index),
+            sessionId: sessionId,
+            message: item.feedback,
+            feedbackType: item.feedbackType,
+          ),
+        );
+        index++;
+      }
+    }
+    return feedbacks;
   }
 }

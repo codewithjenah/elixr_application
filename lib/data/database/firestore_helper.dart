@@ -116,9 +116,27 @@ class FirestoreHelper {
     return User.fromMap(_userFromDoc(doc));
   }
 
-  Future<String> insertSession(Session session) async {
-    final doc = _firestore.collection(FirestoreCollections.sessions).doc();
-    await doc.set({
+  /// Allocates a Firestore document ID without writing. Safe to reuse on retry.
+  String allocateSessionId() {
+    return _firestore.collection(FirestoreCollections.sessions).doc().id;
+  }
+
+  /// Deterministic feedback document ID for retry-safe session saves.
+  static String feedbackDocumentId(String sessionId, int index) {
+    return '${sessionId}_fb_$index';
+  }
+
+  /// Writes the session and all feedback documents in one atomic batch.
+  Future<void> saveSessionWithFeedbacks({
+    required String sessionId,
+    required Session session,
+    required List<Feedback> feedbacks,
+  }) async {
+    final batch = _firestore.batch();
+    final sessionRef = _firestore
+        .collection(FirestoreCollections.sessions)
+        .doc(sessionId);
+    batch.set(sessionRef, {
       'user_id': session.userId,
       'movement_name': session.movementName,
       'difficulty': session.difficulty,
@@ -127,7 +145,32 @@ class FirestoreHelper {
       'prop_type': session.propType.protocolValue,
       'created_at': FieldValue.serverTimestamp(),
     });
-    return doc.id;
+
+    for (var index = 0; index < feedbacks.length; index++) {
+      final feedback = feedbacks[index];
+      final feedbackId = feedback.id ?? feedbackDocumentId(sessionId, index);
+      final feedbackRef = _firestore
+          .collection(FirestoreCollections.feedbacks)
+          .doc(feedbackId);
+      batch.set(feedbackRef, {
+        'session_id': sessionId,
+        'message': feedback.message,
+        'feedback_type': feedback.feedbackType,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  }
+
+  Future<String> insertSession(Session session) async {
+    final sessionId = allocateSessionId();
+    await saveSessionWithFeedbacks(
+      sessionId: sessionId,
+      session: session,
+      feedbacks: const [],
+    );
+    return sessionId;
   }
 
   Future<List<Session>> getSessionsForUser(String userId) async {

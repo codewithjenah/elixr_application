@@ -21,6 +21,7 @@ from assessment.scoring import SessionScorer
 from config import (
     FPS_LOG_INTERVAL,
     JPEG_QUALITY,
+    SESSION_PREP_TIMEOUT_S,
     TARGET_FPS,
     YOLO_FRAME_SKIP,
     YOLO_IMGSZ,
@@ -213,6 +214,26 @@ def parse_prop_type(raw: Any) -> tuple[PropType, str | None]:
     return "bottle", "invalid_prop_type"
 
 
+def parse_legacy_boolean(raw: Any, *, default: bool = True) -> tuple[bool, str | None]:
+    """Parse legacy prepare/start boolean fields without truthy string coercion.
+
+    Unlike ``bool("false")``, string literals ``"true"`` / ``"false"`` are
+    accepted. Other strings and numeric types are rejected.
+    """
+    if raw is None:
+        return default, None
+    if isinstance(raw, bool):
+        return raw, None
+    if isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered == "true":
+            return True, None
+        if lowered == "false":
+            return False, None
+        return default, "invalid_boolean"
+    return default, "invalid_boolean"
+
+
 def _camera_unavailable_message(
     *,
     camera_device_id: str | None = None,
@@ -317,6 +338,9 @@ def _human_error_message(error_code: str) -> str:
         "session_not_prepared": "No matching prepared session is available.",
         "session_id_mismatch": "The session_id does not match the current session.",
         "pipeline_init_failed": "Vision pipeline failed to start.",
+        "prepare_timeout": (
+            "Camera preparation timed out. Check the camera connection and try again."
+        ),
         "model_load_failed": "Model load failed.",
         "pipeline_error": "Vision pipeline error.",
     }.get(error_code, "The WebSocket command was rejected.")
@@ -842,71 +866,70 @@ async def _cv_session_loop(
         await _send(error.model_dump_json())
         return
 
-    if session_ref is not None:
-        session_ref["session"] = session
-        session_ref["session_id"] = session_id
-
-    if not session.start():
-        feedback, error_code = _camera_unavailable_message(
-            camera_device_id=camera_device_id,
-            camera_index=camera_index,
-        )
-        error = FeedbackMessage(
-            bottle_detected=False,
-            prop_type=prop_type,
-            movement=movement,
-            score=0,
-            feedback=feedback,
-            feedback_type="error",
-            posture_status="unknown",
-            frame_jpeg_base64=None,
-            error_code=error_code,
-            camera_ready=False,
-            session_state="unavailable",
-        ).with_session(session_id)
-
-        _signal_prepare_gate(
-            prepare_gate,
-            ok=False,
-            error_code=error_code,
-            message=feedback,
-        )
-        await _send(error.model_dump_json())
-        if session_ref is not None:
-            session_ref["session"] = None
-            session_ref["session_id"] = None
-        session.close()
-        return
-
-    if start_active:
-        session.activate()
-
-    _signal_prepare_gate(prepare_gate, ok=True)
-
-    explicit = camera_device_id is not None or camera_index is not None
-    logger.info(
-        "Camera selection active: mode=%s requested_device_id=%s "
-        "requested_index=%s active_index=%s active_device_id=%s "
-        "used_fallback=%s lifecycle=%s session_id=%s",
-        "explicit" if explicit else "auto-select",
-        camera_device_id,
-        camera_index,
-        getattr(session.camera, "active_index", None),
-        getattr(session.camera, "active_device_id", None),
-        getattr(session.camera, "used_fallback", False),
-        session.lifecycle,
-        session_id,
-    )
-
-    interval = 1.0 / TARGET_FPS
-    frame_budget_ms = interval * 1000.0
-    processed_frame_count = 0
-    loop_ticks = 0
-    loop_start = time.perf_counter()
     frame_task: asyncio.Task | None = None
-    last_overwrite_count = latest_frame_overwrite_count()
 
     try:
+        started = await asyncio.to_thread(session.start)
+
+        if not started:
+            feedback, error_code = _camera_unavailable_message(
+                camera_device_id=camera_device_id,
+                camera_index=camera_index,
+            )
+            error = FeedbackMessage(
+                bottle_detected=False,
+                prop_type=prop_type,
+                movement=movement,
+                score=0,
+                feedback=feedback,
+                feedback_type="error",
+                posture_status="unknown",
+                frame_jpeg_base64=None,
+                error_code=error_code,
+                camera_ready=False,
+                session_state="unavailable",
+            ).with_session(session_id)
+
+            _signal_prepare_gate(
+                prepare_gate,
+                ok=False,
+                error_code=error_code,
+                message=feedback,
+            )
+            await _send(error.model_dump_json())
+            return
+
+        if session_ref is not None:
+            session_ref["session"] = session
+            session_ref["session_id"] = session_id
+
+        if start_active:
+            session.activate()
+
+        _signal_prepare_gate(prepare_gate, ok=True)
+
+        explicit = camera_device_id is not None or camera_index is not None
+        logger.info(
+            "Camera selection active: mode=%s requested_device_id=%s "
+            "requested_index=%s active_index=%s active_device_id=%s "
+            "used_fallback=%s lifecycle=%s session_id=%s",
+            "explicit" if explicit else "auto-select",
+            camera_device_id,
+            camera_index,
+            getattr(session.camera, "active_index", None),
+            getattr(session.camera, "active_device_id", None),
+            getattr(session.camera, "used_fallback", False),
+            session.lifecycle,
+            session_id,
+        )
+
+        interval = 1.0 / TARGET_FPS
+        frame_budget_ms = interval * 1000.0
+        processed_frame_count = 0
+        loop_ticks = 0
+        loop_start = time.perf_counter()
+        last_overwrite_count = latest_frame_overwrite_count()
+
         while True:
             tick = time.perf_counter()
             loop_ticks += 1
@@ -1008,12 +1031,13 @@ async def _cv_session_loop(
             except Exception:
                 pass
 
-        if session_ref is not None and session_ref.get("session") is session:
-            session_ref["session"] = None
+        if session_ref is not None:
+            if session_ref.get("session") is session:
+                session_ref["session"] = None
             if session_ref.get("session_id") == session_id:
                 session_ref["session_id"] = None
 
-        session.close()
+        await asyncio.to_thread(session.close)
 
 
 def _parse_session_request(data: dict, movement: str, difficulty: str):
@@ -1021,7 +1045,25 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
     movement = data.get("movement", movement)
     difficulty = data.get("difficulty", difficulty)
 
-    bottle_detection_enabled = bool(data.get("bottle_detection_enabled", True))
+    bottle_detection_enabled, bool_error = parse_legacy_boolean(
+        data.get("bottle_detection_enabled"),
+    )
+    if bool_error is not None:
+        error = FeedbackMessage(
+            bottle_detected=False,
+            prop_type="bottle",
+            movement=movement,
+            score=0,
+            feedback=_human_error_message(bool_error),
+            feedback_type="error",
+            posture_status="unknown",
+            frame_jpeg_base64=None,
+            error_code=bool_error,
+            camera_ready=False,
+            session_state="unavailable",
+        )
+        return None, error
+
     prop_type, prop_error = parse_prop_type(data.get("prop_type"))
     if prop_error is not None:
         error = FeedbackMessage(
@@ -1188,13 +1230,38 @@ async def websocket_endpoint(websocket: WebSocket):
         if prepare_gate is None:
             return True, None, None
 
-        await prepare_gate["event"].wait()
+        try:
+            await asyncio.wait_for(
+                prepare_gate["event"].wait(),
+                timeout=SESSION_PREP_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            if prepare_gate.get("signaled") and prepare_gate.get("ok"):
+                return True, None, None
+
+            await _stop_session_task(session_task)
+            session_task = None
+
+            if current_session_id == session_id:
+                current_session_id = None
+            if session_ref.get("session_id") == session_id:
+                session_ref["session"] = None
+                session_ref["session_id"] = None
+            return (
+                False,
+                "prepare_timeout",
+                _human_error_message("prepare_timeout"),
+            )
+
         if prepare_gate["ok"]:
             return True, None, None
 
         # Failed prepare: task should exit shortly; clear identity if matching.
         if current_session_id == session_id:
             current_session_id = None
+        if session_ref.get("session_id") == session_id:
+            session_ref["session"] = None
+            session_ref["session_id"] = None
         return False, prepare_gate.get("error_code"), prepare_gate.get("message")
 
     async def handle_v1_prepare_or_start(command: PrepareCommand | StartCommand) -> None:

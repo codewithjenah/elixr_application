@@ -48,6 +48,10 @@ class WebSocketService extends ChangeNotifier {
   final Map<String, _PendingCommand> _pending = {};
   int _idCounter = 0;
 
+  /// Shared in-flight stop for the same [sessionId] (idempotent coalescing).
+  Future<CommandAck>? _inFlightStop;
+  String? _inFlightStopSessionId;
+
   static const int _maxTrackedProtocolErrors = 20;
   static const int _maxIdLength = 128;
 
@@ -196,32 +200,69 @@ class WebSocketService extends ChangeNotifier {
     );
   }
 
-  Future<CommandAck> sendStop({String? sessionId}) {
+  /// Idempotent stop for the current (or explicit) practice session.
+  ///
+  /// Concurrent callers for the same session share one wire command and one
+  /// completion future. Clears [currentSessionId] immediately so a new attempt
+  /// can allocate a fresh identity before the stop acknowledgment arrives.
+  Future<CommandAck> stopPracticeSession({String? sessionId}) {
     final resolvedSessionId = sessionId ?? _currentSessionId;
     if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
-      // Nothing to stop on the wire; clear local lifecycle flags.
       _clearSessionFlags();
-      return Future.value(
-        const CommandAck(
-          protocolVersion: wsProtocolVersion,
-          requestId: '',
-          action: 'stop',
-          accepted: true,
-          sessionState: 'idle',
-        ),
-      );
+      return Future.value(_noopStopAck);
     }
 
-    return _sendTrackedCommand(
-      action: 'stop',
-      timeout: commandTimeout,
-      sessionId: resolvedSessionId,
-      payload: buildStopPayload(
-        sessionId: resolvedSessionId,
-        requestId: _nextId('req'),
-      ),
-    );
+    if (_inFlightStop != null && _inFlightStopSessionId == resolvedSessionId) {
+      return _inFlightStop!;
+    }
+
+    for (final pending in _pending.values) {
+      if (pending.action == 'stop' && pending.sessionId == resolvedSessionId) {
+        _inFlightStop = pending.completer.future;
+        _inFlightStopSessionId = resolvedSessionId;
+        return _inFlightStop!;
+      }
+    }
+
+    if (_currentSessionId == resolvedSessionId) {
+      _currentSessionId = null;
+      _sessionPrepared = false;
+      _sessionActive = false;
+      if (!_disposing) notifyListeners();
+    }
+
+    final future =
+        _sendTrackedCommand(
+          action: 'stop',
+          timeout: commandTimeout,
+          sessionId: resolvedSessionId,
+          payload: buildStopPayload(
+            sessionId: resolvedSessionId,
+            requestId: _nextId('req'),
+          ),
+        ).whenComplete(() {
+          if (_inFlightStopSessionId == resolvedSessionId) {
+            _inFlightStop = null;
+            _inFlightStopSessionId = null;
+          }
+        });
+
+    _inFlightStop = future;
+    _inFlightStopSessionId = resolvedSessionId;
+    return future;
   }
+
+  /// Legacy alias; prefer [stopPracticeSession] for practice teardown.
+  Future<CommandAck> sendStop({String? sessionId}) =>
+      stopPracticeSession(sessionId: sessionId);
+
+  static const CommandAck _noopStopAck = CommandAck(
+    protocolVersion: wsProtocolVersion,
+    requestId: '',
+    action: 'stop',
+    accepted: true,
+    sessionState: 'idle',
+  );
 
   /// Builds the WebSocket prepare payload. Exposed for unit tests.
   @visibleForTesting
@@ -346,6 +387,9 @@ class WebSocketService extends ChangeNotifier {
     // Deterministic duplicate-action handling: one in-flight command per action.
     for (final pending in _pending.values) {
       if (pending.action == action) {
+        if (action == 'stop') {
+          return pending.completer.future;
+        }
         return Future.error(StateError('A $action command is already pending'));
       }
     }
@@ -415,16 +459,14 @@ class WebSocketService extends ChangeNotifier {
 
   void _handleFeedback(PracticeFeedback feedback) {
     final feedbackSessionId = feedback.sessionId;
-    if (feedbackSessionId != null &&
-        _currentSessionId != null &&
-        feedbackSessionId != _currentSessionId) {
-      // Stale feedback from an older practice attempt.
-      return;
+    if (feedbackSessionId != null) {
+      if (_currentSessionId == null || feedbackSessionId != _currentSessionId) {
+        // Stale feedback from an older attempt or after stop cleared identity.
+        return;
+      }
     }
 
-    if (feedbackSessionId != null &&
-        feedbackSessionId == _currentSessionId &&
-        feedback.sessionState != null) {
+    if (feedbackSessionId != null && feedback.sessionState != null) {
       _reconcileFromSessionState(feedback.sessionState!);
     }
 
@@ -437,22 +479,58 @@ class WebSocketService extends ChangeNotifier {
     final pending = _pending.remove(ack.requestId);
     pending?.timer.cancel();
 
-    final matchesCurrent =
-        ack.sessionId == null ||
-        _currentSessionId == null ||
-        ack.sessionId == _currentSessionId;
+    if (pending != null) {
+      final actionMismatch = ack.action != pending.action;
+      final sessionMismatch =
+          ack.sessionId != null && ack.sessionId != pending.sessionId;
 
-    if (matchesCurrent) {
-      if (ack.accepted) {
-        _applyAcceptedAck(ack);
-      } else if (ack.sessionState != null) {
-        _reconcileFromSessionState(ack.sessionState!);
+      if (actionMismatch) {
+        _recordProtocolError(
+          ProtocolErrorMessage(
+            protocolVersion: ack.protocolVersion,
+            requestId: ack.requestId,
+            sessionId: ack.sessionId,
+            errorCode: 'ack_action_mismatch',
+            message:
+                'Acknowledgment action "${ack.action}" does not match pending '
+                '${pending.action}.',
+          ),
+        );
       }
+      if (sessionMismatch) {
+        _recordProtocolError(
+          ProtocolErrorMessage(
+            protocolVersion: ack.protocolVersion,
+            requestId: ack.requestId,
+            sessionId: ack.sessionId,
+            errorCode: 'ack_session_mismatch',
+            message:
+                'Acknowledgment session_id "${ack.sessionId}" does not match '
+                'pending ${pending.sessionId}.',
+          ),
+        );
+      }
+
+      final mayApplyLifecycle =
+          !actionMismatch &&
+          !sessionMismatch &&
+          _ackMatchesCurrentSession(ack, pending);
+
+      if (mayApplyLifecycle) {
+        if (ack.accepted) {
+          _applyAcceptedAck(ack, pendingSessionId: pending.sessionId);
+        } else if (ack.sessionState != null) {
+          _reconcileFromSessionState(ack.sessionState!);
+        }
+      }
+
+      if (!pending.completer.isCompleted) {
+        pending.completer.complete(ack);
+      }
+      return;
     }
 
-    if (pending != null && !pending.completer.isCompleted) {
-      pending.completer.complete(ack);
-    } else if (pending == null && ack.errorCode != null) {
+    if (ack.errorCode != null) {
       // Unsolicited rejection still surfaces as protocol observability.
       _recordProtocolError(
         ProtocolErrorMessage(
@@ -466,7 +544,18 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  void _applyAcceptedAck(CommandAck ack) {
+  bool _ackMatchesCurrentSession(CommandAck ack, _PendingCommand pending) {
+    if (ack.sessionId == null) {
+      return true;
+    }
+    if (ack.action == 'stop') {
+      // Stop may clear [currentSessionId] before the ack arrives.
+      return ack.sessionId == pending.sessionId;
+    }
+    return _currentSessionId == null || ack.sessionId == _currentSessionId;
+  }
+
+  void _applyAcceptedAck(CommandAck ack, {String? pendingSessionId}) {
     switch (ack.action) {
       case 'prepare':
         if (ack.sessionState == 'preparing' || ack.sessionState == null) {
@@ -488,7 +577,9 @@ class WebSocketService extends ChangeNotifier {
       case 'stop':
         _sessionPrepared = false;
         _sessionActive = false;
-        if (ack.sessionId != null && ack.sessionId == _currentSessionId) {
+        final stopSessionId = ack.sessionId ?? pendingSessionId;
+        if (stopSessionId != null &&
+            (_currentSessionId == null || stopSessionId == _currentSessionId)) {
           _currentSessionId = null;
         }
       default:
@@ -600,10 +691,12 @@ class WebSocketService extends ChangeNotifier {
   Future<void> disconnect() async {
     try {
       if (_currentSessionId != null && isConnected) {
-        await sendStop().timeout(commandTimeout);
+        await stopPracticeSession().timeout(commandTimeout);
       }
-    } catch (_) {
+    } on CommandTimeoutException {
       // Best-effort stop during disconnect.
+    } on CommandDisconnectedException {
+      // Socket may already be closing.
     }
     _failAllPending(CommandDisconnectedException('', 'disconnect'));
     _clearSessionFlags(notify: false);

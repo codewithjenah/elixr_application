@@ -270,6 +270,17 @@ void main() {
     });
   });
 
+  group('fresh practice attempt identity', () {
+    test('beginPracticeAttempt always allocates a new session id', () {
+      final ws = WebSocketService();
+      final first = ws.beginPracticeAttempt();
+      final second = ws.beginPracticeAttempt();
+      expect(second, isNot(first));
+      expect(ws.currentSessionId, second);
+      ws.dispose();
+    });
+  });
+
   group('preview feedback gating helpers', () {
     test('isTrainingActive gates combo/history/hold eligibility', () {
       final run = PracticeRunController();

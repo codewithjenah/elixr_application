@@ -186,8 +186,10 @@ service cloud.firestore {
       allow read: if isSignedIn()
         && get(/databases/$(database)/documents/sessions/$(resource.data.session_id)).data.user_id
           == request.auth.uid;
+      // getAfter allows session + feedback writes in one batch (get() cannot see
+      // the session document created in the same commit).
       allow create: if isSignedIn()
-        && get(/databases/$(database)/documents/sessions/$(request.resource.data.session_id)).data.user_id
+        && getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.session_id)).data.user_id
           == request.auth.uid;
     }
 

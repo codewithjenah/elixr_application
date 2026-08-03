@@ -109,6 +109,28 @@ void main() {
     });
   });
 
+  group('movement confirmation stop lifecycle', () {
+    test('hold confirmation triggers only one centralized stop', () async {
+      var stopCalls = 0;
+
+      Future<void> stopPracticeSession() async {
+        stopCalls++;
+      }
+
+      Future<void> stopSession({bool heldSteady = false}) async {
+        await stopPracticeSession();
+      }
+
+      Future<void> onMovementConfirmed() async {
+        // Mirrors PracticeScreen: no separate sendStop before stopSession.
+        await stopSession(heldSteady: true);
+      }
+
+      await onMovementConfirmed();
+      expect(stopCalls, 1);
+    });
+  });
+
   group('backend hold completion gating', () {
     test('hold_confirmed completes the session exactly once', () {
       final harness = _HoldCompletionHarness();

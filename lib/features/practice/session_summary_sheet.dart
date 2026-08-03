@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -22,6 +23,7 @@ class SessionSummarySheet extends StatelessWidget {
     required this.onDiscard,
     required this.onTryAgain,
     this.saving = false,
+    this.saveError,
     this.heldSteady = false,
   });
 
@@ -33,6 +35,7 @@ class SessionSummarySheet extends StatelessWidget {
   final VoidCallback onDiscard;
   final VoidCallback onTryAgain;
   final bool saving;
+  final String? saveError;
   final bool heldSteady;
 
   static Future<SessionSummaryResult?> show(
@@ -41,7 +44,7 @@ class SessionSummarySheet extends StatelessWidget {
     required int score,
     required int durationSeconds,
     required List<PracticeFeedback> feedbacks,
-    required Future<void> Function() onSave,
+    required Future<String> Function(String? existingSessionId) onSave,
     bool heldSteady = false,
   }) {
     return showDialog<SessionSummaryResult>(
@@ -51,6 +54,8 @@ class SessionSummarySheet extends StatelessWidget {
       useRootNavigator: true,
       builder: (ctx) {
         var saving = false;
+        String? saveError;
+        String? pendingSessionId;
         return StatefulBuilder(
           builder: (context, setState) {
             return Stack(
@@ -67,6 +72,7 @@ class SessionSummarySheet extends StatelessWidget {
                         durationSeconds: durationSeconds,
                         feedbacks: feedbacks,
                         saving: saving,
+                        saveError: saveError,
                         heldSteady: heldSteady,
                         onDiscard: () => Navigator.of(
                           ctx,
@@ -77,13 +83,29 @@ class SessionSummarySheet extends StatelessWidget {
                           rootNavigator: true,
                         ).pop(SessionSummaryResult.tryAgain),
                         onSave: () async {
-                          setState(() => saving = true);
-                          await onSave();
-                          if (ctx.mounted) {
-                            Navigator.of(
-                              ctx,
-                              rootNavigator: true,
-                            ).pop(SessionSummaryResult.saved);
+                          if (saving) return;
+                          setState(() {
+                            saving = true;
+                            saveError = null;
+                          });
+                          try {
+                            pendingSessionId = await onSave(pendingSessionId);
+                            if (ctx.mounted) {
+                              Navigator.of(
+                                ctx,
+                                rootNavigator: true,
+                              ).pop(SessionSummaryResult.saved);
+                            }
+                          } catch (error) {
+                            if (ctx.mounted) {
+                              setState(() {
+                                saveError = _formatSaveError(error);
+                              });
+                            }
+                          } finally {
+                            if (ctx.mounted) {
+                              setState(() => saving = false);
+                            }
                           }
                         },
                       ),
@@ -96,6 +118,14 @@ class SessionSummarySheet extends StatelessWidget {
         );
       },
     );
+  }
+
+  static String _formatSaveError(Object error) {
+    if (error is FirebaseException) {
+      return 'Could not save your session (${error.code}). '
+          'Check your connection and try again.';
+    }
+    return 'Could not save your session. Check your connection and try again.';
   }
 
   static String _formatDuration(int seconds) {
@@ -500,6 +530,40 @@ class SessionSummarySheet extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (saveError != null) ...[
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.error.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    FluentIcons.error,
+                    size: 16,
+                    color: AppColors.error,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      saveError!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           Row(
             children: [
               Expanded(

@@ -368,6 +368,345 @@ void main() {
       },
     );
 
+    test('two simultaneous stop requests share one wire command', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+      final prepare = service.sendPrepare(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        sessionId: sessionId,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'prepare',
+        'accepted': true,
+        'session_state': 'preparing',
+      });
+      await prepare;
+
+      final stop1 = service.stopPracticeSession();
+      final stop2 = service.stopPracticeSession();
+      await Future<void>.delayed(Duration.zero);
+
+      final stopPayloads = sent
+          .where((payload) => payload['action'] == 'stop')
+          .toList();
+      expect(stopPayloads, hasLength(1));
+      expect(stopPayloads.single['session_id'], sessionId);
+      expect(identical(stop1, stop2), isFalse);
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': stopPayloads.single['request_id'],
+        'session_id': sessionId,
+        'action': 'stop',
+        'accepted': true,
+        'session_state': 'idle',
+      });
+      final ack1 = await stop1;
+      final ack2 = await stop2;
+      expect(ack1.accepted, isTrue);
+      expect(ack2.accepted, isTrue);
+      expect(service.currentSessionId, isNull);
+    });
+
+    test(
+      'Try Again allocates a fresh session while old stop is pending',
+      () async {
+        service.beginPracticeAttempt();
+        final oldSession = service.currentSessionId!;
+        final prepare = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: oldSession,
+        );
+        await Future<void>.delayed(Duration.zero);
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': sent.last['request_id'],
+          'session_id': oldSession,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepare;
+
+        final stopFuture = service.stopPracticeSession();
+        await Future<void>.delayed(Duration.zero);
+        final stopRequestId = sent.last['request_id'] as String;
+        expect(sent.where((p) => p['action'] == 'stop'), hasLength(1));
+
+        final newSession = service.beginPracticeAttempt();
+        expect(newSession, isNot(oldSession));
+        expect(service.currentSessionId, newSession);
+
+        final prepare2 = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: newSession,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(sent.last['session_id'], newSession);
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopRequestId,
+          'session_id': oldSession,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        await stopFuture;
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': sent.last['request_id'],
+          'session_id': newSession,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepare2;
+        expect(service.currentSessionId, newSession);
+        expect(service.sessionPrepared, isTrue);
+      },
+    );
+
+    test(
+      'delayed feedback from old attempt is ignored after stop and new start',
+      () async {
+        final received = <PracticeFeedback>[];
+        final sub = service.feedbackStream.listen(received.add);
+
+        service.beginPracticeAttempt();
+        final oldSession = service.currentSessionId!;
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': oldSession,
+            'bottle_detected': true,
+            'movement': 'Hand Stall',
+            'score': 50,
+            'feedback': 'active',
+            'feedback_type': 'positive',
+            'posture_status': 'stable',
+            'session_state': 'active',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(received, hasLength(1));
+
+        final stopFuture = service.stopPracticeSession();
+        await Future<void>.delayed(Duration.zero);
+        final stopRequestId = sent.last['request_id'] as String;
+        expect(service.currentSessionId, isNull);
+
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': oldSession,
+            'bottle_detected': true,
+            'movement': 'Hand Stall',
+            'score': 99,
+            'feedback': 'stale after stop',
+            'feedback_type': 'positive',
+            'posture_status': 'stable',
+            'session_state': 'active',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(received, hasLength(1));
+
+        final newSession = service.beginPracticeAttempt();
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': oldSession,
+            'bottle_detected': true,
+            'movement': 'Hand Stall',
+            'score': 88,
+            'feedback': 'stale after new attempt',
+            'feedback_type': 'positive',
+            'posture_status': 'stable',
+            'session_state': 'active',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(received, hasLength(1));
+
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': newSession,
+            'bottle_detected': false,
+            'movement': 'Hand Stall',
+            'score': 70,
+            'feedback': 'current',
+            'feedback_type': 'positive',
+            'posture_status': 'unknown',
+            'session_state': 'preparing',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(received, hasLength(2));
+        expect(received.last.sessionId, newSession);
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopRequestId,
+          'session_id': oldSession,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        await stopFuture;
+        await sub.cancel();
+      },
+    );
+
+    test('mismatched ack action does not mutate lifecycle state', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+      final prepare = service.sendPrepare(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        sessionId: sessionId,
+      );
+      await Future<void>.delayed(Duration.zero);
+      final requestId = sent.last['request_id'];
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': requestId,
+        'session_id': sessionId,
+        'action': 'stop',
+        'accepted': true,
+        'session_state': 'idle',
+      });
+      await prepare;
+      expect(service.sessionPrepared, isFalse);
+      expect(service.lastProtocolError?.errorCode, 'ack_action_mismatch');
+    });
+
+    test(
+      'mismatched ack session id does not activate a newer session',
+      () async {
+        service.beginPracticeAttempt();
+        final oldSession = service.currentSessionId!;
+        final prepare = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: oldSession,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final requestId = sent.last['request_id'];
+
+        service.beginPracticeAttempt();
+        final newSession = service.currentSessionId!;
+        expect(newSession, isNot(oldSession));
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': requestId,
+          'session_id': oldSession,
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepare;
+        expect(service.sessionPrepared, isFalse);
+        expect(service.currentSessionId, newSession);
+      },
+    );
+
+    test(
+      'ack session_id mismatch against pending command is recorded',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionId = service.currentSessionId!;
+        final prepare = service.sendPrepare(
+          movement: 'Normal Grip',
+          difficulty: 'Easy',
+          sessionId: sessionId,
+        );
+        await Future<void>.delayed(Duration.zero);
+        final requestId = sent.last['request_id'];
+
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': requestId,
+          'session_id': 'session-wrong',
+          'action': 'prepare',
+          'accepted': true,
+          'session_state': 'preparing',
+        });
+        await prepare;
+        expect(service.sessionPrepared, isFalse);
+        expect(service.lastProtocolError?.errorCode, 'ack_session_mismatch');
+      },
+    );
+
+    test(
+      'feedback with session_id is ignored when current session is null',
+      () async {
+        final received = <PracticeFeedback>[];
+        final sub = service.feedbackStream.listen(received.add);
+        expect(service.currentSessionId, isNull);
+
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': 'session-orphan',
+            'bottle_detected': true,
+            'movement': 'Hand Stall',
+            'score': 42,
+            'feedback': 'orphan',
+            'feedback_type': 'positive',
+            'posture_status': 'stable',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(received, isEmpty);
+        await sub.cancel();
+      },
+    );
+
+    test('legacy feedback without session_id still forwards', () async {
+      final received = <PracticeFeedback>[];
+      final sub = service.feedbackStream.listen(received.add);
+
+      service.debugHandleRawMessage(
+        jsonEncode({
+          'bottle_detected': true,
+          'movement': 'Hand Stall',
+          'score': 80,
+          'feedback': 'legacy',
+          'feedback_type': 'positive',
+          'posture_status': 'stable',
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received, hasLength(1));
+      await sub.cancel();
+    });
+
     test('duplicate pending commands are rejected deterministically', () async {
       final first = service.sendPrepare(
         movement: 'Normal Grip',

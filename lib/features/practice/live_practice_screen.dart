@@ -91,6 +91,16 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _frameBytes.value = null;
   }
 
+  Future<void> _stopWebSocketSession() async {
+    try {
+      await _ws.stopPracticeSession();
+    } on CommandTimeoutException {
+      // Expected when the backend is slow or unavailable.
+    } on CommandDisconnectedException {
+      // Expected during navigation or dispose.
+    }
+  }
+
   void _onFeedback(PracticeFeedback feedback) {
     if (!mounted) return;
 
@@ -102,7 +112,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: true,
         fatalMessage: feedback.feedback,
       );
-      unawaited(_ws.sendStop());
+      unawaited(_stopWebSocketSession());
       _clearFrame();
       setState(() {
         _sessionError = feedback.feedback;
@@ -180,6 +190,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _clearFrame();
     _latestFeedback = null;
     _bottleDetected = false;
+    _ws.beginPracticeAttempt();
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
 
@@ -213,7 +224,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
           isFatal: true,
           fatalMessage: message,
         );
-        unawaited(_ws.sendStop());
+        unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
           _clearFrame();
@@ -229,7 +240,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: true,
         fatalMessage: message,
       );
-      unawaited(_ws.sendStop());
+      unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
         _clearFrame();
@@ -241,7 +252,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
 
   void _onPreparationTimeout() {
     if (!mounted) return;
-    unawaited(_ws.sendStop());
+    unawaited(_stopWebSocketSession());
     unawaited(_music.stop());
     unawaited(_sfx.stop());
     setState(() {
@@ -274,7 +285,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
           isFatal: true,
           fatalMessage: message,
         );
-        unawaited(_ws.sendStop());
+        unawaited(_stopWebSocketSession());
         setState(() {
           _sessionError = message;
           _clearFrame();
@@ -296,7 +307,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: true,
         fatalMessage: message,
       );
-      unawaited(_ws.sendStop());
+      unawaited(_stopWebSocketSession());
       setState(() {
         _sessionError = message;
         _clearFrame();
@@ -307,7 +318,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _cancelPreActive() async {
-    unawaited(_ws.sendStop());
+    await _stopWebSocketSession();
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
@@ -327,7 +338,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       return;
     }
 
-    unawaited(_ws.sendStop());
+    await _stopWebSocketSession();
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
@@ -349,7 +360,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _feedbackSub = null;
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
-    unawaited(_ws.sendStop());
+    await _stopWebSocketSession();
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
