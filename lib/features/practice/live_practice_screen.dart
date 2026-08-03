@@ -8,7 +8,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/movements.dart';
+import '../../core/constants/music_tracks.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/movement.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
@@ -16,7 +19,10 @@ import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/websocket_service.dart';
+import 'just_dance/movement_rotation_controller.dart';
+import 'just_dance/movement_setlist_dialog.dart';
 import 'practice_run_phase.dart';
+import 'widgets/movement_rotation_overlay.dart';
 import 'widgets/training_action_area.dart';
 import 'widgets/training_camera_workspace.dart';
 import 'widgets/training_session_header.dart';
@@ -37,6 +43,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
+  late final MovementRotationController _rotation;
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
@@ -53,6 +60,11 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   @override
   void initState() {
     super.initState();
+    final settings = context.read<SettingsService>();
+    _rotation = MovementRotationController(
+      movements: _resolveMovements(settings.justDanceMovementNames),
+      intervalSeconds: settings.justDanceIntervalSeconds,
+    );
     _ws.addListener(_onWsStateChanged);
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
@@ -66,11 +78,34 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _frameBytes.dispose();
     _music.dispose();
     _sfx.dispose();
+    _rotation.dispose();
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     _run.dispose();
     _ws.dispose();
     super.dispose();
+  }
+
+  /// Maps persisted setlist names to catalog [Movement]s, preserving the
+  /// chosen rotation order and silently dropping any unknown names.
+  List<Movement> _resolveMovements(List<String> names) {
+    final byName = {
+      for (final movement in movementCatalog) movement.name: movement,
+    };
+    return [
+      for (final name in names)
+        if (byName.containsKey(name)) byName[name]!,
+    ];
+  }
+
+  Future<void> _openSetlistDialog() async {
+    final saved = await MovementSetlistDialog.show(context);
+    if (saved != true || !mounted) return;
+    final settings = context.read<SettingsService>();
+    _rotation.updateSetlist(
+      _resolveMovements(settings.justDanceMovementNames),
+      intervalSeconds: settings.justDanceIntervalSeconds,
+    );
   }
 
   void _onWsStateChanged() {
@@ -109,6 +144,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (feedback.isSessionFatal) {
       _music.stop();
       _sfx.stop();
+      _rotation.stop();
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
@@ -297,7 +333,11 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
 
       _run.enterActive();
       _sfx.stop();
-      _music.start();
+      final track = resolveTrack(
+        context.read<SettingsService>().selectedMusicTrackId,
+      );
+      _music.start(track);
+      _rotation.start();
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;
@@ -324,6 +364,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
+    _rotation.stop();
     if (mounted) {
       setState(() {
         _clearFrame();
@@ -344,6 +385,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
+    _rotation.stop();
     if (mounted) {
       setState(() {
         _clearFrame();
@@ -366,6 +408,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.cancelToIdle();
     await _music.stop();
     await _sfx.stop();
+    _rotation.stop();
     router.go('/dashboard');
   }
 
@@ -423,11 +466,15 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 statusPill: 'NO SCORING',
                 statusPillColor: AppColors.primarySoft,
                 instruction:
-                    'Practice freely with live bottle detection. '
-                    'Results are not scored or saved.',
+                    'Follow the set, or freestyle — nothing is scored or '
+                    'locked.',
                 connectionState: _ws.connectionState,
                 connecting: _connecting,
                 wideLayout: wide,
+                trailing: Button(
+                  onPressed: _openSetlistDialog,
+                  child: const Text('Build Your Set'),
+                ),
               );
               final camera = TrainingCameraWorkspace(
                 frameListenable: _frameBytes,
@@ -443,6 +490,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                 onCountdownComplete: _beginSessionAfterCountdown,
                 overlayFeedback: isCameraLive ? _latestFeedback : null,
                 showFeedbackMessage: false,
+                overlays: isTrainingActive
+                    ? MovementRotationOverlay(controller: _rotation)
+                    : null,
                 statusItems: [
                   if (isTrainingActive)
                     TrainingCameraStatusItem(

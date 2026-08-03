@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/constants/music_tracks.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
@@ -384,7 +385,9 @@ class _PracticeScreenState extends State<PracticeScreen>
 
       _run.enterActive();
       _sfx.stop();
-      _music.start();
+      _music.start(
+        resolveTrack(context.read<SettingsService>().selectedMusicTrackId),
+      );
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;

@@ -1,25 +1,38 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
-/// Loops practice background music while a session is active.
-/// Track: assets/music/practice.mp3
+import '../core/constants/music_tracks.dart';
+import '../data/models/music_track.dart';
+
+/// Loops a selected practice background track while a session is active.
 class PracticeMusicService {
   PracticeMusicService() : _player = AudioPlayer();
-
-  static final _track = AssetSource('music/practice.mp3');
 
   final AudioPlayer _player;
   bool _playing = false;
 
-  Future<void> start() async {
+  Future<void> start(MusicTrack track) async {
     if (_playing) return;
+    _playing = true;
     try {
-      _playing = true;
       await _player.setReleaseMode(ReleaseMode.loop);
-      await _player.play(_track);
+      await _player.play(AssetSource(track.assetPath));
     } catch (e, st) {
-      _playing = false;
-      debugPrint('Practice music failed to start: $e\n$st');
+      debugPrint('Practice music failed to start (${track.id}): $e\n$st');
+      final fallback = musicTrackCatalog.first;
+      if (fallback.id == track.id) {
+        _playing = false;
+        return;
+      }
+      try {
+        await _player.play(AssetSource(fallback.assetPath));
+      } catch (fallbackError, fallbackSt) {
+        _playing = false;
+        debugPrint(
+          'Practice music fallback failed (${fallback.id}): '
+          '$fallbackError\n$fallbackSt',
+        );
+      }
     }
   }
 

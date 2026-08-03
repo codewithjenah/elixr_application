@@ -30,6 +30,7 @@ class TrainingSessionHeader extends StatelessWidget {
     this.connecting = false,
     this.wideLayout = true,
     this.statusPillColor,
+    this.trailing,
   });
 
   final VoidCallback onBack;
@@ -40,6 +41,10 @@ class TrainingSessionHeader extends StatelessWidget {
   final bool connecting;
   final bool wideLayout;
   final Color? statusPillColor;
+
+  /// Optional header action (e.g. "Build Your Set"). Rendered next to the
+  /// title on wide layouts, and alongside the connection badge otherwise.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +81,10 @@ class TrainingSessionHeader extends StatelessWidget {
             ],
           ),
         ),
+        if (trailing != null && wideLayout) ...[
+          const SizedBox(width: AppSpacing.md),
+          trailing!,
+        ],
         if (wideLayout) ...[const SizedBox(width: AppSpacing.md), badge],
       ],
     );
@@ -99,7 +108,15 @@ class TrainingSessionHeader extends StatelessWidget {
           ),
           if (!wideLayout) ...[
             const SizedBox(height: AppSpacing.sm),
-            Padding(padding: const EdgeInsets.only(left: 44), child: badge),
+            Padding(
+              padding: const EdgeInsets.only(left: 44),
+              child: Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [badge, ?trailing],
+              ),
+            ),
           ],
         ],
       ),

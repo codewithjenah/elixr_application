@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/constants/movements.dart';
 import '../data/models/camera_device.dart';
 
 class SettingsService extends ChangeNotifier {
@@ -13,9 +14,14 @@ class SettingsService extends ChangeNotifier {
   static const _darkModeKey = 'dark_mode';
   static const _cameraDeviceIdKey = 'camera_device_id';
   static const _cameraDisplayNameKey = 'camera_display_name';
+  static const _justDanceMovementNamesKey = 'just_dance_movement_names';
+  static const _justDanceIntervalSecondsKey = 'just_dance_interval_seconds';
+  static const _selectedMusicTrackIdKey = 'selected_music_track_id';
 
   /// Legacy migration key. Retained only until mapped to a device id.
   static const _cameraIndexKey = 'camera_index';
+
+  static const _defaultJustDanceIntervalSeconds = 25;
 
   final File? _settingsFileOverride;
 
@@ -23,6 +29,9 @@ class SettingsService extends ChangeNotifier {
   bool _darkMode = true;
   String? _selectedCameraDeviceId;
   String? _selectedCameraDisplayName;
+  List<String> _justDanceMovementNames = _defaultJustDanceMovementNames();
+  int _justDanceIntervalSeconds = _defaultJustDanceIntervalSeconds;
+  String? _selectedMusicTrackId;
 
   /// Pending legacy runtime index awaiting one-time migration.
   int? _legacyCameraIndex;
@@ -31,6 +40,17 @@ class SettingsService extends ChangeNotifier {
   bool get isInitialized => _initialized;
   bool get cameraMirrored => _cameraMirrored;
   bool get darkMode => _darkMode;
+
+  /// Ordered Just Dance rotation setlist. Defaults to the full catalog.
+  List<String> get justDanceMovementNames =>
+      List.unmodifiable(_justDanceMovementNames);
+
+  /// Seconds each movement stays on screen before auto-advancing.
+  int get justDanceIntervalSeconds => _justDanceIntervalSeconds;
+
+  /// `null` means shuffle across [musicTrackCatalog]; a non-null value pins
+  /// session music to that track id (see `resolveTrack`).
+  String? get selectedMusicTrackId => _selectedMusicTrackId;
 
   /// `null` means Auto-select; a non-null value is an explicit device id.
   String? get selectedCameraDeviceId => _selectedCameraDeviceId;
@@ -57,6 +77,8 @@ class SettingsService extends ChangeNotifier {
         _cameraMirrored = data[_cameraMirroredKey] as bool? ?? true;
         _darkMode = data[_darkModeKey] as bool? ?? true;
         _loadCameraSelection(data);
+        _loadJustDanceSettings(data);
+        _selectedMusicTrackId = _parseTrackId(data[_selectedMusicTrackIdKey]);
       }
     } catch (_) {
       // Keep defaults.
@@ -75,6 +97,32 @@ class SettingsService extends ChangeNotifier {
   Future<void> setDarkMode(bool value) async {
     if (_darkMode == value) return;
     _darkMode = value;
+    notifyListeners();
+    await _save();
+  }
+
+  /// Sets the ordered Just Dance rotation setlist. Ignored when empty — the
+  /// dialog that calls this must already enforce at least one movement.
+  Future<void> setJustDanceSetlist(List<String> movementNames) async {
+    if (movementNames.isEmpty) return;
+    final next = List<String>.unmodifiable(movementNames);
+    if (listEquals(_justDanceMovementNames, next)) return;
+    _justDanceMovementNames = next;
+    notifyListeners();
+    await _save();
+  }
+
+  Future<void> setJustDanceIntervalSeconds(int seconds) async {
+    if (_justDanceIntervalSeconds == seconds) return;
+    _justDanceIntervalSeconds = seconds;
+    notifyListeners();
+    await _save();
+  }
+
+  Future<void> setSelectedMusicTrackId(String? id) async {
+    final normalized = (id == null || id.trim().isEmpty) ? null : id.trim();
+    if (_selectedMusicTrackId == normalized) return;
+    _selectedMusicTrackId = normalized;
     notifyListeners();
     await _save();
   }
@@ -165,6 +213,34 @@ class SettingsService extends ChangeNotifier {
     _legacyCameraIndex = _parseCameraIndex(data[_cameraIndexKey]);
   }
 
+  /// Loads the Just Dance setlist/interval, dropping any persisted movement
+  /// names that no longer exist in [movementCatalog]. Falls back to the full
+  /// catalog default when nothing valid remains.
+  void _loadJustDanceSettings(Map<String, dynamic> data) {
+    final validNames = movementCatalog.map((m) => m.name).toSet();
+    final raw = data[_justDanceMovementNamesKey];
+    final persisted = raw is List
+        ? raw.whereType<String>().where(validNames.contains).toList()
+        : <String>[];
+    _justDanceMovementNames = persisted.isEmpty
+        ? _defaultJustDanceMovementNames()
+        : List.unmodifiable(persisted);
+
+    final interval = data[_justDanceIntervalSecondsKey];
+    _justDanceIntervalSeconds = interval is int && interval > 0
+        ? interval
+        : _defaultJustDanceIntervalSeconds;
+  }
+
+  static List<String> _defaultJustDanceMovementNames() =>
+      List.unmodifiable(movementCatalog.map((m) => m.name));
+
+  static String? _parseTrackId(Object? raw) {
+    if (raw is! String) return null;
+    final value = raw.trim();
+    return value.isEmpty ? null : value;
+  }
+
   Future<void> _save() async {
     try {
       final file = _settingsFile();
@@ -174,6 +250,9 @@ class SettingsService extends ChangeNotifier {
         _darkModeKey: _darkMode,
         _cameraDeviceIdKey: _selectedCameraDeviceId,
         _cameraDisplayNameKey: _selectedCameraDisplayName,
+        _justDanceMovementNamesKey: _justDanceMovementNames,
+        _justDanceIntervalSecondsKey: _justDanceIntervalSeconds,
+        _selectedMusicTrackIdKey: _selectedMusicTrackId,
       };
       // Keep legacy key only while migration is still pending.
       if (_selectedCameraDeviceId == null && _legacyCameraIndex != null) {
