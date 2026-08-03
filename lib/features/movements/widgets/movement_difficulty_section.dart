@@ -204,7 +204,7 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
         ClipRect(
           child: SizeTransition(
             sizeFactor: _expandAnimation,
-            axisAlignment: -1,
+            alignment: Alignment.topLeft,
             child: Align(
               alignment: Alignment.topCenter,
               child: Column(
