@@ -95,6 +95,8 @@ const _navIconLabelGap = 10.0;
 const _navItemHeight = 40.0;
 const _navGroupLabelLeft =
     _navOuterPadding + _navInnerPadding + _navIndicatorWidth + _navIndicatorGap;
+// Switch to collapsed chrome before expanded rows need more than ~168px.
+const _layoutCollapseThreshold = 168.0;
 
 class ElixSidebar extends StatefulWidget {
   const ElixSidebar({
@@ -190,44 +192,62 @@ class _ElixSidebarState extends State<ElixSidebar> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildHeader(context),
-          const SizedBox(height: AppSpacing.sm),
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
-            ),
-            child: Container(
-              height: 1,
-              color: context.elixBorder.withValues(alpha: 0.4),
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: _buildGroupedItems(context),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final showCollapsedLayout =
+              widget.isCollapsed ||
+              constraints.maxWidth < _layoutCollapseThreshold;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(context, showCollapsedLayout),
+              const SizedBox(height: AppSpacing.sm),
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: showCollapsedLayout
+                      ? AppSpacing.sm
+                      : AppSpacing.md,
+                ),
+                child: Container(
+                  height: 1,
+                  color: context.elixBorder.withValues(alpha: 0.4),
+                ),
               ),
-            ),
-          ),
-          _buildProfileSection(context, user, initials),
-          const SizedBox(height: AppSpacing.md),
-        ],
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: _buildGroupedItems(context, showCollapsedLayout),
+                  ),
+                ),
+              ),
+              _buildProfileSection(
+                context,
+                user,
+                initials,
+                showCollapsedLayout,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+          );
+        },
       ),
     );
   }
 
-  List<Widget> _buildGroupedItems(BuildContext context) {
+  List<Widget> _buildGroupedItems(
+    BuildContext context,
+    bool showCollapsedLayout,
+  ) {
     final List<Widget> children = [];
 
     void addGroup(SidebarGroup group, String title) {
       final items = _sidebarItems.where((i) => i.group == group).toList();
       if (items.isEmpty) return;
 
-      if (!widget.isCollapsed) {
+      if (!showCollapsedLayout) {
         children.add(
           Padding(
             padding: const EdgeInsets.only(
@@ -258,7 +278,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
             isActive:
                 item.route != null &&
                 widget.currentRoute.startsWith(item.route!),
-            isCollapsed: widget.isCollapsed,
+            isCollapsed: showCollapsedLayout,
             onTap: () => _onItemTap(item),
           ),
         );
@@ -300,8 +320,8 @@ class _ElixSidebarState extends State<ElixSidebar> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    if (widget.isCollapsed) {
+  Widget _buildHeader(BuildContext context, bool showCollapsedLayout) {
+    if (showCollapsedLayout) {
       return Padding(
         padding: const EdgeInsets.only(
           top: AppSpacing.lg,
@@ -313,7 +333,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
             const SizedBox(height: AppSpacing.md),
             Center(
               child: _CollapseButton(
-                isCollapsed: true,
+                isCollapsed: widget.isCollapsed,
                 onTap: widget.onToggleCollapse,
               ),
             ),
@@ -361,7 +381,10 @@ class _ElixSidebarState extends State<ElixSidebar> {
             ),
           ),
           const SizedBox(width: AppSpacing.xs),
-          _CollapseButton(isCollapsed: false, onTap: widget.onToggleCollapse),
+          _CollapseButton(
+            isCollapsed: widget.isCollapsed,
+            onTap: widget.onToggleCollapse,
+          ),
           const SizedBox(width: AppSpacing.xs),
         ],
       ),
@@ -372,12 +395,13 @@ class _ElixSidebarState extends State<ElixSidebar> {
     BuildContext context,
     User? user,
     String initials,
+    bool showCollapsedLayout,
   ) {
     return _ProfileSectionWidget(
       user: user,
       initials: initials,
       totalSessions: _totalSessions,
-      isCollapsed: widget.isCollapsed,
+      isCollapsed: showCollapsedLayout,
       onLogout: widget.onLogout,
     );
   }
@@ -761,6 +785,8 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
                                 fontWeight: FontWeight.w700,
                                 color: _pink,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
