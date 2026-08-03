@@ -182,4 +182,13 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_hands": True,
         "requires_pose": False,
     },
+    # Internal Free Practice vision mode: prop detection + preview only.
+    # Not a user-selectable catalog movement (Flutter catalog omits it).
+    "Free Practice": {
+        "difficulty": "Easy",
+        "requires_hands": False,
+        "requires_pose": False,
+        "internal": True,
+        "prop_detection_only": True,
+    },
 }

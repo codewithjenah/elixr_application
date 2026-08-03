@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from assessment.hold_validator import HoldValidator
 from assessment.rule_engine import (
     evaluate_movement,
+    movement_is_prop_detection_only,
     movement_requires_hands,
     movement_requires_pose,
     validate_movement_difficulty,
@@ -38,7 +39,12 @@ from schemas.protocol import CommandAck, ProtocolError
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
 from vision.prop_detector import PropDetector
-from vision.camera import CameraCapture, camera_display_name, release_shared_camera
+from vision.camera import (
+    CameraCapture,
+    camera_display_name,
+    latest_frame_overwrite_count,
+    release_shared_camera,
+)
 from vision.hands_detector import HandsDetector
 from vision.pose_detector import PoseDetector
 from vision.types import Point2D, PropDetection
@@ -66,7 +72,8 @@ _PIPELINE_STAGE_ORDER = (
     "jpeg",
     "encode",
     "send",
-    "total",
+    "processing_total",
+    "end_to_end",
 )
 
 
@@ -108,8 +115,14 @@ class _PipelineTimings:
             if count <= 0:
                 continue
             avg_ms = (self._sums[name] / count) * 1000.0
-            over = "!" if avg_ms > frame_budget_ms and name == "total" else ""
-            if name != "total" and avg_ms > frame_budget_ms * 0.35:
+            over = "!" if avg_ms > frame_budget_ms and name in {
+                "processing_total",
+                "end_to_end",
+                "total",
+            } else ""
+            if name not in {"processing_total", "end_to_end", "total"} and avg_ms > (
+                frame_budget_ms * 0.35
+            ):
                 over = "!"
             parts.append(f"{name}={avg_ms:.1f}ms{over}")
         if self._frame_age_count > 0:
@@ -351,9 +364,17 @@ class VisionSession:
         # stream preview JPEGs before model init cost.
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
-        self._hands_rotated_fallback = movement in {"Normal Grip", "Claw Grip"}
-        self._hands_bartender_roi = movement == "Bartender's Grip"
-        self._pose_needed = movement_requires_pose(movement)
+        self._prop_detection_only = movement_is_prop_detection_only(movement)
+        self._hands_rotated_fallback = (
+            not self._prop_detection_only
+            and movement in {"Normal Grip", "Claw Grip"}
+        )
+        self._hands_bartender_roi = (
+            not self._prop_detection_only and movement == "Bartender's Grip"
+        )
+        self._pose_needed = (
+            not self._prop_detection_only and movement_requires_pose(movement)
+        )
         self.scorer = SessionScorer()
 
         self._frame_index = 0
@@ -367,6 +388,8 @@ class VisionSession:
         self._lifecycle = SESSION_PREPARED
         self._hold_validator = HoldValidator()
         self.timings = _PipelineTimings()
+        # Wall-clock start of the latest process_* call (for end_to_end timing).
+        self._pipeline_started_at: float | None = None
 
     @property
     def lifecycle(self) -> str:
@@ -380,6 +403,10 @@ class VisionSession:
     def is_active(self) -> bool:
         return self._lifecycle == SESSION_ACTIVE
 
+    @property
+    def is_prop_detection_only(self) -> bool:
+        return self._prop_detection_only
+
     def start(self) -> bool:
         return self.camera.open()
 
@@ -387,6 +414,8 @@ class VisionSession:
         return message.with_session(self.session_id)
 
     def _ensure_detectors(self) -> None:
+        if self._prop_detection_only:
+            return
         if self.hands_detector is None:
             self.hands_detector = HandsDetector(
                 rotated_fallback=self._hands_rotated_fallback,
@@ -409,7 +438,8 @@ class VisionSession:
 
         self._ensure_detectors()
         self.scorer.reset()
-        self._hold_validator.activate()
+        if not self._prop_detection_only:
+            self._hold_validator.activate()
         self._prev_hip_center = None
         self._movement_state = None
         self._last_bottles = []
@@ -452,7 +482,8 @@ class VisionSession:
 
     def process_preview_frame(self) -> FeedbackMessage | None:
         """Encode a JPEG preview without model load, evaluation, or scoring."""
-        total_start = time.perf_counter()
+        self._pipeline_started_at = time.perf_counter()
+        total_start = self._pipeline_started_at
 
         t0 = time.perf_counter()
         frame = self.camera.read()
@@ -491,11 +522,100 @@ class VisionSession:
             )
         )
         self.timings.add("encode", time.perf_counter() - t0)
-        self.timings.add("total", time.perf_counter() - total_start)
+        self.timings.add("processing_total", time.perf_counter() - total_start)
+        return message
+
+    def process_prop_detection_frame(self) -> FeedbackMessage | None:
+        """Active Free Practice: camera + prop detect + annotate, no MediaPipe/scoring."""
+        self._pipeline_started_at = time.perf_counter()
+        total_start = self._pipeline_started_at
+        model_error = self._check_model()
+
+        if model_error is not None:
+            return model_error
+
+        t0 = time.perf_counter()
+        frame = self.camera.read()
+        self.timings.add("camera", time.perf_counter() - t0)
+
+        if frame is None:
+            return None
+
+        processing_start = time.monotonic()
+        captured_at = self.camera.last_captured_at_monotonic
+        if captured_at is not None:
+            self.timings.add_frame_age(processing_start - captured_at)
+
+        self._frame_index += 1
+        run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
+        bottles = self._last_bottles
+
+        if self.bottle_detection_enabled and run_yolo:
+            t0 = time.perf_counter()
+            bottles = self.prop_detector.detect(frame)
+            self.timings.add("yolo", time.perf_counter() - t0)
+            self._last_bottles = bottles
+        elif not self.bottle_detection_enabled:
+            bottles = []
+            self._last_bottles = []
+
+        detected = len(bottles) > 0
+        if detected:
+            feedback = f"{self.prop_display_name} detected"
+            feedback_type = "positive"
+        else:
+            feedback = f"Searching for {self.prop_display_name.lower()}"
+            feedback_type = "warning"
+
+        t0 = time.perf_counter()
+        annotated = annotate_frame(
+            frame,
+            bottles,
+            None,
+            feedback,
+            feedback_type,
+            self.movement,
+            0,
+            pose=None,
+            prop_label=self.prop_display_name,
+        )
+        self.timings.add("annotate", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        _, buffer = cv2.imencode(
+            ".jpg",
+            annotated,
+            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+        )
+        self.timings.add("jpeg", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        frame_b64 = base64.b64encode(buffer).decode("ascii")
+        message = self._stamp(
+            FeedbackMessage(
+                bottle_detected=detected,
+                bottle_count=len(bottles),
+                prop_type=self.prop_type,
+                movement=self.movement,
+                score=0,
+                feedback=feedback,
+                feedback_type=feedback_type,
+                posture_status="unknown",
+                frame_jpeg_base64=frame_b64,
+                camera_ready=True,
+                session_state="active",
+            )
+        )
+        self.timings.add("encode", time.perf_counter() - t0)
+        self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
     def process_frame(self) -> FeedbackMessage | None:
-        total_start = time.perf_counter()
+        if self._prop_detection_only:
+            return self.process_prop_detection_frame()
+
+        self._pipeline_started_at = time.perf_counter()
+        total_start = self._pipeline_started_at
         self._ensure_detectors()
         model_error = self._check_model()
 
@@ -623,7 +743,7 @@ class VisionSession:
             )
         )
         self.timings.add("encode", time.perf_counter() - t0)
-        self.timings.add("total", time.perf_counter() - total_start)
+        self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
     def process_tick(self) -> FeedbackMessage | None:
@@ -784,6 +904,7 @@ async def _cv_session_loop(
     loop_ticks = 0
     loop_start = time.perf_counter()
     frame_task: asyncio.Task | None = None
+    last_overwrite_count = latest_frame_overwrite_count()
 
     try:
         while True:
@@ -815,6 +936,11 @@ async def _cv_session_loop(
                 t_send = time.perf_counter()
                 await _send(message.model_dump_json())
                 session.timings.add("send", time.perf_counter() - t_send)
+                if session._pipeline_started_at is not None:
+                    session.timings.add(
+                        "end_to_end",
+                        time.perf_counter() - session._pipeline_started_at,
+                    )
                 processed_frame_count += 1
 
             if processed_frame_count > 0 and processed_frame_count % FPS_LOG_INTERVAL == 0:
@@ -825,9 +951,13 @@ async def _cv_session_loop(
                 stage_summary = session.timings.format_averages_ms(
                     frame_budget_ms=frame_budget_ms
                 )
+                overwrite_total = latest_frame_overwrite_count()
+                overwrite_delta = max(0, overwrite_total - last_overwrite_count)
+                last_overwrite_count = overwrite_total
                 logger.info(
                     "CV session FPS: %.1f (target=%s, yolo_skip=%s, imgsz=%s, "
-                    "lifecycle=%s, processed=%s, ticks=%s) stages: %s",
+                    "lifecycle=%s, processed=%s, ticks=%s, "
+                    "frame_overwrites=%s, frame_overwrites_delta=%s) stages: %s",
                     actual_fps,
                     TARGET_FPS,
                     YOLO_FRAME_SKIP,
@@ -835,6 +965,8 @@ async def _cv_session_loop(
                     session.lifecycle,
                     processed_frame_count,
                     loop_ticks,
+                    overwrite_total,
+                    overwrite_delta,
                     stage_summary,
                 )
                 session.timings.reset()

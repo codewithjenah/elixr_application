@@ -59,6 +59,8 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
+  final ValueNotifier<int?> _scoreNotifier = ValueNotifier<int?>(null);
+  final ValueNotifier<double> _holdProgressNotifier = ValueNotifier<double>(0);
   PracticeFeedback? _latestFeedback;
   bool _connecting = false;
   String? _sessionError;
@@ -104,6 +106,8 @@ class _PracticeScreenState extends State<PracticeScreen>
     _feedbackSub?.cancel();
     _scorePulseController.dispose();
     _frameBytes.dispose();
+    _scoreNotifier.dispose();
+    _holdProgressNotifier.dispose();
     _music.dispose();
     _sfx.dispose();
     _ws.removeListener(_onWsStateChanged);
@@ -119,11 +123,14 @@ class _PracticeScreenState extends State<PracticeScreen>
       _music.stop();
       _sfx.stop();
       _frameBytes.value = null;
+      _scoreNotifier.value = null;
+      _holdProgressNotifier.value = 0;
       if (mounted) {
         setState(() {
           _latestFeedback = null;
         });
       }
+      return;
     }
     if (mounted) setState(() {});
   }
@@ -155,6 +162,8 @@ class _PracticeScreenState extends State<PracticeScreen>
       );
       unawaited(_ws.sendStop());
       _clearFrame();
+      _scoreNotifier.value = null;
+      _holdProgressNotifier.value = 0;
       setState(() {
         _sessionError = feedback.feedback;
         _latestFeedback = null;
@@ -193,7 +202,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     final previousScore = _latestFeedback?.score;
     final scoreChanged = previousScore != feedback.score;
-    final semanticChanged = !feedback.semanticEquals(_latestFeedback);
+    final chromeChanged = !feedback.scoredPracticeChromeEquals(_latestFeedback);
     final historyChanged =
         _feedbackHistory.isEmpty ||
         _feedbackHistory.last.feedback != feedback.feedback;
@@ -221,8 +230,10 @@ class _PracticeScreenState extends State<PracticeScreen>
     }
 
     _publishFrame(feedback.frameJpegBytes);
+    _scoreNotifier.value = feedback.score;
+    _holdProgressNotifier.value = feedback.holdProgress;
 
-    if (semanticChanged ||
+    if (chromeChanged ||
         comboChanged ||
         historyChanged ||
         scorePopupChanged ||
@@ -239,6 +250,8 @@ class _PracticeScreenState extends State<PracticeScreen>
           }
         }
       });
+    } else {
+      _latestFeedback = feedback;
     }
 
     if (feedback.holdConfirmed) {
@@ -424,6 +437,8 @@ class _PracticeScreenState extends State<PracticeScreen>
     _feedbackHistory.clear();
     _sessionError = null;
     _clearFrame();
+    _scoreNotifier.value = null;
+    _holdProgressNotifier.value = 0;
     _latestFeedback = null;
     _lastPulsedScore = null;
     _combo = 0;
@@ -678,10 +693,6 @@ class _PracticeScreenState extends State<PracticeScreen>
     required bool isTrainingActive,
     required bool isCameraLive,
   }) {
-    final holdProgress = isTrainingActive
-        ? (_latestFeedback?.holdProgress ?? 0)
-        : 0.0;
-
     return TrainingCameraWorkspace(
       frameListenable: _frameBytes,
       mirrored: context.watch<SettingsService>().cameraMirrored,
@@ -698,12 +709,20 @@ class _PracticeScreenState extends State<PracticeScreen>
       overlays: Stack(
         fit: StackFit.expand,
         children: [
-          if (holdProgress > 0 && holdProgress < 1)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: AppSpacing.lg,
-              child: Center(child: _HoldIndicator(progress: holdProgress)),
+          if (isTrainingActive)
+            ValueListenableBuilder<double>(
+              valueListenable: _holdProgressNotifier,
+              builder: (context, holdProgress, _) {
+                if (holdProgress <= 0 || holdProgress >= 1) {
+                  return const SizedBox.shrink();
+                }
+                return Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: AppSpacing.lg,
+                  child: Center(child: _HoldIndicator(progress: holdProgress)),
+                );
+              },
             ),
           Positioned(
             right: AppSpacing.lg,
@@ -727,12 +746,16 @@ class _PracticeScreenState extends State<PracticeScreen>
     required bool isTrainingActive,
     required bool hasConnectionError,
   }) {
-    final score = isTrainingActive ? _latestFeedback?.score : null;
     final actionKind = _actionKind();
 
     return TrainingSessionPanel(
       phase: _panelPhase(),
-      rankBadge: score != null ? RankBadge(score: score) : null,
+      rankBadge: isTrainingActive
+          ? ValueListenableBuilder<int?>(
+              valueListenable: _scoreNotifier,
+              builder: (context, score, _) => RankBadge(score: score),
+            )
+          : null,
       metrics: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -756,23 +779,44 @@ class _PracticeScreenState extends State<PracticeScreen>
                 child: _MetricCell(
                   label: 'Score',
                   emphasize: true,
-                  child: ScaleTransition(
-                    scale: _scorePulse,
-                    child: Text(
-                      score != null ? '$score' : '—',
-                      style: AppTheme.headingMedium.copyWith(
-                        fontSize: 28,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
+                  child: isTrainingActive
+                      ? ValueListenableBuilder<int?>(
+                          valueListenable: _scoreNotifier,
+                          builder: (context, score, _) {
+                            return ScaleTransition(
+                              scale: _scorePulse,
+                              child: Text(
+                                score != null ? '$score' : '—',
+                                style: AppTheme.headingMedium.copyWith(
+                                  fontSize: 28,
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : Text(
+                          '—',
+                          style: AppTheme.headingMedium.copyWith(
+                            fontSize: 28,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          TrainingPerformanceBar(score: score),
+          if (isTrainingActive)
+            ValueListenableBuilder<int?>(
+              valueListenable: _scoreNotifier,
+              builder: (context, score, _) =>
+                  TrainingPerformanceBar(score: score),
+            )
+          else
+            const TrainingPerformanceBar(score: null),
         ],
       ),
       statusContent: TrainingStatusRow(

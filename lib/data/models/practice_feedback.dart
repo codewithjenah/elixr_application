@@ -88,6 +88,41 @@ class PracticeFeedback {
         propType == other.propType;
   }
 
+  /// Fields Free Practice actually displays (excludes score/hold/hidden metrics).
+  bool freePracticeVisibleEquals(PracticeFeedback? other) {
+    if (identical(this, other)) return true;
+    if (other == null) return false;
+    return bottleDetected == other.bottleDetected &&
+        movement == other.movement &&
+        propType == other.propType &&
+        feedbackType == other.feedbackType &&
+        errorCode == other.errorCode &&
+        sessionState == other.sessionState;
+  }
+
+  /// Scored-practice chrome fields that require a full screen rebuild.
+  ///
+  /// Score and hold progress are intentionally excluded so high-frequency
+  /// updates can use narrowly scoped [ValueNotifier]s instead.
+  bool scoredPracticeChromeEquals(PracticeFeedback? other) {
+    if (identical(this, other)) return true;
+    if (other == null) return false;
+    return bottleDetected == other.bottleDetected &&
+        bottleCount == other.bottleCount &&
+        movement == other.movement &&
+        feedback == other.feedback &&
+        feedbackType == other.feedbackType &&
+        postureStatus == other.postureStatus &&
+        errorCode == other.errorCode &&
+        cameraReady == other.cameraReady &&
+        sessionState == other.sessionState &&
+        holdConfirmed == other.holdConfirmed &&
+        protocolVersion == other.protocolVersion &&
+        messageType == other.messageType &&
+        sessionId == other.sessionId &&
+        propType == other.propType;
+  }
+
   factory PracticeFeedback.fromJson(Map<String, dynamic> json) {
     Uint8List? frameBytes;
     final frameB64 = json['frame_jpeg_base64'] as String?;

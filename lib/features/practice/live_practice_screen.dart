@@ -137,16 +137,18 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (!_run.isTrainingActive) return;
 
     _publishFrame(feedback.frameJpegBytes);
-    final semanticChanged =
+    final visibleChanged =
         _bottleDetected != feedback.bottleDetected ||
-        !feedback.semanticEquals(_latestFeedback) ||
+        !feedback.freePracticeVisibleEquals(_latestFeedback) ||
         _sessionError != null;
-    if (semanticChanged) {
+    if (visibleChanged) {
       setState(() {
         _sessionError = null;
         _bottleDetected = feedback.bottleDetected;
         _latestFeedback = feedback;
       });
+    } else {
+      _latestFeedback = feedback;
     }
   }
 
@@ -188,12 +190,11 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     if (!_run.isPreparingCamera) return;
 
     final settings = context.read<SettingsService>();
-    // A generic movement keeps the vision pipeline (camera + detection
-    // overlays) running; the user practices freely and nothing is scored.
+    // Internal Free Practice vision mode: camera + prop detection only.
     _commandInFlight = true;
     try {
       final ack = await _ws.sendPrepare(
-        movement: 'Normal Grip',
+        movement: 'Free Practice',
         difficulty: 'Easy',
         prop: TrainingProp.bottle,
         cameraDeviceId: cameraDeviceId,

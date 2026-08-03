@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import threading
 import time
 
 from config import CAMERA_FALLBACK_INDEX, CAMERA_INDEX, FRAME_HEIGHT, FRAME_WIDTH, TARGET_FPS
@@ -1163,6 +1164,155 @@ def test_capture_producer_keeps_only_newest_frame(monkeypatch):
     assert cap.released is True
     time.sleep(0.05)
     assert cap.reads_after_release == 0
+
+
+def test_blocked_producer_release_does_not_race_with_read(monkeypatch):
+    """Release must not call VideoCapture.release while read() is in flight."""
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_PRODUCER_JOIN_TIMEOUT_S", 0.15)
+    _reset_shared()
+
+    join_timeout = camera_mod._PRODUCER_JOIN_TIMEOUT_S
+    block_s = join_timeout + 0.35
+    # Use Event.wait so monkeypatched time.sleep cannot shorten the block.
+    block_gate = threading.Event()
+
+    class _BlockingCap(_FakeCap):
+        def __init__(self):
+            super().__init__()
+            self.read_entered = threading.Event()
+            self.release_while_reading = False
+
+        def read(self):
+            self.read_entered.set()
+            block_gate.wait(timeout=block_s)
+            if self.released:
+                self.release_while_reading = True
+                return False, None
+            self.reads += 1
+            return True, _usable_frame()
+
+    cap = _BlockingCap()
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    assert camera_mod._start_capture_producer(cap, width=64, height=48)
+
+    assert cap.read_entered.wait(timeout=2.0)
+    # Release while producer is blocked in read() longer than join timeout.
+    camera_mod._release_shared_unlocked()
+
+    assert camera_mod.capture_producer_shutdown_completed()
+    assert camera_mod.capture_producer_is_alive() is False
+    # Must not have released during the blocked read.
+    assert cap.release_while_reading is False
+    assert cap.released is False
+
+    block_gate.set()
+    deadline = time.monotonic() + 2.0
+    while not cap.released and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert cap.released is True
+    assert cap.release_while_reading is False
+
+
+def test_blocked_producer_cannot_publish_into_replacement_slot(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    monkeypatch.setattr(camera_mod, "_PRODUCER_JOIN_TIMEOUT_S", 0.1)
+    _reset_shared()
+
+    allow_first = threading.Event()
+    entered_first = threading.Event()
+
+    class _GatedCap(_FakeCap):
+        def __init__(self, marker: int):
+            super().__init__()
+            self.marker = marker
+            self._first = True
+
+        def read(self):
+            if self._first:
+                self._first = False
+                entered_first.set()
+                allow_first.wait(timeout=2.0)
+            self.reads += 1
+            frame = _usable_frame()
+            frame[0, 0] = self.marker
+            return True, frame
+
+    old = _GatedCap(marker=11)
+    new = _FakeCap(usable=True)
+    camera_mod._shared_cap = old
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(old, width=64, height=48)
+    assert entered_first.wait(timeout=2.0)
+
+    old_slot = camera_mod._latest_frame_slot
+    # Replacement while old producer is blocked.
+    camera_mod._release_shared_unlocked()
+    camera_mod._shared_cap = new
+    camera_mod._shared_index = 2
+    camera_mod._shared_profile = _default_profile(2)
+    assert camera_mod._start_capture_producer(new, width=64, height=48)
+    new_slot = camera_mod._latest_frame_slot
+    assert new_slot is not old_slot
+
+    allow_first.set()
+    deadline = time.monotonic() + 2.0
+    while not old.released and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert old.released is True
+
+    # New slot must never receive the old producer's marker frame.
+    taken = new_slot.take(timeout=0.2) if new_slot is not None else None
+    if taken is not None:
+        assert int(taken.frame[0, 0, 0]) != 11
+
+
+def test_published_frame_is_independent_of_camera_buffer(monkeypatch):
+    monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
+    _reset_shared()
+
+    class _MutatingCap(_FakeCap):
+        def __init__(self):
+            super().__init__()
+            self._buf = _usable_frame()
+            self._marker = 1
+
+        def read(self):
+            self.reads += 1
+            self._buf[:] = 120
+            self._buf[10:20, 10:20] = 200
+            self._buf[0, 0] = self._marker
+            self._marker += 1
+            # Contiguous buffer: ascontiguousarray would not copy.
+            assert self._buf.flags["C_CONTIGUOUS"]
+            return True, self._buf
+
+    cap = _MutatingCap()
+    camera_mod._shared_cap = cap
+    camera_mod._shared_index = 1
+    camera_mod._shared_profile = _default_profile(1)
+    camera_mod._start_capture_producer(cap, width=64, height=48)
+
+    slot = camera_mod._latest_frame_slot
+    assert slot is not None
+    captured = None
+    deadline = time.monotonic() + 2.0
+    while captured is None and time.monotonic() < deadline:
+        captured = slot.take(timeout=0.05)
+    assert captured is not None
+    published_marker = int(captured.frame[0, 0, 0])
+    # Mutate the camera's reused buffer after publish.
+    cap._buf[:] = 0
+    assert int(captured.frame[0, 0, 0]) == published_marker
+    assert captured.frame.flags["C_CONTIGUOUS"]
+
+    camera_mod._release_shared_unlocked()
 
 
 def test_capture_producer_stops_before_release_and_recovery(monkeypatch):

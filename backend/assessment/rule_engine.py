@@ -60,6 +60,18 @@ def movement_requires_pose(movement: str) -> bool:
     return bool(cfg.get("requires_pose", False))
 
 
+def movement_is_internal(movement: str) -> bool:
+    """True for registered modes that must not appear in the user catalog."""
+    cfg = MOVEMENT_CONFIG.get(movement)
+    return cfg is not None and bool(cfg.get("internal", False))
+
+
+def movement_is_prop_detection_only(movement: str) -> bool:
+    """True when the session should run camera + prop detect without scoring."""
+    cfg = MOVEMENT_CONFIG.get(movement)
+    return cfg is not None and bool(cfg.get("prop_detection_only", False))
+
+
 def movement_is_easy(movement: str) -> bool:
     cfg = MOVEMENT_CONFIG.get(movement)
     return cfg is not None and cfg.get("difficulty") == "Easy"

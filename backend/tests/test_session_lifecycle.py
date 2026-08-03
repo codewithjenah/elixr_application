@@ -448,9 +448,106 @@ def test_pipeline_timing_does_not_change_feedback_payload(monkeypatch):
     assert message.feedback_type == "positive"
     assert message.session_state == "active"
     assert message.frame_jpeg_base64
-    assert session.timings._counts["total"] >= 1
+    assert session.timings._counts["processing_total"] >= 1
     assert session.timings._frame_age_count >= 1
     session.close()
+
+
+def test_free_practice_skips_hands_pose_scoring_and_hold(monkeypatch):
+    _patch_vision(monkeypatch)
+    StubPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", StubPropDetector)
+
+    hands_inits = {"n": 0}
+    pose_inits = {"n": 0}
+    evaluate_calls = {"n": 0}
+    record_calls = {"n": 0}
+    hold_calls = {"n": 0}
+
+    class TrackingHands(StubHandsDetector):
+        def __init__(self, **kwargs):
+            hands_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    class TrackingPose(StubPoseDetector):
+        def __init__(self, **kwargs):
+            pose_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
+
+    def tracking_evaluate(*args, **kwargs):
+        evaluate_calls["n"] += 1
+        raise AssertionError("Free Practice must not evaluate movements")
+
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+
+    real_record = SessionScorer.record
+
+    def tracking_record(self, feedback_type):
+        record_calls["n"] += 1
+        return real_record(self, feedback_type)
+
+    monkeypatch.setattr(SessionScorer, "record", tracking_record)
+
+    real_hold_update = websocket_api.HoldValidator.update
+
+    def tracking_hold(self, *args, **kwargs):
+        hold_calls["n"] += 1
+        return real_hold_update(self, *args, **kwargs)
+
+    monkeypatch.setattr(websocket_api.HoldValidator, "update", tracking_hold)
+
+    session = websocket_api.VisionSession("Free Practice", prop_type="shaker")
+    assert session.is_prop_detection_only
+    session.start()
+    assert session.activate() is True
+    assert session.hands_detector is None
+    assert session.pose_detector is None
+    assert hands_inits["n"] == 0
+    assert pose_inits["n"] == 0
+
+    message = session.process_frame()
+    assert message is not None
+    assert message.movement == "Free Practice"
+    assert message.prop_type == "shaker"
+    assert message.session_state == "active"
+    assert message.score == 0
+    assert message.hold_progress == 0.0
+    assert message.hold_confirmed is False
+    assert message.frame_jpeg_base64
+
+    detector = StubPropDetector.instances[-1]
+    assert detector.ensure_calls == 1
+    assert detector.detect_calls >= 1
+    assert evaluate_calls["n"] == 0
+    assert record_calls["n"] == 0
+    assert hold_calls["n"] == 0
+    assert hands_inits["n"] == 0
+    assert pose_inits["n"] == 0
+    assert session.hands_detector is None
+    assert session.pose_detector is None
+    session.close()
+
+
+def test_free_practice_is_registered_but_internal():
+    from assessment.rule_engine import (
+        is_known_movement,
+        movement_is_internal,
+        movement_is_prop_detection_only,
+        movement_requires_hands,
+        validate_movement_difficulty,
+    )
+
+    assert is_known_movement("Free Practice")
+    assert movement_is_internal("Free Practice")
+    assert movement_is_prop_detection_only("Free Practice")
+    assert movement_requires_hands("Free Practice") is False
+    difficulty, error = validate_movement_difficulty("Free Practice", "Easy")
+    assert error is None
+    assert difficulty == "Easy"
+    assert movement_is_internal("Normal Grip") is False
 
 
 def test_cv_session_loop_keeps_one_processing_task_in_flight(monkeypatch):

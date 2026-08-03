@@ -75,6 +75,7 @@ _release_generation = 0
 _capture_producer: Optional["_CaptureProducer"] = None
 _latest_frame_slot: Optional["_LatestFrameSlot"] = None
 _producer_blank_streak = 0
+_PRODUCER_JOIN_TIMEOUT_S = 2.0
 
 
 @dataclass(frozen=True)
@@ -138,7 +139,7 @@ class _CaptureProducer:
         self._cap = cap
         self._width = width
         self._height = height
-        self._slot = slot
+        self._slot: _LatestFrameSlot | None = slot
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
@@ -147,100 +148,194 @@ class _CaptureProducer:
         )
         self._sequence = 0
         self.blank_streak = 0
+        # When join times out during a blocked read, this producer keeps exclusive
+        # ownership of ``_cap`` and releases it after the read returns.
+        self._abandoned = False
+        self._read_in_flight = False
 
     def start(self) -> None:
         self._thread.start()
 
-    def stop(self, timeout: float = 2.0) -> None:
+    def detach_slot(self) -> None:
+        """Prevent further publishes into the session's latest-frame slot."""
+        self._slot = None
+
+    def stop(self, timeout: float = 2.0) -> bool:
+        """Signal stop and join.
+
+        Returns True when the producer thread exited (safe for the caller to
+        release ``VideoCapture``). Returns False when the thread is still alive
+        after ``timeout`` — typically a blocked ``cap.read()``.
+        """
+        self.detach_slot()
         self._stop.set()
         self._thread.join(timeout=timeout)
-        if self._thread.is_alive():
-            logger.warning("Camera capture producer did not stop within %.1fs", timeout)
+        return not self._thread.is_alive()
+
+    def abandon(self) -> None:
+        """Transfer capture ownership to this still-running producer."""
+        self._abandoned = True
 
     @property
     def is_alive(self) -> bool:
         return self._thread.is_alive()
 
+    @property
+    def cap(self) -> cv2.VideoCapture:
+        return self._cap
+
+    @property
+    def read_in_flight(self) -> bool:
+        return self._read_in_flight
+
     def _run(self) -> None:
         global _producer_blank_streak
 
-        while not self._stop.is_set():
-            cap = self._cap
-            # Never read after the owning release path has closed the capture.
-            if getattr(cap, "released", False) or not cap.isOpened():
-                break
+        try:
+            while not self._stop.is_set():
+                cap = self._cap
+                # Never read after the owning release path has closed the capture.
+                if getattr(cap, "released", False) or not cap.isOpened():
+                    break
 
-            try:
-                ok, frame = cap.read()
-            except Exception:
-                logger.exception("Camera capture producer read failed")
-                break
+                try:
+                    self._read_in_flight = True
+                    ok, frame = cap.read()
+                except Exception:
+                    logger.exception("Camera capture producer read failed")
+                    break
+                finally:
+                    self._read_in_flight = False
 
-            if self._stop.is_set():
-                break
+                if self._stop.is_set():
+                    break
 
-            if not ok or frame is None or not _frame_is_usable(frame):
-                self.blank_streak += 1
-                _producer_blank_streak = self.blank_streak
-                if self.blank_streak == 1 or self.blank_streak % 30 == 0:
-                    logger.warning(
-                        "Camera capture producer blank frame (streak=%s)",
-                        self.blank_streak,
+                slot = self._slot
+                if slot is None:
+                    # Detached from the session slot; keep draining until stop
+                    # so we do not publish into a newer session.
+                    if _STARTUP_READ_SLEEP_S > 0:
+                        self._stop.wait(_STARTUP_READ_SLEEP_S)
+                    continue
+
+                if not ok or frame is None or not _frame_is_usable(frame):
+                    self.blank_streak += 1
+                    _producer_blank_streak = self.blank_streak
+                    if self.blank_streak == 1 or self.blank_streak % 30 == 0:
+                        logger.warning(
+                            "Camera capture producer blank frame (streak=%s)",
+                            self.blank_streak,
+                        )
+                    if _STARTUP_READ_SLEEP_S > 0:
+                        self._stop.wait(_STARTUP_READ_SLEEP_S)
+                    continue
+
+                self.blank_streak = 0
+                _producer_blank_streak = 0
+
+                if frame.shape[1] != self._width or frame.shape[0] != self._height:
+                    frame = cv2.resize(
+                        frame,
+                        (self._width, self._height),
+                        interpolation=cv2.INTER_AREA,
                     )
-                if _STARTUP_READ_SLEEP_S > 0:
-                    self._stop.wait(_STARTUP_READ_SLEEP_S)
-                continue
 
-            self.blank_streak = 0
-            _producer_blank_streak = 0
-
-            if frame.shape[1] != self._width or frame.shape[0] != self._height:
-                frame = cv2.resize(
-                    frame,
-                    (self._width, self._height),
-                    interpolation=cv2.INTER_AREA,
+                # Independent C-contiguous copy: ascontiguousarray is a no-op
+                # when the OpenCV buffer is already contiguous.
+                owned = frame.copy(order="C")
+                self._sequence += 1
+                slot.publish(
+                    CapturedFrame(
+                        frame=owned,
+                        captured_at_monotonic=time.monotonic(),
+                        sequence=self._sequence,
+                    )
                 )
+        finally:
+            if self._abandoned:
+                try:
+                    if not getattr(self._cap, "released", False):
+                        self._cap.release()
+                        logger.info(
+                            "Abandoned camera capture producer released VideoCapture"
+                        )
+                except Exception:
+                    logger.exception(
+                        "Abandoned camera capture producer failed to release"
+                    )
 
-            # Own the buffer so the producer can overwrite the next OpenCV read.
-            owned = np.ascontiguousarray(frame)
-            self._sequence += 1
-            self._slot.publish(
-                CapturedFrame(
-                    frame=owned,
-                    captured_at_monotonic=time.monotonic(),
-                    sequence=self._sequence,
-                )
-            )
 
+def _stop_capture_producer(*, join_timeout: float | None = None) -> bool:
+    """Stop the capture producer. Safe under ``_CAMERA_LOCK`` (producer never takes it).
 
-def _stop_capture_producer() -> None:
-    """Stop the capture producer. Safe under ``_CAMERA_LOCK`` (producer never takes it)."""
+    Returns True when shutdown completed and the caller may release the
+    associated ``VideoCapture``. Returns False when the producer was abandoned
+    because a read is still in flight — that producer owns and will release the
+    capture; the caller must not call ``release()`` on the same object.
+    """
     global _capture_producer, _latest_frame_slot, _producer_blank_streak
+
+    if join_timeout is None:
+        join_timeout = _PRODUCER_JOIN_TIMEOUT_S
 
     producer = _capture_producer
     _capture_producer = None
-    if producer is not None:
-        producer.stop()
     if _latest_frame_slot is not None:
         _latest_frame_slot.clear()
     _producer_blank_streak = 0
 
+    if producer is None:
+        return True
 
-def _start_capture_producer(cap: cv2.VideoCapture, *, width: int, height: int) -> None:
-    """Replace any running producer with one bound to ``cap``."""
+    # Detach before joining so a blocked producer cannot publish into a new slot.
+    producer.detach_slot()
+    stopped = producer.stop(timeout=join_timeout)
+    if stopped:
+        return True
+
+    producer.abandon()
+    logger.warning(
+        "Camera capture producer still alive after %.1fs join "
+        "(read_in_flight=%s); deferring VideoCapture.release to the producer",
+        join_timeout,
+        producer.read_in_flight,
+    )
+    return False
+
+
+def _start_capture_producer(
+    cap: cv2.VideoCapture,
+    *,
+    width: int,
+    height: int,
+    join_timeout: float | None = None,
+) -> bool:
+    """Replace any running producer with one bound to ``cap``.
+
+    Returns False when a previous producer was abandoned while still reading
+    ``cap``. Callers must open a different capture object in that case.
+    """
     global _capture_producer, _latest_frame_slot, _producer_blank_streak
 
-    _stop_capture_producer()
+    previous = _capture_producer
+    same_cap = previous is not None and previous.cap is cap
+    stopped = _stop_capture_producer(join_timeout=join_timeout)
+    if same_cap and not stopped:
+        # Abandoned producer still owns this VideoCapture; do not attach a
+        # second reader to the same device handle.
+        return False
+
     slot = _LatestFrameSlot()
     _latest_frame_slot = slot
     _producer_blank_streak = 0
     producer = _CaptureProducer(cap, width=width, height=height, slot=slot)
     _capture_producer = producer
     producer.start()
+    return True
 
 
 def latest_frame_overwrite_count() -> int:
-    """Test helper: how many times a newer frame replaced an unconsumed one."""
+    """How many times a newer frame replaced an unconsumed one on the active slot."""
     if _latest_frame_slot is None:
         return 0
     return _latest_frame_slot.overwrite_count
@@ -249,6 +344,11 @@ def latest_frame_overwrite_count() -> int:
 def capture_producer_is_alive() -> bool:
     """Test helper: whether the latest-frame producer thread is running."""
     return _capture_producer is not None and _capture_producer.is_alive
+
+
+def capture_producer_shutdown_completed() -> bool:
+    """True when no active producer is registered (abandoned threads are untracked)."""
+    return _capture_producer is None
 
 
 class CameraReadStatus(Enum):
@@ -440,25 +540,40 @@ def _cancel_pending_release() -> None:
         _release_timer = None
 
 
+def _orphan_shared_capture_refs_unlocked() -> None:
+    """Drop shared capture refs without releasing (abandoned producer owns release)."""
+    global _shared_cap, _shared_index, _shared_device_id, _shared_profile
+
+    _shared_cap = None
+    _shared_index = None
+    _shared_device_id = None
+    _shared_profile = None
+
+
 def _release_shared_unlocked() -> None:
     global _shared_cap, _shared_index, _shared_device_id, _shared_profile
 
     _cancel_pending_release()
 
     # Stop the producer before releasing VideoCapture so it cannot read a
-    # closed/replaced capture.
-    _stop_capture_producer()
+    # closed/replaced capture. When shutdown cannot complete (blocked read),
+    # ownership of the capture transfers to the abandoned producer.
+    producer_stopped = _stop_capture_producer()
 
     if _shared_cap is not None:
-        _shared_cap.release()
+        if producer_stopped:
+            _shared_cap.release()
+            logger.info("Camera released")
+            if sys.platform == "win32":
+                time.sleep(_RELEASE_DELAY_S)
+        else:
+            logger.warning(
+                "Camera release deferred; capture producer still owns VideoCapture"
+            )
         _shared_cap = None
         _shared_index = None
         _shared_device_id = None
         _shared_profile = None
-        logger.info("Camera released")
-
-        if sys.platform == "win32":
-            time.sleep(_RELEASE_DELAY_S)
 
 
 def _release_shared() -> None:
@@ -691,7 +806,14 @@ def _try_reuse_shared_capture(
         return False
 
     # Stop the producer so the probe owns exclusive VideoCapture reads.
-    _stop_capture_producer()
+    if not _stop_capture_producer():
+        # Abandoned producer still owns this handle; force a fresh open.
+        logger.warning(
+            "Shared camera %s cannot be reused; capture producer still draining",
+            _shared_index,
+        )
+        _orphan_shared_capture_refs_unlocked()
+        return False
 
     ok, _ = _probe_stable_startup(
         _shared_cap,
@@ -965,6 +1087,7 @@ class CameraCapture:
         self._blank_frame_streak = 0
         preferred = getattr(self, "_auto_preferred", CAMERA_INDEX)
         self._used_fallback = self._auto and index != preferred
+        # Fresh captures are distinct objects from any abandoned producer handle.
         _start_capture_producer(cap, width=self._width, height=self._height)
 
     def open(self) -> bool:
@@ -997,27 +1120,35 @@ class CameraCapture:
 
             preferred = allowed[0] if allowed else None
             if _try_reuse_shared_capture(allowed, preferred_index=preferred):
-                self._blank_frame_streak = 0
-                self._active_device_id = _shared_device_id
-                self._used_fallback = (
-                    self._auto
-                    and _shared_index is not None
-                    and _shared_index != getattr(self, "_auto_preferred", CAMERA_INDEX)
-                )
-                self._last_read_status = CameraReadStatus.OK
                 assert _shared_cap is not None
-                _start_capture_producer(
+                if _start_capture_producer(
                     _shared_cap, width=self._width, height=self._height
+                ):
+                    self._blank_frame_streak = 0
+                    self._active_device_id = _shared_device_id
+                    self._used_fallback = (
+                        self._auto
+                        and _shared_index is not None
+                        and _shared_index
+                        != getattr(self, "_auto_preferred", CAMERA_INDEX)
+                    )
+                    self._last_read_status = CameraReadStatus.OK
+                    logger.info(
+                        "Camera ready (reused): active_index=%s device_id=%s "
+                        "profile=%s used_fallback=%s",
+                        _shared_index,
+                        _shared_device_id,
+                        _shared_profile.label if _shared_profile else "unknown",
+                        self._used_fallback,
+                    )
+                    return True
+                # Previous producer was abandoned while still reading this
+                # handle; drop shared refs (producer owns release) and reopen.
+                logger.warning(
+                    "Camera reuse aborted; abandoned producer still holds "
+                    "VideoCapture — opening a fresh device handle"
                 )
-                logger.info(
-                    "Camera ready (reused): active_index=%s device_id=%s "
-                    "profile=%s used_fallback=%s",
-                    _shared_index,
-                    _shared_device_id,
-                    _shared_profile.label if _shared_profile else "unknown",
-                    self._used_fallback,
-                )
-                return True
+                _orphan_shared_capture_refs_unlocked()
 
             _release_shared_unlocked()
 
