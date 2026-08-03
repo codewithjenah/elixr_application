@@ -6,13 +6,13 @@ import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-PracticeFeedback _feedback(String message) {
+PracticeFeedback _feedback(String message, {String feedbackType = 'warning'}) {
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Basic Flip',
     score: 80,
     feedback: message,
-    feedbackType: 'positive',
+    feedbackType: feedbackType,
     postureStatus: 'ok',
   );
 }
@@ -55,17 +55,21 @@ void main() {
         difficulty: 'Easy',
         score: 80,
         durationSeconds: 30,
-        feedbackHistory: [_feedback('Nice'), _feedback('Nice')],
+        sessionImprovements: [
+          _feedback('Lower your elbow'),
+          _feedback('Keep your wrist steady'),
+        ],
       );
 
       expect(atomicCalls, 1);
       expect(id, capturedSessionId);
       expect(capturedSession?.id, id);
-      expect(capturedFeedbacks, hasLength(1));
+      expect(capturedFeedbacks, hasLength(2));
       expect(
-        capturedFeedbacks!.single.id,
+        capturedFeedbacks!.first.id,
         FirestoreHelper.feedbackDocumentId(id, 0),
       );
+      expect(capturedFeedbacks!.last.message, 'Keep your wrist steady');
     },
   );
 
@@ -100,7 +104,7 @@ void main() {
         difficulty: 'Easy',
         score: 80,
         durationSeconds: 30,
-        feedbackHistory: [_feedback('Nice')],
+        sessionImprovements: [_feedback('Nice')],
       ),
       throwsA(isA<Exception>()),
     );
@@ -141,7 +145,7 @@ void main() {
         difficulty: 'Easy',
         score: 80,
         durationSeconds: 30,
-        feedbackHistory: const [],
+        sessionImprovements: const [],
       ),
       throwsA(isA<Exception>()),
     );
@@ -155,7 +159,7 @@ void main() {
       difficulty: 'Easy',
       score: 80,
       durationSeconds: 30,
-      feedbackHistory: const [],
+      sessionImprovements: const [],
       existingSessionId: firstSessionId,
     );
 
@@ -197,7 +201,7 @@ void main() {
       difficulty: 'Easy',
       score: 80,
       durationSeconds: 30,
-      feedbackHistory: [_feedback('Nice')],
+      sessionImprovements: [_feedback('Nice')],
     );
 
     expect(id, isNotEmpty);
@@ -236,7 +240,7 @@ void main() {
       difficulty: 'Easy',
       score: 88,
       durationSeconds: 40,
-      feedbackHistory: const [],
+      sessionImprovements: const [],
     );
 
     expect(id, awardedSessionId);
@@ -270,11 +274,88 @@ void main() {
       difficulty: 'Medium',
       score: 92,
       durationSeconds: 45,
-      feedbackHistory: const [],
+      sessionImprovements: const [],
       prop: TrainingProp.shaker,
     );
 
     expect(saved?.propType, TrainingProp.shaker);
     expect(saved?.toMap()['prop_type'], 'shaker');
+  });
+
+  test('zero session improvements produce zero feedback records', () async {
+    List<Feedback>? capturedFeedbacks;
+
+    final service = SessionService(
+      allocateSessionIdOverride: () => 'session-atomic',
+      saveCompletedSessionAtomicOverride:
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+          }) async {
+            capturedFeedbacks = feedbacks;
+          },
+      recordCompletedSessionOverride:
+          ({
+            required String sessionId,
+            required String userId,
+            required String displayName,
+            String? profilePictureUrl,
+          }) async {},
+    );
+
+    await service.saveCompletedSession(
+      userId: 'u1',
+      displayName: 'Ada',
+      movementName: 'Basic Flip',
+      difficulty: 'Easy',
+      score: 100,
+      durationSeconds: 30,
+      sessionImprovements: const [],
+    );
+
+    expect(capturedFeedbacks, isEmpty);
+  });
+
+  test('only summarized session improvements are persisted', () async {
+    List<Feedback>? capturedFeedbacks;
+
+    final service = SessionService(
+      allocateSessionIdOverride: () => 'session-atomic',
+      saveCompletedSessionAtomicOverride:
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+          }) async {
+            capturedFeedbacks = feedbacks;
+          },
+      recordCompletedSessionOverride:
+          ({
+            required String sessionId,
+            required String userId,
+            required String displayName,
+            String? profilePictureUrl,
+          }) async {},
+    );
+
+    await service.saveCompletedSession(
+      userId: 'u1',
+      displayName: 'Ada',
+      movementName: 'Basic Flip',
+      difficulty: 'Easy',
+      score: 82,
+      durationSeconds: 30,
+      sessionImprovements: [
+        _feedback('Wrap at least three fingers around the neck.'),
+      ],
+    );
+
+    expect(capturedFeedbacks, hasLength(1));
+    expect(
+      capturedFeedbacks!.single.message,
+      'Wrap at least three fingers around the neck.',
+    );
+    expect(capturedFeedbacks!.single.feedbackType, 'warning');
   });
 }

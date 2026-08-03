@@ -7,8 +7,8 @@ import 'package:flutter/material.dart' show Material, MaterialType;
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
-import '../../data/models/practice_feedback.dart';
 import 'practice_game_widgets.dart';
+import 'session_assessment.dart';
 
 enum SessionSummaryResult { saved, discarded, tryAgain }
 
@@ -18,7 +18,7 @@ class SessionSummarySheet extends StatelessWidget {
     required this.movement,
     required this.score,
     required this.durationSeconds,
-    required this.feedbacks,
+    required this.assessment,
     required this.onSave,
     required this.onDiscard,
     required this.onTryAgain,
@@ -30,7 +30,7 @@ class SessionSummarySheet extends StatelessWidget {
   final String movement;
   final int score;
   final int durationSeconds;
-  final List<PracticeFeedback> feedbacks;
+  final SessionAssessment assessment;
   final VoidCallback onSave;
   final VoidCallback onDiscard;
   final VoidCallback onTryAgain;
@@ -43,7 +43,7 @@ class SessionSummarySheet extends StatelessWidget {
     required String movement,
     required int score,
     required int durationSeconds,
-    required List<PracticeFeedback> feedbacks,
+    required SessionAssessment assessment,
     required Future<String> Function(String? existingSessionId) onSave,
     bool heldSteady = false,
   }) {
@@ -70,7 +70,7 @@ class SessionSummarySheet extends StatelessWidget {
                         movement: movement,
                         score: score,
                         durationSeconds: durationSeconds,
-                        feedbacks: feedbacks,
+                        assessment: assessment,
                         saving: saving,
                         saveError: saveError,
                         heldSteady: heldSteady,
@@ -135,33 +135,15 @@ class SessionSummarySheet extends StatelessWidget {
     return s > 0 ? '${m}m ${s}s' : '${m}m';
   }
 
-  /// Counts warning-type feedback messages across the session and returns the
-  /// top 3 most frequent ones as improvement suggestions.
-  /// Detection-failure messages (environment issues) are excluded so only
-  /// technique-related tips surface.
-  static List<String> _deriveImprovements(List<PracticeFeedback> feedbacks) {
-    const skipPhrases = [
-      'not detected',
-      'not visible',
-      'Keep the bottle visible',
-      'Step back',
-      'Face the camera',
-      'in frame',
-      'Camera unavailable',
-      'Model load failed',
-      'Target body part',
-    ];
-
-    final counts = <String, int>{};
-    for (final f in feedbacks) {
-      if (f.feedbackType == 'positive') continue;
-      if (skipPhrases.any((p) => f.feedback.contains(p))) continue;
-      counts[f.feedback] = (counts[f.feedback] ?? 0) + 1;
+  static String _tierMessage(int score, {required bool hasImprovements}) {
+    if (score >= 80) {
+      return hasImprovements
+          ? 'Strong score — refine the recurring tips below.'
+          : 'Solid execution. Keep the consistency going.';
     }
-
-    final sorted = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    return sorted.take(3).map((e) => e.key).toList();
+    if (score >= 60) return 'Good progress. A few things to fine-tune.';
+    if (score >= 40) return 'Getting there. Focus on the tips below.';
+    return 'Early stages — review the tips below and try again.';
   }
 
   static Color _scoreColor(int value) {
@@ -177,17 +159,10 @@ class SessionSummarySheet extends StatelessWidget {
     return (label: 'Needs Practice', color: AppColors.error);
   }
 
-  static String _tierMessage(int score) {
-    if (score >= 80) return 'Solid execution. Keep the consistency going.';
-    if (score >= 60) return 'Good progress. A few things to fine-tune.';
-    if (score >= 40) return 'Getting there. Focus on the tips below.';
-    return 'Early stages — review the tips below and try again.';
-  }
-
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final improvements = _deriveImprovements(feedbacks);
+    final improvements = assessment.improvementMessages;
     final scoreClr = _scoreColor(score);
     final tier = _tier(score);
 
@@ -218,7 +193,7 @@ class SessionSummarySheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildHeader(),
-            _buildScoreSection(scoreClr, tier),
+            _buildScoreSection(scoreClr, tier, assessment.hasImprovements),
             _buildDurationRow(context),
             Flexible(child: _buildImprovements(context, improvements)),
             _buildActions(context),
@@ -305,6 +280,7 @@ class SessionSummarySheet extends StatelessWidget {
   Widget _buildScoreSection(
     Color scoreClr,
     ({String label, Color color}) tier,
+    bool hasImprovements,
   ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -384,7 +360,7 @@ class SessionSummarySheet extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  _tierMessage(score),
+                  _tierMessage(score, hasImprovements: hasImprovements),
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,

@@ -54,7 +54,7 @@ class SessionService extends ChangeNotifier {
     required String difficulty,
     required int score,
     required int durationSeconds,
-    required List<PracticeFeedback> feedbackHistory,
+    required List<PracticeFeedback> sessionImprovements,
     TrainingProp prop = TrainingProp.bottle,
     String? profilePictureUrl,
     String? existingSessionId,
@@ -71,7 +71,10 @@ class SessionService extends ChangeNotifier {
       durationSeconds: durationSeconds,
       propType: prop,
     );
-    final feedbacks = _buildDedupedFeedbacks(sessionId, feedbackHistory);
+    final feedbacks = _buildSessionImprovementFeedbacks(
+      sessionId,
+      sessionImprovements,
+    );
 
     final saveAtomic =
         _saveCompletedSessionAtomicOverride ??
@@ -107,25 +110,21 @@ class SessionService extends ChangeNotifier {
     return sessionId;
   }
 
-  static List<Feedback> _buildDedupedFeedbacks(
+  static List<Feedback> _buildSessionImprovementFeedbacks(
     String sessionId,
-    List<PracticeFeedback> feedbackHistory,
+    List<PracticeFeedback> sessionImprovements,
   ) {
-    final seen = <String>{};
     final feedbacks = <Feedback>[];
-    var index = 0;
-    for (final item in feedbackHistory.reversed) {
-      if (seen.add(item.feedback)) {
-        feedbacks.add(
-          Feedback(
-            id: FirestoreHelper.feedbackDocumentId(sessionId, index),
-            sessionId: sessionId,
-            message: item.feedback,
-            feedbackType: item.feedbackType,
-          ),
-        );
-        index++;
-      }
+    for (var index = 0; index < sessionImprovements.length; index++) {
+      final item = sessionImprovements[index];
+      feedbacks.add(
+        Feedback(
+          id: FirestoreHelper.feedbackDocumentId(sessionId, index),
+          sessionId: sessionId,
+          message: item.feedback,
+          feedbackType: item.feedbackType,
+        ),
+      );
     }
     return feedbacks;
   }

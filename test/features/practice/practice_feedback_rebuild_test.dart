@@ -316,6 +316,47 @@ void main() {
       expect(second.needsChromeRebuild, isFalse);
       expect(controller.comboState.combo, 3);
     });
+
+    test('reset clears session assessment accumulator', () {
+      final controller = PracticeFeedbackController();
+      controller.applyActiveFeedback(_base(feedback: 'Issue A'));
+      controller.applyActiveFeedback(_base(feedback: 'Issue A'));
+      controller.applyActiveFeedback(_base(feedback: 'Issue A'));
+
+      controller.reset();
+
+      final assessment = controller.buildSessionAssessment(
+        finalScore: 80,
+        heldSteady: false,
+      );
+      expect(assessment.totalApplicableSamples, 0);
+      expect(assessment.improvements, isEmpty);
+    });
+
+    test('buildSessionAssessment derives persistent improvements', () {
+      final controller = PracticeFeedbackController();
+      for (var i = 0; i < 4; i++) {
+        controller.applyActiveFeedback(
+          _base(feedback: 'Wrap at least three fingers around the neck.'),
+        );
+      }
+      for (var i = 0; i < 16; i++) {
+        controller.applyActiveFeedback(
+          _base(feedbackType: 'positive', feedback: 'Nice'),
+        );
+      }
+
+      final assessment = controller.buildSessionAssessment(
+        finalScore: 88,
+        heldSteady: false,
+      );
+
+      expect(assessment.improvements, hasLength(1));
+      expect(
+        assessment.improvements.single.message,
+        'Wrap at least three fingers around the neck.',
+      );
+    });
   });
 
   group('PracticeFeedback rebuild equality', () {
@@ -521,6 +562,42 @@ void main() {
       apply(_base(holdConfirmed: true));
       await tester.pump();
       expect(state.holdConfirmations, 1);
+    });
+
+    testWidgets('assessment aggregation does not trigger chrome rebuilds', (
+      tester,
+    ) async {
+      late void Function(PracticeFeedback) apply;
+      await tester.pumpWidget(
+        _wrap(
+          _ScoredPracticeFeedbackHarness(
+            onFeedback: (handler) => apply = handler,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final state = tester.state<_ScoredPracticeFeedbackHarnessState>(
+        find.byType(_ScoredPracticeFeedbackHarness),
+      );
+      apply(_base(feedback: 'Issue A', score: 70));
+      await tester.pump();
+      final headersAfterFirst = state.headerBuilds;
+      final panelsAfterFirst = state.panelBuilds;
+
+      apply(_base(feedback: 'Issue A', score: 71));
+      await tester.pump();
+      apply(_base(feedback: 'Issue A', score: 72));
+      await tester.pump();
+
+      expect(state.headerBuilds, headersAfterFirst);
+      expect(state.panelBuilds, panelsAfterFirst);
+
+      final assessment = state.controller.buildSessionAssessment(
+        finalScore: 72,
+        heldSteady: false,
+      );
+      expect(assessment.totalApplicableSamples, 3);
     });
   });
 }

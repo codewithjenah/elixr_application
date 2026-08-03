@@ -1,23 +1,58 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
+import 'package:elixr_application/features/practice/session_assessment.dart';
 import 'package:elixr_application/features/practice/session_summary_sheet.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-PracticeFeedback _practiceFeedback(String message) {
+PracticeFeedback _practiceFeedback(
+  String message, {
+  String feedbackType = 'warning',
+  int score = 50,
+}) {
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Basic Flip',
-    score: 50,
+    score: score,
     feedback: message,
-    feedbackType: 'warning',
+    feedbackType: feedbackType,
     postureStatus: 'ok',
+    sessionState: 'active',
+  );
+}
+
+SessionAssessment _assessment({
+  required int score,
+  List<SessionImprovement> improvements = const [],
+  bool heldSteady = false,
+  PracticeFeedback? latestFeedback,
+}) {
+  return SessionAssessment(
+    finalScore: score,
+    heldSteady: heldSteady,
+    totalApplicableSamples: 20,
+    positiveSampleCount: 16,
+    positiveRatio: 0.8,
+    improvements: improvements,
+    latestFeedback: latestFeedback,
+  );
+}
+
+SessionImprovement _improvement(String message) {
+  final frame = _practiceFeedback(message);
+  return SessionImprovement(
+    message: message,
+    occurrenceCount: 4,
+    occurrenceRatio: 0.2,
+    feedbackType: frame.feedbackType,
+    representativeFeedback: frame,
   );
 }
 
 Future<void> _openSummary(
   WidgetTester tester, {
+  required SessionAssessment assessment,
   required Future<String> Function(String? existingSessionId) onSave,
 }) async {
   tester.view.physicalSize = const Size(1200, 1200);
@@ -33,9 +68,9 @@ Future<void> _openSummary(
                 await SessionSummarySheet.show(
                   context,
                   movement: 'Basic Flip',
-                  score: 50,
+                  score: assessment.finalScore,
                   durationSeconds: 45,
-                  feedbacks: [_practiceFeedback('Keep your wrist steady')],
+                  assessment: assessment,
                   onSave: onSave,
                 );
               },
@@ -55,6 +90,74 @@ Future<void> _openSummary(
 Finder get _saveButton => find.byType(GameActionButton);
 
 void main() {
+  testWidgets('perfect assessment shows Performance section', (tester) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(
+        score: 100,
+        heldSteady: true,
+        latestFeedback: _practiceFeedback(
+          'Great grip!',
+          feedbackType: 'positive',
+          score: 100,
+        ),
+      ),
+      onSave: (_) async => 'session-perfect',
+    );
+
+    expect(find.text('Performance'), findsOneWidget);
+    expect(find.text('What to Improve'), findsNothing);
+  });
+
+  testWidgets('perfect assessment does not show old warning messages', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(
+        score: 100,
+        heldSteady: true,
+        latestFeedback: _practiceFeedback(
+          'Great grip!',
+          feedbackType: 'positive',
+          score: 100,
+        ),
+      ),
+      onSave: (_) async => 'session-perfect',
+    );
+
+    expect(
+      find.textContaining('Move your hand to the upper bottle neck'),
+      findsNothing,
+    );
+    expect(
+      find.text('Great form — no corrections needed this session!'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('non-perfect assessment displays persistent improvements', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(
+        score: 72,
+        improvements: [
+          _improvement('Keep your wrist steady'),
+          _improvement('Lower your elbow'),
+        ],
+      ),
+      onSave: (_) async => 'session-improve',
+    );
+
+    expect(find.text('What to Improve'), findsOneWidget);
+    expect(find.text('Performance'), findsNothing);
+    expect(find.text('Keep your wrist steady'), findsOneWidget);
+    expect(find.text('Lower your elbow'), findsOneWidget);
+    expect(find.textContaining('2 tips'), findsOneWidget);
+  });
+
   testWidgets('duplicate save clicks issue one persistence operation', (
     tester,
   ) async {
@@ -62,6 +165,10 @@ void main() {
 
     await _openSummary(
       tester,
+      assessment: _assessment(
+        score: 50,
+        improvements: [_improvement('Keep your wrist steady')],
+      ),
       onSave: (existingSessionId) async {
         saveCalls++;
         await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -85,6 +192,10 @@ void main() {
   ) async {
     await _openSummary(
       tester,
+      assessment: _assessment(
+        score: 50,
+        improvements: [_improvement('Keep your wrist steady')],
+      ),
       onSave: (_) async {
         throw FirebaseException(plugin: 'cloud_firestore', code: 'unavailable');
       },
@@ -121,7 +232,10 @@ void main() {
                     movement: 'Basic Flip',
                     score: 50,
                     durationSeconds: 45,
-                    feedbacks: [_practiceFeedback('Keep your wrist steady')],
+                    assessment: _assessment(
+                      score: 50,
+                      improvements: [_improvement('Keep your wrist steady')],
+                    ),
                     onSave: (existingSessionId) async {
                       saveCalls++;
                       if (saveCalls == 1) {

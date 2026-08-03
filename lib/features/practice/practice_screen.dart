@@ -484,8 +484,9 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     final summaryScore = _feedback.latestFeedback?.score ?? 0;
     final summaryDuration = _run.elapsedSeconds;
-    final summaryFeedbacks = List<PracticeFeedback>.unmodifiable(
-      _feedback.feedbackHistory.reversed.toList(),
+    final sessionAssessment = _feedback.buildSessionAssessment(
+      finalScore: summaryScore,
+      heldSteady: heldSteady,
     );
 
     _isShowingSummary = true;
@@ -498,7 +499,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         movement: _movement,
         score: summaryScore,
         durationSeconds: summaryDuration,
-        feedbacks: summaryFeedbacks,
+        assessment: sessionAssessment,
         heldSteady: heldSteady,
         onSave: (existingSessionId) => sessionService.saveCompletedSession(
           existingSessionId: existingSessionId,
@@ -510,7 +511,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           prop: _prop,
           score: summaryScore,
           durationSeconds: summaryDuration,
-          feedbackHistory: summaryFeedbacks.reversed.toList(),
+          sessionImprovements: sessionAssessment.improvementFeedbacks,
         ),
       );
 

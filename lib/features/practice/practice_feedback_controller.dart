@@ -1,4 +1,5 @@
 import '../../data/models/practice_feedback.dart';
+import 'session_assessment.dart';
 
 /// High-frequency combo UI state scoped outside page rebuilds.
 class ComboState {
@@ -73,8 +74,11 @@ class PracticeFeedbackController {
   final List<PracticeFeedback> feedbackHistory = [];
   ComboState comboState = const ComboState();
   ScorePopupState scorePopupState = const ScorePopupState();
+  final SessionAssessmentAccumulator _assessmentAccumulator =
+      SessionAssessmentAccumulator();
 
   PracticeFeedbackApplyResult applyActiveFeedback(PracticeFeedback feedback) {
+    _assessmentAccumulator.record(feedback);
     final previous = latestFeedback;
     final previousScore = previous?.score;
     final previousHold = previous?.holdProgress ?? 0;
@@ -158,10 +162,22 @@ class PracticeFeedbackController {
     return visibleChanged;
   }
 
+  SessionAssessment buildSessionAssessment({
+    required int finalScore,
+    required bool heldSteady,
+  }) {
+    return _assessmentAccumulator.buildAssessment(
+      finalScore: finalScore,
+      heldSteady: heldSteady,
+      latestFeedback: latestFeedback,
+    );
+  }
+
   void reset() {
     latestFeedback = null;
     feedbackHistory.clear();
     comboState = const ComboState();
     scorePopupState = const ScorePopupState();
+    _assessmentAccumulator.reset();
   }
 }
