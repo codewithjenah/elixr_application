@@ -18,18 +18,22 @@ import '../../features/profile/profile_menu.dart';
 const _pink = AppColors.primary;
 const _purple = AppColors.accent;
 
+enum SidebarGroup { overview, training, insights }
+
 class SidebarItem {
   const SidebarItem({
     required this.label,
     required this.icon,
     this.route,
     this.comingSoon = false,
+    required this.group,
   });
 
   final String label;
   final IconData icon;
   final String? route;
   final bool comingSoon;
+  final SidebarGroup group;
 }
 
 const _sidebarItems = [
@@ -37,37 +41,60 @@ const _sidebarItems = [
     label: 'Dashboard',
     icon: FluentIcons.view_dashboard,
     route: '/dashboard',
+    group: SidebarGroup.overview,
   ),
   SidebarItem(
     label: 'Leaderboard',
     icon: FluentIcons.trophy2_solid,
     route: '/leaderboard',
+    group: SidebarGroup.overview,
   ),
   SidebarItem(
     label: 'Movements',
     icon: FluentIcons.more_sports,
     route: '/movements',
+    group: SidebarGroup.training,
   ),
   SidebarItem(
     label: 'Live Practice',
     icon: FluentIcons.video,
     route: '/live-practice',
+    group: SidebarGroup.training,
   ),
-  SidebarItem(label: 'History', icon: FluentIcons.clock, route: '/history'),
+  SidebarItem(
+    label: 'History',
+    icon: FluentIcons.clock,
+    route: '/history',
+    group: SidebarGroup.insights,
+  ),
   SidebarItem(
     label: 'Calendar',
     icon: FluentIcons.calendar,
     route: '/calendar',
+    group: SidebarGroup.insights,
   ),
   SidebarItem(
     label: 'Progress',
     icon: FluentIcons.bar_chart_vertical_fill,
     route: '/progress',
+    group: SidebarGroup.insights,
   ),
 ];
 
-const _expandedWidth = 240.0;
-const _collapsedWidth = 72.0;
+const _expandedWidth = 256.0;
+const _collapsedWidth = 80.0;
+
+// Shared nav-item geometry so icons, labels, and group headers stay aligned.
+const _navOuterPadding = AppSpacing.sm + 4; // 12
+const _navInnerPadding = AppSpacing.sm; // 8
+const _navIndicatorWidth = 3.0;
+const _navIndicatorGap = 5.0;
+const _navIconSlot = 28.0;
+const _navIconSize = 18.0;
+const _navIconLabelGap = 10.0;
+const _navItemHeight = 40.0;
+const _navGroupLabelLeft =
+    _navOuterPadding + _navInnerPadding + _navIndicatorWidth + _navIndicatorGap;
 
 class ElixSidebar extends StatefulWidget {
   const ElixSidebar({
@@ -89,7 +116,6 @@ class ElixSidebar extends StatefulWidget {
 
 class _ElixSidebarState extends State<ElixSidebar> {
   final _progressRepo = ProgressRepository();
-  bool _sidebarHovered = false;
   int _totalSessions = 0;
   String? _statsUserId;
   SessionService? _sessionService;
@@ -142,93 +168,108 @@ class _ElixSidebarState extends State<ElixSidebar> {
         : '?';
     final isDark = context.isDarkTheme;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _sidebarHovered = true),
-      onExit: (_) => setState(() => _sidebarHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        width: widget.isCollapsed ? _collapsedWidth : _expandedWidth,
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF120D1C) : context.elixCardSurface,
-          border: Border(
-            right: BorderSide(
-              color: isDark
-                  ? _purple.withValues(alpha: 0.18)
-                  : context.elixBorder,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      width: widget.isCollapsed ? _collapsedWidth : _expandedWidth,
+      clipBehavior: Clip.hardEdge,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF120D1C) : context.elixCardSurface,
+        border: Border(
+          right: BorderSide(
+            color: isDark
+                ? _purple.withValues(alpha: 0.18)
+                : context.elixBorder,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 16,
+            offset: const Offset(4, 0),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(context),
+          const SizedBox(height: AppSpacing.sm),
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
+            ),
+            child: Container(
+              height: 1,
+              color: context.elixBorder.withValues(alpha: 0.4),
             ),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-              blurRadius: 16,
-              offset: const Offset(4, 0),
-            ),
-          ],
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(context),
-                const SizedBox(height: AppSpacing.sm),
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: widget.isCollapsed
-                        ? AppSpacing.sm
-                        : AppSpacing.md,
-                  ),
-                  child: Container(
-                    height: 1,
-                    color: context.elixBorder.withValues(alpha: 0.4),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        for (final item in _sidebarItems)
-                          _SidebarTile(
-                            item: item,
-                            isActive:
-                                item.route != null &&
-                                widget.currentRoute.startsWith(item.route!),
-                            isCollapsed: widget.isCollapsed,
-                            onTap: () => _onItemTap(item),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                _buildProfileSection(context, user, initials),
-                const SizedBox(height: AppSpacing.md),
-              ],
-            ),
-            Positioned(
-              top: 0,
-              bottom: 0,
-              right: 8,
-              child: Center(
-                child: IgnorePointer(
-                  ignoring: !_sidebarHovered,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 150),
-                    opacity: _sidebarHovered ? 1 : 0,
-                    child: _CollapseButton(
-                      isCollapsed: widget.isCollapsed,
-                      onTap: widget.onToggleCollapse,
-                    ),
-                  ),
-                ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: _buildGroupedItems(context),
               ),
             ),
-          ],
-        ),
+          ),
+          _buildProfileSection(context, user, initials),
+          const SizedBox(height: AppSpacing.md),
+        ],
       ),
     );
+  }
+
+  List<Widget> _buildGroupedItems(BuildContext context) {
+    final List<Widget> children = [];
+
+    void addGroup(SidebarGroup group, String title) {
+      final items = _sidebarItems.where((i) => i.group == group).toList();
+      if (items.isEmpty) return;
+
+      if (!widget.isCollapsed) {
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(
+              left: _navGroupLabelLeft,
+              right: _navOuterPadding,
+              top: AppSpacing.md,
+              bottom: AppSpacing.xs,
+            ),
+            child: Text(
+              title.toUpperCase(),
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.2,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        );
+      } else {
+        children.add(const SizedBox(height: AppSpacing.sm));
+      }
+
+      for (final item in items) {
+        children.add(
+          _SidebarTile(
+            item: item,
+            isActive:
+                item.route != null &&
+                widget.currentRoute.startsWith(item.route!),
+            isCollapsed: widget.isCollapsed,
+            onTap: () => _onItemTap(item),
+          ),
+        );
+      }
+    }
+
+    addGroup(SidebarGroup.overview, 'Overview');
+    addGroup(SidebarGroup.training, 'Training');
+    addGroup(SidebarGroup.insights, 'Insights');
+
+    return children;
   }
 
   Widget _logoMark(double size) {
@@ -260,44 +301,70 @@ class _ElixSidebarState extends State<ElixSidebar> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    if (widget.isCollapsed) {
+      return Padding(
+        padding: const EdgeInsets.only(
+          top: AppSpacing.lg,
+          bottom: AppSpacing.sm,
+        ),
+        child: Column(
+          children: [
+            Center(child: _logoMark(40)),
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: _CollapseButton(
+                isCollapsed: true,
+                onTap: widget.onToggleCollapse,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        widget.isCollapsed ? AppSpacing.md : AppSpacing.lg,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
         AppSpacing.lg,
-        widget.isCollapsed ? AppSpacing.md : AppSpacing.lg,
+        AppSpacing.sm,
         AppSpacing.sm,
       ),
-      child: widget.isCollapsed
-          ? Center(child: _logoMark(40))
-          : Row(
+      child: Row(
+        children: [
+          _logoMark(36),
+          const SizedBox(width: AppSpacing.sm + 2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _logoMark(36),
-                const SizedBox(width: AppSpacing.sm + 2),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        AppConstants.appName,
-                        style: AppTheme.headingMedium.copyWith(
-                          color: _pink,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.6,
-                        ),
-                      ),
-                      Text(
-                        'Flair Training',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
+                Text(
+                  AppConstants.appName,
+                  style: AppTheme.headingMedium.copyWith(
+                    color: _pink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.6,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'Flair Training',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                    fontSize: 11,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          _CollapseButton(isCollapsed: false, onTap: widget.onToggleCollapse),
+          const SizedBox(width: AppSpacing.xs),
+        ],
+      ),
     );
   }
 
@@ -306,167 +373,13 @@ class _ElixSidebarState extends State<ElixSidebar> {
     User? user,
     String initials,
   ) {
-    final totalXp = GamificationRules.xpForSessions(_totalSessions);
-    final level = GamificationRules.levelForXp(totalXp);
-    final expInLevel = GamificationRules.xpIntoLevel(totalXp);
-
-    final profileTile = MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: Builder(
-        builder: (profileContext) => GestureDetector(
-          onTap: () =>
-              ProfileMenu.show(profileContext, onLogout: widget.onLogout),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            margin: EdgeInsets.symmetric(
-              horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
-              vertical: AppSpacing.sm + 4,
-            ),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  _pink.withValues(alpha: 0.10),
-                  _purple.withValues(alpha: 0.06),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: _pink.withValues(alpha: 0.22)),
-            ),
-            child: widget.isCollapsed
-                ? Center(
-                    child: ProfileAvatarWidget(
-                      networkImageUrl: user?.profilePictureUrl,
-                      legacyLocalPath: user?.profilePicturePath,
-                      initials: initials,
-                      radius: 18,
-                    ),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: const LinearGradient(
-                                colors: [_pink, _purple],
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: _pink.withValues(alpha: 0.35),
-                                  blurRadius: 10,
-                                ),
-                              ],
-                            ),
-                            child: ProfileAvatarWidget(
-                              networkImageUrl: user?.profilePictureUrl,
-                              legacyLocalPath: user?.profilePicturePath,
-                              initials: initials,
-                              radius: 17,
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        user?.fullName.split(' ').first ??
-                                            'User',
-                                        style: AppTheme.body.copyWith(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                          color: context.elixTextPrimary,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Text(
-                                      '👑',
-                                      style: TextStyle(fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  user?.role ?? 'Trainee',
-                                  style: AppTheme.caption.copyWith(
-                                    fontSize: 11,
-                                    color: context.elixTextSecondary,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Text(
-                            'Lv. $level',
-                            style: AppTheme.caption.copyWith(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: _pink,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.sm + 2),
-                      Text(
-                        'EXP $expInLevel / ${GamificationRules.xpPerLevel}',
-                        style: AppTheme.caption.copyWith(
-                          fontSize: 10,
-                          color: context.elixTextSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: SizedBox(
-                          height: 5,
-                          child: Stack(
-                            children: [
-                              Container(
-                                color: context.elixBorder.withValues(
-                                  alpha: 0.6,
-                                ),
-                              ),
-                              FractionallySizedBox(
-                                widthFactor:
-                                    (expInLevel / GamificationRules.xpPerLevel)
-                                        .clamp(0.0, 1.0),
-                                child: Container(
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [_pink, _purple],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-      ),
+    return _ProfileSectionWidget(
+      user: user,
+      initials: initials,
+      totalSessions: _totalSessions,
+      isCollapsed: widget.isCollapsed,
+      onLogout: widget.onLogout,
     );
-
-    if (widget.isCollapsed) {
-      return Tooltip(message: user?.fullName ?? 'Profile', child: profileTile);
-    }
-    return profileTile;
   }
 }
 
@@ -485,42 +398,50 @@ class _CollapseButtonState extends State<_CollapseButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: widget.isCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: context.elixCardSurface,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: _hovered
-                    ? context.elixBorder.withValues(alpha: 0.8)
-                    : context.elixBorder.withValues(alpha: 0.5),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+    return Semantics(
+      button: true,
+      label: widget.isCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      child: Tooltip(
+        message: widget.isCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: _hovered ? context.elixCardSurface : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _hovered
+                      ? context.elixBorder.withValues(alpha: 0.8)
+                      : context.elixBorder.withValues(alpha: 0.3),
                 ),
-              ],
-            ),
-            child: Center(
-              child: AnimatedRotation(
-                turns: widget.isCollapsed ? 0.5 : 0,
-                duration: const Duration(milliseconds: 220),
-                child: Icon(
-                  FluentIcons.chevron_left,
-                  size: 14,
-                  color: context.elixTextSecondary,
+                boxShadow: _hovered
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Center(
+                child: AnimatedRotation(
+                  turns: widget.isCollapsed ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  child: Icon(
+                    FluentIcons.chevron_left,
+                    size: 12,
+                    color: _hovered
+                        ? context.elixTextPrimary
+                        : context.elixTextSecondary,
+                  ),
                 ),
               ),
             ),
@@ -557,146 +478,138 @@ class _SidebarTileState extends State<_SidebarTile> {
     final highlight = (widget.isActive || _hovered) && !soon;
 
     final iconColor = widget.isActive
-        ? Colors.white
-        : highlight
         ? _pink
+        : highlight
+        ? context.elixTextPrimary
         : context.elixTextSecondary.withValues(alpha: soon ? 0.5 : 1);
 
-    final tile = Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.sm + 2,
-        vertical: 3,
-      ),
-      child: MouseRegion(
-        cursor: soon ? SystemMouseCursors.basic : SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.isCollapsed
-                  ? AppSpacing.sm + 2
-                  : AppSpacing.sm + 4,
-              vertical: AppSpacing.sm + 2,
-            ),
-            decoration: BoxDecoration(
-              gradient: widget.isActive
-                  ? LinearGradient(
-                      colors: [
-                        _pink.withValues(alpha: 0.22),
-                        _purple.withValues(alpha: 0.10),
-                      ],
-                    )
-                  : null,
-              color: widget.isActive
-                  ? null
-                  : (_hovered && !soon)
-                  ? context.elixBorder.withValues(alpha: 0.25)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: widget.isActive
-                    ? _pink.withValues(alpha: 0.45)
-                    : Colors.transparent,
+    final tile = Semantics(
+      button: true,
+      selected: widget.isActive,
+      label: widget.item.label,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: _navOuterPadding,
+          vertical: 2,
+        ),
+        child: MouseRegion(
+          cursor: soon ? SystemMouseCursors.basic : SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              height: _navItemHeight,
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.isCollapsed ? 0 : _navInnerPadding,
               ),
-              boxShadow: widget.isActive
-                  ? [
-                      BoxShadow(
-                        color: _pink.withValues(alpha: 0.18),
-                        blurRadius: 14,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: widget.isCollapsed
-                ? Center(
-                    child: Icon(widget.item.icon, size: 20, color: iconColor),
-                  )
-                : Row(
-                    children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          gradient: widget.isActive
-                              ? const LinearGradient(colors: [_pink, _purple])
-                              : null,
-                          color: widget.isActive
-                              ? null
-                              : context.elixBorder.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: widget.isActive
-                              ? [
-                                  BoxShadow(
-                                    color: _pink.withValues(alpha: 0.4),
-                                    blurRadius: 10,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Icon(
-                          widget.item.icon,
-                          size: 16,
-                          color: iconColor,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm + 2),
-                      Expanded(
-                        child: Text(
-                          widget.item.label,
-                          style: AppTheme.body.copyWith(
-                            color: widget.isActive
-                                ? context.elixTextPrimary
-                                : highlight
-                                ? context.elixTextPrimary
-                                : context.elixTextSecondary.withValues(
-                                    alpha: soon ? 0.5 : 1,
-                                  ),
-                            fontWeight: widget.isActive
-                                ? FontWeight.w700
-                                : FontWeight.normal,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      if (soon)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _purple.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Soon',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                              color: _purple.withValues(alpha: 0.9),
+              decoration: BoxDecoration(
+                color: widget.isActive
+                    ? _pink.withValues(alpha: 0.1)
+                    : (_hovered && !soon)
+                    ? context.elixBorder.withValues(alpha: 0.15)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: widget.isCollapsed
+                  ? Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        if (widget.isActive)
+                          Positioned(
+                            left: 0,
+                            top: 8,
+                            bottom: 8,
+                            child: Container(
+                              width: _navIndicatorWidth,
+                              decoration: BoxDecoration(
+                                color: _pink,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
                             ),
                           ),
-                        )
-                      else if (widget.isActive)
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: _pink,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: _pink.withValues(alpha: 0.6),
-                                blurRadius: 6,
-                              ),
-                            ],
+                        Center(
+                          child: Icon(
+                            widget.item.icon,
+                            size: _navIconSize,
+                            color: iconColor,
                           ),
                         ),
-                    ],
-                  ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        SizedBox(
+                          width: _navIndicatorWidth + _navIndicatorGap,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: widget.isActive
+                                ? Container(
+                                    width: _navIndicatorWidth,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: _pink,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ),
+                        SizedBox(
+                          width: _navIconSlot,
+                          height: _navIconSlot,
+                          child: Center(
+                            child: Icon(
+                              widget.item.icon,
+                              size: _navIconSize,
+                              color: iconColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: _navIconLabelGap),
+                        Expanded(
+                          child: Text(
+                            widget.item.label,
+                            style: AppTheme.bodySecondary.copyWith(
+                              color: widget.isActive
+                                  ? _pink
+                                  : highlight
+                                  ? context.elixTextPrimary
+                                  : context.elixTextSecondary.withValues(
+                                      alpha: soon ? 0.5 : 1,
+                                    ),
+                              fontWeight: widget.isActive
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (soon)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _purple.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Soon',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                                color: _purple.withValues(alpha: 0.9),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
           ),
         ),
       ),
@@ -707,9 +620,217 @@ class _SidebarTileState extends State<_SidebarTile> {
         message: soon
             ? '${widget.item.label} (coming soon)'
             : widget.item.label,
+        displayHorizontally: true,
+        useMousePosition: false,
+        style: const TooltipThemeData(preferBelow: false),
         child: tile,
       );
     }
     return tile;
+  }
+}
+
+class _ProfileSectionWidget extends StatefulWidget {
+  const _ProfileSectionWidget({
+    required this.user,
+    required this.initials,
+    required this.totalSessions,
+    required this.isCollapsed,
+    required this.onLogout,
+  });
+
+  final User? user;
+  final String initials;
+  final int totalSessions;
+  final bool isCollapsed;
+  final VoidCallback onLogout;
+
+  @override
+  State<_ProfileSectionWidget> createState() => _ProfileSectionWidgetState();
+}
+
+class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalXp = GamificationRules.xpForSessions(widget.totalSessions);
+    final level = GamificationRules.levelForXp(totalXp);
+    final expInLevel = GamificationRules.xpIntoLevel(totalXp);
+
+    final profileTile = Semantics(
+      button: true,
+      label: 'Profile menu',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Builder(
+          builder: (profileContext) => GestureDetector(
+            onTap: () =>
+                ProfileMenu.show(profileContext, onLogout: widget.onLogout),
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              margin: EdgeInsets.symmetric(
+                horizontal: widget.isCollapsed ? AppSpacing.sm : AppSpacing.md,
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.isCollapsed ? 0 : AppSpacing.sm,
+                vertical: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: _hovered
+                    ? context.elixBorder.withValues(alpha: 0.15)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _hovered
+                      ? context.elixBorder.withValues(alpha: 0.4)
+                      : context.elixBorder.withValues(alpha: 0.2),
+                ),
+              ),
+              child: widget.isCollapsed
+                  ? Center(
+                      child: ProfileAvatarWidget(
+                        networkImageUrl: widget.user?.profilePictureUrl,
+                        legacyLocalPath: widget.user?.profilePicturePath,
+                        initials: widget.initials,
+                        radius: 18,
+                      ),
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            ProfileAvatarWidget(
+                              networkImageUrl: widget.user?.profilePictureUrl,
+                              legacyLocalPath: widget.user?.profilePicturePath,
+                              initials: widget.initials,
+                              radius: 18,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          widget.user?.fullName
+                                                  .split(' ')
+                                                  .first ??
+                                              'User',
+                                          style: AppTheme.bodySecondary
+                                              .copyWith(
+                                                fontWeight: FontWeight.w600,
+                                                color: context.elixTextPrimary,
+                                              ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      if (widget.user?.role == 'Admin')
+                                        const Text(
+                                          '👑',
+                                          style: TextStyle(fontSize: 10),
+                                        ),
+                                    ],
+                                  ),
+                                  Text(
+                                    widget.user?.role ?? 'Trainee',
+                                    style: AppTheme.caption.copyWith(
+                                      fontSize: 11,
+                                      color: context.elixTextSecondary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              'Lv. $level',
+                              style: AppTheme.caption.copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _pink,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'EXP',
+                              style: AppTheme.caption.copyWith(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                                color: context.elixTextSecondary,
+                              ),
+                            ),
+                            Text(
+                              '$expInLevel / ${GamificationRules.xpPerLevel}',
+                              style: AppTheme.caption.copyWith(
+                                fontSize: 9,
+                                color: context.elixTextSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: SizedBox(
+                            height: 4,
+                            child: Stack(
+                              children: [
+                                Container(
+                                  color: context.elixBorder.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                ),
+                                FractionallySizedBox(
+                                  widthFactor:
+                                      (expInLevel /
+                                              GamificationRules.xpPerLevel)
+                                          .clamp(0.0, 1.0),
+                                  child: Container(
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [_pink, _purple],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (widget.isCollapsed) {
+      return Tooltip(
+        message: widget.user?.fullName ?? 'Profile',
+        displayHorizontally: true,
+        useMousePosition: false,
+        style: const TooltipThemeData(preferBelow: false),
+        child: profileTile,
+      );
+    }
+    return profileTile;
   }
 }

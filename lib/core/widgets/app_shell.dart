@@ -25,6 +25,7 @@ class _AppShellState extends State<AppShell> {
     return ColoredBox(
       color: context.elixBackground,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ElixSidebar(
             currentRoute: location,
@@ -36,7 +37,7 @@ class _AppShellState extends State<AppShell> {
               if (context.mounted) context.go('/login');
             },
           ),
-          Expanded(child: widget.child),
+          Expanded(child: ClipRect(child: widget.child)),
         ],
       ),
     );

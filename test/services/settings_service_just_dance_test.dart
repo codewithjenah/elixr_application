@@ -94,23 +94,20 @@ void main() {
     },
   );
 
-  test(
-    'falls back to the full catalog when nothing valid remains',
-    () async {
-      await settingsFile.writeAsString(
-        jsonEncode({
-          'camera_mirrored': true,
-          'dark_mode': true,
-          'just_dance_movement_names': ['Retired Legacy Movement'],
-        }),
-      );
+  test('falls back to the full catalog when nothing valid remains', () async {
+    await settingsFile.writeAsString(
+      jsonEncode({
+        'camera_mirrored': true,
+        'dark_mode': true,
+        'just_dance_movement_names': ['Retired Legacy Movement'],
+      }),
+    );
 
-      await service.initialize();
+    await service.initialize();
 
-      expect(
-        service.justDanceMovementNames,
-        movementCatalog.map((m) => m.name).toList(),
-      );
-    },
-  );
+    expect(
+      service.justDanceMovementNames,
+      movementCatalog.map((m) => m.name).toList(),
+    );
+  });
 }

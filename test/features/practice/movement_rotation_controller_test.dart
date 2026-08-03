@@ -28,32 +28,35 @@ const _movements = [
 
 void main() {
   group('MovementRotationController', () {
-    test('advances to the next movement after the interval and loops', () async {
-      final controller = MovementRotationController(
-        movements: _movements,
-        intervalSeconds: 1,
-        tick: const Duration(milliseconds: 100),
-      );
-      addTearDown(controller.dispose);
+    test(
+      'advances to the next movement after the interval and loops',
+      () async {
+        final controller = MovementRotationController(
+          movements: _movements,
+          intervalSeconds: 1,
+          tick: const Duration(milliseconds: 100),
+        );
+        addTearDown(controller.dispose);
 
-      controller.start();
-      expect(controller.currentMovement?.name, 'A');
-      expect(controller.nextMovement?.name, 'B');
-      expect(controller.isRunning, isTrue);
+        controller.start();
+        expect(controller.currentMovement?.name, 'A');
+        expect(controller.nextMovement?.name, 'B');
+        expect(controller.isRunning, isTrue);
 
-      await Future.delayed(const Duration(milliseconds: 1300));
-      expect(controller.currentMovement?.name, 'B');
+        await Future.delayed(const Duration(milliseconds: 1300));
+        expect(controller.currentMovement?.name, 'B');
 
-      await Future.delayed(const Duration(milliseconds: 1300));
-      expect(controller.currentMovement?.name, 'C');
+        await Future.delayed(const Duration(milliseconds: 1300));
+        expect(controller.currentMovement?.name, 'C');
 
-      await Future.delayed(const Duration(milliseconds: 1300));
-      expect(
-        controller.currentMovement?.name,
-        'A',
-        reason: 'rotation loops back to the start of the setlist',
-      );
-    });
+        await Future.delayed(const Duration(milliseconds: 1300));
+        expect(
+          controller.currentMovement?.name,
+          'A',
+          reason: 'rotation loops back to the start of the setlist',
+        );
+      },
+    );
 
     test('pause freezes progress and resume continues advancing', () async {
       final controller = MovementRotationController(
