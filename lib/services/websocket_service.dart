@@ -52,9 +52,10 @@ class WebSocketService extends ChangeNotifier {
   Future<CommandAck>? _inFlightStop;
   String? _inFlightStopSessionId;
 
-  /// Stops for a different session wait here until the in-flight stop settles.
+  /// Stops for a different session wait here until earlier stops settle.
   final List<_QueuedStopRequest> _queuedStops = [];
   bool _stopQueueDrainScheduled = false;
+  bool _stopQueueDraining = false;
 
   static const int _maxTrackedProtocolErrors = 20;
   static const int _maxIdLength = 128;
@@ -236,15 +237,37 @@ class WebSocketService extends ChangeNotifier {
       }
     }
 
-    if (_hasDifferentSessionStopInFlight(resolvedSessionId)) {
+    if (_mustQueueStopBehindExistingWork(resolvedSessionId)) {
+      _clearCurrentSessionIfStopping(resolvedSessionId);
       final completer = Completer<CommandAck>();
       _queuedStops.add(
         _QueuedStopRequest(sessionId: resolvedSessionId, completer: completer),
       );
+      _scheduleStopQueueDrain();
       return completer.future;
     }
 
+    _clearCurrentSessionIfStopping(resolvedSessionId);
     return _startStop(resolvedSessionId);
+  }
+
+  /// Non-empty queue or a different-session in-flight stop blocks new stops.
+  bool _mustQueueStopBehindExistingWork(String sessionId) {
+    if (_queuedStops.isNotEmpty) {
+      return true;
+    }
+    return _hasDifferentSessionStopInFlight(sessionId);
+  }
+
+  /// Clears current-session identity on the first stop request for that session.
+  void _clearCurrentSessionIfStopping(String resolvedSessionId) {
+    if (_currentSessionId != resolvedSessionId) {
+      return;
+    }
+    _currentSessionId = null;
+    _sessionPrepared = false;
+    _sessionActive = false;
+    if (!_disposing) notifyListeners();
   }
 
   bool _hasDifferentSessionStopInFlight(String sessionId) {
@@ -260,13 +283,6 @@ class WebSocketService extends ChangeNotifier {
   }
 
   Future<CommandAck> _startStop(String resolvedSessionId) {
-    if (_currentSessionId == resolvedSessionId) {
-      _currentSessionId = null;
-      _sessionPrepared = false;
-      _sessionActive = false;
-      if (!_disposing) notifyListeners();
-    }
-
     final future =
         _sendTrackedCommand(
           action: 'stop',
@@ -299,6 +315,16 @@ class WebSocketService extends ChangeNotifier {
   }
 
   Future<void> _drainStopQueue() async {
+    if (_stopQueueDraining) return;
+    _stopQueueDraining = true;
+    try {
+      await _drainStopQueueBody();
+    } finally {
+      _stopQueueDraining = false;
+    }
+  }
+
+  Future<void> _drainStopQueueBody() async {
     while (_queuedStops.isNotEmpty) {
       if (!isConnected || _outboundSink == null) {
         _failQueuedStops(CommandDisconnectedException('', 'stop'));
@@ -822,6 +848,8 @@ class WebSocketService extends ChangeNotifier {
       }
     } on CommandTimeoutException {
       // Best-effort stop during disconnect.
+    } on CommandAckMismatchException {
+      // Stop ack did not match; session identity was already cleared.
     } on CommandDisconnectedException {
       // Socket may already be closing.
     }
