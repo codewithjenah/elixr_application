@@ -68,7 +68,6 @@ Future<void> _openSummary(
                 await SessionSummarySheet.show(
                   context,
                   movement: 'Basic Flip',
-                  score: assessment.finalScore,
                   durationSeconds: 45,
                   assessment: assessment,
                   onSave: onSave,
@@ -90,7 +89,9 @@ Future<void> _openSummary(
 Finder get _saveButton => find.byType(GameActionButton);
 
 void main() {
-  testWidgets('perfect assessment shows Performance section', (tester) async {
+  testWidgets('score 100 with no improvements shows great-form message', (
+    tester,
+  ) async {
     await _openSummary(
       tester,
       assessment: _assessment(
@@ -107,6 +108,10 @@ void main() {
 
     expect(find.text('Performance'), findsOneWidget);
     expect(find.text('What to Improve'), findsNothing);
+    expect(
+      find.text('Great form — no corrections needed this session!'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('perfect assessment does not show old warning messages', (
@@ -130,10 +135,73 @@ void main() {
       find.textContaining('Move your hand to the upper bottle neck'),
       findsNothing,
     );
+  });
+
+  testWidgets(
+    'score below 80 with no improvements does not show no corrections needed',
+    (tester) async {
+      await _openSummary(
+        tester,
+        assessment: _assessment(score: 55),
+        onSave: (_) async => 'session-low',
+      );
+
+      expect(
+        find.text('Great form — no corrections needed this session!'),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'score below 80 with no improvements does not mention tips below',
+    (tester) async {
+      await _openSummary(
+        tester,
+        assessment: _assessment(score: 55),
+        onSave: (_) async => 'session-low',
+      );
+
+      expect(find.textContaining('tips below'), findsNothing);
+      expect(find.textContaining('fine-tune'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'score below 80 with no improvements shows neutral performance message',
+    (tester) async {
+      await _openSummary(
+        tester,
+        assessment: _assessment(score: 55),
+        onSave: (_) async => 'session-low',
+      );
+
+      expect(find.text('Performance'), findsOneWidget);
+      expect(
+        find.textContaining('No recurring technique issue was detected'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Keep practicing to improve your overall score'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('assessment.heldSteady alone controls held-steady header', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(score: 85, heldSteady: true),
+      onSave: (_) async => 'session-held',
+    );
+
     expect(
-      find.text('Great form — no corrections needed this session!'),
+      find.text('You held "Basic Flip" steady. Well done!'),
       findsOneWidget,
     );
+    expect(find.byIcon(FluentIcons.trophy2_solid), findsOneWidget);
   });
 
   testWidgets('non-perfect assessment displays persistent improvements', (
@@ -230,7 +298,6 @@ void main() {
                   result = await SessionSummarySheet.show(
                     context,
                     movement: 'Basic Flip',
-                    score: 50,
                     durationSeconds: 45,
                     assessment: _assessment(
                       score: 50,

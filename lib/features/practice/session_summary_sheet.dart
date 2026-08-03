@@ -16,7 +16,6 @@ class SessionSummarySheet extends StatelessWidget {
   const SessionSummarySheet({
     super.key,
     required this.movement,
-    required this.score,
     required this.durationSeconds,
     required this.assessment,
     required this.onSave,
@@ -24,11 +23,9 @@ class SessionSummarySheet extends StatelessWidget {
     required this.onTryAgain,
     this.saving = false,
     this.saveError,
-    this.heldSteady = false,
   });
 
   final String movement;
-  final int score;
   final int durationSeconds;
   final SessionAssessment assessment;
   final VoidCallback onSave;
@@ -36,16 +33,17 @@ class SessionSummarySheet extends StatelessWidget {
   final VoidCallback onTryAgain;
   final bool saving;
   final String? saveError;
-  final bool heldSteady;
+
+  int get _score => assessment.finalScore;
+
+  bool get _heldSteady => assessment.heldSteady;
 
   static Future<SessionSummaryResult?> show(
     BuildContext context, {
     required String movement,
-    required int score,
     required int durationSeconds,
     required SessionAssessment assessment,
     required Future<String> Function(String? existingSessionId) onSave,
-    bool heldSteady = false,
   }) {
     return showDialog<SessionSummaryResult>(
       context: context,
@@ -60,7 +58,7 @@ class SessionSummarySheet extends StatelessWidget {
           builder: (context, setState) {
             return Stack(
               children: [
-                if (score >= 60)
+                if (assessment.finalScore >= 60)
                   const Positioned.fill(child: ConfettiOverlay()),
                 Center(
                   child: Material(
@@ -68,12 +66,10 @@ class SessionSummarySheet extends StatelessWidget {
                     child: _AnimatedEntrance(
                       child: SessionSummarySheet(
                         movement: movement,
-                        score: score,
                         durationSeconds: durationSeconds,
                         assessment: assessment,
                         saving: saving,
                         saveError: saveError,
-                        heldSteady: heldSteady,
                         onDiscard: () => Navigator.of(
                           ctx,
                           rootNavigator: true,
@@ -141,9 +137,27 @@ class SessionSummarySheet extends StatelessWidget {
           ? 'Strong score — refine the recurring tips below.'
           : 'Solid execution. Keep the consistency going.';
     }
-    if (score >= 60) return 'Good progress. A few things to fine-tune.';
-    if (score >= 40) return 'Getting there. Focus on the tips below.';
-    return 'Early stages — review the tips below and try again.';
+    if (score >= 60) {
+      return hasImprovements
+          ? 'Good progress. A few things to fine-tune below.'
+          : 'Good effort. Keep practicing to build consistency.';
+    }
+    if (score >= 40) {
+      return hasImprovements
+          ? 'Getting there. Focus on the tips below.'
+          : 'You are making progress. Keep practicing to raise your score.';
+    }
+    return hasImprovements
+        ? 'Early stages — review the tips below and try again.'
+        : 'Keep going — regular practice will help your score improve.';
+  }
+
+  static String _performanceMessage(int score) {
+    if (score >= 80) {
+      return 'Great form — no corrections needed this session!';
+    }
+    return 'No recurring technique issue was detected. '
+        'Keep practicing to improve your overall score.';
   }
 
   static Color _scoreColor(int value) {
@@ -163,8 +177,8 @@ class SessionSummarySheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final improvements = assessment.improvementMessages;
-    final scoreClr = _scoreColor(score);
-    final tier = _tier(score);
+    final scoreClr = _scoreColor(_score);
+    final tier = _tier(_score);
 
     return Container(
       width: (size.width * 0.9).clamp(320.0, 480.0),
@@ -234,7 +248,7 @@ class SessionSummarySheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              heldSteady
+              _heldSteady
                   ? FluentIcons.trophy2_solid
                   : FluentIcons.completed_solid,
               color: AppColors.success,
@@ -256,7 +270,7 @@ class SessionSummarySheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  heldSteady
+                  _heldSteady
                       ? 'You held "$movement" steady. Well done!'
                       : movement,
                   style: const TextStyle(
@@ -271,7 +285,7 @@ class SessionSummarySheet extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          RankBadge(score: score),
+          RankBadge(score: _score),
         ],
       ),
     );
@@ -295,7 +309,7 @@ class SessionSummarySheet extends StatelessWidget {
           TweenAnimationBuilder<double>(
             duration: const Duration(milliseconds: 1200),
             curve: Curves.easeOutCubic,
-            tween: Tween(begin: 0, end: score.toDouble()),
+            tween: Tween(begin: 0, end: _score.toDouble()),
             builder: (context, animatedScore, _) => SizedBox(
               width: 104,
               height: 104,
@@ -360,7 +374,7 @@ class SessionSummarySheet extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  _tierMessage(score, hasImprovements: hasImprovements),
+                  _tierMessage(_score, hasImprovements: hasImprovements),
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,
@@ -454,7 +468,7 @@ class SessionSummarySheet extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           if (improvements.isEmpty)
-            _buildAllGoodCard()
+            _buildPerformanceCard()
           else
             Flexible(child: _TipsCard(tips: improvements)),
         ],
@@ -462,7 +476,7 @@ class SessionSummarySheet extends StatelessWidget {
     );
   }
 
-  Widget _buildAllGoodCard() {
+  Widget _buildPerformanceCard() {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
@@ -485,10 +499,10 @@ class SessionSummarySheet extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Great form — no corrections needed this session!',
-              style: TextStyle(
+              _performanceMessage(_score),
+              style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textSecondary,
                 height: 1.4,

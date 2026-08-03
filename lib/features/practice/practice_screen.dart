@@ -497,10 +497,8 @@ class _PracticeScreenState extends State<PracticeScreen>
       final result = await SessionSummarySheet.show(
         context,
         movement: _movement,
-        score: summaryScore,
         durationSeconds: summaryDuration,
         assessment: sessionAssessment,
-        heldSteady: heldSteady,
         onSave: (existingSessionId) => sessionService.saveCompletedSession(
           existingSessionId: existingSessionId,
           userId: userId,
