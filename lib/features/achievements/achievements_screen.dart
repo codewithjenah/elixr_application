@@ -22,6 +22,10 @@ import 'widgets/profile_border_picker.dart';
 
 enum _AchievementFilter { all, claimable, inProgress, claimed, locked }
 
+const _kMaxContentWidth = 1120.0;
+const _kAchievementCardExtent = 168.0;
+const _kAchievementMaxCrossExtent = 380.0;
+
 class AchievementsScreen extends StatefulWidget {
   const AchievementsScreen({
     super.key,
@@ -160,6 +164,25 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     );
   }
 
+  Map<_AchievementFilter, int> get _filterCounts {
+    final views = _views;
+    return {
+      _AchievementFilter.all: views.length,
+      _AchievementFilter.claimable: views
+          .where((v) => v.state == AchievementState.claimable)
+          .length,
+      _AchievementFilter.inProgress: views
+          .where((v) => v.state == AchievementState.inProgress)
+          .length,
+      _AchievementFilter.claimed: views
+          .where((v) => v.state == AchievementState.claimed)
+          .length,
+      _AchievementFilter.locked: views
+          .where((v) => v.state == AchievementState.locked)
+          .length,
+    };
+  }
+
   List<AchievementViewData> get _filteredViews {
     final views = _views;
     return switch (_filter) {
@@ -173,6 +196,14 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       _AchievementFilter.locked =>
         views.where((v) => v.state == AchievementState.locked).toList(),
     };
+  }
+
+  double get _overallProgress {
+    if (achievementCatalog.isEmpty) return 0;
+    final claimed = _views
+        .where((v) => v.state == AchievementState.claimed)
+        .length;
+    return claimed / achievementCatalog.length;
   }
 
   Future<void> _claim(String achievementId) async {
@@ -274,6 +305,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         .length;
     final unlockedBorders = _cosmetics?.unlockedBorderIds.toSet() ?? {};
     final initials = _initials(user?.fullName ?? 'User');
+    final filterCounts = _filterCounts;
 
     return ScaffoldPage(
       header: PageHeader(
@@ -286,155 +318,143 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       ),
       content: _loadingSessions
           ? const Center(child: ProgressRing())
-          : ListView(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              children: [
-                _HeaderSummary(
-                  claimedCount: claimedCount,
-                  totalCount: achievementCatalog.length,
-                  unlockedBorderCount: unlockedBorders.length,
-                  totalBorders: profileBorderCatalog.length,
-                  initials: initials,
-                  networkImageUrl: user?.profilePictureUrl,
-                  legacyLocalPath: user?.profilePicturePath,
-                  equippedBorderId: _leaderboardEntry?.equippedBorderId,
-                  leaderboardMissing: _leaderboardMissing,
-                ),
-                if (_actionError != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  InfoBar(
-                    title: const Text('Something went wrong'),
-                    content: Text(_actionError!),
-                    severity: InfoBarSeverity.error,
-                    isLong: true,
-                    action: Button(
-                      onPressed: () {
-                        unawaited(_loadSessions(_userId));
-                        setState(() => _actionError = null);
-                      },
-                      child: const Text('Retry'),
-                    ),
-                    onClose: () => setState(() => _actionError = null),
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Achievements',
-                  style: AppTheme.headingMedium.copyWith(
-                    color: context.elixTextPrimary,
-                    fontSize: 18,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
+          : Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
+                child: ListView(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
                   children: [
-                    for (final filter in _AchievementFilter.values)
-                      ToggleButton(
-                        checked: _filter == filter,
-                        onChanged: (_) => setState(() => _filter = filter),
-                        child: Text(_filterLabel(filter)),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 900;
-                    final filtered = _filteredViews;
-                    if (filtered.isEmpty) {
-                      return Text(
-                        'No achievements in this filter.',
-                        style: AppTheme.bodySecondary.copyWith(
-                          color: context.elixTextSecondary,
+                    _HeaderSummary(
+                      claimedCount: claimedCount,
+                      totalCount: achievementCatalog.length,
+                      unlockedBorderCount: unlockedBorders.length,
+                      totalBorders: profileBorderCatalog.length,
+                      overallProgress: _overallProgress,
+                      initials: initials,
+                      networkImageUrl: user?.profilePictureUrl,
+                      legacyLocalPath: user?.profilePicturePath,
+                      equippedBorderId: _leaderboardEntry?.equippedBorderId,
+                      leaderboardMissing: _leaderboardMissing,
+                    ),
+                    if (_actionError != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      InfoBar(
+                        title: const Text('Something went wrong'),
+                        content: Text(_actionError!),
+                        severity: InfoBarSeverity.error,
+                        isLong: true,
+                        action: Button(
+                          onPressed: () {
+                            unawaited(_loadSessions(_userId));
+                            setState(() => _actionError = null);
+                          },
+                          child: const Text('Retry'),
                         ),
-                      );
-                    }
-                    if (!wide) {
-                      return Column(
-                        children: [
-                          for (final view in filtered) ...[
-                            AchievementCard(
+                        onClose: () => setState(() => _actionError = null),
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Achievements',
+                      style: AppTheme.headingMedium.copyWith(
+                        color: context.elixTextPrimary,
+                        fontSize: 18,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        for (final filter in _AchievementFilter.values)
+                          _FilterChip(
+                            label: _filterLabel(filter, filterCounts[filter]!),
+                            selected: _filter == filter,
+                            onTap: () => setState(() => _filter = filter),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Builder(
+                      builder: (context) {
+                        final filtered = _filteredViews;
+                        if (filtered.isEmpty) {
+                          return _EmptyFilterState(filter: _filter);
+                        }
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: filtered.length,
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: _kAchievementMaxCrossExtent,
+                                mainAxisExtent: _kAchievementCardExtent,
+                                mainAxisSpacing: AppSpacing.sm,
+                                crossAxisSpacing: AppSpacing.sm,
+                              ),
+                          itemBuilder: (context, index) {
+                            final view = filtered[index];
+                            return AchievementCard(
                               view: view,
                               claiming: _claimingId == view.definition.id,
                               onClaim: () => _claim(view.definition.id),
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                          ],
-                        ],
-                      );
-                    }
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: filtered.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: AppSpacing.sm,
-                            crossAxisSpacing: AppSpacing.sm,
-                            childAspectRatio: 1.35,
-                          ),
-                      itemBuilder: (context, index) {
-                        final view = filtered[index];
-                        return AchievementCard(
-                          view: view,
-                          claiming: _claimingId == view.definition.id,
-                          onClaim: () => _claim(view.definition.id),
+                            );
+                          },
                         );
                       },
-                    );
-                  },
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Profile Borders',
-                        style: AppTheme.headingMedium.copyWith(
-                          color: context.elixTextPrimary,
-                          fontSize: 18,
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Profile Borders',
+                            style: AppTheme.headingMedium.copyWith(
+                              color: context.elixTextPrimary,
+                              fontSize: 18,
+                            ),
+                          ),
                         ),
+                        UnequipBorderButton(
+                          enabled: (_leaderboardEntry?.equippedBorderId ?? '')
+                              .isNotEmpty,
+                          busy: _unequipping,
+                          onPressed: _unequip,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Achievements unlock cosmetic borders only — no XP.',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
                       ),
                     ),
-                    UnequipBorderButton(
-                      enabled: (_leaderboardEntry?.equippedBorderId ?? '')
-                          .isNotEmpty,
-                      busy: _unequipping,
-                      onPressed: _unequip,
+                    const SizedBox(height: AppSpacing.md),
+                    ProfileBorderPicker(
+                      unlockedBorderIds: unlockedBorders,
+                      equippedBorderId: _leaderboardEntry?.equippedBorderId,
+                      busyBorderId: _equippingId,
+                      onEquip: _equip,
+                      onUnequip: _unequip,
                     ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Achievements unlock cosmetic borders only — no XP.',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                ProfileBorderPicker(
-                  unlockedBorderIds: unlockedBorders,
-                  equippedBorderId: _leaderboardEntry?.equippedBorderId,
-                  busyBorderId: _equippingId,
-                  onEquip: _equip,
-                  onUnequip: _unequip,
-                ),
-              ],
+              ),
             ),
     );
   }
 
-  static String _filterLabel(_AchievementFilter filter) {
-    return switch (filter) {
+  static String _filterLabel(_AchievementFilter filter, int count) {
+    final name = switch (filter) {
       _AchievementFilter.all => 'All',
       _AchievementFilter.claimable => 'Claimable',
       _AchievementFilter.inProgress => 'In Progress',
       _AchievementFilter.claimed => 'Claimed',
       _AchievementFilter.locked => 'Locked',
     };
+    return '$name $count';
   }
 
   static String _initials(String name) {
@@ -445,12 +465,130 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   }
 }
 
+class _FilterChip extends StatefulWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_FilterChip> createState() => _FilterChipState();
+}
+
+class _FilterChipState extends State<_FilterChip> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final active = widget.selected || _hovered;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm + 2,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: widget.selected
+                ? AppColors.primary.withValues(alpha: isDark ? 0.2 : 0.12)
+                : _hovered
+                ? context.elixBorder.withValues(alpha: 0.35)
+                : context.elixCardSurface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: widget.selected
+                  ? AppColors.primary.withValues(alpha: 0.55)
+                  : active
+                  ? context.elixBorder
+                  : context.elixBorder.withValues(alpha: 0.65),
+            ),
+          ),
+          child: Text(
+            widget.label,
+            style: AppTheme.caption.copyWith(
+              fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w600,
+              color: widget.selected
+                  ? AppColors.primary
+                  : context.elixTextSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyFilterState extends StatelessWidget {
+  const _EmptyFilterState({required this.filter});
+
+  final _AchievementFilter filter;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = switch (filter) {
+      _AchievementFilter.all => 'No achievements available.',
+      _AchievementFilter.claimable =>
+        'No claimable achievements right now. Keep practicing!',
+      _AchievementFilter.inProgress =>
+        'No achievements in progress. Start a session to begin.',
+      _AchievementFilter.claimed =>
+        'No claimed achievements yet. Complete and claim your first one.',
+      _AchievementFilter.locked => 'No locked achievements in this view.',
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.lg,
+      ),
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.7)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            FluentIcons.filter,
+            size: 28,
+            color: context.elixTextSecondary.withValues(alpha: 0.7),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HeaderSummary extends StatelessWidget {
   const _HeaderSummary({
     required this.claimedCount,
     required this.totalCount,
     required this.unlockedBorderCount,
     required this.totalBorders,
+    required this.overallProgress,
     required this.initials,
     required this.networkImageUrl,
     required this.legacyLocalPath,
@@ -462,6 +600,7 @@ class _HeaderSummary extends StatelessWidget {
   final int totalCount;
   final int unlockedBorderCount;
   final int totalBorders;
+  final double overallProgress;
   final String initials;
   final String? networkImageUrl;
   final String? legacyLocalPath;
@@ -474,43 +613,165 @@ class _HeaderSummary extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: context.elixBorder.withValues(alpha: 0.7)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ProfileAvatarWidget(
-            networkImageUrl: networkImageUrl,
-            legacyLocalPath: legacyLocalPath,
-            initials: initials,
-            radius: 36,
-            equippedBorderId: equippedBorderId,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ProfileAvatarWidget(
+                networkImageUrl: networkImageUrl,
+                legacyLocalPath: legacyLocalPath,
+                initials: initials,
+                radius: 32,
+                equippedBorderId: equippedBorderId,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    _StatBlock(
+                      label: 'Claimed',
+                      value: '$claimedCount / $totalCount',
+                      icon: FluentIcons.trophy2,
+                      color: AppColors.primary,
+                    ),
+                    _StatBlock(
+                      label: 'Borders',
+                      value: '$unlockedBorderCount / $totalBorders',
+                      icon: FluentIcons.contact,
+                      color: AppColors.accent,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Text(
+                'Overall progress',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: SizedBox(
+                    height: 5,
+                    child: Stack(
+                      children: [
+                        Container(
+                          color: context.elixBorder.withValues(alpha: 0.45),
+                        ),
+                        FractionallySizedBox(
+                          widthFactor: overallProgress.clamp(0.0, 1.0),
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [AppColors.primary, AppColors.accent],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                '${(overallProgress * 100).round()}%',
+                style: AppTheme.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextPrimary,
+                ),
+              ),
+            ],
+          ),
+          if (leaderboardMissing) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Claimed $claimedCount / $totalCount',
-                  style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Unlocked borders $unlockedBorderCount / $totalBorders',
-                  style: AppTheme.bodySecondary.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                if (leaderboardMissing) ...[
-                  const SizedBox(height: 6),
-                  Text(
+                Icon(FluentIcons.warning, size: 14, color: AppColors.warning),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
                     'No leaderboard profile yet — complete a session to equip borders publicly.',
-                    style: AppTheme.caption.copyWith(color: AppColors.warning),
+                    style: AppTheme.caption.copyWith(
+                      color: AppColors.warning,
+                      height: 1.3,
+                    ),
                   ),
-                ],
+                ),
               ],
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StatBlock extends StatelessWidget {
+  const _StatBlock({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm + 2,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: context.isDarkTheme ? 0.1 : 0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: AppTheme.caption.copyWith(
+                  fontSize: 10,
+                  color: context.elixTextSecondary,
+                ),
+              ),
+              Text(
+                value,
+                style: AppTheme.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextPrimary,
+                ),
+              ),
+            ],
           ),
         ],
       ),

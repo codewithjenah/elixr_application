@@ -7,7 +7,7 @@ import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/achievement.dart';
 import '../../../data/models/profile_border.dart';
 
-class AchievementCard extends StatelessWidget {
+class AchievementCard extends StatefulWidget {
   const AchievementCard({
     super.key,
     required this.view,
@@ -20,176 +20,309 @@ class AchievementCard extends StatelessWidget {
   final VoidCallback onClaim;
 
   @override
-  Widget build(BuildContext context) {
-    final state = view.state;
-    final locked = state == AchievementState.locked;
-    final claimable = state == AchievementState.claimable;
-    final claimed = state == AchievementState.claimed;
-    final border = profileBorderById(view.definition.rewardBorderId);
+  State<AchievementCard> createState() => _AchievementCardState();
+}
 
-    return Opacity(
-      opacity: locked ? 0.72 : 1,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: context.elixCardSurface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: claimable
-                ? AppColors.primary.withValues(alpha: 0.55)
-                : claimed
-                ? AppColors.success.withValues(alpha: 0.4)
-                : context.elixBorder.withValues(alpha: 0.7),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ProfileBorderFrame(
-                  size: 44,
-                  equippedBorderId: view.definition.rewardBorderId,
-                  child: Container(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    child: Icon(
-                      FluentIcons.trophy2,
-                      size: 20,
-                      color: locked
-                          ? context.elixTextSecondary
-                          : AppColors.primary,
+class _AchievementCardState extends State<AchievementCard> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  bool get _locked => widget.view.state == AchievementState.locked;
+  bool get _claimable => widget.view.state == AchievementState.claimable;
+  bool get _claimed => widget.view.state == AchievementState.claimed;
+  bool get _interactive => _claimable && !widget.claiming;
+
+  Color _accentColor(BuildContext context) {
+    return switch (widget.view.state) {
+      AchievementState.claimable => AppColors.primary,
+      AchievementState.claimed => AppColors.success,
+      AchievementState.inProgress => AppColors.warning,
+      AchievementState.locked => context.elixTextSecondary,
+    };
+  }
+
+  String get _semanticAction {
+    if (_claimable && !widget.claiming) return 'Claim achievement';
+    if (_claimed) return 'Claimed';
+    if (_locked) return 'Locked';
+    return 'In progress';
+  }
+
+  void _handleClaim() {
+    if (!_interactive) return;
+    widget.onClaim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.view.state;
+    final accent = _accentColor(context);
+    final border = profileBorderById(widget.view.definition.rewardBorderId);
+    final active = _interactive && (_hovered || _focused);
+    final isDark = context.isDarkTheme;
+
+    return Semantics(
+      button: _interactive,
+      enabled: !_locked,
+      label:
+          '${widget.view.definition.title}. '
+          '${_stateLabel(state)}. '
+          '${widget.view.progress.current} of ${widget.view.progress.target}. '
+          '$_semanticAction',
+      child: FocusableActionDetector(
+        enabled: _interactive,
+        onShowFocusHighlight: (focused) {
+          setState(() => _focused = focused);
+        },
+        mouseCursor: _interactive
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        actions: _interactive
+            ? <Type, Action<Intent>>{
+                ActivateIntent: CallbackAction<ActivateIntent>(
+                  onInvoke: (_) {
+                    _handleClaim();
+                    return null;
+                  },
+                ),
+              }
+            : const <Type, Action<Intent>>{},
+        child: MouseRegion(
+          onEnter: (_) {
+            if (_interactive) setState(() => _hovered = true);
+          },
+          onExit: (_) => setState(() => _hovered = false),
+          cursor: _interactive
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          child: GestureDetector(
+            onTap: _interactive ? _handleClaim : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              transform: Matrix4.translationValues(0, active ? -2.0 : 0.0, 0),
+              decoration: BoxDecoration(
+                color: active
+                    ? accent.withValues(alpha: isDark ? 0.08 : 0.05)
+                    : context.elixCardSurface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _claimable
+                      ? accent.withValues(alpha: active ? 0.65 : 0.45)
+                      : _claimed
+                      ? accent.withValues(alpha: active ? 0.5 : 0.35)
+                      : active
+                      ? accent.withValues(alpha: 0.4)
+                      : context.elixBorder.withValues(alpha: isDark ? 0.7 : 1),
+                  width: _focused ? 1.6 : 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: isDark
+                          ? (active ? 0.3 : 0.16)
+                          : (active ? 0.1 : 0.05),
                     ),
+                    blurRadius: active ? 12 : 6,
+                    offset: Offset(0, active ? 4 : 2),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        view.definition.title,
-                        style: AppTheme.body.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: context.elixTextPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _categoryLabel(view.definition.category),
-                        style: AppTheme.caption.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _StateChip(state: state),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              view.definition.description,
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
-                fontSize: 13,
+                ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${view.progress.current} / ${view.progress.target}',
-                    style: AppTheme.caption.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ),
-                if (border != null)
-                  Text(
-                    border.displayName,
-                    style: AppTheme.caption.copyWith(
-                      color: Color(border.primaryColorValue),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: SizedBox(
-                height: 6,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
                 child: Stack(
                   children: [
-                    Container(
-                      color: context.elixBorder.withValues(alpha: 0.45),
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: Container(width: 3, color: accent),
                     ),
-                    FractionallySizedBox(
-                      widthFactor: view.progress.normalizedProgress,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [AppColors.primary, AppColors.accent],
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ProfileBorderFrame(
+                                size: 36,
+                                equippedBorderId:
+                                    widget.view.definition.rewardBorderId,
+                                child: ColoredBox(
+                                  color: accent.withValues(alpha: 0.18),
+                                  child: Center(
+                                    child: Icon(
+                                      FluentIcons.trophy2,
+                                      size: 18,
+                                      color: _locked
+                                          ? context.elixTextPrimary.withValues(
+                                              alpha: 0.55,
+                                            )
+                                          : accent,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      widget.view.definition.title,
+                                      style: AppTheme.body.copyWith(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: context.elixTextPrimary,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      _categoryLabel(
+                                        widget.view.definition.category,
+                                      ),
+                                      style: AppTheme.caption.copyWith(
+                                        fontSize: 10,
+                                        color: AppColors.accent,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              _StateChip(state: state),
+                            ],
                           ),
-                        ),
+                          const SizedBox(height: 6),
+                          Text(
+                            widget.view.definition.description,
+                            style: AppTheme.bodySecondary.copyWith(
+                              color: context.elixTextSecondary,
+                              fontSize: 12,
+                              height: 1.3,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const Spacer(),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(3),
+                            child: SizedBox(
+                              height: 4,
+                              child: Stack(
+                                children: [
+                                  Container(
+                                    color: context.elixBorder.withValues(
+                                      alpha: 0.45,
+                                    ),
+                                  ),
+                                  FractionallySizedBox(
+                                    widthFactor:
+                                        widget.view.progress.normalizedProgress,
+                                    child: Container(color: accent),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Text(
+                                '${widget.view.progress.current} / ${widget.view.progress.target}',
+                                style: AppTheme.caption.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: context.elixTextSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              if (border != null) ...[
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  child: Text(
+                                    border.displayName,
+                                    textAlign: TextAlign.end,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTheme.caption.copyWith(
+                                      color: Color(border.primaryColorValue),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(width: AppSpacing.sm),
+                              _buildFooterAction(context, accent),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
-            if (claimable)
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: claiming ? null : onClaim,
-                  child: claiming
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: ProgressRing(strokeWidth: 2),
-                        )
-                      : const Text('Claim'),
-                ),
-              )
-            else if (claimed)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Claimed',
-                  style: AppTheme.caption.copyWith(
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              )
-            else
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                alignment: Alignment.center,
-                child: Text(
-                  locked ? 'Locked' : 'In progress',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildFooterAction(BuildContext context, Color accent) {
+    if (_claimable) {
+      return FilledButton(
+        onPressed: widget.claiming ? null : _handleClaim,
+        style: ButtonStyle(
+          padding: WidgetStateProperty.all(
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          ),
+        ),
+        child: widget.claiming
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: ProgressRing(strokeWidth: 2),
+              )
+            : const Text('Claim', style: TextStyle(fontSize: 11)),
+      );
+    }
+
+    final (label, color) = switch (widget.view.state) {
+      AchievementState.claimed => ('Claimed', AppColors.success),
+      AchievementState.locked => ('Locked', context.elixTextSecondary),
+      AchievementState.inProgress => ('In progress', AppColors.warning),
+      AchievementState.claimable => ('Claimable', AppColors.primary),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  static String _stateLabel(AchievementState state) {
+    return switch (state) {
+      AchievementState.locked => 'Locked',
+      AchievementState.inProgress => 'In progress',
+      AchievementState.claimable => 'Claimable',
+      AchievementState.claimed => 'Claimed',
+    };
   }
 
   static String _categoryLabel(AchievementCategory category) {
@@ -218,16 +351,16 @@ class _StateChip extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withValues(alpha: 0.45)),
       ),
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: FontWeight.w700,
           color: color,
         ),
