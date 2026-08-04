@@ -13,6 +13,7 @@ from assessment.hold_validator import HoldValidator
 from assessment.rule_engine import (
     evaluate_movement,
     movement_is_prop_detection_only,
+    movement_required_prop_type,
     movement_requires_hands,
     movement_requires_pose,
     validate_movement_difficulty,
@@ -39,6 +40,7 @@ from schemas.feedback import FeedbackMessage
 from schemas.protocol import CommandAck, ProtocolError
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
+from vision.dual_prop_detector import DualPropDetector
 from vision.prop_detector import PropDetector
 from vision.camera import (
     CameraCapture,
@@ -209,7 +211,11 @@ def parse_prop_type(raw: Any) -> tuple[PropType, str | None]:
     """Parse the optional prop field used by legacy prepare/start payloads."""
     if raw is None:
         return "bottle", None
-    if isinstance(raw, str) and raw.strip() in {"bottle", "shaker"}:
+    if isinstance(raw, str) and raw.strip() in {
+        "bottle",
+        "shaker",
+        "bottle_and_shaker",
+    }:
         return raw.strip(), None
     return "bottle", "invalid_prop_type"
 
@@ -325,7 +331,11 @@ def _human_error_message(error_code: str) -> str:
         "invalid_camera_device_id": "Invalid camera_device_id.",
         "invalid_camera_index": "Invalid camera_index.",
         "invalid_prop_type": (
-            "Invalid prop_type. Choose 'bottle' or 'shaker'."
+            "Invalid prop_type. Choose 'bottle', 'shaker', or 'bottle_and_shaker'."
+        ),
+        "movement_prop_mismatch": (
+            "This movement requires a specific prop selection. Choose the "
+            "prop combination configured for this movement."
         ),
         "camera_unavailable": (
             "No usable camera is available. Check that a camera is connected "
@@ -357,14 +367,16 @@ class VisionSession:
         bottle_detection_enabled: bool = True,
         session_id: str | None = None,
     ):
-        if prop_type not in {"bottle", "shaker"}:
+        if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
 
         self.movement = movement
         self.prop_type = prop_type
-        self.prop_display_name = (
-            "Cocktail Shaker" if prop_type == "shaker" else "Bottle"
-        )
+        self.prop_display_name = {
+            "shaker": "Cocktail Shaker",
+            "bottle_and_shaker": "Bottle + Cocktail Shaker",
+        }.get(prop_type, "Bottle")
+        self._is_dual_prop = prop_type == "bottle_and_shaker"
         self.camera_index = camera_index
         self.camera_device_id = camera_device_id
         self.bottle_detection_enabled = bottle_detection_enabled
@@ -378,6 +390,16 @@ class VisionSession:
         # bottle wrapper for compatibility with older tests/scripts.
         if prop_type == "bottle":
             self.prop_detector = BottleDetector(enabled=bottle_detection_enabled)
+        elif self._is_dual_prop:
+            self.prop_detector = DualPropDetector(
+                enabled=bottle_detection_enabled,
+                bottle_detector=PropDetector(
+                    prop_type="bottle", enabled=bottle_detection_enabled
+                ),
+                shaker_detector=PropDetector(
+                    prop_type="shaker", enabled=bottle_detection_enabled
+                ),
+            )
         else:
             self.prop_detector = PropDetector(
                 prop_type=prop_type,
@@ -403,6 +425,7 @@ class VisionSession:
 
         self._frame_index = 0
         self._last_bottles: list[PropDetection] = []
+        self._last_shakers: list[PropDetection] = []
 
         # Do not cache hands landmarks.
         # Hands move fast, and caching causes ghost/stuck finger dots.
@@ -467,6 +490,9 @@ class VisionSession:
         self._prev_hip_center = None
         self._movement_state = None
         self._last_bottles = []
+        self._last_shakers = []
+        if self._is_dual_prop:
+            self.prop_detector.reset_cache()
         self._frame_index = 0
         self._lifecycle = SESSION_ACTIVE
         return True
@@ -664,19 +690,37 @@ class VisionSession:
         run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
 
         bottles = self._last_bottles
+        shakers = self._last_shakers
 
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
-            bottles = self.prop_detector.detect(frame)
+            if self._is_dual_prop:
+                dual_result = self.prop_detector.detect(frame)
+                bottles = dual_result.bottles
+                shakers = dual_result.shakers
+            else:
+                bottles = self.prop_detector.detect(frame)
             self.timings.add("yolo", time.perf_counter() - t0)
             self._last_bottles = bottles
+            self._last_shakers = shakers
         elif not self.bottle_detection_enabled:
             bottles = []
+            shakers = []
             self._last_bottles = []
+            self._last_shakers = []
 
         # Score on the highest-confidence bottle for single-bottle movements.
         # Double Hand Stall also receives the full detection list via `bottles`.
         bottle = bottles[0] if bottles else None
+        shaker = shakers[0] if shakers else None
+        # The hand is holding the shaker for the dual-prop movement, so prefer
+        # it as the hand-detector reference; fall back to the bottle if the
+        # shaker is not currently detected.
+        hand_reference = (
+            (shaker if shaker is not None else bottle)
+            if self._is_dual_prop
+            else bottle
+        )
 
         # Important fix:
         # Do not use previous hand landmarks when the current frame has no hand.
@@ -686,7 +730,7 @@ class VisionSession:
             t0 = time.perf_counter()
             hands = self.hands_detector.detect(
                 frame,
-                bottle=bottle,
+                bottle=hand_reference,
             )
             self.timings.add("hands", time.perf_counter() - t0)
         else:
@@ -711,6 +755,7 @@ class VisionSession:
             bottles=bottles if self.bottle_detection_enabled else None,
             prop_type=self.prop_type,
             prop_label=self.prop_display_name,
+            shakers=shakers if (self._is_dual_prop and self.bottle_detection_enabled) else None,
         )
         self.timings.add("evaluate", time.perf_counter() - t0)
 
@@ -723,10 +768,14 @@ class VisionSession:
             timestamp=time.monotonic(),
         )
 
+        # Combine both detection lists only for drawing; movement evaluation
+        # above kept bottles and shakers separate.
+        boxes_to_draw = bottles + shakers if self._is_dual_prop else bottles
+
         t0 = time.perf_counter()
         annotated = annotate_frame(
             frame,
-            bottles,
+            boxes_to_draw,
             hands,
             rule_result.feedback,
             rule_result.feedback_type,
@@ -747,10 +796,18 @@ class VisionSession:
 
         t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
+        if self._is_dual_prop:
+            # bottle_detected represents whether all required props are
+            # currently present; bottle_count carries the combined count.
+            detected = len(bottles) > 0 and len(shakers) > 0
+            combined_count = len(bottles) + len(shakers)
+        else:
+            detected = len(bottles) > 0
+            combined_count = len(bottles)
         message = self._stamp(
             FeedbackMessage(
-                bottle_detected=len(bottles) > 0,
-                bottle_count=len(bottles),
+                bottle_detected=detected,
+                bottle_count=combined_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
                 score=self.scorer.score,
@@ -1287,6 +1344,23 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
         assert auth_difficulty is not None
+
+        required_prop_type = movement_required_prop_type(command.movement)
+        if required_prop_type is not None and command.prop_type != required_prop_type:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=_public_session_state(
+                    session_ref.get("session"),
+                    current_session_id=current_session_id,
+                ),
+                error_code="movement_prop_mismatch",
+                message=_human_error_message("movement_prop_mismatch"),
+            )
+            return
+
         movement = command.movement
         difficulty = auth_difficulty
         start_active = command.action == "start"
@@ -1539,6 +1613,24 @@ async def websocket_endpoint(websocket: WebSocket):
             camera_index = parsed["camera_index"]
             bottle_detection_enabled = parsed["bottle_detection_enabled"]
             start_active = action == "start"
+
+            required_prop_type = movement_required_prop_type(movement)
+            if required_prop_type is not None and prop_type != required_prop_type:
+                error = FeedbackMessage(
+                    bottle_detected=False,
+                    prop_type=prop_type,
+                    movement=movement,
+                    score=0,
+                    feedback=_human_error_message("movement_prop_mismatch"),
+                    feedback_type="error",
+                    posture_status="unknown",
+                    frame_jpeg_base64=None,
+                    error_code="movement_prop_mismatch",
+                    camera_ready=False,
+                    session_state="unavailable",
+                )
+                await safe_send(error.model_dump_json())
+                return
 
             await start_session_loop(
                 movement_name=movement,

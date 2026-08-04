@@ -1,4 +1,7 @@
 import '../../data/models/movement.dart';
+import '../../data/models/training_prop.dart';
+
+const _bottleOrShaker = [TrainingProp.bottle, TrainingProp.shaker];
 
 const movementCatalog = <Movement>[
   Movement(
@@ -36,6 +39,7 @@ const movementCatalog = <Movement>[
     description: 'Balance the bottle on your open palm.',
     requiresHandsDetection: true,
     enabled: true,
+    supportedProps: _bottleOrShaker,
   ),
   Movement(
     name: 'One Finger Stall',
@@ -44,6 +48,7 @@ const movementCatalog = <Movement>[
         'Balance the selected prop upright on one extended index finger.',
     requiresHandsDetection: true,
     enabled: true,
+    supportedProps: _bottleOrShaker,
   ),
   Movement(
     name: 'Forearm Stall',
@@ -51,6 +56,7 @@ const movementCatalog = <Movement>[
     description: 'Balance the bottle on your forearm.',
     requiresHandsDetection: true,
     enabled: true,
+    supportedProps: _bottleOrShaker,
   ),
   Movement(
     name: 'Elbow Stall',
@@ -58,6 +64,7 @@ const movementCatalog = <Movement>[
     description: 'Balance the bottle on your elbow crease.',
     requiresHandsDetection: true,
     enabled: true,
+    supportedProps: _bottleOrShaker,
   ),
   Movement(
     name: 'Reverse Forearm Stall',
@@ -81,6 +88,15 @@ const movementCatalog = <Movement>[
         'Balance two bottles simultaneously, with one upright bottle on each open palm.',
     requiresHandsDetection: true,
     enabled: true,
+  ),
+  Movement(
+    name: 'Bottle in a tin',
+    difficulty: 'Hard',
+    description:
+        'Balance an upright bottle steadily on a horizontally held cocktail shaker.',
+    requiresHandsDetection: true,
+    enabled: true,
+    supportedProps: [TrainingProp.bottleAndShaker],
   ),
 ];
 

@@ -20,7 +20,7 @@ MAX_MOVEMENT_LENGTH = 128
 MAX_DIFFICULTY_LENGTH = 64
 MAX_DEVICE_ID_LENGTH = 1024
 MAX_CAMERA_INDEX = 10
-PropType = Literal["bottle", "shaker"]
+PropType = Literal["bottle", "shaker", "bottle_and_shaker"]
 
 NonEmptyId = Annotated[str, Field(min_length=1, max_length=MAX_ID_LENGTH)]
 

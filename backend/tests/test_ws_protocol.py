@@ -67,6 +67,25 @@ class StubBottleDetector:
         return []
 
 
+class StubPropDetector:
+    """Stands in for vision.prop_detector.PropDetector inside DualPropDetector."""
+
+    instances: list["StubPropDetector"] = []
+
+    def __init__(self, prop_type: str = "bottle", enabled: bool = True, **kwargs):
+        self.prop_type = prop_type
+        self.enabled = enabled
+        self.detect_calls = 0
+        StubPropDetector.instances.append(self)
+
+    def ensure_ready(self):
+        pass
+
+    def detect(self, current_frame):
+        self.detect_calls += 1
+        return []
+
+
 class StubHandsDetector:
     def __init__(self, **kwargs):
         pass
@@ -93,8 +112,10 @@ def _patch_vision(monkeypatch):
     StubCamera.open_calls = 0
     StubCamera.open_result = True
     StubCamera.instances = []
+    StubPropDetector.instances = []
     monkeypatch.setattr(websocket_api, "CameraCapture", StubCamera)
     monkeypatch.setattr(websocket_api, "BottleDetector", StubBottleDetector)
+    monkeypatch.setattr(websocket_api, "PropDetector", StubPropDetector)
     monkeypatch.setattr(websocket_api, "HandsDetector", StubHandsDetector)
     monkeypatch.setattr(websocket_api, "PoseDetector", StubPoseDetector)
     monkeypatch.setattr(
@@ -128,7 +149,7 @@ def test_valid_prepare_command_parses():
     assert cmd.prop_type == "bottle"
 
 
-@pytest.mark.parametrize("prop_type", ["bottle", "shaker"])
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker", "bottle_and_shaker"])
 def test_prepare_and_start_accept_supported_props(prop_type):
     prepare = parse_v1_command(_prepare_payload(prop_type=prop_type))
     start = parse_v1_command(
@@ -170,6 +191,107 @@ def test_unknown_prop_is_rejected_with_structured_ack(monkeypatch):
         assert "bottle" in ack["message"]
         assert StubCamera.open_calls == 0
 
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("bad_value", ["cup", "bottle_and_shakerx", "", "BOTTLE"])
+def test_malformed_and_unknown_prop_values_remain_rejected(bad_value):
+    with pytest.raises(ValidationError):
+        PrepareCommand.model_validate(_prepare_payload(prop_type=bad_value))
+
+
+def test_bottle_in_a_tin_rejects_bottle_only_prop(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            _prepare_payload(
+                movement="Bottle in a tin",
+                difficulty="Hard",
+                prop_type="bottle",
+            )
+        )
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "movement_prop_mismatch"
+        assert StubCamera.open_calls == 0
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_bottle_in_a_tin_rejects_shaker_only_prop(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            _prepare_payload(
+                movement="Bottle in a tin",
+                difficulty="Hard",
+                prop_type="shaker",
+            )
+        )
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "movement_prop_mismatch"
+        assert StubCamera.open_calls == 0
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_bottle_in_a_tin_accepts_bottle_and_shaker_prop(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            _prepare_payload(
+                movement="Bottle in a tin",
+                difficulty="Hard",
+                prop_type="bottle_and_shaker",
+            )
+        )
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is True
+        assert StubCamera.open_calls == 1
+        # Both the bottle and shaker YOLO models must have been constructed.
+        assert len(StubPropDetector.instances) == 2
+        assert {d.prop_type for d in StubPropDetector.instances} == {
+            "bottle",
+            "shaker",
+        }
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_single_prop_movement_still_initializes_only_one_model(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(_prepare_payload(prop_type="shaker"))
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is True
+        assert len(StubPropDetector.instances) == 1
+        assert StubPropDetector.instances[0].prop_type == "shaker"
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)
 

@@ -50,6 +50,10 @@ _POSTURE_SUCCESS: dict[str, str] = {
         "Both hands look ready for a double hand stall. "
         "Enable bottle detection for complete scoring."
     ),
+    "Bottle in a tin": (
+        "Hand looks ready to support the shaker. "
+        "Enable prop detection for complete scoring."
+    ),
 }
 
 

@@ -1,6 +1,10 @@
 enum TrainingProp {
   bottle(protocolValue: 'bottle', displayLabel: 'Bottle'),
-  shaker(protocolValue: 'shaker', displayLabel: 'Cocktail Shaker');
+  shaker(protocolValue: 'shaker', displayLabel: 'Cocktail Shaker'),
+  bottleAndShaker(
+    protocolValue: 'bottle_and_shaker',
+    displayLabel: 'Bottle + Cocktail Shaker',
+  );
 
   const TrainingProp({required this.protocolValue, required this.displayLabel});
 
@@ -12,6 +16,7 @@ enum TrainingProp {
     return switch (normalized) {
       'bottle' => TrainingProp.bottle,
       'shaker' => TrainingProp.shaker,
+      'bottle_and_shaker' => TrainingProp.bottleAndShaker,
       _ => TrainingProp.bottle,
     };
   }

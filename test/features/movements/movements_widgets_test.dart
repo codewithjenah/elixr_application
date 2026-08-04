@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/movement.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/movements/movements_presentation.dart';
 import 'package:elixr_application/features/movements/widgets/movement_card.dart';
 import 'package:elixr_application/features/movements/widgets/movement_difficulty_section.dart';
@@ -107,6 +108,7 @@ const mediumMovement = Movement(
   description: 'Balance the bottle on your open palm.',
   requiresHandsDetection: true,
   enabled: true,
+  supportedProps: [TrainingProp.bottle, TrainingProp.shaker],
 );
 
 const hardMovement = Movement(
@@ -115,6 +117,16 @@ const hardMovement = Movement(
   description: 'Balance the bottle steadily on either shoulder.',
   requiresHandsDetection: true,
   enabled: true,
+);
+
+const bottleInATinMovement = Movement(
+  name: 'Bottle in a tin',
+  difficulty: 'Hard',
+  description:
+      'Balance an upright bottle steadily on a horizontally held cocktail shaker.',
+  requiresHandsDetection: true,
+  enabled: true,
+  supportedProps: [TrainingProp.bottleAndShaker],
 );
 
 void main() {
@@ -376,6 +388,62 @@ void main() {
       expect(navigated.single, contains('movement=Hand%20Stall'));
       expect(navigated.single, contains('difficulty=Medium'));
       expect(navigated.single, contains('prop=shaker'));
+      expect(find.text('Practice screen'), findsOneWidget);
+    });
+
+    testWidgets('Bottle in a tin shows a fixed Bottle + Shaker action', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: bottleInATinMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Start with Bottle + Cocktail Shaker'), findsOneWidget);
+      expect(find.text('Practice with'), findsNothing);
+      expect(find.text('Choose a prop'), findsNothing);
+      expect(find.text('Start practice'), findsNothing);
+      expect(find.text('Practice again'), findsNothing);
+    });
+
+    testWidgets('Bottle in a tin tap navigates with prop=bottle_and_shaker', (
+      tester,
+    ) async {
+      final navigated = <String>[];
+      late final GoRouter router;
+      router = practiceTrackingRouter(
+        home: ScaffoldPage(
+          content: const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: bottleInATinMovement,
+              sessionCount: 1,
+              avgScore: 90,
+            ),
+          ),
+        ),
+        navigatedLocations: navigated,
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(wrapWithRouter(router: router));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Start with Bottle + Cocktail Shaker'));
+      await tester.pumpAndSettle();
+
+      expect(navigated, hasLength(1));
+      expect(navigated.single, contains('movement=Bottle%20in%20a%20tin'));
+      expect(navigated.single, contains('difficulty=Hard'));
+      expect(navigated.single, contains('prop=bottle_and_shaker'));
       expect(find.text('Practice screen'), findsOneWidget);
     });
 

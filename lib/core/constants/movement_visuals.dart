@@ -14,6 +14,7 @@ abstract final class MovementVisuals {
     'Reverse Forearm Stall': '🆙',
     'Shoulder Stall': '🧍',
     'Double Hand Stall': '🙌',
+    'Bottle in a tin': '🍾🍸',
     // Legacy movements kept only for historical session display.
     'Arm Stall': '💪',
     'Upper Forearm Stall': '🆙',

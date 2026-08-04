@@ -30,15 +30,28 @@ class _MovementCardState extends State<MovementCard> {
   bool _hovered = false;
   bool _focused = false;
   bool _ctaHovered = false;
-  bool _bottleHovered = false;
-  bool _shakerHovered = false;
-  bool _bottleFocused = false;
-  bool _shakerFocused = false;
+  final Map<TrainingProp, bool> _propHovered = {};
+  final Map<TrainingProp, bool> _propFocused = {};
   bool _activating = false;
 
   bool get _enabled => widget.movement.enabled;
   bool get _practiced => widget.sessionCount > 0;
-  bool get _isMedium => widget.movement.difficulty == 'Medium';
+
+  /// Props this movement can be practiced with, per movement metadata.
+  List<TrainingProp> get _supportedProps => widget.movement.supportedProps;
+
+  /// True when the movement offers a choice between multiple props, shown
+  /// as separate action chips rather than a single call-to-action button.
+  bool get _hasPropChoice => _supportedProps.length > 1;
+
+  /// The single prop used when the movement does not offer a choice.
+  TrainingProp get _singleProp =>
+      _supportedProps.length == 1 ? _supportedProps.first : TrainingProp.bottle;
+
+  /// True when the movement's one fixed prop is not the default Bottle,
+  /// e.g. a movement that always requires Bottle + Cocktail Shaker.
+  bool get _requiresFixedNonDefaultProp =>
+      !_hasPropChoice && _singleProp != TrainingProp.bottle;
 
   Color get _accent => difficultyAccentColor(widget.movement.difficulty);
 
@@ -50,21 +63,25 @@ class _MovementCardState extends State<MovementCard> {
 
   String get _actionLabel {
     if (!_enabled) return 'Locked';
-    if (_isMedium) return 'Choose a prop';
+    if (_hasPropChoice) return 'Choose a prop';
+    if (_requiresFixedNonDefaultProp) {
+      return 'Start with ${_singleProp.displayLabel}';
+    }
     if (_practiced) return 'Practice again';
     return 'Start practice';
   }
 
-  void _startPractice([TrainingProp prop = TrainingProp.bottle]) {
+  void _startPractice([TrainingProp? prop]) {
     if (!_enabled || _activating) return;
     _activating = true;
     try {
       if (!mounted) return;
+      final resolvedProp = prop ?? _singleProp;
       final encoded = Uri.encodeComponent(widget.movement.name);
       context.go(
         '/practice?movement=$encoded'
         '&difficulty=${widget.movement.difficulty}'
-        '&prop=${prop.protocolValue}',
+        '&prop=${resolvedProp.protocolValue}',
       );
     } finally {
       _activating = false;
@@ -74,7 +91,7 @@ class _MovementCardState extends State<MovementCard> {
   @override
   Widget build(BuildContext context) {
     final interactive = _enabled;
-    final cardInteractive = interactive && !_isMedium;
+    final cardInteractive = interactive && !_hasPropChoice;
     final active = interactive && (_hovered || _focused);
     final isDark = context.isDarkTheme;
 
@@ -172,7 +189,7 @@ class _MovementCardState extends State<MovementCard> {
         Expanded(child: _buildInfoColumn(context)),
         const SizedBox(width: 16),
         SizedBox(
-          width: _isMedium && _enabled ? 220 : 184,
+          width: _hasPropChoice && _enabled ? 220 : 184,
           child: _buildPerformanceColumn(context, fullWidthCta: true),
         ),
       ],
@@ -300,8 +317,8 @@ class _MovementCardState extends State<MovementCard> {
       children: [
         _buildPerformanceStats(context, fullWidth: fullWidthCta),
         const SizedBox(height: 8),
-        if (_isMedium && _enabled)
-          _buildMediumPropActions(context)
+        if (_hasPropChoice && _enabled)
+          _buildPropChoiceActions(context)
         else
           _ActionButton(
             label: _actionLabel,
@@ -317,7 +334,15 @@ class _MovementCardState extends State<MovementCard> {
     );
   }
 
-  Widget _buildMediumPropActions(BuildContext context) {
+  String _emojiForProp(TrainingProp prop) {
+    return switch (prop) {
+      TrainingProp.bottle => '🍾',
+      TrainingProp.shaker => '🍸',
+      TrainingProp.bottleAndShaker => '🍾🍸',
+    };
+  }
+
+  Widget _buildPropChoiceActions(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -330,39 +355,25 @@ class _MovementCardState extends State<MovementCard> {
           ),
         ),
         const SizedBox(height: 6),
-        _PropActionChip(
-          emoji: '🍾',
-          label: 'Bottle',
-          enabled: true,
-          accent: _accent,
-          hovered: _bottleHovered,
-          focused: _bottleFocused,
-          onHoverChanged: (hovered) {
-            setState(() => _bottleHovered = hovered);
-          },
-          onFocusChanged: (focused) {
-            setState(() => _bottleFocused = focused);
-          },
-          onTap: () => _startPractice(TrainingProp.bottle),
-          semanticLabel: 'Practice with Bottle',
-        ),
-        const SizedBox(height: 8),
-        _PropActionChip(
-          emoji: '🍸',
-          label: 'Cocktail Shaker',
-          enabled: true,
-          accent: _accent,
-          hovered: _shakerHovered,
-          focused: _shakerFocused,
-          onHoverChanged: (hovered) {
-            setState(() => _shakerHovered = hovered);
-          },
-          onFocusChanged: (focused) {
-            setState(() => _shakerFocused = focused);
-          },
-          onTap: () => _startPractice(TrainingProp.shaker),
-          semanticLabel: 'Practice with Cocktail Shaker',
-        ),
+        for (var i = 0; i < _supportedProps.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          _PropActionChip(
+            emoji: _emojiForProp(_supportedProps[i]),
+            label: _supportedProps[i].displayLabel,
+            enabled: true,
+            accent: _accent,
+            hovered: _propHovered[_supportedProps[i]] ?? false,
+            focused: _propFocused[_supportedProps[i]] ?? false,
+            onHoverChanged: (hovered) {
+              setState(() => _propHovered[_supportedProps[i]] = hovered);
+            },
+            onFocusChanged: (focused) {
+              setState(() => _propFocused[_supportedProps[i]] = focused);
+            },
+            onTap: () => _startPractice(_supportedProps[i]),
+            semanticLabel: 'Practice with ${_supportedProps[i].displayLabel}',
+          ),
+        ],
       ],
     );
   }

@@ -178,6 +178,205 @@ def test_shaker_session_preserves_prop_and_loads_only_after_activation(monkeypat
     session.close()
 
 
+class _TaggedPropDetector:
+    """Like StubPropDetector but detect() returns a prop_type-tagged box."""
+
+    instances: list["_TaggedPropDetector"] = []
+
+    def __init__(self, *, prop_type: str, enabled: bool):
+        self.prop_type = prop_type
+        self.enabled = enabled
+        self.ensure_calls = 0
+        self.detect_calls = 0
+        self._fail = False
+        _TaggedPropDetector.instances.append(self)
+
+    def ensure_ready(self):
+        self.ensure_calls += 1
+        if self._fail:
+            raise websocket_api.ModelLoadError(f"{self.prop_type} model broken")
+
+    def detect(self, current_frame):
+        self.detect_calls += 1
+        from vision.types import PropDetection
+
+        offset = 0 if self.prop_type == "bottle" else 100
+        return [
+            PropDetection(
+                x1=offset, y1=offset, x2=offset + 10, y2=offset + 10, confidence=0.9
+            )
+        ]
+
+
+def test_bottle_and_shaker_session_constructs_dual_detector_with_two_models(
+    monkeypatch,
+):
+    _patch_vision(monkeypatch)
+    _TaggedPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+
+    session = websocket_api.VisionSession(
+        "Bottle in a tin", prop_type="bottle_and_shaker"
+    )
+    session.start()
+    session.activate()
+    session.process_frame()
+
+    assert len(_TaggedPropDetector.instances) == 2
+    assert {d.prop_type for d in _TaggedPropDetector.instances} == {
+        "bottle",
+        "shaker",
+    }
+    session.close()
+
+
+def test_bottle_and_shaker_model_failure_from_either_model_is_fatal(monkeypatch):
+    _patch_vision(monkeypatch)
+    _TaggedPropDetector.instances = []
+
+    class _FailingShaker(_TaggedPropDetector):
+        def __init__(self, *, prop_type: str, enabled: bool):
+            super().__init__(prop_type=prop_type, enabled=enabled)
+            if prop_type == "shaker":
+                self._fail = True
+
+    monkeypatch.setattr(websocket_api, "PropDetector", _FailingShaker)
+
+    session = websocket_api.VisionSession(
+        "Bottle in a tin", prop_type="bottle_and_shaker"
+    )
+    session.start()
+    session.activate()
+
+    message = session.process_frame()
+
+    assert message is not None
+    assert message.error_code == "model_load_failed"
+    session.close()
+
+
+def test_bottle_and_shaker_evaluate_receives_bottles_and_shakers_separately(
+    monkeypatch,
+):
+    _patch_vision(monkeypatch)
+    _TaggedPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+
+    captured: dict = {}
+
+    def tracking_evaluate(*args, **kwargs):
+        captured.update(kwargs)
+        from assessment.rules.base import RuleResult
+
+        return (
+            RuleResult(
+                feedback="ok", feedback_type="positive", posture_status="stable"
+            ),
+            None,
+            None,
+        )
+
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+
+    session = websocket_api.VisionSession(
+        "Bottle in a tin", prop_type="bottle_and_shaker"
+    )
+    session.start()
+    session.activate()
+
+    # YOLO_FRAME_SKIP=2, so YOLO runs on frames 1 and 3. Frame 1 refreshes the
+    # bottle cache; frame 3 refreshes the shaker cache (frame 2 is skipped and
+    # reuses cached detections), initializing both caches by the third call.
+    session.process_frame()
+    session.process_frame()
+    session.process_frame()
+
+    assert captured["prop_type"] == "bottle_and_shaker"
+    assert len(captured["bottles"]) == 1
+    assert len(captured["shakers"]) == 1
+    assert captured["bottles"] != captured["shakers"]
+    session.close()
+
+
+def test_bottle_and_shaker_annotation_receives_combined_boxes(monkeypatch):
+    _patch_vision(monkeypatch)
+    _TaggedPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+
+    captured_boxes = {"boxes": None}
+
+    def tracking_annotate(current_frame, boxes, *a, **k):
+        captured_boxes["boxes"] = boxes
+        return current_frame
+
+    monkeypatch.setattr(websocket_api, "annotate_frame", tracking_annotate)
+
+    session = websocket_api.VisionSession(
+        "Bottle in a tin", prop_type="bottle_and_shaker"
+    )
+    session.start()
+    session.activate()
+
+    session.process_frame()
+    session.process_frame()
+    session.process_frame()
+
+    assert captured_boxes["boxes"] is not None
+    assert len(captured_boxes["boxes"]) == 2
+    session.close()
+
+
+def test_bottle_and_shaker_caches_reset_on_activation(monkeypatch):
+    """Re-preparing and reactivating a dual-prop session must clear stale
+
+    detections and restart the bottle/shaker alternation, rather than
+    inheriting cached state from a prior activation.
+    """
+    _patch_vision(monkeypatch)
+    _TaggedPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+
+    session = websocket_api.VisionSession(
+        "Bottle in a tin", prop_type="bottle_and_shaker"
+    )
+    session.start()
+    session.activate()
+    session.process_frame()
+    session.process_frame()
+    session.process_frame()
+
+    assert session._last_bottles
+    assert session._last_shakers
+
+    # Simulate stopping and re-preparing without discarding the session object,
+    # then reactivating: caches and the alternation phase must reset.
+    session._lifecycle = websocket_api.SESSION_PREPARED
+    session.activate()
+
+    assert session._last_bottles == []
+    assert session._last_shakers == []
+    assert session.prop_detector._last_bottles == []
+    assert session.prop_detector._last_shakers == []
+    assert session.prop_detector._next_target == "bottle"
+
+
+def test_single_prop_session_still_uses_one_detector_without_dual_overhead(
+    monkeypatch,
+):
+    _patch_vision(monkeypatch)
+    _TaggedPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+
+    session = websocket_api.VisionSession("Hand Stall", prop_type="shaker")
+    session.start()
+    session.activate()
+    session.process_frame()
+
+    assert len(_TaggedPropDetector.instances) == 1
+    assert _TaggedPropDetector.instances[0].prop_type == "shaker"
+    session.close()
+
+
 def test_model_load_failure_is_structured_session_fatal_feedback(monkeypatch):
     _patch_vision(monkeypatch)
 

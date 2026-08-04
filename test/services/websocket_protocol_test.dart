@@ -1447,6 +1447,26 @@ void main() {
     expect(payload['bottle_detection_enabled'], isTrue);
   });
 
+  test('bottle_and_shaker prepare/start payloads carry the combined prop', () {
+    final preparePayload = WebSocketService.buildPreparePayload(
+      movement: 'Bottle in a tin',
+      difficulty: 'Hard',
+      prop: TrainingProp.bottleAndShaker,
+      sessionId: 'session-tin',
+      requestId: 'req-tin-prepare',
+    );
+    final startPayload = WebSocketService.buildStartPayload(
+      movement: 'Bottle in a tin',
+      difficulty: 'Hard',
+      prop: TrainingProp.bottleAndShaker,
+      sessionId: 'session-tin',
+      requestId: 'req-tin-start',
+    );
+
+    expect(preparePayload['prop_type'], 'bottle_and_shaker');
+    expect(startPayload['prop_type'], 'bottle_and_shaker');
+  });
+
   group('guided-practice countdown still follows lifecycle helpers', () {
     test('countdown waits for preview JPEG after preparing', () {
       final run = PracticeRunController();

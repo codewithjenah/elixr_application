@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/constants/movement_visuals.dart';
 import 'package:elixr_application/core/constants/movements.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/movements/movements_presentation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -69,8 +70,53 @@ void main() {
       expect(medium.any((m) => m.name == 'One Finger Stall'), isTrue);
     });
 
-    test('catalog contains eleven movements', () {
-      expect(movementCatalog.length, 11);
+    test('catalog contains twelve movements', () {
+      expect(movementCatalog.length, 12);
+    });
+
+    test('contains exactly one enabled Bottle in a tin on Hard', () {
+      final tin = movementCatalog
+          .where((m) => m.name == 'Bottle in a tin')
+          .toList();
+      expect(tin.length, 1);
+      expect(tin.first.enabled, isTrue);
+      expect(tin.first.difficulty, 'Hard');
+      expect(tin.first.requiresHandsDetection, isTrue);
+      expect(tin.first.supportedProps, [TrainingProp.bottleAndShaker]);
+    });
+
+    test('Hard movements include Bottle in a tin', () {
+      final hard = movementsByDifficulty('Hard');
+      expect(hard.any((m) => m.name == 'Bottle in a tin'), isTrue);
+    });
+
+    test('Medium movements explicitly support Bottle and Cocktail Shaker', () {
+      final medium = movementsByDifficulty('Medium');
+      for (final movement in medium) {
+        expect(
+          movement.supportedProps,
+          containsAll([TrainingProp.bottle, TrainingProp.shaker]),
+          reason: '${movement.name} should support both bottle and shaker',
+        );
+      }
+    });
+
+    test('Easy and other Hard movements default to Bottle only', () {
+      final easy = movementsByDifficulty('Easy');
+      for (final movement in easy) {
+        expect(movement.supportedProps, [TrainingProp.bottle]);
+      }
+      final otherHard = movementsByDifficulty(
+        'Hard',
+      ).where((m) => m.name != 'Bottle in a tin');
+      for (final movement in otherHard) {
+        expect(movement.supportedProps, [TrainingProp.bottle]);
+      }
+    });
+
+    test('Bottle in a tin has a combined bottle/shaker emoji mapping', () {
+      expect(MovementVisuals.emojiFor('Bottle in a tin'), '🍾🍸');
+      expect(MovementVisuals.emojiFor('Bottle in a tin'), isNot('🍾'));
     });
 
     test('Claw Grip has a dedicated emoji mapping', () {

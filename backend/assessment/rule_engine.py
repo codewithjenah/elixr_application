@@ -4,6 +4,7 @@ from config import MOVEMENT_CONFIG
 from assessment.rules import (
     arm_stall,
     bartenders_grip,
+    bottle_in_a_tin,
     claw_grip,
     coming_soon,
     double_hand_stall,
@@ -72,6 +73,18 @@ def movement_is_prop_detection_only(movement: str) -> bool:
     return cfg is not None and bool(cfg.get("prop_detection_only", False))
 
 
+def movement_required_prop_type(movement: str) -> str | None:
+    """Return the single prop_type a movement requires, or None when any prop
+
+    combination previously accepted (bottle or shaker) remains valid.
+    """
+    cfg = MOVEMENT_CONFIG.get(movement)
+    if cfg is None:
+        return None
+    required = cfg.get("required_prop_type")
+    return str(required) if required else None
+
+
 def movement_is_easy(movement: str) -> bool:
     cfg = MOVEMENT_CONFIG.get(movement)
     return cfg is not None and cfg.get("difficulty") == "Easy"
@@ -137,6 +150,7 @@ def evaluate_movement(
     bottles: Optional[list[BottleDetection]] = None,
     prop_type: str = "bottle",
     prop_label: str | None = None,
+    shakers: Optional[list[BottleDetection]] = None,
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
     resolved_prop_label = prop_label or (
         "Cocktail Shaker" if prop_type == "shaker" else "Bottle"
@@ -149,6 +163,23 @@ def evaluate_movement(
             hands,
             prev_hip_center,
             prop_label=resolved_prop_label,
+        )
+
+    # Bottle in a tin needs bottle and shaker detections kept separate.
+    if movement == "Bottle in a tin":
+        bottle_list = (
+            list(bottles)
+            if bottles is not None
+            else ([bottle] if bottle is not None else [])
+        )
+        shaker_list = list(shakers) if shakers is not None else []
+        return bottle_in_a_tin.evaluate(
+            bottle_list[0] if bottle_list else None,
+            shaker_list[0] if shaker_list else None,
+            pose,
+            hands,
+            prev_hip_center,
+            movement_state,
         )
 
     # Double Hand Stall scores two bottles; keep other movements on primary bottle.

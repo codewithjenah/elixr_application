@@ -137,6 +137,19 @@ DOUBLE_HAND_MIN_EXTENDED_FINGERS = 3
 # Reject when bottle bottom-center sits clearly below the assigned palm (image y).
 DOUBLE_HAND_BELOW_REJECT = 0.03
 
+# Bottle in a tin: upright bottle balanced on a horizontally held shaker.
+# All positional values use normalized image coordinates (0-1); aspect
+# ratios use raw bbox pixel width/height and are resolution-independent.
+BOTTLE_IN_A_TIN_BOTTLE_UPRIGHT_ASPECT_RATIO = 1.2
+BOTTLE_IN_A_TIN_SHAKER_HORIZONTAL_ASPECT_RATIO = 1.5
+# Max normalized vertical gap/overlap between the bottle base and shaker top.
+BOTTLE_IN_A_TIN_CONTACT_VERTICAL_TOLERANCE = 0.05
+# Fraction of the shaker's width excluded from each end as the usable
+# middle section the bottle base must land within.
+BOTTLE_IN_A_TIN_HORIZONTAL_MARGIN_RATIO = 0.15
+# Max distance from the nearest usable palm to the shaker's center/lower-half.
+BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE = 0.22
+
 SCORE_WINDOW = 30
 SCORE_POSITIVE = 5
 SCORE_WARNING = -3
@@ -184,6 +197,12 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "difficulty": "Hard",
         "requires_hands": True,
         "requires_pose": False,
+    },
+    "Bottle in a tin": {
+        "difficulty": "Hard",
+        "requires_hands": True,
+        "requires_pose": False,
+        "required_prop_type": "bottle_and_shaker",
     },
     # Internal Free Practice vision mode: prop detection + preview only.
     # Not a user-selectable catalog movement (Flutter catalog omits it).
