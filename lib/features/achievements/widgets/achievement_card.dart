@@ -41,6 +41,44 @@ class _AchievementCardState extends State<AchievementCard> {
     };
   }
 
+  Color _previewPlateColor(BuildContext context, Color accentTint) {
+    final base = context.isDarkTheme
+        ? AppColors.background.withValues(alpha: 0.84)
+        : AppColors.cardSurfaceLight.withValues(alpha: 0.96);
+    return Color.alphaBlend(accentTint.withValues(alpha: 0.1), base);
+  }
+
+  Color _previewGlyphColor(BuildContext context) {
+    return _locked ? context.elixTextSecondary : context.elixTextPrimary;
+  }
+
+  Widget _buildTrophyPreview(BuildContext context, Color accentTint) {
+    final glyphColor = _previewGlyphColor(context);
+    return ProfileBorderFrame(
+      size: 36,
+      equippedBorderId: widget.view.definition.rewardBorderId,
+      child: ColoredBox(
+        color: _previewPlateColor(context, accentTint),
+        child: Center(
+          child: Icon(
+            FluentIcons.trophy2,
+            size: 20,
+            color: glyphColor,
+            shadows: [
+              Shadow(
+                color: Colors.black.withValues(
+                  alpha: context.isDarkTheme ? 0.32 : 0.1,
+                ),
+                blurRadius: 1.5,
+                offset: const Offset(0, 0.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   String get _semanticAction {
     if (_claimable && !widget.claiming) return 'Claim achievement';
     if (_claimed) return 'Claimed';
@@ -58,6 +96,9 @@ class _AchievementCardState extends State<AchievementCard> {
     final state = widget.view.state;
     final accent = _accentColor(context);
     final border = profileBorderById(widget.view.definition.rewardBorderId);
+    final borderAccent = border == null
+        ? accent
+        : Color(border.primaryColorValue);
     final active = _interactive && (_hovered || _focused);
     final isDark = context.isDarkTheme;
 
@@ -146,25 +187,7 @@ class _AchievementCardState extends State<AchievementCard> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              ProfileBorderFrame(
-                                size: 36,
-                                equippedBorderId:
-                                    widget.view.definition.rewardBorderId,
-                                child: ColoredBox(
-                                  color: accent.withValues(alpha: 0.18),
-                                  child: Center(
-                                    child: Icon(
-                                      FluentIcons.trophy2,
-                                      size: 18,
-                                      color: _locked
-                                          ? context.elixTextPrimary.withValues(
-                                              alpha: 0.55,
-                                            )
-                                          : accent,
-                                    ),
-                                  ),
-                                ),
-                              ),
+                              _buildTrophyPreview(context, borderAccent),
                               const SizedBox(width: AppSpacing.sm),
                               Expanded(
                                 child: Column(

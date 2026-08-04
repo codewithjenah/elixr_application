@@ -1,9 +1,11 @@
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
+import 'package:elixr_application/data/models/profile_border.dart';
 import 'package:elixr_application/features/achievements/widgets/achievement_card.dart';
 import 'package:elixr_application/features/achievements/widgets/profile_border_picker.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_identity.dart';
@@ -87,6 +89,31 @@ Matrix4 _cardTransform(WidgetTester tester) {
         .first,
   );
   return container.transform ?? Matrix4.identity();
+}
+
+Icon _previewIcon(WidgetTester tester, IconData iconData) {
+  return tester.widget<Icon>(find.byIcon(iconData));
+}
+
+AchievementViewData _achievementViewForBorder(String achievementId) {
+  return buildAchievementViewData(
+    definition: achievementById(achievementId)!,
+    sessions: achievementId == 'first_steps'
+        ? [
+            const Session(
+              userId: 'u1',
+              movementName: 'Hand Stall',
+              difficulty: 'Easy',
+              score: 70,
+              durationSeconds: 60,
+            ),
+          ]
+        : const [],
+    leaderboardEntry: _entry(),
+    claimedAchievementIds: achievementId == 'first_steps'
+        ? const {'first_steps'}
+        : const {},
+  );
 }
 
 void main() {
@@ -578,5 +605,154 @@ void main() {
     expect(cosmetics, isNotNull);
     expect(cosmetics!.isUnlocked('starter_glow'), isTrue);
     expect(cosmetics.isUnlocked('gold_mastery'), isFalse);
+  });
+
+  testWidgets(
+    'dark theme unlocked achievement trophy avoids border accent foreground',
+    (tester) async {
+      final view = _achievementViewForBorder('first_steps');
+      final borderAccent = Color(
+        profileBorderById('starter_glow')!.primaryColorValue,
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          SizedBox(
+            width: 420,
+            height: 168,
+            child: AchievementCard(view: view, claiming: false, onClaim: () {}),
+          ),
+        ),
+      );
+
+      final trophy = _previewIcon(tester, FluentIcons.trophy2);
+      expect(trophy.color, AppColors.textPrimary);
+      expect(trophy.color, isNot(equals(borderAccent)));
+      expect(trophy.size, 20);
+    },
+  );
+
+  testWidgets('light theme achievement trophy uses primary text foreground', (
+    tester,
+  ) async {
+    final view = _achievementViewForBorder('first_steps');
+    final borderAccent = Color(
+      profileBorderById('starter_glow')!.primaryColorValue,
+    );
+
+    await tester.pumpWidget(
+      wrap(
+        brightness: Brightness.light,
+        SizedBox(
+          width: 420,
+          height: 168,
+          child: AchievementCard(view: view, claiming: false, onClaim: () {}),
+        ),
+      ),
+    );
+
+    final trophy = _previewIcon(tester, FluentIcons.trophy2);
+    expect(trophy.color, AppColors.textPrimaryLight);
+    expect(trophy.color, isNot(equals(borderAccent)));
+  });
+
+  testWidgets(
+    'dark theme unlocked border contact icon avoids border accent foreground',
+    (tester) async {
+      final borderAccent = Color(
+        profileBorderById('cyan_orbit')!.primaryColorValue,
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          SizedBox(
+            width: 360,
+            height: 220,
+            child: ProfileBorderPicker(
+              unlockedBorderIds: const {'cyan_orbit'},
+              equippedBorderId: null,
+              busyBorderId: null,
+              onEquip: (_) {},
+              onUnequip: () {},
+            ),
+          ),
+        ),
+      );
+
+      final contacts = tester.widgetList<Icon>(
+        find.byIcon(FluentIcons.contact),
+      );
+      expect(contacts, isNotEmpty);
+      final contact = contacts.first;
+      expect(contact.color, AppColors.textPrimary);
+      expect(contact.color, isNot(equals(borderAccent)));
+      expect(contact.size, 22);
+    },
+  );
+
+  testWidgets('light theme border contact icon uses primary text foreground', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        brightness: Brightness.light,
+        SizedBox(
+          width: 360,
+          height: 220,
+          child: ProfileBorderPicker(
+            unlockedBorderIds: const {'starter_glow'},
+            equippedBorderId: null,
+            busyBorderId: null,
+            onEquip: (_) {},
+            onUnequip: () {},
+          ),
+        ),
+      ),
+    );
+
+    final contact = _previewIcon(tester, FluentIcons.contact);
+    expect(contact.color, AppColors.textPrimaryLight);
+  });
+
+  testWidgets('locked preview icons use muted secondary foreground', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        Column(
+          children: [
+            SizedBox(
+              width: 420,
+              height: 168,
+              child: AchievementCard(
+                view: _lockedView(),
+                claiming: false,
+                onClaim: () {},
+              ),
+            ),
+            SizedBox(
+              width: 360,
+              height: 220,
+              child: ProfileBorderPicker(
+                unlockedBorderIds: const {'starter_glow'},
+                equippedBorderId: null,
+                busyBorderId: null,
+                onEquip: (_) {},
+                onUnequip: () {},
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final lockedTrophy = _previewIcon(tester, FluentIcons.trophy2);
+    expect(lockedTrophy.color, AppColors.textSecondary);
+
+    final locks = tester.widgetList<Icon>(find.byIcon(FluentIcons.lock));
+    expect(locks, isNotEmpty);
+    for (final lock in locks) {
+      expect(lock.color, AppColors.textSecondary);
+    }
   });
 }

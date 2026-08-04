@@ -83,6 +83,65 @@ class _BorderCardItemState extends State<_BorderCardItem> {
     widget.onEquip();
   }
 
+  Color _previewPlateColor(BuildContext context) {
+    final base = context.isDarkTheme
+        ? AppColors.background.withValues(alpha: 0.84)
+        : AppColors.cardSurfaceLight.withValues(alpha: 0.96);
+    return Color.alphaBlend(_accent.withValues(alpha: 0.08), base);
+  }
+
+  Color _previewGlyphColor(BuildContext context) {
+    return widget.unlocked
+        ? context.elixTextPrimary
+        : context.elixTextSecondary;
+  }
+
+  Widget _buildBorderPreview(BuildContext context) {
+    final glyphColor = _previewGlyphColor(context);
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        if (widget.unlocked)
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  _accent.withValues(alpha: 0.18),
+                  _accent.withValues(alpha: 0.0),
+                ],
+              ),
+            ),
+          ),
+        ProfileBorderFrame(
+          size: 44,
+          equippedBorderId: widget.border.id,
+          child: ColoredBox(
+            color: _previewPlateColor(context),
+            child: Center(
+              child: Icon(
+                widget.unlocked ? FluentIcons.contact : FluentIcons.lock,
+                size: widget.unlocked ? 22 : 20,
+                color: glyphColor,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(
+                      alpha: context.isDarkTheme ? 0.32 : 0.1,
+                    ),
+                    blurRadius: 1.5,
+                    offset: const Offset(0, 0.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final active = _interactive && (_hovered || _focused);
@@ -133,51 +192,7 @@ class _BorderCardItemState extends State<_BorderCardItem> {
               padding: const EdgeInsets.fromLTRB(10, 10, 8, 8),
               child: Column(
                 children: [
-                  Expanded(
-                    child: Center(
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          if (widget.unlocked)
-                            Container(
-                              width: 56,
-                              height: 56,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: RadialGradient(
-                                  colors: [
-                                    accent.withValues(alpha: 0.28),
-                                    accent.withValues(alpha: 0.0),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ProfileBorderFrame(
-                            size: 44,
-                            equippedBorderId: widget.border.id,
-                            child: ColoredBox(
-                              color: widget.unlocked
-                                  ? accent.withValues(alpha: 0.2)
-                                  : context.elixBorder.withValues(alpha: 0.5),
-                              child: Center(
-                                child: Icon(
-                                  widget.unlocked
-                                      ? FluentIcons.contact
-                                      : FluentIcons.lock,
-                                  size: 20,
-                                  color: widget.unlocked
-                                      ? accent
-                                      : context.elixTextPrimary.withValues(
-                                          alpha: 0.65,
-                                        ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  Expanded(child: Center(child: _buildBorderPreview(context))),
                   Text(
                     widget.border.displayName,
                     textAlign: TextAlign.center,
