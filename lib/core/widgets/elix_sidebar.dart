@@ -1,11 +1,13 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
-import '../../services/session_service.dart';
+import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/user.dart';
-import '../../data/repositories/progress_repository.dart';
+import '../../data/repositories/leaderboard_repository.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
@@ -117,37 +119,41 @@ class ElixSidebar extends StatefulWidget {
 }
 
 class _ElixSidebarState extends State<ElixSidebar> {
-  final _progressRepo = ProgressRepository();
-  int _totalSessions = 0;
+  final _leaderboardRepo = LeaderboardRepository();
+  int _totalXp = 0;
   String? _statsUserId;
-  SessionService? _sessionService;
+  StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final service = context.read<SessionService>();
-    if (service != _sessionService) {
-      _sessionService?.removeListener(_loadStats);
-      _sessionService = service..addListener(_loadStats);
-    }
     final userId = context.watch<AuthService>().currentUser?.id;
     if (userId != _statsUserId) {
       _statsUserId = userId;
-      _loadStats();
+      _subscribeToLeaderboard(userId);
     }
   }
 
   @override
   void dispose() {
-    _sessionService?.removeListener(_loadStats);
+    _leaderboardSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadStats() async {
-    final userId = _statsUserId;
-    if (userId == null) return;
-    final stats = await _progressRepo.getStatsForUser(userId);
-    if (mounted) setState(() => _totalSessions = stats.totalSessions);
+  void _subscribeToLeaderboard(String? userId) {
+    _leaderboardSub?.cancel();
+    _leaderboardSub = null;
+    if (userId == null) {
+      setState(() => _totalXp = 0);
+      return;
+    }
+    // Live subscription (not a one-shot fetch): both session awards and
+    // quest claims write the same leaderboard/{userId} document, so this
+    // refreshes automatically after either without any extra plumbing.
+    _leaderboardSub = _leaderboardRepo.watchPlayer(userId).listen((entry) {
+      if (!mounted) return;
+      setState(() => _totalXp = entry?.totalXp ?? 0);
+    });
   }
 
   String _initials(String name) {
@@ -400,7 +406,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
     return _ProfileSectionWidget(
       user: user,
       initials: initials,
-      totalSessions: _totalSessions,
+      totalXp: _totalXp,
       isCollapsed: showCollapsedLayout,
       onLogout: widget.onLogout,
     );
@@ -658,14 +664,14 @@ class _ProfileSectionWidget extends StatefulWidget {
   const _ProfileSectionWidget({
     required this.user,
     required this.initials,
-    required this.totalSessions,
+    required this.totalXp,
     required this.isCollapsed,
     required this.onLogout,
   });
 
   final User? user;
   final String initials;
-  final int totalSessions;
+  final int totalXp;
   final bool isCollapsed;
   final VoidCallback onLogout;
 
@@ -678,9 +684,8 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final totalXp = GamificationRules.xpForSessions(widget.totalSessions);
-    final level = GamificationRules.levelForXp(totalXp);
-    final expInLevel = GamificationRules.xpIntoLevel(totalXp);
+    final level = GamificationRules.levelForXp(widget.totalXp);
+    final expInLevel = GamificationRules.xpIntoLevel(widget.totalXp);
 
     final profileTile = Semantics(
       button: true,

@@ -68,6 +68,40 @@ void main() {
       expect(higher.bestScore, 95);
     });
 
+    test('session award preserves an existing quest_xp value unchanged', () {
+      final plan = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: {
+          'total_xp': 65,
+          'sessions_completed': 2,
+          'score_sum': 160,
+          'best_score': 90,
+          'quest_xp': 15,
+        },
+        score: 100,
+      );
+
+      expect(plan.questXp, 15);
+      expect(plan.totalXp, 90);
+      expect(plan.sessionsCompleted, 3);
+    });
+
+    test('legacy documents without quest_xp default it to zero', () {
+      final plan = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: {
+          'total_xp': 25,
+          'sessions_completed': 1,
+          'score_sum': 80,
+          'best_score': 80,
+        },
+        score: 90,
+      );
+
+      expect(plan.questXp, 0);
+      expect(plan.totalXp, 50);
+    });
+
     test('same session marker skips award', () {
       final plan = LeaderboardAwardPlan.fromExisting(
         markerExists: true,

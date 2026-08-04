@@ -5,6 +5,7 @@ class LeaderboardAwardPlan {
   const LeaderboardAwardPlan._({
     required this.alreadyProcessed,
     required this.totalXp,
+    required this.questXp,
     required this.sessionsCompleted,
     required this.scoreSum,
     required this.averageScore,
@@ -14,6 +15,7 @@ class LeaderboardAwardPlan {
   const LeaderboardAwardPlan.alreadyProcessed()
     : alreadyProcessed = true,
       totalXp = 0,
+      questXp = 0,
       sessionsCompleted = 0,
       scoreSum = 0,
       averageScore = 0,
@@ -21,6 +23,10 @@ class LeaderboardAwardPlan {
 
   final bool alreadyProcessed;
   final int totalXp;
+
+  /// Carried through unchanged from the existing document (defaults to 0
+  /// for legacy documents) — a session award never touches quest XP.
+  final int questXp;
   final int sessionsCompleted;
   final double scoreSum;
   final double averageScore;
@@ -39,6 +45,7 @@ class LeaderboardAwardPlan {
 
     final prevSessions = _readInt(existing?['sessions_completed']) ?? 0;
     final prevXp = _readInt(existing?['total_xp']) ?? 0;
+    final prevQuestXp = _readInt(existing?['quest_xp']) ?? 0;
     final prevSum = _readDouble(existing?['score_sum']) ?? 0;
     final prevBest = _readInt(existing?['best_score']) ?? 0;
 
@@ -50,6 +57,7 @@ class LeaderboardAwardPlan {
     return LeaderboardAwardPlan._(
       alreadyProcessed: false,
       totalXp: totalXp,
+      questXp: prevQuestXp,
       sessionsCompleted: sessionsCompleted,
       scoreSum: scoreSum,
       averageScore: scoreSum / sessionsCompleted,

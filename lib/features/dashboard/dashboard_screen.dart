@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -16,9 +15,10 @@ import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import '../calendar/utils/calendar_metrics.dart';
-import 'dashboard_quests.dart';
 import 'widgets/dashboard_calendar_card.dart';
 import 'widgets/dashboard_leaderboard.dart';
+import 'widgets/dashboard_panel_card.dart';
+import 'widgets/dashboard_quest_card.dart';
 import 'widgets/recommended_practice_card.dart';
 
 // Neon accent palette used only on the dashboard.
@@ -27,7 +27,6 @@ const _violet = AppColors.accentSoft;
 const _pink = AppColors.primary;
 const _cyan = AppColors.primarySoft;
 const _amber = AppColors.warning;
-const _panelColor = AppColors.panelSurface;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -124,14 +123,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // ---- derived data -------------------------------------------------------
 
-  List<Session> get _sessionsToday {
-    final today = normalizeDate(DateTime.now());
-    return _sessions.where((s) {
-      final d = parseSessionLocalDate(s);
-      return d != null && d == today;
-    }).toList();
-  }
-
   int get _sessionsThisWeek {
     final now = DateTime.now();
     final startOfWeek = normalizeDate(
@@ -192,7 +183,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final rightRail = _RightRail(
-      sessionsToday: _sessionsToday,
+      userId: user?.id,
+      sessions: _sessions,
       streakDays: _streakDays,
       practicedDays: _practicedDays,
       bestSession: _bestSession,
@@ -445,7 +437,7 @@ class _HeroBanner extends StatelessWidget {
                     style: TextStyle(fontSize: 14, color: Color(0xCCFFFFFF)),
                   ),
                   const SizedBox(height: 14),
-                  _Pill(
+                  DashboardPill(
                     text: '🔥 $sessionCount Sessions Completed',
                     color: _pink,
                   ),
@@ -601,61 +593,6 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
 // Shared bits
 // ---------------------------------------------------------------------------
 
-class _PanelCard extends StatelessWidget {
-  const _PanelCard({required this.child, this.accent = _purple});
-
-  final Widget child;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: _panelColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.text, required this.color});
-
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Color.lerp(color, Colors.white, 0.35),
-        ),
-      ),
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Stat cards
 // ---------------------------------------------------------------------------
@@ -683,7 +620,7 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _PanelCard(
+    return DashboardPanelCard(
       accent: accent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -711,7 +648,7 @@ class _StatCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (badge != null) _Pill(text: badge!, color: accent),
+              if (badge != null) DashboardPill(text: badge!, color: accent),
             ],
           ),
           const SizedBox(height: 14),
@@ -763,13 +700,15 @@ class _StatCard extends StatelessWidget {
 
 class _RightRail extends StatelessWidget {
   const _RightRail({
-    required this.sessionsToday,
+    required this.userId,
+    required this.sessions,
     required this.streakDays,
     required this.practicedDays,
     required this.bestSession,
   });
 
-  final List<Session> sessionsToday;
+  final String? userId;
+  final List<Session> sessions;
   final int streakDays;
   final Set<DateTime> practicedDays;
   final Session? bestSession;
@@ -779,7 +718,12 @@ class _RightRail extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        _QuestCard(sessionsToday: sessionsToday, streakDays: streakDays),
+        if (userId != null)
+          DashboardQuestCard(
+            userId: userId!,
+            sessions: sessions,
+            streakDays: streakDays,
+          ),
         const SizedBox(height: AppSpacing.md),
         DashboardCalendarCard(
           practicedDays: practicedDays,
@@ -796,260 +740,6 @@ class _RightRail extends StatelessWidget {
   }
 }
 
-// ---- Today's Quest --------------------------------------------------------
-
-class _QuestCard extends StatelessWidget {
-  const _QuestCard({required this.sessionsToday, required this.streakDays});
-
-  final List<Session> sessionsToday;
-  final int streakDays;
-
-  @override
-  Widget build(BuildContext context) {
-    final quests = buildDailyDashboardQuests(
-      sessionsToday: sessionsToday,
-      streakDays: streakDays,
-      date: DateTime.now(),
-    );
-    final doneCount = quests.where((quest) => quest.completed).length;
-
-    return _PanelCard(
-      accent: _pink,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Row(
-                children: [
-                  Icon(FluentIcons.lightning_bolt, size: 14, color: _amber),
-                  SizedBox(width: 6),
-                  Text(
-                    "Today's Quest",
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              if (streakDays > 0)
-                _Pill(text: '🔥 $streakDays Day Streak', color: _amber),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          for (final quest in quests) ...[
-            _QuestTile(
-              title: quest.title,
-              xp: quest.xp,
-              done: quest.completed,
-              isDailyFocus: quest.isDailyFocus,
-            ),
-            const SizedBox(height: 8),
-          ],
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              SizedBox(
-                width: 42,
-                height: 42,
-                child: CustomPaint(
-                  painter: _GaugePainter(progress: doneCount / quests.length),
-                  child: Center(
-                    child: Text(
-                      '$doneCount/${quests.length}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      doneCount == quests.length
-                          ? 'All quests complete. Amazing work!'
-                          : doneCount > 0
-                          ? "Keep going! You're getting better!"
-                          : 'Complete quests to earn XP.',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: SizedBox(
-                        height: 5,
-                        child: Stack(
-                          children: [
-                            Container(color: AppColors.border),
-                            FractionallySizedBox(
-                              widthFactor: doneCount / quests.length,
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [_pink, _purple],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QuestTile extends StatelessWidget {
-  const _QuestTile({
-    required this.title,
-    required this.xp,
-    required this.done,
-    required this.isDailyFocus,
-  });
-
-  final String title;
-  final int xp;
-  final bool done;
-  final bool isDailyFocus;
-
-  @override
-  Widget build(BuildContext context) {
-    final inactive = !isDailyFocus && !done;
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: isDailyFocus ? 9 : 7,
-      ),
-      decoration: BoxDecoration(
-        color: done
-            ? AppColors.success.withValues(alpha: inactive ? 0.05 : 0.08)
-            : Colors.white.withValues(alpha: inactive ? 0.015 : 0.03),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: done
-              ? AppColors.success.withValues(alpha: inactive ? 0.2 : 0.3)
-              : inactive
-              ? AppColors.border.withValues(alpha: 0.55)
-              : AppColors.border,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 18,
-            height: 18,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: done ? AppColors.success : Colors.transparent,
-              border: done
-                  ? null
-                  : Border.all(color: AppColors.textSecondary, width: 1.5),
-            ),
-            child: done
-                ? const Icon(
-                    FluentIcons.check_mark,
-                    size: 10,
-                    color: Color(0xFF0D0D0F),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: isDailyFocus ? 11 : 10,
-                fontWeight: FontWeight.w500,
-                color: done
-                    ? AppColors.textSecondary
-                    : inactive
-                    ? AppColors.textSecondary.withValues(alpha: 0.75)
-                    : AppColors.textPrimary,
-                decoration: done ? TextDecoration.lineThrough : null,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '+$xp XP',
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: _amber,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GaugePainter extends CustomPainter {
-  const _GaugePainter({required this.progress});
-
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2 - 6;
-    const stroke = 10.0;
-
-    final bg = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..color = AppColors.border;
-    canvas.drawCircle(center, radius, bg);
-
-    if (progress <= 0) return;
-
-    final rect = Rect.fromCircle(center: center, radius: radius);
-    final fg = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: 3 * math.pi / 2,
-        colors: const [_pink, _violet, _purple, _cyan],
-        transform: const GradientRotation(-math.pi / 2),
-      ).createShader(rect);
-    canvas.drawArc(
-      rect,
-      -math.pi / 2,
-      2 * math.pi * progress.clamp(0.0, 1.0),
-      false,
-      fg,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_GaugePainter oldDelegate) =>
-      oldDelegate.progress != progress;
-}
-
 // ---- Top Performance --------------------------------------------------------
 
 class _TopPerformanceCard extends StatelessWidget {
@@ -1059,7 +749,7 @@ class _TopPerformanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _PanelCard(
+    return DashboardPanelCard(
       accent: _amber,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

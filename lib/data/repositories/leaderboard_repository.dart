@@ -200,6 +200,7 @@ class LeaderboardRepository {
           'user_id': userId,
           'display_name': trimmedName,
           'total_xp': plan.totalXp,
+          'quest_xp': plan.questXp,
           'sessions_completed': plan.sessionsCompleted,
           'score_sum': plan.scoreSum,
           'average_score': plan.averageScore,

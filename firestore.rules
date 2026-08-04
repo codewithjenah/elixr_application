@@ -18,6 +18,18 @@ service cloud.firestore {
       return /databases/$(database)/documents/leaderboard_processed_sessions/$(sessionId);
     }
 
+    function boardPath(boardId) {
+      return /databases/$(database)/documents/daily_quest_boards/$(boardId);
+    }
+
+    function claimPath(claimId) {
+      return /databases/$(database)/documents/daily_quest_claims/$(claimId);
+    }
+
+    function leaderboardPath(userId) {
+      return /databases/$(database)/documents/leaderboard/$(userId);
+    }
+
     function leaderboardKeys() {
       return [
         'user_id',
@@ -30,12 +42,22 @@ service cloud.firestore {
         'best_score',
         'last_session_at',
         'updated_at',
-        'last_awarded_session_id'
+        'last_awarded_session_id',
+        'quest_xp',
+        'last_claim_id'
       ];
     }
 
     function markerKeys() {
       return ['session_id', 'user_id', 'score', 'xp_awarded', 'processed_at'];
+    }
+
+    function boardKeys() {
+      return ['user_id', 'day_key', 'day_start', 'quest_ids', 'created_at', 'updated_at'];
+    }
+
+    function claimKeys() {
+      return ['user_id', 'board_id', 'day_key', 'day_start', 'quest_id', 'xp_awarded', 'claimed_at'];
     }
 
     function isNonNegInt(value) {
@@ -61,6 +83,121 @@ service cloud.firestore {
         && value.matches('^https://.*');
     }
 
+    // Tolerant accessors: quest_xp / last_claim_id are optional on legacy
+    // leaderboard documents and on documents that have only ever received a
+    // session award or a public-profile-metadata update. Using Map.get(key,
+    // default) here (rather than requiring the key via hasAll) means those
+    // documents, and writes that never touch these fields, keep validating
+    // correctly without a backfill migration.
+    function questXpOf(data) {
+      return data.get('quest_xp', 0);
+    }
+
+    function lastClaimIdOf(data) {
+      return data.get('last_claim_id', '');
+    }
+
+    // ---- Daily quest catalog (Phase 1) -------------------------------------
+    // Duplicated deliberately from lib/data/models/daily_quest.dart because
+    // security rules cannot import Dart source. A Dart-side contract test
+    // (test/data/models/daily_quest_catalog_contract_test.dart) parses this
+    // file and fails loudly if the two ever diverge.
+    //
+    // CAPSTONE SECURITY NOTE: these rules verify XP arithmetic, catalog
+    // membership, claim-replay safety, and the Asia/Manila real-day window —
+    // they do NOT independently verify that a quest was actually completed
+    // (e.g. "did the player really finish 3 sessions today"). Quest
+    // completion is evaluated client-side (see GamificationRepository).
+    // That check is a UX / defense-in-depth guard only, not a security
+    // boundary. Moving completion verification into a trusted Firebase
+    // callable function is the recommended hardening for a future phase
+    // with a hostile-client threat model.
+    function questCatalogIds() {
+      return [
+        'session_count_1', 'session_count_3', 'session_count_5',
+        'duration_10min', 'duration_20min', 'duration_30min',
+        'score_70', 'score_85', 'score_95',
+        'sessions_above_70_x2',
+        'two_movements', 'three_movements',
+        'practice_easy_movement', 'practice_medium_movement', 'practice_hard_movement',
+        'use_shaker', 'distinct_props_2', 'use_bottle_and_shaker_combo'
+      ];
+    }
+
+    function easyIds() {
+      return ['session_count_1', 'duration_10min', 'score_70', 'two_movements',
+              'practice_easy_movement', 'use_shaker'];
+    }
+
+    function mediumIds() {
+      return ['session_count_3', 'duration_20min', 'score_85', 'sessions_above_70_x2',
+              'three_movements', 'practice_medium_movement', 'distinct_props_2'];
+    }
+
+    function hardIds() {
+      return ['session_count_5', 'duration_30min', 'score_95',
+              'practice_hard_movement', 'use_bottle_and_shaker_combo'];
+    }
+
+    function sessionCountIds() {
+      return ['session_count_1', 'session_count_3', 'session_count_5'];
+    }
+
+    function durationIds() {
+      return ['duration_10min', 'duration_20min', 'duration_30min'];
+    }
+
+    function scoreThresholdIds() {
+      return ['score_70', 'score_85', 'score_95'];
+    }
+
+    function isKnownQuestId(id) {
+      return id in questCatalogIds();
+    }
+
+    function questXpFor(id) {
+      return id in easyIds() ? 10 : (id in mediumIds() ? 15 : (id in hardIds() ? 20 : -1));
+    }
+
+    function countInSet(ids, allowed) {
+      return (ids[0] in allowed ? 1 : 0) + (ids[1] in allowed ? 1 : 0) + (ids[2] in allowed ? 1 : 0)
+           + (ids[3] in allowed ? 1 : 0) + (ids[4] in allowed ? 1 : 0);
+    }
+
+    function allUnique5(ids) {
+      return ids[0] != ids[1] && ids[0] != ids[2] && ids[0] != ids[3] && ids[0] != ids[4]
+          && ids[1] != ids[2] && ids[1] != ids[3] && ids[1] != ids[4]
+          && ids[2] != ids[3] && ids[2] != ids[4]
+          && ids[3] != ids[4];
+    }
+
+    // ---- Asia/Manila real-day window (server-time-anchored) ---------------
+    // request.time is stamped by the Firestore server at commit time and is
+    // never client-supplied, which is exactly why it is the only trustworthy
+    // basis for "what real day is it". A client cannot spoof it by changing
+    // its device clock or by passing an arbitrary day_key/day_start.
+    function manilaOffset() {
+      return duration.value(8, 'h');
+    }
+
+    function twoDigit(n) {
+      return n < 10 ? '0' + string(n) : string(n);
+    }
+
+    // Exact UTC instant of 00:00 Asia/Manila for the Manila calendar day
+    // that contains server timestamp ts.
+    function manilaDayStart(ts) {
+      let shifted = ts + manilaOffset();
+      return timestamp.date(shifted.year(), shifted.month(), shifted.day()) - manilaOffset();
+    }
+
+    // Exact 'yyyyMMdd' for the Manila calendar day that contains server
+    // timestamp ts.
+    function manilaDayKey(ts) {
+      let shifted = ts + manilaOffset();
+      return string(shifted.year()) + twoDigit(shifted.month()) + twoDigit(shifted.day());
+    }
+
     function validLeaderboardShape(data) {
       return data.keys().hasOnly(leaderboardKeys())
         && data.user_id is string
@@ -72,7 +209,9 @@ service cloud.firestore {
           || isValidHttpsProfilePictureUrl(data.profile_picture_url))
         && isNonNegInt(data.total_xp)
         && isNonNegInt(data.sessions_completed)
-        && data.total_xp == data.sessions_completed * 25
+        && (!data.keys().hasAny(['quest_xp']) || isNonNegInt(data.quest_xp))
+        && (!data.keys().hasAny(['last_claim_id']) || data.last_claim_id is string)
+        && data.total_xp == data.sessions_completed * 25 + questXpOf(data)
         && isNonNegNumber(data.score_sum)
         && data.average_score is number
         && data.average_score >= 0
@@ -123,6 +262,7 @@ service cloud.firestore {
         && sourceSession(awardSessionId()).user_id == request.auth.uid
         && isScore(awardSessionScore())
         && request.resource.data.sessions_completed == 1
+        && questXpOf(request.resource.data) == 0
         && request.resource.data.total_xp == 25
         && request.resource.data.score_sum == awardSessionScore()
         && request.resource.data.average_score == awardSessionScore()
@@ -138,7 +278,9 @@ service cloud.firestore {
         && request.resource.data.average_score == resource.data.average_score
         && request.resource.data.best_score == resource.data.best_score
         && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
-        && request.resource.data.last_session_at == resource.data.last_session_at;
+        && request.resource.data.last_session_at == resource.data.last_session_at
+        && questXpOf(request.resource.data) == questXpOf(resource.data)
+        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data);
     }
 
     function validSessionAwardUpdate() {
@@ -146,6 +288,8 @@ service cloud.firestore {
         && request.resource.data.user_id == resource.data.user_id
         && request.resource.data.sessions_completed == resource.data.sessions_completed + 1
         && request.resource.data.total_xp == resource.data.total_xp + 25
+        && questXpOf(request.resource.data) == questXpOf(resource.data)
+        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
         && request.resource.data.score_sum == resource.data.score_sum + awardSessionScore()
         && request.resource.data.average_score
           == request.resource.data.score_sum / request.resource.data.sessions_completed
@@ -172,6 +316,67 @@ service cloud.firestore {
           || isValidHttpsProfilePictureUrl(request.resource.data.profile_picture_url));
     }
 
+    // ---- Quest claim -> leaderboard update, replay-proof -------------------
+    // A leaderboard write may only add quest_xp if it points (via
+    // last_claim_id) at a daily_quest_claims document that:
+    //   - did not exist before this request (!exists), and
+    //   - exists after this request commits (existsAfter),
+    // i.e. the claim must be freshly created atomically alongside this same
+    // leaderboard write. Reusing an already-existing claim id (replay) fails
+    // the !exists() check. The claim's own create rule (below) requires the
+    // leaderboard-after state to point back at it, closing the loop in both
+    // directions.
+    function claimAfter(claimId) {
+      return getAfter(claimPath(claimId)).data;
+    }
+
+    function leaderboardAfter(userId) {
+      return getAfter(leaderboardPath(userId)).data;
+    }
+
+    // Single get() of the referenced board, reused for every board-derived
+    // check below instead of calling get() repeatedly (stays comfortably
+    // under the per-request get()/getAfter() budget).
+    function claimReferencesOwnCurrentBoard(data) {
+      let board = get(boardPath(data.board_id)).data;
+      return board.user_id == request.auth.uid
+        && board.day_key == data.day_key
+        && board.day_start == data.day_start
+        && data.quest_id in board.quest_ids;
+    }
+
+    function claimMatchesLeaderboardUpdate() {
+      let claimId = request.resource.data.last_claim_id;
+      // Deliberately no `let claim = claimAfter(claimId)` here: a `let`
+      // binding evaluates eagerly, so it would call getAfter(...).data
+      // (an evaluation error on a nonexistent document) before the
+      // existsAfter() guard below has a chance to short-circuit. Repeating
+      // claimAfter(claimId) inside the lazily-evaluated && chain instead
+      // keeps every `.data` access gated behind existsAfter() first.
+      return claimId is string
+        && claimId != lastClaimIdOf(resource.data)
+        && !exists(claimPath(claimId))
+        && existsAfter(claimPath(claimId))
+        && claimAfter(claimId).user_id == request.auth.uid
+        && isKnownQuestId(claimAfter(claimId).quest_id)
+        && claimAfter(claimId).xp_awarded == questXpFor(claimAfter(claimId).quest_id)
+        && request.resource.data.quest_xp == questXpOf(resource.data) + claimAfter(claimId).xp_awarded;
+    }
+
+    function validQuestClaimUpdate() {
+      return resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.sessions_completed == resource.data.sessions_completed
+        && request.resource.data.score_sum == resource.data.score_sum
+        && request.resource.data.average_score == resource.data.average_score
+        && request.resource.data.best_score == resource.data.best_score
+        && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
+        && request.resource.data.last_session_at == resource.data.last_session_at
+        && request.resource.data.total_xp
+           == request.resource.data.sessions_completed * 25 + questXpOf(request.resource.data)
+        && claimMatchesLeaderboardUpdate();
+    }
+
     match /users/{userId} {
       allow read, write: if isOwner(userId);
     }
@@ -194,9 +399,13 @@ service cloud.firestore {
     }
 
     // Public aggregate rankings. Authenticated read; own-document writes only.
-    // Limitation: a modified client that still satisfies XP=+25 / +1 session
-    // arithmetic can inflate rankings. Suitable for a controlled capstone, not
-    // tamper-proof against a hostile modified client.
+    // Limitation: a modified client that still satisfies the XP-arithmetic
+    // invariants (session award = +25/+1 session, quest claim = fixed
+    // catalog XP backed by a freshly-created claim marker) can inflate its
+    // own ranking faster than the intended pace, but cannot forge another
+    // user's XP, replay a claim, or exceed the 5-quest/day catalog cap.
+    // Suitable for a controlled capstone, not tamper-proof against a
+    // hostile modified client.
     match /leaderboard/{userId} {
       allow read: if isSignedIn();
 
@@ -206,7 +415,7 @@ service cloud.firestore {
 
       allow update: if isOwner(userId)
         && validLeaderboardShape(request.resource.data)
-        && (validSessionAwardUpdate() || validPublicProfileMetadataUpdate());
+        && (validSessionAwardUpdate() || validPublicProfileMetadataUpdate() || validQuestClaimUpdate());
 
       allow delete: if false;
     }
@@ -232,6 +441,90 @@ service cloud.firestore {
         && exists(sessionPath(sessionId))
         && sourceSession(sessionId).user_id == request.auth.uid
         && request.resource.data.score == sourceSession(sessionId).score;
+
+      allow update, delete: if false;
+    }
+
+    // Persisted per-user, per-real-day quest board. Fully immutable after
+    // creation (no update path at all), and the document id is forced to the
+    // exact canonical value implied by the server clock at write time, so at
+    // most one board can ever exist for a given user on a given real Manila
+    // day — a second create attempt for the same real day collides with the
+    // existing (unmodifiable) document instead of succeeding.
+    match /daily_quest_boards/{boardId} {
+      // Mirrors the leaderboard_processed_sessions missing-marker GET
+      // pattern: resource is null for a not-yet-created own board, and that
+      // must be readable so the client can decide whether to create it.
+      allow get: if isSignedIn() && (resource == null || resource.data.user_id == request.auth.uid);
+      allow list: if false; // only ever fetched by deterministic id, never queried
+
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(boardKeys())
+        && request.resource.data.keys().hasAll(boardKeys())
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.day_key is string
+        && request.resource.data.day_key.matches('^[0-9]{8}$')
+        && request.resource.data.day_start is timestamp
+        && request.resource.data.quest_ids is list
+        && request.resource.data.quest_ids.size() == 5
+        && allUnique5(request.resource.data.quest_ids)
+        && request.resource.data.quest_ids[0] in questCatalogIds()
+        && request.resource.data.quest_ids[1] in questCatalogIds()
+        && request.resource.data.quest_ids[2] in questCatalogIds()
+        && request.resource.data.quest_ids[3] in questCatalogIds()
+        && request.resource.data.quest_ids[4] in questCatalogIds()
+        && countInSet(request.resource.data.quest_ids, sessionCountIds()) <= 1
+        && countInSet(request.resource.data.quest_ids, durationIds()) <= 1
+        && countInSet(request.resource.data.quest_ids, scoreThresholdIds()) <= 1
+        && countInSet(request.resource.data.quest_ids, easyIds()) == 2
+        && countInSet(request.resource.data.quest_ids, mediumIds()) == 2
+        && countInSet(request.resource.data.quest_ids, hardIds()) == 1
+        // Canonical-day anchoring: day_start/day_key must equal the exact
+        // values implied by the server clock right now, AND the document id
+        // itself (not just the stored fields) must equal the canonical
+        // "<uid>_<today's Manila day key>" — this is what makes a second
+        // board for the same real day structurally impossible rather than
+        // merely usually-rejected.
+        && request.resource.data.day_start == manilaDayStart(request.time)
+        && request.resource.data.day_key == manilaDayKey(request.time)
+        && boardId == request.auth.uid + '_' + manilaDayKey(request.time)
+        && request.time >= request.resource.data.day_start
+        && request.time < request.resource.data.day_start + duration.value(24, 'h');
+
+      allow update, delete: if false; // fully immutable after creation
+    }
+
+    // Idempotent, replay-proof quest-claim marker. Fully immutable after
+    // creation. See claimMatchesLeaderboardUpdate() above for how this
+    // collection and the leaderboard update reference each other atomically.
+    match /daily_quest_claims/{claimId} {
+      allow get: if isSignedIn() && (resource == null || resource.data.user_id == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(claimKeys())
+        && request.resource.data.keys().hasAll(claimKeys())
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.quest_id is string
+        && isKnownQuestId(request.resource.data.quest_id)
+        && request.resource.data.xp_awarded == questXpFor(request.resource.data.quest_id)
+        && request.resource.data.day_key is string
+        && request.resource.data.day_start is timestamp
+        && claimId == request.resource.data.user_id + '_' + request.resource.data.day_key + '_' + request.resource.data.quest_id
+        && request.resource.data.board_id == request.auth.uid + '_' + manilaDayKey(request.time)
+        && exists(boardPath(request.resource.data.board_id))
+        && claimReferencesOwnCurrentBoard(request.resource.data)
+        // Server-time-anchored real-day window: rejects claiming a stale
+        // (already-ended) or not-yet-started board day regardless of any
+        // client-supplied value, because request.time cannot be spoofed.
+        && request.resource.data.day_start == manilaDayStart(request.time)
+        && request.resource.data.day_key == manilaDayKey(request.time)
+        && request.time >= request.resource.data.day_start
+        && request.time < request.resource.data.day_start + duration.value(24, 'h')
+        // Bidirectional link: this claim must correspond to the leaderboard
+        // write happening atomically alongside it (rejects a "dangling"
+        // claim created without ever bumping quest_xp).
+        && leaderboardAfter(request.resource.data.user_id).last_claim_id == claimId;
 
       allow update, delete: if false;
     }

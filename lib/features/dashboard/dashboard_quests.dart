@@ -1,183 +1,78 @@
+import '../../data/models/daily_quest.dart';
+import '../../data/models/daily_quest_board.dart';
 import '../../data/models/session.dart';
 
-/// A single daily quest shown on the dashboard.
+/// A single quest tile ready for the dashboard UI: catalog metadata plus
+/// progress evaluated against the board's Manila-day session window.
 class DashboardQuest {
   const DashboardQuest({
     required this.id,
     required this.title,
     required this.xp,
+    required this.tier,
+    required this.current,
+    required this.target,
     required this.completed,
-    required this.isDailyFocus,
   });
 
   final String id;
   final String title;
   final int xp;
+  final QuestTier tier;
+  final int current;
+  final int target;
   final bool completed;
-
-  /// Whether this quest is part of today's rotating daily trio.
-  final bool isDailyFocus;
 }
 
-typedef _QuestDefinition = ({
-  String id,
-  String title,
-  int xp,
-  bool Function(List<Session> sessionsToday, int streakDays) isComplete,
-});
+/// Builds the current active quest list (at most 3, always board order —
+/// which is exactly one easy + one medium + one hard while unclaimed) for
+/// display.
+///
+/// [sessions] should be the user's full session history, *not* a
+/// device-local "today" filter: quest progress must be evaluated against
+/// the board's persisted Manila-day window (`board.dayStart` .. `+24h`),
+/// which this function enforces itself via [sessionsWithinBoardWindow]
+/// rather than trusting a caller-supplied "sessions today" list.
+List<DashboardQuest> buildActiveDashboardQuests({
+  required DailyQuestBoard board,
+  required Set<String> claimedQuestIds,
+  required List<Session> sessions,
+}) {
+  final windowed = sessionsWithinBoardWindow(board, sessions);
+  final activeIds = board.questIds
+      .where((id) => !claimedQuestIds.contains(id))
+      .take(3);
 
-const _questCanonicalOrder = [
-  'complete_one_session',
-  'complete_two_sessions',
-  'score_80',
-  'score_90',
-  'two_movements',
-];
-
-const _sessionCountQuests = {'complete_one_session', 'complete_two_sessions'};
-const _scoreQuests = {'score_80', 'score_90'};
-
-final List<_QuestDefinition> _questDefinitions = [
-  (
-    id: 'complete_one_session',
-    title: 'Complete 1 Practice Session',
-    xp: 10,
-    isComplete: _completeOneSession,
-  ),
-  (
-    id: 'complete_two_sessions',
-    title: 'Complete 2 Practice Sessions',
-    xp: 15,
-    isComplete: _completeTwoSessions,
-  ),
-  (
-    id: 'score_80',
-    title: 'Score 80+ in a Session',
-    xp: 15,
-    isComplete: _scoreAtLeast80,
-  ),
-  (
-    id: 'score_90',
-    title: 'Score 90+ in a Session',
-    xp: 30,
-    isComplete: _scoreAtLeast90,
-  ),
-  (
-    id: 'two_movements',
-    title: 'Practice 2 Different Movements',
-    xp: 20,
-    isComplete: _twoDistinctMovements,
-  ),
-];
-
-final Map<String, _QuestDefinition> _questDefinitionById = {
-  for (final definition in _questDefinitions) definition.id: definition,
-};
-
-final List<List<String>> _validDailyQuestSelections =
-    _buildValidDailyQuestSelections();
-
-List<List<String>> _buildValidDailyQuestSelections() {
-  final selections = <List<String>>[];
-  for (var i = 0; i < _questCanonicalOrder.length; i++) {
-    for (var j = i + 1; j < _questCanonicalOrder.length; j++) {
-      for (var k = j + 1; k < _questCanonicalOrder.length; k++) {
-        final selection = [
-          _questCanonicalOrder[i],
-          _questCanonicalOrder[j],
-          _questCanonicalOrder[k],
-        ];
-        if (_isValidDailyQuestSelection(selection)) {
-          selections.add(selection);
-        }
-      }
+  final quests = <DashboardQuest>[];
+  for (final id in activeIds) {
+    final quest = questById(id);
+    if (quest != null) {
+      quests.add(_buildQuest(quest, windowed));
     }
   }
-  return selections;
+  return quests;
 }
 
-bool _isValidDailyQuestSelection(List<String> questIds) {
-  if (questIds.length != 3) return false;
-  final sessionCountSelected = questIds
-      .where(_sessionCountQuests.contains)
-      .length;
-  if (sessionCountSelected > 1) return false;
-  final scoreSelected = questIds.where(_scoreQuests.contains).length;
-  if (scoreSelected > 1) return false;
-  return true;
-}
-
-int _localDateSeed(DateTime date) =>
-    date.year * 10000 + date.month * 100 + date.day;
-
-/// Deterministically picks three quest IDs for the given local calendar day.
-List<String> selectDailyQuestIds(DateTime date) {
-  if (_validDailyQuestSelections.isEmpty) {
-    return const [];
-  }
-  final index = _localDateSeed(date) % _validDailyQuestSelections.length;
-  return _validDailyQuestSelections[index];
-}
-
-List<DashboardQuest> buildDailyDashboardQuests({
-  required List<Session> sessionsToday,
-  required int streakDays,
-  required DateTime date,
+/// Whether every quest on [board] has been claimed today.
+bool isDailyBoardComplete({
+  required DailyQuestBoard board,
+  required Set<String> claimedQuestIds,
 }) {
-  final selectedIds = selectDailyQuestIds(date);
-  final selectedIdSet = selectedIds.toSet();
-  return [
-    for (final id in selectedIds)
-      _buildQuest(
-        definition: _questDefinitionById[id]!,
-        sessionsToday: sessionsToday,
-        streakDays: streakDays,
-        isDailyFocus: true,
-      ),
-    for (final id in _questCanonicalOrder)
-      if (!selectedIdSet.contains(id))
-        _buildQuest(
-          definition: _questDefinitionById[id]!,
-          sessionsToday: sessionsToday,
-          streakDays: streakDays,
-          isDailyFocus: false,
-        ),
-  ];
+  return board.questIds.every(claimedQuestIds.contains);
 }
 
-DashboardQuest _buildQuest({
-  required _QuestDefinition definition,
-  required List<Session> sessionsToday,
-  required int streakDays,
-  required bool isDailyFocus,
-}) {
+DashboardQuest _buildQuest(
+  QuestDefinition quest,
+  List<Session> windowedSessions,
+) {
+  final progress = quest.evaluate(windowedSessions);
   return DashboardQuest(
-    id: definition.id,
-    title: definition.title,
-    xp: definition.xp,
-    completed: definition.isComplete(sessionsToday, streakDays),
-    isDailyFocus: isDailyFocus,
+    id: quest.id,
+    title: quest.title,
+    xp: quest.xp,
+    tier: quest.tier,
+    current: progress.current,
+    target: progress.target,
+    completed: progress.completed,
   );
-}
-
-bool _completeOneSession(List<Session> sessionsToday, int streakDays) =>
-    sessionsToday.isNotEmpty;
-
-bool _completeTwoSessions(List<Session> sessionsToday, int streakDays) =>
-    sessionsToday.length >= 2;
-
-bool _scoreAtLeast80(List<Session> sessionsToday, int streakDays) =>
-    sessionsToday.any((session) => session.score >= 80);
-
-bool _scoreAtLeast90(List<Session> sessionsToday, int streakDays) =>
-    sessionsToday.any((session) => session.score >= 90);
-
-bool _twoDistinctMovements(List<Session> sessionsToday, int streakDays) {
-  final movements = <String>{};
-  for (final session in sessionsToday) {
-    final normalized = session.movementName.trim().toLowerCase();
-    if (normalized.isEmpty) continue;
-    movements.add(normalized);
-  }
-  return movements.length >= 2;
 }

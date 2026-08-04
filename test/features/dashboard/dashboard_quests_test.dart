@@ -1,304 +1,174 @@
+import 'package:elixr_application/data/models/daily_quest_board.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/features/dashboard/dashboard_quests.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _userId = 'user-1';
+final _dayStart = DateTime.utc(2026, 8, 3, 16, 0, 0); // Manila 2026-08-04 00:00
+const _insideWindow = '2026-08-04T03:00:00.000Z';
+const _outsideWindow = '2026-08-02T03:00:00.000Z';
+
+// 2 easy + 2 medium + 1 hard, ordered so the first 3 are one of each tier
+// (mirrors what generateDailyQuestIds always produces).
+final _board = DailyQuestBoard(
+  userId: 'u1',
+  dayKey: '20260804',
+  dayStart: _dayStart,
+  questIds: const [
+    'two_movements', // easy (active)
+    'distinct_props_2', // medium (active)
+    'practice_hard_movement', // hard (active)
+    'use_shaker', // easy (reserve)
+    'three_movements', // medium (reserve)
+  ],
+);
 
 Session _session({
   String movementName = 'Flair',
   int score = 70,
-  int durationSeconds = 60,
+  String createdAt = _insideWindow,
 }) {
   return Session(
-    userId: _userId,
+    userId: 'u1',
     movementName: movementName,
-    difficulty: 'beginner',
+    difficulty: 'Easy',
     score: score,
-    durationSeconds: durationSeconds,
+    durationSeconds: 60,
+    createdAt: createdAt,
   );
 }
 
 void main() {
-  group('buildDailyDashboardQuests', () {
-    test('returns the full quest pool with three daily focus quests', () {
-      final quests = buildDailyDashboardQuests(
-        sessionsToday: const [],
-        streakDays: 0,
-        date: DateTime(2026, 7, 30),
+  group('buildActiveDashboardQuests', () {
+    test('returns at most 3 active quests, in board order', () {
+      final quests = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: const {},
+        sessions: const [],
       );
 
-      expect(quests, hasLength(5));
-      expect(quests.where((quest) => quest.isDailyFocus), hasLength(3));
-    });
-
-    test('same date returns the same quest IDs in the same order', () {
-      final first = buildDailyDashboardQuests(
-        sessionsToday: const [],
-        streakDays: 0,
-        date: DateTime(2026, 7, 30),
-      );
-      final second = buildDailyDashboardQuests(
-        sessionsToday: const [],
-        streakDays: 0,
-        date: DateTime(2026, 7, 30),
-      );
-
-      expect(first.map((quest) => quest.id), second.map((quest) => quest.id));
+      expect(quests.map((q) => q.id), [
+        'two_movements',
+        'distinct_props_2',
+        'practice_hard_movement',
+      ]);
     });
 
     test(
-      'different times on the same calendar day return the same quest IDs',
+      'claiming an active quest removes it and promotes the next reserve quest',
       () {
-        final morning = buildDailyDashboardQuests(
-          sessionsToday: const [],
-          streakDays: 0,
-          date: DateTime(2026, 7, 30, 8, 15),
-        );
-        final evening = buildDailyDashboardQuests(
-          sessionsToday: const [],
-          streakDays: 0,
-          date: DateTime(2026, 7, 30, 22, 45),
+        final quests = buildActiveDashboardQuests(
+          board: _board,
+          claimedQuestIds: const {'two_movements'},
+          sessions: const [],
         );
 
-        expect(
-          morning.map((quest) => quest.id),
-          evening.map((quest) => quest.id),
-        );
+        expect(quests.map((q) => q.id), [
+          'distinct_props_2',
+          'practice_hard_movement',
+          'use_shaker',
+        ]);
       },
     );
 
-    test('selection never includes both session-count quests', () {
-      for (var day = 1; day <= 31; day++) {
-        final quests = buildDailyDashboardQuests(
-          sessionsToday: const [],
-          streakDays: 0,
-          date: DateTime(2026, 7, day),
-        );
-        final ids = quests
-            .where((quest) => quest.isDailyFocus)
-            .map((quest) => quest.id)
-            .toSet();
-
-        expect(
-          ids.contains('complete_one_session') &&
-              ids.contains('complete_two_sessions'),
-          isFalse,
-        );
-      }
-    });
-
-    test('selection never includes both score quests', () {
-      for (var day = 1; day <= 31; day++) {
-        final quests = buildDailyDashboardQuests(
-          sessionsToday: const [],
-          streakDays: 0,
-          date: DateTime(2026, 7, day),
-        );
-        final ids = quests
-            .where((quest) => quest.isDailyFocus)
-            .map((quest) => quest.id)
-            .toSet();
-
-        expect(ids.contains('score_80') && ids.contains('score_90'), isFalse);
-      }
-    });
-
-    test('complete 1 session quest completes when sessions exist', () {
-      final quests = _questsForId(
-        questId: 'complete_one_session',
-        sessionsToday: [_session()],
-        streakDays: 0,
+    test('claiming multiple quests keeps promoting in board order', () {
+      final quests = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: const {'two_movements', 'distinct_props_2'},
+        sessions: const [],
       );
 
-      expect(quests.single.completed, isTrue);
+      expect(quests.map((q) => q.id), [
+        'practice_hard_movement',
+        'use_shaker',
+        'three_movements',
+      ]);
     });
 
-    test('complete 2 sessions quest completes at two sessions', () {
-      final quests = _questsForId(
-        questId: 'complete_two_sessions',
-        sessionsToday: [
-          _session(),
+    test('returns no quests once every board quest is claimed', () {
+      final quests = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: _board.questIds.toSet(),
+        sessions: const [],
+      );
+
+      expect(quests, isEmpty);
+    });
+
+    test('progress reflects current/target and completion', () {
+      final incomplete = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: const {},
+        sessions: [_session(movementName: 'Flair')],
+      );
+      final twoMovements = incomplete.firstWhere(
+        (q) => q.id == 'two_movements',
+      );
+      expect(twoMovements.current, 1);
+      expect(twoMovements.target, 2);
+      expect(twoMovements.completed, isFalse);
+
+      final complete = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: const {},
+        sessions: [
+          _session(movementName: 'Flair'),
           _session(movementName: 'Spin'),
         ],
-        streakDays: 0,
       );
-
-      expect(quests.single.completed, isTrue);
+      final twoMovementsDone = complete.firstWhere(
+        (q) => q.id == 'two_movements',
+      );
+      expect(twoMovementsDone.current, 2);
+      expect(twoMovementsDone.completed, isTrue);
     });
 
-    test('score 80 quest completes at 80 or higher', () {
-      final quests = _questsForId(
-        questId: 'score_80',
-        sessionsToday: [_session(score: 80)],
-        streakDays: 0,
-      );
-
-      expect(quests.single.completed, isTrue);
-    });
-
-    test('score 90 quest completes at 90 or higher', () {
-      final quests = _questsForId(
-        questId: 'score_90',
-        sessionsToday: [_session(score: 90)],
-        streakDays: 0,
-      );
-
-      expect(quests.single.completed, isTrue);
-    });
-
-    test('movement quest counts distinct movements case-insensitively', () {
-      final sameMovement = _questsForId(
-        questId: 'two_movements',
-        sessionsToday: [
-          _session(movementName: 'Flair'),
-          _session(movementName: ' flair '),
+    test('sessions outside the board Manila window are ignored', () {
+      final quests = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: const {},
+        sessions: [
+          _session(movementName: 'Flair', createdAt: _outsideWindow),
+          _session(movementName: 'Spin', createdAt: _outsideWindow),
         ],
-        streakDays: 0,
-      );
-      final differentMovements = _questsForId(
-        questId: 'two_movements',
-        sessionsToday: [
-          _session(movementName: 'Flair'),
-          _session(movementName: ' SPIN '),
-        ],
-        streakDays: 0,
       );
 
-      expect(sameMovement.single.completed, isFalse);
-      expect(differentMovements.single.completed, isTrue);
+      final twoMovements = quests.firstWhere((q) => q.id == 'two_movements');
+      expect(twoMovements.current, 0);
+      expect(twoMovements.completed, isFalse);
     });
 
-    test('movement quest ignores empty movement names', () {
-      final quests = _questsForId(
-        questId: 'two_movements',
-        sessionsToday: [
-          _session(movementName: 'Flair'),
-          _session(movementName: '   '),
-        ],
-        streakDays: 0,
+    test('xp comes from the tier, not a caller-supplied value', () {
+      final quests = buildActiveDashboardQuests(
+        board: _board,
+        claimedQuestIds: const {},
+        sessions: const [],
       );
 
-      expect(quests.single.completed, isFalse);
-    });
-
-    test('includes every quest from the pool', () {
-      final quests = buildDailyDashboardQuests(
-        sessionsToday: const [],
-        streakDays: 0,
-        date: DateTime(2026, 7, 30),
-      );
-
-      expect(quests.map((quest) => quest.id).toSet(), {
-        'complete_one_session',
-        'complete_two_sessions',
-        'score_80',
-        'score_90',
-        'two_movements',
-      });
-    });
-
-    test('non-daily quests still track completion progress', () {
-      final date = _dateExcludingQuest('complete_one_session');
-      final quests = buildDailyDashboardQuests(
-        sessionsToday: [_session()],
-        streakDays: 0,
-        date: date,
-      );
-      final completeOne = quests.singleWhere(
-        (quest) => quest.id == 'complete_one_session',
-      );
-
-      expect(completeOne.isDailyFocus, isFalse);
-      expect(completeOne.completed, isTrue);
-    });
-
-    test('completed quests across the full pool are all counted', () {
-      final date = _dateExcludingQuest('score_80');
-      final quests = buildDailyDashboardQuests(
-        sessionsToday: [_session(score: 85)],
-        streakDays: 0,
-        date: date,
-      );
-      final score80 = quests.singleWhere((quest) => quest.id == 'score_80');
-
-      expect(score80.isDailyFocus, isFalse);
-      expect(score80.completed, isTrue);
-      expect(quests.where((quest) => quest.completed).length, greaterThan(1));
-    });
-
-    test('progress conditions update when sessions are added', () {
-      final date = _dateIncludingQuest('complete_one_session');
-      final before = buildDailyDashboardQuests(
-        sessionsToday: const [],
-        streakDays: 0,
-        date: date,
-      );
-      final after = buildDailyDashboardQuests(
-        sessionsToday: [_session(score: 85, movementName: 'Flair')],
-        streakDays: 0,
-        date: date,
-      );
-
-      expect(before.map((quest) => quest.id), after.map((quest) => quest.id));
-
-      final beforeCompleteOne = before.singleWhere(
-        (quest) => quest.id == 'complete_one_session' && quest.isDailyFocus,
-      );
-      final afterCompleteOne = after.singleWhere(
-        (quest) => quest.id == 'complete_one_session' && quest.isDailyFocus,
-      );
-
-      expect(beforeCompleteOne.completed, isFalse);
-      expect(afterCompleteOne.completed, isTrue);
-
-      final beforeScore80 = before.where(
-        (quest) => quest.id == 'score_80' && quest.isDailyFocus,
-      );
-      final afterScore80 = after.where(
-        (quest) => quest.id == 'score_80' && quest.isDailyFocus,
-      );
-      if (beforeScore80.isNotEmpty) {
-        expect(beforeScore80.single.completed, isFalse);
-        expect(afterScore80.single.completed, isTrue);
-      }
+      final easy = quests.firstWhere((q) => q.id == 'two_movements');
+      final medium = quests.firstWhere((q) => q.id == 'distinct_props_2');
+      final hard = quests.firstWhere((q) => q.id == 'practice_hard_movement');
+      expect(easy.xp, 10);
+      expect(medium.xp, 15);
+      expect(hard.xp, 20);
     });
   });
-}
 
-List<DashboardQuest> _questsForId({
-  required String questId,
-  required List<Session> sessionsToday,
-  required int streakDays,
-}) {
-  final date = _dateIncludingQuest(questId);
-  final quests = buildDailyDashboardQuests(
-    sessionsToday: sessionsToday,
-    streakDays: streakDays,
-    date: date,
-  );
-  return quests.where((quest) => quest.id == questId).toList();
-}
+  group('isDailyBoardComplete', () {
+    test('is false until every quest id is claimed', () {
+      expect(
+        isDailyBoardComplete(board: _board, claimedQuestIds: {'two_movements'}),
+        isFalse,
+      );
+    });
 
-DateTime _dateIncludingQuest(String questId) {
-  for (var day = 1; day <= 366; day++) {
-    final date = DateTime(2026, 1, 1).add(Duration(days: day - 1));
-    final ids = selectDailyQuestIds(date);
-    if (ids.contains(questId)) {
-      return date;
-    }
-  }
-
-  fail('No daily selection includes quest id $questId');
-}
-
-DateTime _dateExcludingQuest(String questId) {
-  for (var day = 1; day <= 366; day++) {
-    final date = DateTime(2026, 1, 1).add(Duration(days: day - 1));
-    final ids = selectDailyQuestIds(date);
-    if (!ids.contains(questId)) {
-      return date;
-    }
-  }
-
-  fail('No daily selection excludes quest id $questId');
+    test('is true once all 5 quest ids are claimed', () {
+      expect(
+        isDailyBoardComplete(
+          board: _board,
+          claimedQuestIds: _board.questIds.toSet(),
+        ),
+        isTrue,
+      );
+    });
+  });
 }

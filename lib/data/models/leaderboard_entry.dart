@@ -12,6 +12,7 @@ class LeaderboardEntry {
     required this.scoreSum,
     required this.averageScore,
     required this.bestScore,
+    this.questXp = 0,
     this.profilePictureUrl,
     this.lastSessionAt,
     this.updatedAt,
@@ -24,6 +25,13 @@ class LeaderboardEntry {
   final double scoreSum;
   final double averageScore;
   final int bestScore;
+
+  /// Cumulative XP awarded from daily-quest claims. Defaults to `0` both
+  /// here and in [tryFromMap] so legacy leaderboard documents created before
+  /// Phase 1 (and any direct construction that omits it) behave identically
+  /// to a document with `quest_xp: 0`. `totalXp` is always the authoritative
+  /// combined value (`sessionsCompleted * 25 + questXp`).
+  final int questXp;
 
   /// HTTPS download URL mirrored from the owner's public profile metadata.
   final String? profilePictureUrl;
@@ -47,6 +55,7 @@ class LeaderboardEntry {
     final scoreSum = _readDouble(map['score_sum']) ?? 0;
     final averageScore = _readDouble(map['average_score']) ?? 0;
     final bestScore = _readInt(map['best_score']) ?? 0;
+    final questXp = _readInt(map['quest_xp']) ?? 0;
 
     return LeaderboardEntry(
       userId: userId,
@@ -56,6 +65,7 @@ class LeaderboardEntry {
       scoreSum: scoreSum < 0 ? 0 : scoreSum,
       averageScore: averageScore < 0 ? 0 : averageScore,
       bestScore: bestScore < 0 ? 0 : bestScore,
+      questXp: questXp < 0 ? 0 : questXp,
       profilePictureUrl: _readProfilePictureUrl(map['profile_picture_url']),
       lastSessionAt: _readTimestampString(map['last_session_at']),
       updatedAt: _readTimestampString(map['updated_at']),

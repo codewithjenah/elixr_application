@@ -292,13 +292,15 @@ Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confid
 
 ## Data model
 
-Firestore uses five top-level collections:
+Firestore uses seven top-level collections:
 
 - `users` — per-user profile documents keyed by Firebase UID.
 - `sessions` — completed practice sessions owned by the authenticated user.
 - `feedbacks` — feedback messages linked to a session.
 - `leaderboard` — public aggregate ranking entries keyed by Firebase UID (`leaderboard/{userId}`).
 - `leaderboard_processed_sessions` — idempotency markers keyed by session ID (`leaderboard_processed_sessions/{sessionId}`).
+- `daily_quest_boards` — persisted per-user, per-Manila-day daily quest board (`daily_quest_boards/{userId}_{dayKey}`).
+- `daily_quest_claims` — idempotency markers for quest-XP claims (`daily_quest_claims/{userId}_{dayKey}_{questId}`).
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 
@@ -316,16 +318,37 @@ Each eligible completed session awards **25 XP** (`GamificationRules.xpPerSessio
 3. Create the processed-session marker with `session_id`, `user_id`, `score`, `xp_awarded` (25), and `processed_at`.
 4. Merge aggregate fields into `leaderboard/{userId}`.
 
-Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, and `last_awarded_session_id`. Display-name-only updates do not change XP or score aggregates.
+Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`, and (since the daily quest system) `quest_xp` and `last_claim_id`. Display-name-only updates do not change XP or score aggregates. **`total_xp == sessions_completed * 25 + quest_xp`**; legacy documents without `quest_xp`/`last_claim_id` are treated as `quest_xp: 0` everywhere (parsing, award math, and `firestore.rules`), so no backfill migration is required.
 
 Rankings are ordered by `total_xp` descending, then `best_score` descending (`LeaderboardRepository.watchTopPlayers` and `fetchPlayersPage`). Paginated fetches default to 50 entries per page and use a Firestore document cursor for `startAfter`. The live top-players stream defaults to 10 entries. The compound index in `firestore.indexes.json` matches this ordering.
 
 Access model (`firestore.rules`):
 
-- `leaderboard`: authenticated read; create/update only on the caller's own document (`userId == request.auth.uid`); delete denied.
+- `leaderboard`: authenticated read; create/update only on the caller's own document (`userId == request.auth.uid`); delete denied. An update is valid if it is a session award, a public-profile-metadata update, or a quest-XP claim (`validQuestClaimUpdate`) — each preserves every field it doesn't own.
 - `leaderboard_processed_sessions`: authenticated get/list constrained to the caller's markers; create allowed for own sessions; update/delete denied.
 
 Leaderboard data is **not** globally writable. The current client-written transaction model is appropriate for a controlled capstone environment but is **not** a trusted server-authoritative ranking system against a hostile modified client.
+
+### Daily quest board
+
+`GamificationRepository` persists exactly one 5-quest board per authenticated user per **Asia/Manila** calendar day (`ManilaDay`, `lib/core/utils/manila_day.dart`), drawn from an 18-quest catalog (`lib/data/models/daily_quest.dart`; 6 easy/10 XP, 7 medium/15 XP, 5 hard/20 XP). Every board has exactly 2 easy + 2 medium + 1 hard quest (max 70 XP/day), with the first 3 quest ids always exactly one easy + one medium + one hard ("active"); the remaining 2 are a reserve queue promoted as active quests are claimed. Board selection is deterministic (`generateDailyQuestIds`, a 32-bit-masked hash of `userId|dayKey`) — the same user and day always produce the same board, and different users typically differ.
+
+Claiming (`GamificationRepository.claimQuest`) runs a Firestore transaction that is idempotent (a repeat claim returns `alreadyClaimed` without re-awarding) and adds only the quest's fixed catalog XP to `quest_xp`/`total_xp`, linked via `last_claim_id`. `claimQuest` also runs a pre-transaction completion check and a board-freshness check — **both are defense-in-depth/UX only**, not a security boundary; a modified client could skip this class and write to Firestore directly.
+
+The real security boundary is `firestore.rules`:
+
+- `daily_quest_boards`: immutable after creation (no `update`); `create` requires the exact catalog/tier/category-conflict shape *and* requires `day_key`/`day_start` **and the document id itself** to equal the canonical value derived from the Firestore server's own `request.time` via Asia/Manila arithmetic (`manilaDayStart`/`manilaDayKey`) — never a client-supplied clock. This makes a second board for the same user on the same real day structurally impossible (a duplicate id collides with an immutable document), which is what actually prevents XP farming via a spoofed device clock or fabricated `day_key`.
+- `daily_quest_claims`: immutable after creation; `create` requires the referenced board to exist, be owned by the caller, and contain the claimed quest id; requires `day_start`/`day_key` to match both the board and the current real Manila day (rejecting claims for an expired or not-yet-started board day); and requires a **bidirectional, atomic link** to the leaderboard write happening in the same commit (`last_claim_id` on the leaderboard doc must point at a claim that did not exist before the request and does exist after it) — this is what makes claims replay-proof, not merely idempotent-by-convention.
+
+**Capstone security note:** these rules verify XP arithmetic, catalog membership, claim-replay safety, and the real-day window — they do not independently verify that a quest was actually completed (that evaluation is client-side). Moving completion verification into a trusted Firebase callable function is the recommended hardening for a future phase with a hostile-client threat model. See the code comment in `firestore.rules` above the `daily_quest_boards`/`leaderboard` rules.
+
+Firestore Emulator rules tests for this surface live in `firestore-tests/` (Node, `@firebase/rules-unit-testing`; not a Flutter/pubspec dependency). Run with:
+
+```powershell
+cd firestore-tests
+npm install
+npm test
+```
 
 Camera preferences are stored locally (`%APPDATA%\Elixr\settings.json` on Windows), not in Firestore.
 
@@ -489,6 +512,16 @@ For changes affecting Windows integration or startup:
 
 ```powershell
 flutter build windows
+```
+
+### Firestore rules (daily quest board / claims / leaderboard XP)
+
+Requires Node.js and the Firebase Emulator Suite (Java on `PATH`):
+
+```powershell
+cd firestore-tests
+npm install
+npm test
 ```
 
 ### Python backend

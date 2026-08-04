@@ -83,6 +83,63 @@ void main() {
       expect(entry.level, 1);
     });
 
+    test('legacy documents without quest_xp default it to zero', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'sessions_completed': 1,
+      });
+
+      expect(entry, isNotNull);
+      expect(entry!.questXp, 0);
+      expect(entry.totalXp, 25);
+    });
+
+    test('parses quest_xp when present and includes it in totalXp', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 65,
+        'sessions_completed': 2,
+        'quest_xp': 15,
+      });
+
+      expect(entry, isNotNull);
+      expect(entry!.questXp, 15);
+      expect(entry.totalXp, 65);
+      // sessionsCompleted * 25 + questXp == totalXp
+      expect(entry.sessionsCompleted * 25 + entry.questXp, entry.totalXp);
+    });
+
+    test('a negative quest_xp is clamped to zero', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'quest_xp': -5,
+      });
+
+      expect(entry!.questXp, 0);
+    });
+
+    test(
+      'direct construction defaults questXp to zero without callers passing it',
+      () {
+        const entry = LeaderboardEntry(
+          userId: 'u1',
+          displayName: 'Ada',
+          totalXp: 25,
+          sessionsCompleted: 1,
+          scoreSum: 80,
+          averageScore: 80,
+          bestScore: 80,
+        );
+
+        expect(entry.questXp, 0);
+      },
+    );
+
     test('accepts numeric values as int or double', () {
       final entry = LeaderboardEntry.tryFromMap({
         'user_id': 'u3',

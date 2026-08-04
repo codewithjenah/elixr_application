@@ -46,3 +46,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firestore Emulator rules tests (firestore-tests/)
+firestore-tests/node_modules/
+firestore-tests/firebase-debug.log
+firestore-tests/firestore-debug.log
+firestore-tests/ui-debug.log
+.firebase/
