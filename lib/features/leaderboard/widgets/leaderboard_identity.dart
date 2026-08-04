@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/profile_border_frame.dart';
+import '../../../data/models/profile_border.dart';
 
 /// Shared medal / badge visuals for podium and ranking rows.
 abstract final class LeaderboardRankStyle {
@@ -41,10 +42,10 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
   /// Optional HTTPS Cloud Storage download URL mirrored on the leaderboard row.
   final String? profilePictureUrl;
 
-  /// Public equipped cosmetic border id. Does not replace medal / YOU chrome.
+  /// Public equipped cosmetic border id. When set, only that border is shown.
   final String? equippedBorderId;
 
-  /// Subtle current-user ring that does not replace the medal accent.
+  /// Current-user ring when no equipped cosmetic border is active.
   final bool highlightRing;
 
   @override
@@ -67,12 +68,17 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
           )
         : _initialsContent(context);
 
+    final hasEquippedCosmetic =
+        equippedBorderId != null && isKnownProfileBorderId(equippedBorderId!);
+
     return ProfileBorderFrame(
       size: size,
       equippedBorderId: equippedBorderId,
       showBorder: true,
       fallbackNeutral: false,
-      highlightAccent: highlightRing ? AppColors.primary : accent,
+      highlightAccent: hasEquippedCosmetic
+          ? null
+          : (highlightRing ? AppColors.primary : accent),
       child: inner,
     );
   }

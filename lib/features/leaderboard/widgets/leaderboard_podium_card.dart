@@ -69,15 +69,6 @@ class LeaderboardPodiumCard extends StatelessWidget {
           ),
         ],
       ),
-      foregroundDecoration: isCurrentUser
-          ? BoxDecoration(
-              borderRadius: BorderRadius.circular(compact ? 14 : 16),
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.45),
-                width: 1.5,
-              ),
-            )
-          : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

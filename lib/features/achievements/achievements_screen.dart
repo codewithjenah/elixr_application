@@ -355,12 +355,10 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                       ),
                     ],
                     const SizedBox(height: AppSpacing.lg),
-                    Text(
-                      'Achievements',
-                      style: AppTheme.headingMedium.copyWith(
-                        color: context.elixTextPrimary,
-                        fontSize: 18,
-                      ),
+                    _SectionHeader(
+                      icon: FluentIcons.trophy2,
+                      title: 'Achievements',
+                      accent: AppColors.primary,
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Wrap(
@@ -462,6 +460,44 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first[0].toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    required this.accent,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 3,
+          height: 20,
+          decoration: BoxDecoration(
+            color: accent,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Icon(icon, size: 16, color: accent),
+        const SizedBox(width: AppSpacing.sm),
+        Text(
+          title,
+          style: AppTheme.headingMedium.copyWith(
+            color: context.elixTextPrimary,
+            fontSize: 18,
+          ),
+        ),
+      ],
+    );
   }
 }
 
