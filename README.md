@@ -292,7 +292,7 @@ Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confid
 
 ## Data model
 
-Firestore uses seven top-level collections:
+Firestore uses nine top-level collections:
 
 - `users` — per-user profile documents keyed by Firebase UID.
 - `sessions` — completed practice sessions owned by the authenticated user.
@@ -301,6 +301,8 @@ Firestore uses seven top-level collections:
 - `leaderboard_processed_sessions` — idempotency markers keyed by session ID (`leaderboard_processed_sessions/{sessionId}`).
 - `daily_quest_boards` — persisted per-user, per-Manila-day daily quest board (`daily_quest_boards/{userId}_{dayKey}`).
 - `daily_quest_claims` — idempotency markers for quest-XP claims (`daily_quest_claims/{userId}_{dayKey}_{questId}`).
+- `achievement_claims` — immutable achievement claim markers (`achievement_claims/{userId}_{achievementId}`).
+- `user_cosmetics` — private unlock inventory for profile borders (`user_cosmetics/{userId}`).
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 
@@ -318,16 +320,52 @@ Each eligible completed session awards **25 XP** (`GamificationRules.xpPerSessio
 3. Create the processed-session marker with `session_id`, `user_id`, `score`, `xp_awarded` (25), and `processed_at`.
 4. Merge aggregate fields into `leaderboard/{userId}`.
 
-Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`, and (since the daily quest system) `quest_xp` and `last_claim_id`. Display-name-only updates do not change XP or score aggregates. **`total_xp == sessions_completed * 25 + quest_xp`**; legacy documents without `quest_xp`/`last_claim_id` are treated as `quest_xp: 0` everywhere (parsing, award math, and `firestore.rules`), so no backfill migration is required.
+Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`, (since the daily quest system) `quest_xp` and `last_claim_id`, and (since Phase 2 achievements) optional `equipped_border_id`. Display-name-only updates do not change XP or score aggregates. Session awards and quest claims preserve `equipped_border_id`. **`total_xp == sessions_completed * 25 + quest_xp`**; legacy documents without `quest_xp`/`last_claim_id`/`equipped_border_id` are treated as `quest_xp: 0` and no equipped border everywhere (parsing, award math, and `firestore.rules`), so no backfill migration is required.
 
 Rankings are ordered by `total_xp` descending, then `best_score` descending (`LeaderboardRepository.watchTopPlayers` and `fetchPlayersPage`). Paginated fetches default to 50 entries per page and use a Firestore document cursor for `startAfter`. The live top-players stream defaults to 10 entries. The compound index in `firestore.indexes.json` matches this ordering.
 
 Access model (`firestore.rules`):
 
-- `leaderboard`: authenticated read; create/update only on the caller's own document (`userId == request.auth.uid`); delete denied. An update is valid if it is a session award, a public-profile-metadata update, or a quest-XP claim (`validQuestClaimUpdate`) — each preserves every field it doesn't own.
+- `leaderboard`: authenticated read; create/update only on the caller's own document (`userId == request.auth.uid`); delete denied. An update is valid if it is a session award, a public-profile-metadata update, a quest-XP claim (`validQuestClaimUpdate`), or an equipped-border update (`validEquippedBorderUpdate`) — each preserves every field it doesn't own. Equipping a non-empty border requires that id to exist in the caller's `user_cosmetics.unlocked_border_ids`.
 - `leaderboard_processed_sessions`: authenticated get/list constrained to the caller's markers; create allowed for own sessions; update/delete denied.
 
 Leaderboard data is **not** globally writable. The current client-written transaction model is appropriate for a controlled capstone environment but is **not** a trusted server-authoritative ranking system against a hostile modified client.
+
+### Achievements and profile borders (Phase 2)
+
+Achievements are **cosmetic only** — claiming an achievement unlocks a profile border and awards **no XP**. Quest XP, session XP, level thresholds, daily quest limits, and `total_xp` arithmetic are unchanged.
+
+The Achievements page (`/achievements`) shows each catalog achievement in one of four states:
+
+- **Locked** — no progress yet.
+- **In Progress** — partial progress.
+- **Claimable** — progress complete and not yet claimed.
+- **Claimed** — claim document exists (remains claimed even if session history is temporarily unavailable).
+
+Initial catalog (`lib/data/models/achievement.dart` / `profile_border.dart`):
+
+| Achievement | Requirement | Reward border |
+|---|---|---|
+| `first_steps` | 1 session | `starter_glow` |
+| `getting_started` | 10 sessions | `bronze_ember` |
+| `flair_regular` | 50 sessions | `violet_flow` |
+| `century_club` | 100 sessions | `gold_mastery` |
+| `sharp_pour` | session score ≥ 90 | `cyan_orbit` |
+| `perfect_serve` | session score 100 | `perfect_serve` |
+| `movement_explorer` | 5 distinct movements | `prismatic_arc` |
+| `versatility_master` | Easy + Medium + Hard | `triad_frame` |
+| `week_warrior` | 7 consecutive days | `week_warrior` |
+| `bottle_in_tin_specialist` | 5× Bottle in a Tin with bottle+shaker | `tin_specialist` |
+
+Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Equipping writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). The equipped border is shown around avatars in the sidebar, profile menu, profile settings, dashboard podium, and full leaderboard.
+
+Security rules enforce ownership, fixed achievement→border rewards, append-only unlock lists, atomic claim↔cosmetics linkage, and equip-only-if-unlocked. They do **not** verify achievement completion. Because rewards grant no XP, modified-client impact is limited to the attacker's own cosmetics. Trusted callable-function evaluation remains the future hostile-client hardening path.
+
+Deploy rules/indexes after review:
+
+```powershell
+firebase deploy --only firestore
+```
 
 ### Daily quest board
 
@@ -514,14 +552,15 @@ For changes affecting Windows integration or startup:
 flutter build windows
 ```
 
-### Firestore rules (daily quest board / claims / leaderboard XP)
+### Firestore rules (daily quests, achievements, leaderboard XP)
 
 Requires Node.js and the Firebase Emulator Suite (Java on `PATH`):
 
 ```powershell
 cd firestore-tests
-npm install
+npm ci
 npm test
+cd ..
 ```
 
 ### Python backend

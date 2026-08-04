@@ -14,6 +14,7 @@ class LeaderboardEntry {
     required this.bestScore,
     this.questXp = 0,
     this.profilePictureUrl,
+    this.equippedBorderId,
     this.lastSessionAt,
     this.updatedAt,
   });
@@ -35,6 +36,13 @@ class LeaderboardEntry {
 
   /// HTTPS download URL mirrored from the owner's public profile metadata.
   final String? profilePictureUrl;
+
+  /// Public equipped cosmetic border id from the profile-border catalog.
+  /// Missing or empty Firestore values parse as null (no equipped border).
+  /// Never stored on `users` or `user_cosmetics` — this field is the public
+  /// source of truth for avatar chrome.
+  final String? equippedBorderId;
+
   final String? lastSessionAt;
   final String? updatedAt;
 
@@ -67,12 +75,19 @@ class LeaderboardEntry {
       bestScore: bestScore < 0 ? 0 : bestScore,
       questXp: questXp < 0 ? 0 : questXp,
       profilePictureUrl: _readProfilePictureUrl(map['profile_picture_url']),
+      equippedBorderId: _readEquippedBorderId(map['equipped_border_id']),
       lastSessionAt: _readTimestampString(map['last_session_at']),
       updatedAt: _readTimestampString(map['updated_at']),
     );
   }
 
   static String? _readProfilePictureUrl(dynamic value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  static String? _readEquippedBorderId(dynamic value) {
     if (value is! String) return null;
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;

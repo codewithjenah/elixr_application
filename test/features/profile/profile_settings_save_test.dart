@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/user.dart';
+import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
 import 'package:elixr_application/features/profile/profile_settings_screen.dart';
@@ -235,8 +236,9 @@ void main() {
       await _setSurface(tester);
       await tester.pumpWidget(
         wrap(
-          const ProfileSettingsScreen(
+          ProfileSettingsScreen(
             initialSection: ProfileSettingsSection.profile,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
           ),
         ),
       );
@@ -269,8 +271,9 @@ void main() {
       await _setSurface(tester);
       await tester.pumpWidget(
         wrap(
-          const ProfileSettingsScreen(
+          ProfileSettingsScreen(
             initialSection: ProfileSettingsSection.profile,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
           ),
         ),
       );
@@ -303,8 +306,9 @@ void main() {
       await _setSurface(tester);
       await tester.pumpWidget(
         wrap(
-          const ProfileSettingsScreen(
+          ProfileSettingsScreen(
             initialSection: ProfileSettingsSection.profile,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
           ),
         ),
       );

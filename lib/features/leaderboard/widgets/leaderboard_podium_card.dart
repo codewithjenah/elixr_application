@@ -95,6 +95,7 @@ class LeaderboardPodiumCard extends StatelessWidget {
             accent: accent,
             size: avatarSize,
             profilePictureUrl: profilePictureUrl,
+            equippedBorderId: entry.equippedBorderId,
             highlightRing: isCurrentUser,
           ),
           SizedBox(height: compact ? 8 : 10),

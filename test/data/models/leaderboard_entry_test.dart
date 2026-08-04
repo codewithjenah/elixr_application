@@ -83,6 +83,35 @@ void main() {
       expect(entry.level, 1);
     });
 
+    test('parses equipped_border_id when present', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'equipped_border_id': 'starter_glow',
+      });
+
+      expect(entry, isNotNull);
+      expect(entry!.equippedBorderId, 'starter_glow');
+    });
+
+    test('treats missing or empty equipped_border_id as null', () {
+      final missing = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+      });
+      expect(missing!.equippedBorderId, isNull);
+
+      final empty = LeaderboardEntry.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Ada',
+        'total_xp': 25,
+        'equipped_border_id': '   ',
+      });
+      expect(empty!.equippedBorderId, isNull);
+    });
+
     test('legacy documents without quest_xp default it to zero', () {
       final entry = LeaderboardEntry.tryFromMap({
         'user_id': 'u1',

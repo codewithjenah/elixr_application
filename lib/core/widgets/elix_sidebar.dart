@@ -81,6 +81,12 @@ const _sidebarItems = [
     route: '/progress',
     group: SidebarGroup.insights,
   ),
+  SidebarItem(
+    label: 'Achievements',
+    icon: FluentIcons.medal,
+    route: '/achievements',
+    group: SidebarGroup.insights,
+  ),
 ];
 
 const _expandedWidth = 256.0;
@@ -121,6 +127,7 @@ class ElixSidebar extends StatefulWidget {
 class _ElixSidebarState extends State<ElixSidebar> {
   final _leaderboardRepo = LeaderboardRepository();
   int _totalXp = 0;
+  String? _equippedBorderId;
   String? _statsUserId;
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
 
@@ -144,15 +151,20 @@ class _ElixSidebarState extends State<ElixSidebar> {
     _leaderboardSub?.cancel();
     _leaderboardSub = null;
     if (userId == null) {
-      setState(() => _totalXp = 0);
+      setState(() {
+        _totalXp = 0;
+        _equippedBorderId = null;
+      });
       return;
     }
-    // Live subscription (not a one-shot fetch): both session awards and
-    // quest claims write the same leaderboard/{userId} document, so this
-    // refreshes automatically after either without any extra plumbing.
+    // Live subscription (not a one-shot fetch): session awards, quest claims,
+    // and border equip writes all touch leaderboard/{userId}.
     _leaderboardSub = _leaderboardRepo.watchPlayer(userId).listen((entry) {
       if (!mounted) return;
-      setState(() => _totalXp = entry?.totalXp ?? 0);
+      setState(() {
+        _totalXp = entry?.totalXp ?? 0;
+        _equippedBorderId = entry?.equippedBorderId;
+      });
     });
   }
 
@@ -407,6 +419,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
       user: user,
       initials: initials,
       totalXp: _totalXp,
+      equippedBorderId: _equippedBorderId,
       isCollapsed: showCollapsedLayout,
       onLogout: widget.onLogout,
     );
@@ -665,6 +678,7 @@ class _ProfileSectionWidget extends StatefulWidget {
     required this.user,
     required this.initials,
     required this.totalXp,
+    required this.equippedBorderId,
     required this.isCollapsed,
     required this.onLogout,
   });
@@ -672,6 +686,7 @@ class _ProfileSectionWidget extends StatefulWidget {
   final User? user;
   final String initials;
   final int totalXp;
+  final String? equippedBorderId;
   final bool isCollapsed;
   final VoidCallback onLogout;
 
@@ -727,6 +742,7 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
                         legacyLocalPath: widget.user?.profilePicturePath,
                         initials: widget.initials,
                         radius: 18,
+                        equippedBorderId: widget.equippedBorderId,
                       ),
                     )
                   : Column(
@@ -739,6 +755,7 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
                               legacyLocalPath: widget.user?.profilePicturePath,
                               initials: widget.initials,
                               radius: 18,
+                              equippedBorderId: widget.equippedBorderId,
                             ),
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(

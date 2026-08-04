@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -5,7 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/models/leaderboard_entry.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/leaderboard_repository.dart';
 import '../../data/repositories/profile_image_repository.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/profile_avatar.dart';
@@ -23,9 +26,13 @@ class ProfileSettingsScreen extends StatefulWidget {
   const ProfileSettingsScreen({
     super.key,
     this.initialSection = ProfileSettingsSection.account,
-  });
+    Stream<LeaderboardEntry?> Function(String userId)? watchPlayer,
+  }) : _watchPlayer = watchPlayer;
 
   final ProfileSettingsSection initialSection;
+
+  /// Optional override for tests (avoids constructing Firestore).
+  final Stream<LeaderboardEntry?> Function(String userId)? _watchPlayer;
 
   static Future<void> show(
     BuildContext context, {
@@ -58,6 +65,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   /// save or when the dialog is dismissed and reopened.
   XFile? _pendingImage;
   late final AuthService _authService;
+  StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
+  String? _equippedBorderId;
   bool _savingProfile = false;
   bool _savingPassword = false;
   bool _refreshingEmail = false;
@@ -82,6 +91,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     _newPasswordController.addListener(_onPasswordFieldsChanged);
     _confirmPasswordController.addListener(_onPasswordFieldsChanged);
     _authService.addListener(_onAuthServiceChanged);
+    final userId = user?.id;
+    if (userId != null) {
+      final watch =
+          widget._watchPlayer ?? LeaderboardRepository().watchPlayer;
+      _leaderboardSub = watch(userId).listen((entry) {
+        if (!mounted) return;
+        setState(() => _equippedBorderId = entry?.equippedBorderId);
+      });
+    }
     if (_section == ProfileSettingsSection.preferences) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -135,6 +153,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _leaderboardSub?.cancel();
     _authService.removeListener(_onAuthServiceChanged);
     _firstNameController.removeListener(_onNameFieldsChanged);
     _middleNameController.removeListener(_onNameFieldsChanged);
@@ -799,6 +818,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
                         legacyLocalPath: user?.profilePicturePath,
                         radius: 48,
                         initials: _initials(_composedDisplayName()),
+                        equippedBorderId: _equippedBorderId,
                       ),
                       Positioned(
                         bottom: 0,

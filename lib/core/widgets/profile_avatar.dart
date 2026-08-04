@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../constants/app_colors.dart';
+import 'profile_border_frame.dart';
 
 /// Shared circular avatar used by the sidebar, profile menu, and profile
 /// settings screen.
@@ -29,6 +30,8 @@ class ProfileAvatarWidget extends StatelessWidget {
     this.legacyLocalPath,
     required this.initials,
     this.radius = 20,
+    this.equippedBorderId,
+    this.showBorder = true,
   });
 
   final String? localPreviewPath;
@@ -37,13 +40,19 @@ class ProfileAvatarWidget extends StatelessWidget {
   final String initials;
   final double radius;
 
+  /// Public equipped cosmetic border id (from leaderboard). Null/unknown
+  /// falls back to the neutral presentation.
+  final String? equippedBorderId;
+  final bool showBorder;
+
   @override
   Widget build(BuildContext context) {
     final size = radius * 2;
 
-    return SizedBox(
-      width: size,
-      height: size,
+    return ProfileBorderFrame(
+      size: size,
+      equippedBorderId: equippedBorderId,
+      showBorder: showBorder,
       child: ClipOval(child: _resolveContent()),
     );
   }

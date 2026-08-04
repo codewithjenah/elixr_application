@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/profile_avatar.dart';
+import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/user.dart';
+import '../../data/repositories/leaderboard_repository.dart';
 import '../../services/auth_service.dart';
 import 'profile_settings_screen.dart';
 
@@ -69,11 +74,46 @@ class ProfileMenu {
   }
 }
 
-class _ProfileMenuCard extends StatelessWidget {
+class _ProfileMenuCard extends StatefulWidget {
   const _ProfileMenuCard({required this.onDismiss, required this.onLogout});
 
   final VoidCallback onDismiss;
   final VoidCallback onLogout;
+
+  @override
+  State<_ProfileMenuCard> createState() => _ProfileMenuCardState();
+}
+
+class _ProfileMenuCardState extends State<_ProfileMenuCard> {
+  final _leaderboardRepo = LeaderboardRepository();
+  StreamSubscription<LeaderboardEntry?>? _sub;
+  String? _equippedBorderId;
+  String? _subscribedUserId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final userId = context.watch<AuthService>().currentUser?.id;
+    if (userId != _subscribedUserId) {
+      _subscribedUserId = userId;
+      _sub?.cancel();
+      _sub = null;
+      if (userId == null) {
+        _equippedBorderId = null;
+        return;
+      }
+      _sub = _leaderboardRepo.watchPlayer(userId).listen((entry) {
+        if (!mounted) return;
+        setState(() => _equippedBorderId = entry?.equippedBorderId);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
 
   String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -83,8 +123,13 @@ class _ProfileMenuCard extends StatelessWidget {
   }
 
   void _openSettings(BuildContext context, ProfileSettingsSection section) {
-    onDismiss();
+    widget.onDismiss();
     ProfileSettingsScreen.show(context, initialSection: section);
+  }
+
+  void _openAchievements(BuildContext context) {
+    widget.onDismiss();
+    context.go('/achievements');
   }
 
   @override
@@ -119,7 +164,17 @@ class _ProfileMenuCard extends StatelessWidget {
             subtitle: role,
             initials: initials,
             user: user,
+            equippedBorderId: _equippedBorderId,
             onTap: () => _openSettings(context, ProfileSettingsSection.account),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            child: _ProfileMenuItem(
+              icon: FluentIcons.medal,
+              label: 'Achievements & Borders',
+              description: 'Claim rewards and equip borders',
+              onTap: () => _openAchievements(context),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
@@ -141,7 +196,7 @@ class _ProfileMenuCard extends StatelessWidget {
             child: _ProfileMenuItem(
               icon: FluentIcons.sign_out,
               label: 'Log out',
-              onTap: onLogout,
+              onTap: widget.onLogout,
               isDestructive: true,
             ),
           ),
@@ -158,6 +213,7 @@ class _ProfileMenuHeader extends StatefulWidget {
     required this.subtitle,
     required this.initials,
     required this.user,
+    required this.equippedBorderId,
     required this.onTap,
   });
 
@@ -165,6 +221,7 @@ class _ProfileMenuHeader extends StatefulWidget {
   final String subtitle;
   final String initials;
   final User? user;
+  final String? equippedBorderId;
   final VoidCallback onTap;
 
   @override
@@ -198,20 +255,12 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
           ),
           child: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: [AppColors.primary, AppColors.primarySoft],
-                  ),
-                ),
-                child: ProfileAvatarWidget(
-                  networkImageUrl: widget.user?.profilePictureUrl,
-                  legacyLocalPath: widget.user?.profilePicturePath,
-                  initials: widget.initials,
-                  radius: 22,
-                ),
+              ProfileAvatarWidget(
+                networkImageUrl: widget.user?.profilePictureUrl,
+                legacyLocalPath: widget.user?.profilePicturePath,
+                initials: widget.initials,
+                radius: 22,
+                equippedBorderId: widget.equippedBorderId,
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(

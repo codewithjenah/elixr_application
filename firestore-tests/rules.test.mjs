@@ -20,6 +20,7 @@ import {
   where,
   writeBatch,
   Timestamp,
+  serverTimestamp,
 } from 'firebase/firestore';
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -583,5 +584,462 @@ describe('leaderboard quest_xp preservation', () => {
       { merge: true },
     );
     await assertSucceeds(batch.commit());
+  });
+});
+
+describe('achievement claims + user cosmetics + equipped borders', () => {
+  function achievementClaimPayload(userId, achievementId, rewardBorderId) {
+    return {
+      user_id: userId,
+      achievement_id: achievementId,
+      reward_border_id: rewardBorderId,
+      claimed_at: serverTimestamp(),
+    };
+  }
+
+  function cosmeticsCreatePayload(userId, borderIds, claimId) {
+    return {
+      user_id: userId,
+      unlocked_border_ids: borderIds,
+      last_achievement_claim_id: claimId,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    };
+  }
+
+  function cosmeticsUpdatePayload(userId, borderIds, claimId, createdAt) {
+    return {
+      user_id: userId,
+      unlocked_border_ids: borderIds,
+      last_achievement_claim_id: claimId,
+      created_at: createdAt,
+      updated_at: serverTimestamp(),
+    };
+  }
+
+  async function claimFirstSteps(db) {
+    const claimId = 'alice_first_steps';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'first_steps', 'starter_glow'));
+    batch.set(doc(db, 'user_cosmetics', 'alice'), cosmeticsCreatePayload('alice', ['starter_glow'], claimId));
+    await assertSucceeds(batch.commit());
+  }
+
+  test('1 valid achievement claim plus first cosmetics creation succeeds', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const cosmetics = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    assert.deepEqual(cosmetics.data().unlocked_border_ids, ['starter_glow']);
+  });
+
+  test('2 valid later claim appends exactly one border', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const before = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    const createdAt = before.data().created_at;
+    const claimId = 'alice_sharp_pour';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'sharp_pour', 'cyan_orbit'));
+    batch.set(
+      doc(db, 'user_cosmetics', 'alice'),
+      cosmeticsUpdatePayload('alice', ['starter_glow', 'cyan_orbit'], claimId, createdAt),
+    );
+    await assertSucceeds(batch.commit());
+    const after = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    assert.deepEqual(after.data().unlocked_border_ids, ['starter_glow', 'cyan_orbit']);
+  });
+
+  test('3 standalone achievement claim is rejected', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'achievement_claims', 'alice_first_steps'),
+        achievementClaimPayload('alice', 'first_steps', 'starter_glow'),
+      ),
+    );
+  });
+
+  test('4 cosmetics unlock without a fresh claim is rejected', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'user_cosmetics', 'alice'),
+        cosmeticsCreatePayload('alice', ['starter_glow'], 'alice_first_steps'),
+      ),
+    );
+  });
+
+  test('5 unknown achievement is rejected', async () => {
+    const db = aliceDb();
+    const claimId = 'alice_not_real';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'not_real', 'starter_glow'));
+    batch.set(doc(db, 'user_cosmetics', 'alice'), cosmeticsCreatePayload('alice', ['starter_glow'], claimId));
+    await assertFails(batch.commit());
+  });
+
+  test('6 mismatched achievement-to-border reward is rejected', async () => {
+    const db = aliceDb();
+    const claimId = 'alice_first_steps';
+    const batch = writeBatch(db);
+    batch.set(
+      doc(db, 'achievement_claims', claimId),
+      achievementClaimPayload('alice', 'first_steps', 'gold_mastery'),
+    );
+    batch.set(doc(db, 'user_cosmetics', 'alice'), cosmeticsCreatePayload('alice', ['gold_mastery'], claimId));
+    await assertFails(batch.commit());
+  });
+
+  test('7 duplicate achievement claim is rejected', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const before = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    const claimId = 'alice_first_steps';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'first_steps', 'starter_glow'));
+    batch.set(
+      doc(db, 'user_cosmetics', 'alice'),
+      cosmeticsUpdatePayload('alice', ['starter_glow', 'bronze_ember'], 'alice_getting_started', before.data().created_at),
+    );
+    await assertFails(batch.commit());
+  });
+
+  test('8 replaying an old achievement claim is rejected', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const before = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    // Try to append a new border while pointing last_achievement_claim_id at the already-existing claim.
+    await assertFails(
+      setDoc(
+        doc(db, 'user_cosmetics', 'alice'),
+        cosmeticsUpdatePayload(
+          'alice',
+          ['starter_glow', 'cyan_orbit'],
+          'alice_first_steps',
+          before.data().created_at,
+        ),
+      ),
+    );
+  });
+
+  test('9 removing an unlocked border is rejected', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const before = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    const claimId = 'alice_sharp_pour';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'sharp_pour', 'cyan_orbit'));
+    batch.set(
+      doc(db, 'user_cosmetics', 'alice'),
+      cosmeticsUpdatePayload('alice', ['cyan_orbit'], claimId, before.data().created_at),
+    );
+    await assertFails(batch.commit());
+  });
+
+  test('10 replacing the unlocked list is rejected', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const before = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    const claimId = 'alice_sharp_pour';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'sharp_pour', 'cyan_orbit'));
+    batch.set(
+      doc(db, 'user_cosmetics', 'alice'),
+      cosmeticsUpdatePayload('alice', ['bronze_ember', 'cyan_orbit'], claimId, before.data().created_at),
+    );
+    await assertFails(batch.commit());
+  });
+
+  test('11 adding two borders from one claim is rejected', async () => {
+    const db = aliceDb();
+    await claimFirstSteps(db);
+    const before = await getDoc(doc(db, 'user_cosmetics', 'alice'));
+    const claimId = 'alice_sharp_pour';
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'achievement_claims', claimId), achievementClaimPayload('alice', 'sharp_pour', 'cyan_orbit'));
+    batch.set(
+      doc(db, 'user_cosmetics', 'alice'),
+      cosmeticsUpdatePayload(
+        'alice',
+        ['starter_glow', 'cyan_orbit', 'gold_mastery'],
+        claimId,
+        before.data().created_at,
+      ),
+    );
+    await assertFails(batch.commit());
+  });
+
+  test('12 cross-user cosmetics read/write is rejected', async () => {
+    const alice = aliceDb();
+    await claimFirstSteps(alice);
+
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'user_cosmetics', 'alice')));
+    await assertFails(
+      setDoc(
+        doc(bob, 'user_cosmetics', 'alice'),
+        cosmeticsCreatePayload('alice', ['starter_glow'], 'alice_first_steps'),
+      ),
+    );
+  });
+
+  test('13 equipping a locked border is rejected', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice', { equipped_border_id: '' }));
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { equipped_border_id: 'gold_mastery', updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('14 equipping an unlocked border succeeds', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice', { equipped_border_id: '' }));
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { equipped_border_id: 'starter_glow', updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('15 unequipping succeeds', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { equipped_border_id: 'starter_glow' }),
+      );
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { equipped_border_id: '', updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('16 equip update cannot change total_xp', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice', { equipped_border_id: '' }));
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { equipped_border_id: 'starter_glow', total_xp: 999, updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('17 equip update cannot change quest_xp', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { total_xp: 40, quest_xp: 15, equipped_border_id: '' }),
+      );
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { equipped_border_id: 'starter_glow', quest_xp: 99, updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('18 equip update cannot change sessions_completed', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice', { equipped_border_id: '' }));
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'leaderboard', 'alice'),
+        { equipped_border_id: 'starter_glow', sessions_completed: 99, updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('19 session award preserves equipped_border_id', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 's1'), { user_id: 'alice', score: 80 });
+      await setDoc(doc(adminDb, 'sessions', 's2'), { user_id: 'alice', score: 100 });
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          total_xp: 25,
+          sessions_completed: 1,
+          score_sum: 80,
+          average_score: 80,
+          best_score: 80,
+          last_awarded_session_id: 's1',
+          quest_xp: 0,
+          equipped_border_id: 'starter_glow',
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'leaderboard_processed_sessions', 's2'), {
+      session_id: 's2',
+      user_id: 'alice',
+      score: 100,
+      xp_awarded: 25,
+      processed_at: Timestamp.now(),
+    });
+    batch.set(
+      doc(db, 'leaderboard', 'alice'),
+      {
+        user_id: 'alice',
+        display_name: 'Alice',
+        total_xp: 50,
+        sessions_completed: 2,
+        score_sum: 180,
+        average_score: 90,
+        best_score: 100,
+        last_session_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+        last_awarded_session_id: 's2',
+        quest_xp: 0,
+        equipped_border_id: 'starter_glow',
+      },
+      { merge: true },
+    );
+    await assertSucceeds(batch.commit());
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().equipped_border_id, 'starter_glow');
+  });
+
+  test('20 daily quest claim preserves equipped_border_id', async () => {
+    const now = new Date();
+    const { id: boardId, data: board } = boardData('alice', now);
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', boardId), board);
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          total_xp: 25,
+          quest_xp: 0,
+          equipped_border_id: 'starter_glow',
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    const { id: claimId, data: claim } = claimData({
+      userId: 'alice',
+      boardId,
+      dayKey: board.day_key,
+      dayStart: now,
+    });
+    claim.day_start = board.day_start;
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'daily_quest_claims', claimId), claim);
+    batch.set(
+      doc(db, 'leaderboard', 'alice'),
+      {
+        quest_xp: CLAIM_QUEST_XP,
+        total_xp: 25 + CLAIM_QUEST_XP,
+        last_claim_id: claimId,
+        equipped_border_id: 'starter_glow',
+      },
+      { merge: true },
+    );
+    await assertSucceeds(batch.commit());
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().equipped_border_id, 'starter_glow');
+  });
+
+  test('21 public profile metadata update preserves equipped_border_id', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { equipped_border_id: 'starter_glow' }),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'leaderboard', 'alice'), { display_name: 'Alice Renamed' }, { merge: true }),
+    );
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().equipped_border_id, 'starter_glow');
+    assert.equal(after.data().display_name, 'Alice Renamed');
+  });
+
+  test('22 legacy leaderboard documents without equipped_border_id still validate normally', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'leaderboard', 'alice'), { display_name: 'Alice Legacy' }, { merge: true }),
+    );
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().display_name, 'Alice Legacy');
+    assert.equal(after.data().equipped_border_id, undefined);
   });
 });

@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
+import '../../features/achievements/achievements_screen.dart';
 import '../../features/calendar/calendar_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/history/history_screen.dart';
@@ -119,6 +120,13 @@ class AppRouter {
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
                 child: const ProgressScreen(),
+              ),
+            ),
+            GoRoute(
+              path: '/achievements',
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const AchievementsScreen(),
               ),
             ),
           ],

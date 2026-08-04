@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/profile_border_frame.dart';
 
 /// Shared medal / badge visuals for podium and ranking rows.
 abstract final class LeaderboardRankStyle {
@@ -29,6 +30,7 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
     required this.accent,
     required this.size,
     this.profilePictureUrl,
+    this.equippedBorderId,
     this.highlightRing = false,
   });
 
@@ -39,6 +41,9 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
   /// Optional HTTPS Cloud Storage download URL mirrored on the leaderboard row.
   final String? profilePictureUrl;
 
+  /// Public equipped cosmetic border id. Does not replace medal / YOU chrome.
+  final String? equippedBorderId;
+
   /// Subtle current-user ring that does not replace the medal accent.
   final bool highlightRing;
 
@@ -47,51 +52,28 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
     final trimmedUrl = profilePictureUrl?.trim();
     final hasUrl = trimmedUrl != null && trimmedUrl.isNotEmpty;
 
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: hasUrl
-            ? null
-            : LinearGradient(
-                colors: [
-                  accent.withValues(alpha: 0.35),
-                  AppColors.primary.withValues(alpha: 0.18),
-                ],
-              ),
-        border: Border.all(
-          color: highlightRing
-              ? AppColors.primary.withValues(alpha: 0.75)
-              : accent.withValues(alpha: 0.55),
-          width: highlightRing ? 2 : 1,
-        ),
-        boxShadow: highlightRing
-            ? [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.22),
-                  blurRadius: 6,
-                ),
-              ]
-            : null,
-      ),
-      child: hasUrl
-          ? ClipOval(
-              child: Image.network(
-                trimmedUrl,
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return _initialsContent(context);
-                },
-                errorBuilder: (context, error, stackTrace) =>
-                    _initialsContent(context),
-              ),
-            )
-          : _initialsContent(context),
+    final inner = hasUrl
+        ? Image.network(
+            trimmedUrl,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return _initialsContent(context);
+            },
+            errorBuilder: (context, error, stackTrace) =>
+                _initialsContent(context),
+          )
+        : _initialsContent(context);
+
+    return ProfileBorderFrame(
+      size: size,
+      equippedBorderId: equippedBorderId,
+      showBorder: true,
+      fallbackNeutral: false,
+      highlightAccent: highlightRing ? AppColors.primary : accent,
+      child: inner,
     );
   }
 

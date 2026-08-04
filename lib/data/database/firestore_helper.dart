@@ -12,6 +12,8 @@ abstract final class FirestoreCollections {
   static const leaderboardProcessedSessions = 'leaderboard_processed_sessions';
   static const dailyQuestBoards = 'daily_quest_boards';
   static const dailyQuestClaims = 'daily_quest_claims';
+  static const achievementClaims = 'achievement_claims';
+  static const userCosmetics = 'user_cosmetics';
 }
 
 class FirestoreHelper {

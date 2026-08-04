@@ -44,8 +44,125 @@ service cloud.firestore {
         'updated_at',
         'last_awarded_session_id',
         'quest_xp',
-        'last_claim_id'
+        'last_claim_id',
+        'equipped_border_id'
       ];
+    }
+
+    function achievementClaimPath(claimId) {
+      return /databases/$(database)/documents/achievement_claims/$(claimId);
+    }
+
+    function userCosmeticsPath(userId) {
+      return /databases/$(database)/documents/user_cosmetics/$(userId);
+    }
+
+    // ---- Achievement / profile-border catalog (Phase 2) --------------------
+    // Duplicated deliberately from lib/data/models/achievement.dart and
+    // lib/data/models/profile_border.dart. Guarded by
+    // test/data/models/achievement_catalog_contract_test.dart.
+    //
+    // CAPSTONE SECURITY NOTE: these rules enforce fixed reward mappings,
+    // ownership, atomic claim↔cosmetics linkage, idempotency, and
+    // equip-only-if-unlocked. They do NOT independently verify that an
+    // achievement was completed — completion remains client-evaluated.
+    // Because Phase 2 rewards are cosmetic and grant no XP, modified-client
+    // impact is limited to the attacker's own cosmetics. Trusted callable-
+    // function evaluation remains the future hostile-client hardening path.
+    function achievementIds() {
+      return [
+        'first_steps',
+        'getting_started',
+        'flair_regular',
+        'century_club',
+        'sharp_pour',
+        'perfect_serve',
+        'movement_explorer',
+        'versatility_master',
+        'week_warrior',
+        'bottle_in_tin_specialist'
+      ];
+    }
+
+    function profileBorderIds() {
+      return [
+        'starter_glow',
+        'bronze_ember',
+        'violet_flow',
+        'gold_mastery',
+        'cyan_orbit',
+        'perfect_serve',
+        'prismatic_arc',
+        'triad_frame',
+        'week_warrior',
+        'tin_specialist'
+      ];
+    }
+
+    function rewardBorderForAchievement(id) {
+      return id == 'first_steps' ? 'starter_glow'
+        : id == 'getting_started' ? 'bronze_ember'
+        : id == 'flair_regular' ? 'violet_flow'
+        : id == 'century_club' ? 'gold_mastery'
+        : id == 'sharp_pour' ? 'cyan_orbit'
+        : id == 'perfect_serve' ? 'perfect_serve'
+        : id == 'movement_explorer' ? 'prismatic_arc'
+        : id == 'versatility_master' ? 'triad_frame'
+        : id == 'week_warrior' ? 'week_warrior'
+        : id == 'bottle_in_tin_specialist' ? 'tin_specialist'
+        : '';
+    }
+
+    function isKnownAchievementId(id) {
+      return id in achievementIds();
+    }
+
+    function isKnownProfileBorderId(id) {
+      return id in profileBorderIds();
+    }
+
+    function achievementClaimKeys() {
+      return ['user_id', 'achievement_id', 'reward_border_id', 'claimed_at'];
+    }
+
+    function cosmeticsKeys() {
+      return [
+        'user_id',
+        'unlocked_border_ids',
+        'last_achievement_claim_id',
+        'created_at',
+        'updated_at'
+      ];
+    }
+
+    function equippedBorderOf(data) {
+      return data.get('equipped_border_id', '');
+    }
+
+    function equippedBorderUnchanged() {
+      return equippedBorderOf(request.resource.data) == equippedBorderOf(resource.data);
+    }
+
+    function profilePictureUnchanged() {
+      return (!resource.data.keys().hasAny(['profile_picture_url'])
+          && !request.resource.data.keys().hasAny(['profile_picture_url']))
+        || (resource.data.keys().hasAny(['profile_picture_url'])
+          && request.resource.data.keys().hasAny(['profile_picture_url'])
+          && request.resource.data.profile_picture_url
+            == resource.data.profile_picture_url);
+    }
+
+    function oldBordersPreserved(oldList, newList) {
+      return (oldList.size() < 1 || oldList[0] in newList)
+        && (oldList.size() < 2 || oldList[1] in newList)
+        && (oldList.size() < 3 || oldList[2] in newList)
+        && (oldList.size() < 4 || oldList[3] in newList)
+        && (oldList.size() < 5 || oldList[4] in newList)
+        && (oldList.size() < 6 || oldList[5] in newList)
+        && (oldList.size() < 7 || oldList[6] in newList)
+        && (oldList.size() < 8 || oldList[7] in newList)
+        && (oldList.size() < 9 || oldList[8] in newList)
+        && (oldList.size() < 10 || oldList[9] in newList);
     }
 
     function markerKeys() {
@@ -211,6 +328,10 @@ service cloud.firestore {
         && isNonNegInt(data.sessions_completed)
         && (!data.keys().hasAny(['quest_xp']) || isNonNegInt(data.quest_xp))
         && (!data.keys().hasAny(['last_claim_id']) || data.last_claim_id is string)
+        && (!data.keys().hasAny(['equipped_border_id'])
+          || (data.equipped_border_id is string
+            && (data.equipped_border_id == ''
+              || isKnownProfileBorderId(data.equipped_border_id))))
         && data.total_xp == data.sessions_completed * 25 + questXpOf(data)
         && isNonNegNumber(data.score_sum)
         && data.average_score is number
@@ -267,6 +388,7 @@ service cloud.firestore {
         && request.resource.data.score_sum == awardSessionScore()
         && request.resource.data.average_score == awardSessionScore()
         && request.resource.data.best_score == awardSessionScore()
+        && equippedBorderOf(request.resource.data) == ''
         && markerMatchesSession(awardSessionId(), awardSessionScore());
     }
 
@@ -290,6 +412,7 @@ service cloud.firestore {
         && request.resource.data.total_xp == resource.data.total_xp + 25
         && questXpOf(request.resource.data) == questXpOf(resource.data)
         && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
+        && equippedBorderUnchanged()
         && request.resource.data.score_sum == resource.data.score_sum + awardSessionScore()
         && request.resource.data.average_score
           == request.resource.data.score_sum / request.resource.data.sessions_completed
@@ -309,11 +432,40 @@ service cloud.firestore {
     function validPublicProfileMetadataUpdate() {
       return resource.data.user_id == request.auth.uid
         && aggregatesUnchanged()
+        && equippedBorderUnchanged()
         && request.resource.data.display_name is string
         && request.resource.data.display_name.size() > 0
         && request.resource.data.display_name.size() <= 80
         && (!request.resource.data.keys().hasAny(['profile_picture_url'])
           || isValidHttpsProfilePictureUrl(request.resource.data.profile_picture_url));
+    }
+
+    // Equip / unequip cosmetic border only. Preserves every XP, session,
+    // score, quest, and profile-metadata field.
+    function validEquippedBorderUpdate() {
+      let nextBorder = equippedBorderOf(request.resource.data);
+      return resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.display_name == resource.data.display_name
+        && request.resource.data.total_xp == resource.data.total_xp
+        && request.resource.data.sessions_completed == resource.data.sessions_completed
+        && request.resource.data.score_sum == resource.data.score_sum
+        && request.resource.data.average_score == resource.data.average_score
+        && request.resource.data.best_score == resource.data.best_score
+        && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
+        && request.resource.data.last_session_at == resource.data.last_session_at
+        && questXpOf(request.resource.data) == questXpOf(resource.data)
+        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
+        && profilePictureUnchanged()
+        && nextBorder is string
+        && (
+          nextBorder == ''
+          || (
+            isKnownProfileBorderId(nextBorder)
+            && exists(userCosmeticsPath(request.auth.uid))
+            && nextBorder in get(userCosmeticsPath(request.auth.uid)).data.unlocked_border_ids
+          )
+        );
     }
 
     // ---- Quest claim -> leaderboard update, replay-proof -------------------
@@ -372,6 +524,7 @@ service cloud.firestore {
         && request.resource.data.best_score == resource.data.best_score
         && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
         && request.resource.data.last_session_at == resource.data.last_session_at
+        && equippedBorderUnchanged()
         && request.resource.data.total_xp
            == request.resource.data.sessions_completed * 25 + questXpOf(request.resource.data)
         && claimMatchesLeaderboardUpdate();
@@ -415,7 +568,10 @@ service cloud.firestore {
 
       allow update: if isOwner(userId)
         && validLeaderboardShape(request.resource.data)
-        && (validSessionAwardUpdate() || validPublicProfileMetadataUpdate() || validQuestClaimUpdate());
+        && (validSessionAwardUpdate()
+          || validPublicProfileMetadataUpdate()
+          || validQuestClaimUpdate()
+          || validEquippedBorderUpdate());
 
       allow delete: if false;
     }
@@ -527,6 +683,101 @@ service cloud.firestore {
         && leaderboardAfter(request.resource.data.user_id).last_claim_id == claimId;
 
       allow update, delete: if false;
+    }
+
+    // Immutable achievement-claim markers. Atomic with user_cosmetics unlocks;
+    // reward is fixed by catalog; completion is NOT server-verified.
+    match /achievement_claims/{claimId} {
+      allow get: if isSignedIn() && (resource == null || resource.data.user_id == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(achievementClaimKeys())
+        && request.resource.data.keys().hasAll(achievementClaimKeys())
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.achievement_id is string
+        && isKnownAchievementId(request.resource.data.achievement_id)
+        && request.resource.data.reward_border_id
+          == rewardBorderForAchievement(request.resource.data.achievement_id)
+        && claimId == request.resource.data.user_id + '_' + request.resource.data.achievement_id
+        && request.resource.data.claimed_at == request.time
+        && !exists(achievementClaimPath(claimId))
+        && existsAfter(userCosmeticsPath(request.auth.uid))
+        && getAfter(userCosmeticsPath(request.auth.uid)).data.last_achievement_claim_id == claimId
+        && request.resource.data.reward_border_id
+          in getAfter(userCosmeticsPath(request.auth.uid)).data.unlocked_border_ids;
+
+      allow update, delete: if false;
+    }
+
+    // Private cosmetics inventory. Unlock only via atomic fresh achievement claim.
+    match /user_cosmetics/{userId} {
+      allow get: if isOwner(userId) && (resource == null || resource.data.user_id == userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(cosmeticsKeys())
+        && request.resource.data.keys().hasAll(cosmeticsKeys())
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.unlocked_border_ids is list
+        && request.resource.data.unlocked_border_ids.size() == 1
+        && request.resource.data.unlocked_border_ids[0] is string
+        && isKnownProfileBorderId(request.resource.data.unlocked_border_ids[0])
+        && request.resource.data.last_achievement_claim_id is string
+        && request.resource.data.created_at == request.time
+        && request.resource.data.updated_at == request.time
+        && !exists(achievementClaimPath(request.resource.data.last_achievement_claim_id))
+        && existsAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id))
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.user_id
+          == request.auth.uid
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id
+          in achievementIds()
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
+          == request.resource.data.unlocked_border_ids[0]
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
+          == rewardBorderForAchievement(
+            getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id
+          )
+        && request.resource.data.last_achievement_claim_id
+          == request.auth.uid + '_'
+            + getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id;
+
+      allow update: if isOwner(userId)
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.keys().hasOnly(cosmeticsKeys())
+        && request.resource.data.keys().hasAll(cosmeticsKeys())
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.updated_at == request.time
+        && request.resource.data.unlocked_border_ids is list
+        && resource.data.unlocked_border_ids is list
+        && request.resource.data.unlocked_border_ids.size()
+          == resource.data.unlocked_border_ids.size() + 1
+        && request.resource.data.unlocked_border_ids.size() <= 10
+        && oldBordersPreserved(
+          resource.data.unlocked_border_ids,
+          request.resource.data.unlocked_border_ids
+        )
+        && request.resource.data.last_achievement_claim_id is string
+        && request.resource.data.last_achievement_claim_id
+          != resource.data.last_achievement_claim_id
+        && !exists(achievementClaimPath(request.resource.data.last_achievement_claim_id))
+        && existsAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id))
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.user_id
+          == request.auth.uid
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
+          == rewardBorderForAchievement(
+            getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id
+          )
+        && !(getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
+          in resource.data.unlocked_border_ids)
+        && getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.reward_border_id
+          in request.resource.data.unlocked_border_ids
+        && request.resource.data.last_achievement_claim_id
+          == request.auth.uid + '_'
+            + getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id;
+
+      allow delete: if false;
     }
   }
 }
