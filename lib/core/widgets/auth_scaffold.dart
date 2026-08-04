@@ -180,13 +180,13 @@ class _BrandPanel extends StatelessWidget {
                 top: 40 + math.sin(t) * 20,
                 left: -60,
                 size: 220,
-                color: AppColors.primary.withValues(alpha: 0.18),
+                color: AppColors.primary.withValues(alpha: 0.20),
               ),
               _Orb(
                 bottom: 80 + math.cos(t) * 16,
                 right: -40,
-                size: 180,
-                color: AppColors.primarySoft.withValues(alpha: 0.12),
+                size: 200,
+                color: AppColors.accent.withValues(alpha: 0.18),
               ),
               if (overlay == null)
                 Center(
@@ -252,7 +252,7 @@ class _FormPanel extends StatelessWidget {
       child: SlideTransition(
         position: slideAnimation,
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: compact ? 420 : 380),
+          constraints: BoxConstraints(maxWidth: compact ? 420 : 440),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,7 +262,7 @@ class _FormPanel extends StatelessWidget {
                   formTitle!,
                   style: AppTheme.headingMedium.copyWith(
                     color: context.elixTextPrimary,
-                    fontSize: compact ? 24 : 28,
+                    fontSize: 24,
                   ),
                 ),
                 if (formSubtitle != null) ...[
@@ -274,7 +274,7 @@ class _FormPanel extends StatelessWidget {
                     ),
                   ),
                 ],
-                SizedBox(height: compact ? AppSpacing.lg : AppSpacing.xl),
+                SizedBox(height: compact ? AppSpacing.lg : AppSpacing.md),
               ],
               child,
             ],
@@ -284,33 +284,58 @@ class _FormPanel extends StatelessWidget {
     );
 
     if (compact) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            decoration: BoxDecoration(
-              color: context.elixCardSurface.withValues(
-                alpha: isDark ? 0.82 : 0.9,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: context.elixBorder.withValues(alpha: 0.5),
-              ),
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: constraints.maxHeight.isFinite
-                        ? constraints.maxHeight
-                        : 420,
-                  ),
-                  child: SingleChildScrollView(child: form),
-                );
-              },
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.14),
+              blurRadius: 24,
+              spreadRadius: -4,
+            ),
+            BoxShadow(
+              color: AppColors.accent.withValues(alpha: 0.10),
+              blurRadius: 32,
+              spreadRadius: -6,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              decoration: BoxDecoration(
+                color: context.elixCardSurface.withValues(
+                  alpha: isDark ? 0.82 : 0.9,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: context.elixBorder.withValues(alpha: 0.5),
+                ),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: constraints.maxHeight.isFinite
+                          ? constraints.maxHeight
+                          : 420,
+                    ),
+                    child: ScrollConfiguration(
+                      behavior: const _AuthScrollBehavior(),
+                      child: SingleChildScrollView(child: form),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -318,20 +343,13 @@ class _FormPanel extends StatelessWidget {
     }
 
     return Container(
-      color: isDark ? const Color(0xFF0C0C10) : const Color(0xFFFCFCFE),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xxl,
-              vertical: AppSpacing.lg,
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Center(child: form),
-            ),
-          );
-        },
+      color: context.elixBackground,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xxl,
+          vertical: AppSpacing.md,
+        ),
+        child: Center(child: AuthFormCard(child: form)),
       ),
     );
   }
@@ -343,7 +361,50 @@ class AuthFormCard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => child;
+  Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.14),
+            blurRadius: 24,
+            spreadRadius: -4,
+          ),
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.10),
+            blurRadius: 32,
+            spreadRadius: -6,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: context.elixCardSurface.withValues(
+                alpha: isDark ? 0.82 : 0.9,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: context.elixBorder.withValues(alpha: isDark ? 0.5 : 0.7),
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class AuthFormHeader extends StatelessWidget {
@@ -626,6 +687,18 @@ class _DotGridPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DotGridPainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+/// Hides the default desktop scrollbar on auth forms; wheel/trackpad scroll still works.
+class _AuthScrollBehavior extends ScrollBehavior {
+  const _AuthScrollBehavior();
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => child;
 }
 
 class _Orb extends StatelessWidget {

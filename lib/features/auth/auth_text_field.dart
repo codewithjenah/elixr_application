@@ -14,6 +14,7 @@ class AuthTextField extends StatefulWidget {
     this.keyboardType,
     this.onSubmitted,
     this.helperText,
+    this.dense = false,
   });
 
   final TextEditingController controller;
@@ -23,6 +24,7 @@ class AuthTextField extends StatefulWidget {
   final TextInputType? keyboardType;
   final ValueChanged<String>? onSubmitted;
   final String? helperText;
+  final bool dense;
 
   @override
   State<AuthTextField> createState() => _AuthTextFieldState();
@@ -60,6 +62,15 @@ class _AuthTextFieldState extends State<AuthTextField> {
                     ? AppColors.primary.withValues(alpha: 0.55)
                     : context.elixBorder.withValues(alpha: isDark ? 0.55 : 0.8),
               ),
+              boxShadow: _focused
+                  ? [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.18),
+                        blurRadius: 12,
+                        spreadRadius: -2,
+                      ),
+                    ]
+                  : null,
             ),
             child: TextBox(
               controller: widget.controller,
@@ -67,9 +78,9 @@ class _AuthTextFieldState extends State<AuthTextField> {
               obscureText: _obscured,
               keyboardType: widget.keyboardType,
               onSubmitted: widget.onSubmitted,
-              padding: const EdgeInsets.symmetric(
+              padding: EdgeInsets.symmetric(
                 horizontal: AppSpacing.md,
-                vertical: 11,
+                vertical: widget.dense ? 8 : 11,
               ),
               prefix: Padding(
                 padding: const EdgeInsets.only(left: AppSpacing.sm + 2),

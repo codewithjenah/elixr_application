@@ -84,41 +84,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Widget _buildNameFields() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final sideBySide = constraints.maxWidth >= 300;
-        final firstNameField = AuthTextField(
-          controller: _firstNameController,
-          placeholder: 'First name',
-          icon: FluentIcons.contact,
-        );
-        final lastNameField = AuthTextField(
-          controller: _lastNameController,
-          placeholder: 'Last name',
-          icon: FluentIcons.contact,
-        );
-
-        if (sideBySide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: firstNameField),
-              const SizedBox(width: AppSpacing.sm + 4),
-              Expanded(child: lastNameField),
-            ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            firstNameField,
-            const SizedBox(height: AppSpacing.sm + 4),
-            lastNameField,
-          ],
-        );
-      },
+  Widget _pairFields(AuthTextField left, AuthTextField right) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: left),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(child: right),
+      ],
     );
   }
 
@@ -130,58 +103,102 @@ class _RegisterScreenState extends State<RegisterScreen> {
       subtitle: 'Start your flair training journey',
       formTitle: 'Register',
       formSubtitle: 'Set up your trainee profile',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildNameFields(),
-          const SizedBox(height: AppSpacing.sm + 4),
-          AuthTextField(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final paired = constraints.maxWidth >= 300;
+          final gap = paired ? AppSpacing.sm : AppSpacing.sm + 4;
+          final dense = paired;
+
+          final firstNameField = AuthTextField(
+            controller: _firstNameController,
+            placeholder: 'First name',
+            icon: FluentIcons.contact,
+            dense: dense,
+          );
+          final lastNameField = AuthTextField(
+            controller: _lastNameController,
+            placeholder: 'Last name',
+            icon: FluentIcons.contact,
+            dense: dense,
+          );
+          final middleNameField = AuthTextField(
             controller: _middleNameController,
             placeholder: 'Middle name (optional)',
             icon: FluentIcons.contact,
-          ),
-          const SizedBox(height: AppSpacing.sm + 4),
-          AuthTextField(
+            dense: dense,
+          );
+          final emailField = AuthTextField(
             controller: _emailController,
             placeholder: 'Email address',
             icon: FluentIcons.mail_solid,
             keyboardType: TextInputType.emailAddress,
-          ),
-          const SizedBox(height: AppSpacing.sm + 4),
-          AuthTextField(
+            dense: dense,
+          );
+          final passwordField = AuthTextField(
             controller: _passwordController,
             placeholder: 'Password',
             icon: FluentIcons.lock_solid,
             obscureText: true,
             helperText: 'At least 6 characters',
-          ),
-          const SizedBox(height: AppSpacing.sm + 4),
-          AuthTextField(
+            dense: dense,
+          );
+          final confirmField = AuthTextField(
             controller: _confirmController,
             placeholder: 'Confirm password',
             icon: FluentIcons.shield_solid,
             obscureText: true,
             onSubmitted: (_) => _register(),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            AuthErrorBanner(message: _error!),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          ElixPrimaryButton(
-            label: 'Create Account',
-            isLoading: _isLoading,
-            onPressed: _register,
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Center(
-            child: AuthFooterLink(
-              prompt: 'Already have an account?',
-              action: 'Sign in',
-              onTap: () => context.go('/login'),
-            ),
-          ),
-        ],
+            dense: dense,
+          );
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (paired)
+                _pairFields(firstNameField, lastNameField)
+              else ...[
+                firstNameField,
+                SizedBox(height: gap),
+                lastNameField,
+              ],
+              SizedBox(height: gap),
+              if (paired)
+                _pairFields(middleNameField, emailField)
+              else ...[
+                middleNameField,
+                SizedBox(height: gap),
+                emailField,
+              ],
+              SizedBox(height: gap),
+              if (paired)
+                _pairFields(passwordField, confirmField)
+              else ...[
+                passwordField,
+                SizedBox(height: gap),
+                confirmField,
+              ],
+              if (_error != null) ...[
+                SizedBox(height: paired ? AppSpacing.sm : AppSpacing.md),
+                AuthErrorBanner(message: _error!),
+              ],
+              SizedBox(height: paired ? AppSpacing.md : AppSpacing.lg),
+              ElixPrimaryButton(
+                label: 'Create Account',
+                isLoading: _isLoading,
+                onPressed: _register,
+                dense: dense,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Center(
+                child: AuthFooterLink(
+                  prompt: 'Already have an account?',
+                  action: 'Sign in',
+                  onTap: () => context.go('/login'),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

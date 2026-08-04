@@ -26,10 +26,12 @@ class _SplashScreenState extends State<SplashScreen>
   late final AnimationController _logoController;
   late final AnimationController _ambientController;
   late final AnimationController _shimmerController;
+  late final AnimationController _pulseController;
   late final Animation<double> _logoScale;
   late final Animation<double> _logoOpacity;
   late final Animation<double> _taglineOpacity;
   late final Animation<Offset> _taglineSlide;
+  late final Animation<double> _pulseScale;
 
   bool _animationDone = false;
 
@@ -48,6 +50,10 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 2600),
     )..repeat();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3000),
+    )..repeat(reverse: true);
 
     _logoScale = Tween<double>(begin: 0.7, end: 1.0).animate(
       CurvedAnimation(
@@ -74,6 +80,9 @@ class _SplashScreenState extends State<SplashScreen>
             curve: const Interval(0.45, 0.85, curve: Curves.easeOutCubic),
           ),
         );
+    _pulseScale = Tween<double>(begin: 1.0, end: 1.04).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
 
     _logoController.forward().then((_) {
       if (mounted) setState(() => _animationDone = true);
@@ -102,6 +111,7 @@ class _SplashScreenState extends State<SplashScreen>
     _logoController.dispose();
     _ambientController.dispose();
     _shimmerController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -127,7 +137,13 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
             ),
-            // Floating ambient orbs.
+            // Dot-grid background — matches AuthScaffold density for visual continuity.
+            CustomPaint(
+              painter: _SplashDotGridPainter(
+                color: AppColors.primary.withValues(alpha: 0.035),
+              ),
+            ),
+            // Floating ambient orbs — dual pink+purple identity.
             AnimatedBuilder(
               animation: _ambientController,
               builder: (context, _) {
@@ -152,8 +168,8 @@ class _SplashScreenState extends State<SplashScreen>
                       dx: math.sin(t + 1.5) * 30,
                       dy: math.cos(t + 1.5) * 30,
                       alignment: const Alignment(0.8, -0.9),
-                      size: 240,
-                      color: const Color(0xFF7B5CFF).withValues(alpha: 0.12),
+                      size: 280,
+                      color: AppColors.accent.withValues(alpha: 0.18),
                     ),
                   ],
                 );
@@ -164,6 +180,7 @@ class _SplashScreenState extends State<SplashScreen>
                 animation: Listenable.merge([
                   _logoController,
                   _shimmerController,
+                  _pulseController,
                 ]),
                 builder: (context, _) {
                   return Opacity(
@@ -173,7 +190,10 @@ class _SplashScreenState extends State<SplashScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildLogoMark(),
+                          Transform.scale(
+                            scale: _pulseScale.value,
+                            child: _buildLogoMark(),
+                          ),
                           const SizedBox(height: AppSpacing.lg + AppSpacing.sm),
                           _buildTitle(),
                           const SizedBox(height: AppSpacing.sm),
@@ -289,38 +309,54 @@ class _SplashScreenState extends State<SplashScreen>
           return Opacity(
             opacity: _taglineOpacity.value,
             child: Center(
-              child: SizedBox(
-                width: 160,
-                height: 3,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: Stack(
-                    children: [
-                      Container(color: AppColors.border.withValues(alpha: 0.5)),
-                      Align(
-                        alignment: Alignment(
-                          -1 + _shimmerController.value * 2,
-                          0,
-                        ),
-                        child: FractionallySizedBox(
-                          widthFactor: 0.4,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  AppColors.primary.withValues(alpha: 0),
-                                  AppColors.primary,
-                                  AppColors.primarySoft,
-                                  AppColors.primary.withValues(alpha: 0),
-                                ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 160,
+                    height: 3,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: Stack(
+                        children: [
+                          Container(
+                            color: AppColors.border.withValues(alpha: 0.5),
+                          ),
+                          Align(
+                            alignment: Alignment(
+                              -1 + _shimmerController.value * 2,
+                              0,
+                            ),
+                            child: FractionallySizedBox(
+                              widthFactor: 0.4,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      AppColors.primary.withValues(alpha: 0),
+                                      AppColors.primary,
+                                      AppColors.primarySoft,
+                                      AppColors.primary.withValues(alpha: 0),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  if (!widget.authReady) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Preparing your session\u2026',
+                      style: AppTheme.caption.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           );
@@ -328,4 +364,28 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
   }
+}
+
+/// Dot-grid background painter matching [AuthScaffold]'s visual density.
+class _SplashDotGridPainter extends CustomPainter {
+  const _SplashDotGridPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    const spacing = 28.0;
+    const radius = 1.0;
+
+    for (var x = 0.0; x < size.width; x += spacing) {
+      for (var y = 0.0; y < size.height; y += spacing) {
+        canvas.drawCircle(Offset(x, y), radius, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SplashDotGridPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
