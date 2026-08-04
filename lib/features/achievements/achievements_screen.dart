@@ -309,11 +309,37 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
 
     return ScaffoldPage(
       header: PageHeader(
-        title: Text(
-          'Achievements',
-          style: AppTheme.headingMedium.copyWith(
-            color: context.elixTextPrimary,
-          ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(
+                  alpha: context.isDarkTheme ? 0.18 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.26),
+                ),
+              ),
+              child: const Icon(
+                FluentIcons.trophy2,
+                size: 18,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 11),
+            Text(
+              'Achievements',
+              style: AppTheme.headingMedium.copyWith(
+                color: context.elixTextPrimary,
+              ),
+            ),
+          ],
         ),
       ),
       content: _loadingSessions
