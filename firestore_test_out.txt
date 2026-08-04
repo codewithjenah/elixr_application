@@ -1,0 +1,8 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm.
+
+> elixr-firestore-rules-tests@1.0.0 test
+> firebase emulators:exec --project demo-elixr --only firestore "node --test rules.test.mjs"
+
+i  emulators: Shutting down emulators.
+
+Error: Could not spawn `java -version`. Please make sure Java is installed and on your system PATH.

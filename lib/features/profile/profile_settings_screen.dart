@@ -93,8 +93,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen>
     _authService.addListener(_onAuthServiceChanged);
     final userId = user?.id;
     if (userId != null) {
-      final watch =
-          widget._watchPlayer ?? LeaderboardRepository().watchPlayer;
+      final watch = widget._watchPlayer ?? LeaderboardRepository().watchPlayer;
       _leaderboardSub = watch(userId).listen((entry) {
         if (!mounted) return;
         setState(() => _equippedBorderId = entry?.equippedBorderId);

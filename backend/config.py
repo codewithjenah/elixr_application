@@ -1,4 +1,8 @@
 import os
+from pathlib import Path
+
+_BACKEND_DIR = Path(__file__).resolve().parent
+_DEFAULT_YOLO_MODEL_PATH = _BACKEND_DIR / "models" / "best.pt"
 
 TARGET_FPS = 20
 FRAME_WIDTH = 640
@@ -39,8 +43,14 @@ FPS_LOG_INTERVAL = 60
 MIN_TARGET_FPS = 15
 MAX_TARGET_FPS = 30
 
-# Custom YOLO model settings. The selected prop detector resolves class IDs
-# from each model's declared names at load time; do not assume class zero.
+# Combined bottle + shaker YOLO weights. Resolved absolutely so inference works
+# regardless of the process working directory. Override with YOLO_MODEL_PATH.
+YOLO_MODEL_PATH = Path(
+    os.getenv("YOLO_MODEL_PATH", str(_DEFAULT_YOLO_MODEL_PATH))
+).resolve()
+
+# Custom YOLO model settings. PropDetector resolves class IDs from the
+# combined model's declared names at load time; do not assume class zero.
 YOLO_CONFIDENCE = 0.4
 # NMS IoU threshold: collapse overlapping boxes on the same bottle.
 YOLO_IOU = 0.45

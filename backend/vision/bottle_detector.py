@@ -14,8 +14,8 @@ class BottleDetector(PropDetector):
         enabled: bool = True,
     ):
         # ``model_name`` was accepted by the old detector. Preserve it for
-        # scripts that still pass a custom path; the default always uses the
-        # explicit bottle model under backend/models.
+        # scripts that still pass a custom path; the default uses the combined
+        # model under backend/models/best.pt.
         model_path = model_name
         super().__init__(
             prop_type="bottle",

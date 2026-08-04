@@ -67,6 +67,31 @@ class StubBottleDetector:
         return []
 
 
+class StubDualPropDetector:
+    """Stands in for vision.dual_prop_detector.DualPropDetector."""
+
+    instances: list["StubDualPropDetector"] = []
+
+    def __init__(self, *, enabled: bool, **kwargs):
+        self.enabled = enabled
+        self.detect_calls = 0
+        StubDualPropDetector.instances.append(self)
+
+    def ensure_ready(self):
+        pass
+
+    def reset_cache(self):
+        pass
+
+    def detect(self, current_frame):
+        self.detect_calls += 1
+        return type(
+            "DualPropResult",
+            (),
+            {"bottles": [], "shakers": []},
+        )()
+
+
 class StubPropDetector:
     """Stands in for vision.prop_detector.PropDetector inside DualPropDetector."""
 
@@ -113,9 +138,11 @@ def _patch_vision(monkeypatch):
     StubCamera.open_result = True
     StubCamera.instances = []
     StubPropDetector.instances = []
+    StubDualPropDetector.instances = []
     monkeypatch.setattr(websocket_api, "CameraCapture", StubCamera)
     monkeypatch.setattr(websocket_api, "BottleDetector", StubBottleDetector)
     monkeypatch.setattr(websocket_api, "PropDetector", StubPropDetector)
+    monkeypatch.setattr(websocket_api, "DualPropDetector", StubDualPropDetector)
     monkeypatch.setattr(websocket_api, "HandsDetector", StubHandsDetector)
     monkeypatch.setattr(websocket_api, "PoseDetector", StubPoseDetector)
     monkeypatch.setattr(
@@ -268,12 +295,8 @@ def test_bottle_in_a_tin_accepts_bottle_and_shaker_prop(monkeypatch):
         ack = await _wait_for_ack(ws, "req-1")()
         assert ack["accepted"] is True
         assert StubCamera.open_calls == 1
-        # Both the bottle and shaker YOLO models must have been constructed.
-        assert len(StubPropDetector.instances) == 2
-        assert {d.prop_type for d in StubPropDetector.instances} == {
-            "bottle",
-            "shaker",
-        }
+        assert len(StubDualPropDetector.instances) == 1
+        assert len(StubPropDetector.instances) == 0
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)
 
@@ -291,6 +314,7 @@ def test_single_prop_movement_still_initializes_only_one_model(monkeypatch):
         ack = await _wait_for_ack(ws, "req-1")()
         assert ack["accepted"] is True
         assert len(StubPropDetector.instances) == 1
+        assert len(StubDualPropDetector.instances) == 0
         assert StubPropDetector.instances[0].prop_type == "shaker"
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)

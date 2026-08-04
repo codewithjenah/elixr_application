@@ -1,10 +1,8 @@
 """Dual-prop detector for movements that need bottle + shaker simultaneously.
 
-Owns one bottle detector and one shaker detector. To avoid running two YOLO
-inferences on every processed frame, callers should invoke ``detect`` only on
-frames eligible for a YOLO update (i.e. respecting ``YOLO_FRAME_SKIP``
-upstream); each eligible call alternates between refreshing the bottle cache
-and the shaker cache, so the first two eligible updates initialize both.
+Uses one combined YOLO inference per eligible frame. Callers should invoke
+``detect`` only on frames eligible for a YOLO update (i.e. respecting
+``YOLO_FRAME_SKIP`` upstream).
 """
 
 from __future__ import annotations
@@ -12,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from vision.prop_detector import ModelLoadError, PropDetector
+from vision.prop_detector import CombinedPropDetector, ModelLoadError
 from vision.types import PropDetection
 
 __all__ = ["DualPropDetector", "DualPropResult", "ModelLoadError"]
@@ -25,25 +23,32 @@ class DualPropResult:
 
 
 class DualPropDetector:
-    """Alternates YOLO inference between a bottle detector and shaker detector."""
+    """Detects bottles and shakers from one combined model inference per call."""
 
     def __init__(
         self,
         *,
         enabled: bool = True,
+        combined_detector: Optional[CombinedPropDetector] = None,
+        # Backward-compatible kwargs for older injection sites/tests.
         bottle_detector: Optional[object] = None,
         shaker_detector: Optional[object] = None,
     ) -> None:
+        if combined_detector is not None:
+            self._combined = combined_detector
+        elif bottle_detector is not None or shaker_detector is not None:
+            # Legacy injection supplied separate single-prop detectors. Prefer
+            # the bottle detector when it exposes detect_all; otherwise wrap a
+            # new combined detector for compatibility with old test doubles.
+            legacy = bottle_detector or shaker_detector
+            if hasattr(legacy, "detect_all"):
+                self._combined = legacy  # type: ignore[assignment]
+            else:
+                self._combined = CombinedPropDetector(enabled=enabled)
+        else:
+            self._combined = CombinedPropDetector(enabled=enabled)
+
         self._enabled = enabled
-        self._bottle_detector = bottle_detector or PropDetector(
-            prop_type="bottle", enabled=enabled
-        )
-        self._shaker_detector = shaker_detector or PropDetector(
-            prop_type="shaker", enabled=enabled
-        )
-        self._last_bottles: list[PropDetection] = []
-        self._last_shakers: list[PropDetection] = []
-        self._next_target: str = "bottle"
 
     @property
     def enabled(self) -> bool:
@@ -53,46 +58,27 @@ class DualPropDetector:
         self._enabled = enabled
 
     @property
-    def bottle_detector(self):
-        return self._bottle_detector
-
-    @property
-    def shaker_detector(self):
-        return self._shaker_detector
+    def combined_detector(self) -> CombinedPropDetector:
+        return self._combined
 
     def ensure_ready(self) -> None:
-        """Validate both models now. Raises ModelLoadError if either fails."""
-        self._bottle_detector.ensure_ready()
-        self._shaker_detector.ensure_ready()
+        """Validate the combined model now. Raises ModelLoadError on failure."""
+        self._combined.ensure_ready()
 
     def reset_cache(self) -> None:
-        """Clear cached detections and restart the alternating sequence.
+        """Compatibility hook for session activation resets.
 
-        Called on session activation so a newly activated session does not
-        inherit stale detections or alternation phase from a prior attempt.
+        The combined detector does not retain stale per-class caches between
+        calls; each ``detect`` reflects only the current frame.
         """
-        self._last_bottles = []
-        self._last_shakers = []
-        self._next_target = "bottle"
 
     def detect(self, frame) -> DualPropResult:
-        """Refresh exactly one of the bottle/shaker caches and return both.
-
-        Call only on frames eligible for a YOLO update; do not call this on
-        every processed frame, since each call still performs one full YOLO
-        inference for whichever prop is due next in the alternation.
-        """
+        """Run one combined inference and return current-frame detections."""
         if not self._enabled:
             return DualPropResult(bottles=[], shakers=[])
 
-        if self._next_target == "bottle":
-            self._last_bottles = list(self._bottle_detector.detect(frame))
-            self._next_target = "shaker"
-        else:
-            self._last_shakers = list(self._shaker_detector.detect(frame))
-            self._next_target = "bottle"
-
+        result = self._combined.detect_all(frame)
         return DualPropResult(
-            bottles=list(self._last_bottles),
-            shakers=list(self._last_shakers),
+            bottles=list(result.bottles),
+            shakers=list(result.shakers),
         )

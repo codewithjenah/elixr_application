@@ -249,11 +249,11 @@ Discovery probing is bounded (`DISCOVERY_PROBE_TIMEOUT_S`, `DISCOVERY_MAX_INDEX`
 
 ### Explicit selection vs Auto-select
 
-| Mode | WebSocket field | Behavior |
-| ---- | --------------- | -------- |
-| Auto-select (recommended) | `camera_device_id: null` (omit legacy `camera_index`) | Backend tries `CAMERA_INDEX`, then `CAMERA_FALLBACK_INDEX` if different |
-| Explicit device | `camera_device_id` from discovery | Opens that device only; no silent fallback to another camera. Prefer entries with `identity_stable: true` when available. |
-| Legacy migration | `camera_index` when `camera_device_id` is absent | Compatibility only; Flutter migrates saved settings to `camera_device_id` after discovery |
+| Mode                      | WebSocket field                                       | Behavior                                                                                                                  |
+| ------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Auto-select (recommended) | `camera_device_id: null` (omit legacy `camera_index`) | Backend tries `CAMERA_INDEX`, then `CAMERA_FALLBACK_INDEX` if different                                                   |
+| Explicit device           | `camera_device_id` from discovery                     | Opens that device only; no silent fallback to another camera. Prefer entries with `identity_stable: true` when available. |
+| Legacy migration          | `camera_index` when `camera_device_id` is absent      | Compatibility only; Flutter migrates saved settings to `camera_device_id` after discovery                                 |
 
 **Do not assume runtime index `0` is always built-in or index `1` is always external.** Indices are ephemeral. Never document or label cameras by guessed index order.
 
@@ -267,15 +267,15 @@ Camera preferences are stored in local settings (`%APPDATA%\Elixr\settings.json`
 
 These influence **internal Auto-select try order only**. They are not stable physical-camera identities.
 
-| Variable | Default | Purpose |
-| -------- | ------: | ------- |
-| `CAMERA_INDEX` | `1` | First runtime index tried for Auto-select |
-| `CAMERA_FALLBACK_INDEX` | `0` | Second runtime index tried when different from `CAMERA_INDEX` |
-| `DISCOVERY_MAX_INDEX` | `4` | Maximum runtime index probed when OS enumeration is unavailable |
-| `DISCOVERY_CACHE_TTL_S` | `30` | Discovery result cache lifetime (seconds) |
-| `DISCOVERY_PROBE_TIMEOUT_S` | `1.5` | Per-device discovery warm-up timeout (seconds) |
-| `DISCOVERY_PROBE_REQUIRED_CONSECUTIVE` | `2` | Consecutive usable frames required during discovery |
-| `DISCOVERY_PROBE_READ_SLEEP_S` | `0.03` | Sleep between discovery frame reads (seconds) |
+| Variable                               | Default | Purpose                                                         |
+| -------------------------------------- | ------: | --------------------------------------------------------------- |
+| `CAMERA_INDEX`                         |     `1` | First runtime index tried for Auto-select                       |
+| `CAMERA_FALLBACK_INDEX`                |     `0` | Second runtime index tried when different from `CAMERA_INDEX`   |
+| `DISCOVERY_MAX_INDEX`                  |     `4` | Maximum runtime index probed when OS enumeration is unavailable |
+| `DISCOVERY_CACHE_TTL_S`                |    `30` | Discovery result cache lifetime (seconds)                       |
+| `DISCOVERY_PROBE_TIMEOUT_S`            |   `1.5` | Per-device discovery warm-up timeout (seconds)                  |
+| `DISCOVERY_PROBE_REQUIRED_CONSECUTIVE` |     `2` | Consecutive usable frames required during discovery             |
+| `DISCOVERY_PROBE_READ_SLEEP_S`         |  `0.03` | Sleep between discovery frame reads (seconds)                   |
 
 Example (adjust Auto-select order for a specific machine):
 
@@ -344,17 +344,17 @@ The Achievements page (`/achievements`) shows each catalog achievement in one of
 
 Initial catalog (`lib/data/models/achievement.dart` / `profile_border.dart`):
 
-| Achievement | Requirement | Reward border |
-|---|---|---|
-| `first_steps` | 1 session | `starter_glow` |
-| `getting_started` | 10 sessions | `bronze_ember` |
-| `flair_regular` | 50 sessions | `violet_flow` |
-| `century_club` | 100 sessions | `gold_mastery` |
-| `sharp_pour` | session score ≥ 90 | `cyan_orbit` |
-| `perfect_serve` | session score 100 | `perfect_serve` |
-| `movement_explorer` | 5 distinct movements | `prismatic_arc` |
-| `versatility_master` | Easy + Medium + Hard | `triad_frame` |
-| `week_warrior` | 7 consecutive days | `week_warrior` |
+| Achievement                | Requirement                           | Reward border    |
+| -------------------------- | ------------------------------------- | ---------------- |
+| `first_steps`              | 1 session                             | `starter_glow`   |
+| `getting_started`          | 10 sessions                           | `bronze_ember`   |
+| `flair_regular`            | 50 sessions                           | `violet_flow`    |
+| `century_club`             | 100 sessions                          | `gold_mastery`   |
+| `sharp_pour`               | session score ≥ 90                    | `cyan_orbit`     |
+| `perfect_serve`            | session score 100                     | `perfect_serve`  |
+| `movement_explorer`        | 5 distinct movements                  | `prismatic_arc`  |
+| `versatility_master`       | Easy + Medium + Hard                  | `triad_frame`    |
+| `week_warrior`             | 7 consecutive days                    | `week_warrior`   |
 | `bottle_in_tin_specialist` | 5× Bottle in a Tin with bottle+shaker | `tin_specialist` |
 
 Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Equipping writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). The equipped border is shown around avatars in the sidebar, profile menu, profile settings, dashboard podium, and full leaderboard.
@@ -375,7 +375,7 @@ Claiming (`GamificationRepository.claimQuest`) runs a Firestore transaction that
 
 The real security boundary is `firestore.rules`:
 
-- `daily_quest_boards`: immutable after creation (no `update`); `create` requires the exact catalog/tier/category-conflict shape *and* requires `day_key`/`day_start` **and the document id itself** to equal the canonical value derived from the Firestore server's own `request.time` via Asia/Manila arithmetic (`manilaDayStart`/`manilaDayKey`) — never a client-supplied clock. This makes a second board for the same user on the same real day structurally impossible (a duplicate id collides with an immutable document), which is what actually prevents XP farming via a spoofed device clock or fabricated `day_key`.
+- `daily_quest_boards`: immutable after creation (no `update`); `create` requires the exact catalog/tier/category-conflict shape _and_ requires `day_key`/`day_start` **and the document id itself** to equal the canonical value derived from the Firestore server's own `request.time` via Asia/Manila arithmetic (`manilaDayStart`/`manilaDayKey`) — never a client-supplied clock. This makes a second board for the same user on the same real day structurally impossible (a duplicate id collides with an immutable document), which is what actually prevents XP farming via a spoofed device clock or fabricated `day_key`.
 - `daily_quest_claims`: immutable after creation; `create` requires the referenced board to exist, be owned by the caller, and contain the claimed quest id; requires `day_start`/`day_key` to match both the board and the current real Manila day (rejecting claims for an expired or not-yet-started board day); and requires a **bidirectional, atomic link** to the leaderboard write happening in the same commit (`last_claim_id` on the leaderboard doc must point at a claim that did not exist before the request and does exist after it) — this is what makes claims replay-proof, not merely idempotent-by-convention.
 
 **Capstone security note:** these rules verify XP arithmetic, catalog membership, claim-replay safety, and the real-day window — they do not independently verify that a quest was actually completed (that evaluation is client-side). Moving completion verification into a trusted Firebase callable function is the recommended hardening for a future phase with a hostile-client threat model. See the code comment in `firestore.rules` above the `daily_quest_boards`/`leaderboard` rules.

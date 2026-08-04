@@ -393,12 +393,6 @@ class VisionSession:
         elif self._is_dual_prop:
             self.prop_detector = DualPropDetector(
                 enabled=bottle_detection_enabled,
-                bottle_detector=PropDetector(
-                    prop_type="bottle", enabled=bottle_detection_enabled
-                ),
-                shaker_detector=PropDetector(
-                    prop_type="shaker", enabled=bottle_detection_enabled
-                ),
             )
         else:
             self.prop_detector = PropDetector(

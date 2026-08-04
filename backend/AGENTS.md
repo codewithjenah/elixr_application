@@ -64,9 +64,9 @@ Keep Flutter independent of these implementation details except for the document
 
 ## Model and detector behavior
 
-- `PropDetector` selects `bottle_best.pt` or `shaker_best.pt` and resolves the
-  expected class from each model's declared names; class zero must not be
-  assumed for every prop.
+- `PropDetector` and `DualPropDetector` share one combined YOLO model at
+  `backend/models/best.pt` and resolve bottle/shaker class IDs from the model's
+  declared names; class zero must not be assumed for every prop.
 - Keep model load failures distinguishable from ordinary “no bottle detected” results.
 - Do not download or replace model assets silently.
 - Avoid caching fast-changing hand landmarks; stale landmarks create ghost-hand artifacts.

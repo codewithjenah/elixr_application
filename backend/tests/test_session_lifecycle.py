@@ -208,12 +208,49 @@ class _TaggedPropDetector:
         ]
 
 
-def test_bottle_and_shaker_session_constructs_dual_detector_with_two_models(
-    monkeypatch,
-):
+class _StubDualPropDetector:
+    """Stands in for DualPropDetector in bottle_and_shaker sessions."""
+
+    instances: list["_StubDualPropDetector"] = []
+
+    def __init__(self, *, enabled: bool, **kwargs):
+        self.enabled = enabled
+        self.ensure_calls = 0
+        self.detect_calls = 0
+        self._fail = False
+        _StubDualPropDetector.instances.append(self)
+
+    def ensure_ready(self):
+        self.ensure_calls += 1
+        if self._fail:
+            raise websocket_api.ModelLoadError("combined model broken")
+
+    def reset_cache(self):
+        pass
+
+    def detect(self, current_frame):
+        self.detect_calls += 1
+        from vision.dual_prop_detector import DualPropResult
+        from vision.types import PropDetection
+
+        return DualPropResult(
+            bottles=[
+                PropDetection(
+                    x1=0, y1=0, x2=10, y2=10, confidence=0.9
+                )
+            ],
+            shakers=[
+                PropDetection(
+                    x1=100, y1=100, x2=110, y2=110, confidence=0.9
+                )
+            ],
+        )
+
+
+def test_bottle_and_shaker_session_constructs_single_dual_detector(monkeypatch):
     _patch_vision(monkeypatch)
-    _TaggedPropDetector.instances = []
-    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+    _StubDualPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "DualPropDetector", _StubDualPropDetector)
 
     session = websocket_api.VisionSession(
         "Bottle in a tin", prop_type="bottle_and_shaker"
@@ -222,25 +259,20 @@ def test_bottle_and_shaker_session_constructs_dual_detector_with_two_models(
     session.activate()
     session.process_frame()
 
-    assert len(_TaggedPropDetector.instances) == 2
-    assert {d.prop_type for d in _TaggedPropDetector.instances} == {
-        "bottle",
-        "shaker",
-    }
+    assert len(_StubDualPropDetector.instances) == 1
     session.close()
 
 
-def test_bottle_and_shaker_model_failure_from_either_model_is_fatal(monkeypatch):
+def test_bottle_and_shaker_model_failure_is_fatal(monkeypatch):
     _patch_vision(monkeypatch)
-    _TaggedPropDetector.instances = []
+    _StubDualPropDetector.instances = []
 
-    class _FailingShaker(_TaggedPropDetector):
-        def __init__(self, *, prop_type: str, enabled: bool):
-            super().__init__(prop_type=prop_type, enabled=enabled)
-            if prop_type == "shaker":
-                self._fail = True
+    class _FailingDual(_StubDualPropDetector):
+        def __init__(self, *, enabled: bool, **kwargs):
+            super().__init__(enabled=enabled, **kwargs)
+            self._fail = True
 
-    monkeypatch.setattr(websocket_api, "PropDetector", _FailingShaker)
+    monkeypatch.setattr(websocket_api, "DualPropDetector", _FailingDual)
 
     session = websocket_api.VisionSession(
         "Bottle in a tin", prop_type="bottle_and_shaker"
@@ -259,8 +291,8 @@ def test_bottle_and_shaker_evaluate_receives_bottles_and_shakers_separately(
     monkeypatch,
 ):
     _patch_vision(monkeypatch)
-    _TaggedPropDetector.instances = []
-    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+    _StubDualPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "DualPropDetector", _StubDualPropDetector)
 
     captured: dict = {}
 
@@ -283,12 +315,6 @@ def test_bottle_and_shaker_evaluate_receives_bottles_and_shakers_separately(
     )
     session.start()
     session.activate()
-
-    # YOLO_FRAME_SKIP=2, so YOLO runs on frames 1 and 3. Frame 1 refreshes the
-    # bottle cache; frame 3 refreshes the shaker cache (frame 2 is skipped and
-    # reuses cached detections), initializing both caches by the third call.
-    session.process_frame()
-    session.process_frame()
     session.process_frame()
 
     assert captured["prop_type"] == "bottle_and_shaker"
@@ -300,8 +326,8 @@ def test_bottle_and_shaker_evaluate_receives_bottles_and_shakers_separately(
 
 def test_bottle_and_shaker_annotation_receives_combined_boxes(monkeypatch):
     _patch_vision(monkeypatch)
-    _TaggedPropDetector.instances = []
-    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+    _StubDualPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "DualPropDetector", _StubDualPropDetector)
 
     captured_boxes = {"boxes": None}
 
@@ -316,9 +342,6 @@ def test_bottle_and_shaker_annotation_receives_combined_boxes(monkeypatch):
     )
     session.start()
     session.activate()
-
-    session.process_frame()
-    session.process_frame()
     session.process_frame()
 
     assert captured_boxes["boxes"] is not None
@@ -329,12 +352,11 @@ def test_bottle_and_shaker_annotation_receives_combined_boxes(monkeypatch):
 def test_bottle_and_shaker_caches_reset_on_activation(monkeypatch):
     """Re-preparing and reactivating a dual-prop session must clear stale
 
-    detections and restart the bottle/shaker alternation, rather than
-    inheriting cached state from a prior activation.
+    detections rather than inheriting cached state from a prior activation.
     """
     _patch_vision(monkeypatch)
-    _TaggedPropDetector.instances = []
-    monkeypatch.setattr(websocket_api, "PropDetector", _TaggedPropDetector)
+    _StubDualPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "DualPropDetector", _StubDualPropDetector)
 
     session = websocket_api.VisionSession(
         "Bottle in a tin", prop_type="bottle_and_shaker"
@@ -342,22 +364,16 @@ def test_bottle_and_shaker_caches_reset_on_activation(monkeypatch):
     session.start()
     session.activate()
     session.process_frame()
-    session.process_frame()
-    session.process_frame()
 
     assert session._last_bottles
     assert session._last_shakers
 
-    # Simulate stopping and re-preparing without discarding the session object,
-    # then reactivating: caches and the alternation phase must reset.
     session._lifecycle = websocket_api.SESSION_PREPARED
     session.activate()
 
     assert session._last_bottles == []
     assert session._last_shakers == []
-    assert session.prop_detector._last_bottles == []
-    assert session.prop_detector._last_shakers == []
-    assert session.prop_detector._next_target == "bottle"
+    session.close()
 
 
 def test_single_prop_session_still_uses_one_detector_without_dual_overhead(
