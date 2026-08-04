@@ -84,121 +84,94 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Widget _pairFields(AuthTextField left, AuthTextField right) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: left),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(child: right),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final verticalTight = viewportHeight < 720;
+    final verticalCompact = viewportHeight < 840;
+    final dense = verticalCompact;
+
+    final fieldGap = verticalTight ? AppSpacing.xs : AppSpacing.sm;
+    final actionGap = verticalTight ? AppSpacing.sm : AppSpacing.md;
+
     return AuthScaffold(
       formOnLeft: true,
       title: 'Create Account',
       subtitle: 'Start your flair training journey',
       formTitle: 'Register',
       formSubtitle: 'Set up your trainee profile',
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final paired = constraints.maxWidth >= 300;
-          final gap = paired ? AppSpacing.sm : AppSpacing.sm + 4;
-          final dense = paired;
-
-          final firstNameField = AuthTextField(
+      formVerticalCompact: verticalCompact,
+      formVerticalTight: verticalTight,
+      child: Column(
+        key: const Key('register_form_fields'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AuthTextField(
             controller: _firstNameController,
             placeholder: 'First name',
             icon: FluentIcons.contact,
             dense: dense,
-          );
-          final lastNameField = AuthTextField(
-            controller: _lastNameController,
-            placeholder: 'Last name',
-            icon: FluentIcons.contact,
-            dense: dense,
-          );
-          final middleNameField = AuthTextField(
+          ),
+          SizedBox(height: fieldGap),
+          AuthTextField(
             controller: _middleNameController,
             placeholder: 'Middle name (optional)',
             icon: FluentIcons.contact,
             dense: dense,
-          );
-          final emailField = AuthTextField(
+          ),
+          SizedBox(height: fieldGap),
+          AuthTextField(
+            controller: _lastNameController,
+            placeholder: 'Last name',
+            icon: FluentIcons.contact,
+            dense: dense,
+          ),
+          SizedBox(height: fieldGap),
+          AuthTextField(
             controller: _emailController,
             placeholder: 'Email address',
             icon: FluentIcons.mail_solid,
             keyboardType: TextInputType.emailAddress,
             dense: dense,
-          );
-          final passwordField = AuthTextField(
+          ),
+          SizedBox(height: fieldGap),
+          AuthTextField(
             controller: _passwordController,
             placeholder: 'Password',
             icon: FluentIcons.lock_solid,
             obscureText: true,
             helperText: 'At least 6 characters',
             dense: dense,
-          );
-          final confirmField = AuthTextField(
+          ),
+          SizedBox(height: fieldGap),
+          AuthTextField(
             controller: _confirmController,
             placeholder: 'Confirm password',
             icon: FluentIcons.shield_solid,
             obscureText: true,
             onSubmitted: (_) => _register(),
             dense: dense,
-          );
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (paired)
-                _pairFields(firstNameField, lastNameField)
-              else ...[
-                firstNameField,
-                SizedBox(height: gap),
-                lastNameField,
-              ],
-              SizedBox(height: gap),
-              if (paired)
-                _pairFields(middleNameField, emailField)
-              else ...[
-                middleNameField,
-                SizedBox(height: gap),
-                emailField,
-              ],
-              SizedBox(height: gap),
-              if (paired)
-                _pairFields(passwordField, confirmField)
-              else ...[
-                passwordField,
-                SizedBox(height: gap),
-                confirmField,
-              ],
-              if (_error != null) ...[
-                SizedBox(height: paired ? AppSpacing.sm : AppSpacing.md),
-                AuthErrorBanner(message: _error!),
-              ],
-              SizedBox(height: paired ? AppSpacing.md : AppSpacing.lg),
-              ElixPrimaryButton(
-                label: 'Create Account',
-                isLoading: _isLoading,
-                onPressed: _register,
-                dense: dense,
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Center(
-                child: AuthFooterLink(
-                  prompt: 'Already have an account?',
-                  action: 'Sign in',
-                  onTap: () => context.go('/login'),
-                ),
-              ),
-            ],
-          );
-        },
+          ),
+          if (_error != null) ...[
+            SizedBox(height: actionGap),
+            AuthErrorBanner(message: _error!),
+          ],
+          SizedBox(height: actionGap),
+          ElixPrimaryButton(
+            label: 'Create Account',
+            isLoading: _isLoading,
+            onPressed: _register,
+            dense: dense,
+          ),
+          SizedBox(height: verticalTight ? AppSpacing.xs : AppSpacing.sm),
+          Center(
+            child: AuthFooterLink(
+              prompt: 'Already have an account?',
+              action: 'Sign in',
+              onTap: () => context.go('/login'),
+            ),
+          ),
+        ],
       ),
     );
   }

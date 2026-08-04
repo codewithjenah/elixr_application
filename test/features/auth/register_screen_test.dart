@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/user.dart';
@@ -114,6 +115,34 @@ Future<void> _enterAuthField(
   await tester.enterText(_authField(placeholder), value);
 }
 
+const _registerFieldPlaceholders = [
+  'First name',
+  'Middle name (optional)',
+  'Last name',
+  'Email address',
+  'Password',
+  'Confirm password',
+];
+
+int _countRegisterFieldsInRow(Element rowElement) {
+  var count = 0;
+  void visit(Element element) {
+    final widget = element.widget;
+    if (widget is TextBox &&
+        _registerFieldPlaceholders.contains(widget.placeholder)) {
+      count++;
+    }
+    element.visitChildren(visit);
+  }
+
+  rowElement.visitChildren(visit);
+  return count;
+}
+
+bool _rowPairsRegisterFields(Element rowElement) {
+  return _countRegisterFieldsInRow(rowElement) >= 2;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -227,6 +256,45 @@ void main() {
       },
     );
 
+    testWidgets('arranges all register fields vertically at full width', (
+      tester,
+    ) async {
+      await _setSurface(tester, size: const Size(1366, 768));
+      await pumpRegisterScreen(tester);
+
+      double? previousBottom;
+      double? referenceWidth;
+      for (final placeholder in _registerFieldPlaceholders) {
+        final rect = tester.getRect(_authField(placeholder));
+        referenceWidth ??= rect.width;
+        expect(rect.width, closeTo(referenceWidth, 2));
+        if (previousBottom != null) {
+          expect(rect.top, greaterThanOrEqualTo(previousBottom - 1));
+        }
+        previousBottom = rect.bottom;
+      }
+
+      final rowFinder = find.descendant(
+        of: find.byKey(const Key('register_form_fields')),
+        matching: find.byType(Row),
+      );
+      for (final rowElement in tester.elementList(rowFinder)) {
+        expect(_rowPairsRegisterFields(rowElement), isFalse);
+      }
+    });
+
+    testWidgets('does not overflow at a representative laptop size', (
+      tester,
+    ) async {
+      await _setSurface(tester, size: const Size(1366, 768));
+      await pumpRegisterScreen(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(RegisterScreen), findsOneWidget);
+      expect(find.byType(ElixPrimaryButton), findsOneWidget);
+      expect(find.byType(AuthFooterLink), findsOneWidget);
+    });
+
     testWidgets('does not overflow at a compact auth window size', (
       tester,
     ) async {
@@ -235,6 +303,18 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(RegisterScreen), findsOneWidget);
+    });
+
+    testWidgets('remains usable at a shorter viewport height', (tester) async {
+      await _setSurface(tester, size: const Size(1366, 560));
+      await pumpRegisterScreen(tester);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(RegisterScreen), findsOneWidget);
+      for (final placeholder in _registerFieldPlaceholders) {
+        expect(_authField(placeholder), findsOneWidget);
+      }
     });
   });
 }

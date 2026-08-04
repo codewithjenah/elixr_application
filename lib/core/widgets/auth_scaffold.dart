@@ -16,6 +16,8 @@ class AuthScaffold extends StatefulWidget {
     this.formTitle,
     this.formSubtitle,
     this.formOnLeft = false,
+    this.formVerticalCompact = false,
+    this.formVerticalTight = false,
   });
 
   final Widget child;
@@ -24,6 +26,8 @@ class AuthScaffold extends StatefulWidget {
   final String? formTitle;
   final String? formSubtitle;
   final bool formOnLeft;
+  final bool formVerticalCompact;
+  final bool formVerticalTight;
 
   @override
   State<AuthScaffold> createState() => _AuthScaffoldState();
@@ -97,6 +101,8 @@ class _AuthScaffoldState extends State<AuthScaffold>
                 slideAnimation: _slideAnimation,
                 formTitle: widget.formTitle,
                 formSubtitle: widget.formSubtitle,
+                verticalCompact: widget.formVerticalCompact,
+                verticalTight: widget.formVerticalTight,
                 child: widget.child,
               ),
             );
@@ -118,6 +124,8 @@ class _AuthScaffoldState extends State<AuthScaffold>
               formTitle: widget.formTitle,
               formSubtitle: widget.formSubtitle,
               compact: true,
+              verticalCompact: widget.formVerticalCompact,
+              verticalTight: widget.formVerticalTight,
               child: widget.child,
             ),
           );
@@ -234,6 +242,8 @@ class _FormPanel extends StatelessWidget {
     this.formTitle,
     this.formSubtitle,
     this.compact = false,
+    this.verticalCompact = false,
+    this.verticalTight = false,
   });
 
   final Animation<double> fadeAnimation;
@@ -242,6 +252,43 @@ class _FormPanel extends StatelessWidget {
   final String? formTitle;
   final String? formSubtitle;
   final bool compact;
+  final bool verticalCompact;
+  final bool verticalTight;
+
+  double get _headerGap {
+    if (verticalTight) return AppSpacing.sm;
+    if (verticalCompact) return AppSpacing.md;
+    return compact ? AppSpacing.lg : AppSpacing.md;
+  }
+
+  EdgeInsets get _cardPadding {
+    if (verticalTight) {
+      return const EdgeInsets.all(AppSpacing.sm);
+    }
+    if (verticalCompact) {
+      return const EdgeInsets.all(AppSpacing.sm + 4);
+    }
+    return const EdgeInsets.all(AppSpacing.md);
+  }
+
+  EdgeInsets get _panelPadding {
+    if (verticalTight) {
+      return const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xxl,
+        vertical: AppSpacing.xs,
+      );
+    }
+    if (verticalCompact) {
+      return const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xxl,
+        vertical: AppSpacing.sm,
+      );
+    }
+    return const EdgeInsets.symmetric(
+      horizontal: AppSpacing.xxl,
+      vertical: AppSpacing.md,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -274,7 +321,7 @@ class _FormPanel extends StatelessWidget {
                     ),
                   ),
                 ],
-                SizedBox(height: compact ? AppSpacing.lg : AppSpacing.md),
+                SizedBox(height: _headerGap),
               ],
               child,
             ],
@@ -311,7 +358,7 @@ class _FormPanel extends StatelessWidget {
             filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              padding: _cardPadding,
               decoration: BoxDecoration(
                 color: context.elixCardSurface.withValues(
                   alpha: isDark ? 0.82 : 0.9,
@@ -329,10 +376,7 @@ class _FormPanel extends StatelessWidget {
                           ? constraints.maxHeight
                           : 420,
                     ),
-                    child: ScrollConfiguration(
-                      behavior: const _AuthScrollBehavior(),
-                      child: SingleChildScrollView(child: form),
-                    ),
+                    child: _AuthFitScrollView(child: form),
                   );
                 },
               ),
@@ -345,20 +389,20 @@ class _FormPanel extends StatelessWidget {
     return Container(
       color: context.elixBackground,
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.xxl,
-          vertical: AppSpacing.md,
+        padding: _panelPadding,
+        child: _AuthFitScrollView(
+          child: AuthFormCard(padding: _cardPadding, child: form),
         ),
-        child: Center(child: AuthFormCard(child: form)),
       ),
     );
   }
 }
 
 class AuthFormCard extends StatelessWidget {
-  const AuthFormCard({super.key, required this.child});
+  const AuthFormCard({super.key, required this.child, this.padding});
 
   final Widget child;
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
@@ -389,7 +433,7 @@ class AuthFormCard extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
           child: Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
+            padding: padding ?? const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: context.elixCardSurface.withValues(
                 alpha: isDark ? 0.82 : 0.9,
@@ -699,6 +743,35 @@ class _AuthScrollBehavior extends ScrollBehavior {
     Widget child,
     ScrollableDetails details,
   ) => child;
+}
+
+/// Centers auth form content when it fits; scrolls only when the viewport is too short.
+class _AuthFitScrollView extends StatelessWidget {
+  const _AuthFitScrollView({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final minHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 0.0;
+
+        return ScrollConfiguration(
+          behavior: const _AuthScrollBehavior(),
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: Center(child: child),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _Orb extends StatelessWidget {
