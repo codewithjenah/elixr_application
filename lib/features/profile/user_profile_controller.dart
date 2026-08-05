@@ -6,7 +6,6 @@ import '../../data/models/achievement.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/profile_visit.dart';
 import '../../data/models/public_profile.dart';
-import '../../data/models/public_profile_session.dart';
 import '../../data/models/public_profile_summary.dart';
 import '../../data/repositories/leaderboard_repository.dart';
 import '../../data/repositories/profile_visit_repository.dart';
@@ -55,10 +54,6 @@ class UserProfileController extends ChangeNotifier {
   LeaderboardEntry? _leaderboardEntry;
   int? _rank;
   PublicProfileSummary? summary;
-  List<PublicProfileSession> sessions = const [];
-  bool hasMoreSessions = false;
-  PublicProfileSessionCursor? _sessionsCursor;
-  bool isLoadingMoreSessions = false;
   List<AchievementDefinition> claimedAchievements = const [];
   ProfileVisitorsState visitorsState = ProfileVisitorsState.loading;
   List<ProfileVisitDisplay> visitors = const [];
@@ -68,8 +63,8 @@ class UserProfileController extends ChangeNotifier {
     final uid = _currentUserId;
     return uid != null && uid.isNotEmpty && _userId == uid;
   }
-  bool get canViewDetails =>
-      isSelf || (profileRoot?.isPublic ?? false);
+
+  bool get canViewDetails => isSelf || (profileRoot?.isPublic ?? false);
   LeaderboardEntry? get leaderboardEntry => _leaderboardEntry;
   int? get rank => _rank;
 
@@ -85,23 +80,25 @@ class UserProfileController extends ChangeNotifier {
       _safeNotify();
     });
 
-    _profileRootSub = _publicProfileRepository.watchProfileRoot(_userId).listen(
-      (profile) async {
-        if (_disposed) return;
-        profileRoot = profile;
-        if (profile == null && loadState == ProfileLoadState.loading) {
-          // Wait for first emission before deciding not-found.
-        }
-        await _reloadProtectedContent();
-        _safeNotify();
-      },
-      onError: (Object error) {
-        if (_disposed) return;
-        loadState = ProfileLoadState.error;
-        loadError = error;
-        _safeNotify();
-      },
-    );
+    _profileRootSub = _publicProfileRepository
+        .watchProfileRoot(_userId)
+        .listen(
+          (profile) async {
+            if (_disposed) return;
+            profileRoot = profile;
+            if (profile == null && loadState == ProfileLoadState.loading) {
+              // Wait for first emission before deciding not-found.
+            }
+            await _reloadProtectedContent();
+            _safeNotify();
+          },
+          onError: (Object error) {
+            if (_disposed) return;
+            loadState = ProfileLoadState.error;
+            loadError = error;
+            _safeNotify();
+          },
+        );
 
     if (_rank == null) {
       try {
@@ -149,12 +146,6 @@ class UserProfileController extends ChangeNotifier {
     if (canViewDetails) {
       try {
         summary = await _publicProfileRepository.getSummary(_userId);
-        final page = await _publicProfileRepository.fetchSessionsPage(
-          userId: _userId,
-        );
-        sessions = page.sessions;
-        hasMoreSessions = page.hasMore;
-        _sessionsCursor = page.nextCursor;
 
         final claimedIds = await _publicProfileRepository
             .fetchClaimedAchievementIds(_userId);
@@ -169,8 +160,6 @@ class UserProfileController extends ChangeNotifier {
       }
     } else {
       summary = null;
-      sessions = const [];
-      hasMoreSessions = false;
       claimedAchievements = const [];
     }
 
@@ -194,27 +183,6 @@ class UserProfileController extends ChangeNotifier {
     } catch (_) {
       if (_disposed) return;
       visitorsState = ProfileVisitorsState.error;
-    }
-  }
-
-  Future<void> loadMoreSessions() async {
-    if (!canViewDetails || !hasMoreSessions || isLoadingMoreSessions) return;
-    isLoadingMoreSessions = true;
-    _safeNotify();
-    try {
-      final page = await _publicProfileRepository.fetchSessionsPage(
-        userId: _userId,
-        startAfter: _sessionsCursor,
-      );
-      if (_disposed) return;
-      sessions = [...sessions, ...page.sessions];
-      hasMoreSessions = page.hasMore;
-      _sessionsCursor = page.nextCursor;
-    } finally {
-      if (!_disposed) {
-        isLoadingMoreSessions = false;
-        _safeNotify();
-      }
     }
   }
 

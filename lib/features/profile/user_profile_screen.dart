@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/profile_visit.dart';
 import '../../services/auth_service.dart';
 import 'profile_route_args.dart';
 import 'user_profile_controller.dart';
@@ -14,7 +15,6 @@ import 'widgets/profile_achievements_section.dart';
 import 'widgets/profile_header.dart';
 import 'widgets/profile_stats_section.dart';
 import 'widgets/profile_visitors_section.dart';
-import 'widgets/public_practice_history_section.dart';
 
 const _kProfileContentMaxWidth = 960.0;
 
@@ -76,6 +76,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     } else {
       context.go('/leaderboard');
     }
+  }
+
+  void _openVisitorProfile(ProfileVisitDisplay visitor) {
+    final visitorId = visitor.visit.viewerId.trim();
+    if (visitorId.isEmpty) return;
+    if (visitorId == widget.userId) return;
+    context.push('/profile/$visitorId');
   }
 
   @override
@@ -172,19 +179,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               movementNames:
                   controller.summary?.completedMovementNames ?? const [],
             ),
-            const SizedBox(height: AppSpacing.lg),
-            PublicPracticeHistorySection(
-              sessions: controller.sessions,
-              hasMore: controller.hasMoreSessions,
-              isLoadingMore: controller.isLoadingMoreSessions,
-              onLoadMore: controller.loadMoreSessions,
-            ),
           ],
           if (controller.isSelf) ...[
             const SizedBox(height: AppSpacing.lg),
             ProfileVisitorsSection(
               state: controller.visitorsState,
               visitors: controller.visitors,
+              onVisitorTap: _openVisitorProfile,
             ),
           ],
           const SizedBox(height: AppSpacing.xl),

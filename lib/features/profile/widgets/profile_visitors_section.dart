@@ -14,10 +14,12 @@ class ProfileVisitorsSection extends StatelessWidget {
     super.key,
     required this.state,
     required this.visitors,
+    required this.onVisitorTap,
   });
 
   final ProfileVisitorsState state;
   final List<ProfileVisitDisplay> visitors;
+  final ValueChanged<ProfileVisitDisplay> onVisitorTap;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +73,10 @@ class ProfileVisitorsSection extends StatelessWidget {
               children: [
                 for (var i = 0; i < visitors.length; i++) ...[
                   if (i > 0) const SizedBox(height: AppSpacing.sm),
-                  _VisitorRow(visitor: visitors[i]),
+                  _VisitorRow(
+                    visitor: visitors[i],
+                    onTap: () => onVisitorTap(visitors[i]),
+                  ),
                 ],
               ],
             ),
@@ -83,9 +88,10 @@ class ProfileVisitorsSection extends StatelessWidget {
 }
 
 class _VisitorRow extends StatelessWidget {
-  const _VisitorRow({required this.visitor});
+  const _VisitorRow({required this.visitor, required this.onTap});
 
   final ProfileVisitDisplay visitor;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -96,39 +102,75 @@ class _VisitorRow extends StatelessWidget {
           )
         : 'Recently';
 
-    return Row(
-      children: [
-        LeaderboardInitialsAvatar(
-          initials: LeaderboardPresentation.initialsFor(visitor.displayName),
-          accent: AppColors.accent,
-          size: 36,
-          profilePictureUrl: visitor.profilePictureUrl,
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return HoverButton(
+      onPressed: onTap,
+      cursor: SystemMouseCursors.click,
+      semanticLabel: "View ${visitor.displayName}'s profile",
+      builder: (context, states) {
+        final highlighted =
+            states.isHovered || states.isPressed || states.isFocused;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: highlighted
+                ? (context.isDarkTheme
+                      ? context.elixCardSurface.withValues(alpha: 0.55)
+                      : context.elixBackground.withValues(alpha: 0.85))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
             children: [
-              Text(
-                visitor.displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: context.elixTextPrimary,
+              LeaderboardInitialsAvatar(
+                initials: LeaderboardPresentation.initialsFor(
+                  visitor.displayName,
+                ),
+                accent: AppColors.accent,
+                size: 36,
+                profilePictureUrl: visitor.profilePictureUrl,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      visitor.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: context.elixTextPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Last visited $label',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Text(
-                'Last visited $label',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
-                ),
+              const SizedBox(width: AppSpacing.sm),
+              Icon(
+                FluentIcons.chevron_right,
+                size: 12,
+                color: context.elixTextSecondary,
               ),
             ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }

@@ -1,8 +1,10 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/leaderboard_award_plan.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/profile_visit.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_application/data/models/public_profile_summary.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
@@ -150,9 +152,18 @@ class _FakeLeaderboardRepository extends LeaderboardRepository {
 }
 
 class _FakePublicProfileRepository extends PublicProfileRepository {
-  _FakePublicProfileRepository({this.root});
+  _FakePublicProfileRepository({
+    this.root,
+    this.summary,
+    this.claimedAchievementIds = const [],
+  });
 
   PublicProfile? root;
+  PublicProfileSummary? summary;
+  List<String> claimedAchievementIds;
+  int fetchSessionsPageCalls = 0;
+  int getSummaryCalls = 0;
+  int fetchClaimedAchievementIdsCalls = 0;
 
   @override
   Stream<PublicProfile?> watchProfileRoot(String userId) {
@@ -167,11 +178,31 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
   }) async {}
 
   @override
-  Future<List<String>> fetchClaimedAchievementIds(String userId) async =>
-      const [];
+  Future<PublicProfileSummary?> getSummary(String userId) async {
+    getSummaryCalls++;
+    return summary;
+  }
+
+  @override
+  Future<List<String>> fetchClaimedAchievementIds(String userId) async {
+    fetchClaimedAchievementIdsCalls++;
+    return claimedAchievementIds;
+  }
+
+  @override
+  Future<PublicProfileSessionPage> fetchSessionsPage({
+    required String userId,
+    int limit = 20,
+    PublicProfileSessionCursor? startAfter,
+  }) async {
+    fetchSessionsPageCalls++;
+    fail('fetchSessionsPage should not be called from Player Profile');
+  }
 }
 
 class _FakeProfileVisitRepository extends ProfileVisitRepository {
+  List<ProfileVisitDisplay> visitors = const [];
+
   @override
   Future<void> upsertVisit({
     required String profileOwnerId,
@@ -182,7 +213,22 @@ class _FakeProfileVisitRepository extends ProfileVisitRepository {
   Future<List<ProfileVisitDisplay>> fetchVisitors({
     required String profileOwnerId,
     int limit = 20,
-  }) async => const [];
+  }) async => visitors;
+}
+
+ProfileVisitDisplay _visitor({
+  required String viewerId,
+  required String displayName,
+  String ownerId = 'viewer',
+}) {
+  return ProfileVisitDisplay(
+    visit: ProfileVisit(
+      profileOwnerId: ownerId,
+      viewerId: viewerId,
+      lastViewedAt: DateTime.utc(2026, 8, 1, 10).toIso8601String(),
+    ),
+    displayName: displayName,
+  );
 }
 
 class _SeededProfileController extends UserProfileController {
@@ -193,6 +239,10 @@ class _SeededProfileController extends UserProfileController {
     LeaderboardEntry? entry,
     PublicProfile? root,
     int? rank,
+    PublicProfileSummary? summary,
+    List<AchievementDefinition>? claimedAchievements,
+    ProfileVisitorsState visitorsState = ProfileVisitorsState.empty,
+    List<ProfileVisitDisplay> visitors = const [],
   }) : super(
          initialEntry: entry,
          initialRank: rank,
@@ -202,6 +252,10 @@ class _SeededProfileController extends UserProfileController {
        ) {
     loadState = seedState;
     profileRoot = root;
+    this.summary = summary;
+    this.claimedAchievements = claimedAchievements ?? const [];
+    this.visitorsState = visitorsState;
+    this.visitors = visitors;
   }
 
   @override
@@ -650,6 +704,300 @@ void main() {
       await pumpProfile(tester, state: ProfileLoadState.notFound);
       expect(_backButton(), findsOneWidget);
       expect(find.text('Player not found.'), findsOneWidget);
+    });
+  });
+
+  group('practice history removed from player profile', () {
+    Future<void> pumpLoadedProfile(
+      WidgetTester tester, {
+      required String userId,
+      required String currentUserId,
+      PublicProfileSummary? summary,
+      List<AchievementDefinition>? claimedAchievements,
+    }) async {
+      await _setSurface(tester);
+      final auth = _testAuth();
+      final controller = _SeededProfileController(
+        userId: userId,
+        currentUserId: currentUserId,
+        seedState: ProfileLoadState.loaded,
+        entry: _entry(userId, 'Alice', 300),
+        root: PublicProfile(
+          userId: userId,
+          displayName: 'Alice',
+          visibility: ProfileVisibility.public,
+        ),
+        summary:
+            summary ??
+            const PublicProfileSummary(
+              totalDurationSeconds: 120,
+              completedMovementNames: ['Hand Stall', 'Around the World'],
+            ),
+        claimedAchievements:
+            claimedAchievements ??
+            achievementCatalog.where((a) => a.id == 'first_steps').toList(),
+        rank: 1,
+      );
+
+      final router = GoRouter(
+        initialLocation: '/profile/$userId',
+        routes: [
+          GoRoute(
+            path: '/profile/:userId',
+            builder: (context, state) => UserProfileScreen(
+              userId: state.pathParameters['userId']!,
+              controller: controller,
+            ),
+          ),
+          GoRoute(
+            path: '/leaderboard',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Leaderboard')),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthService>.value(
+          value: auth,
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('public profile does not show Practice History heading', (
+      tester,
+    ) async {
+      await pumpLoadedProfile(tester, userId: 'p1', currentUserId: 'viewer');
+      expect(find.text('Practice History'), findsNothing);
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.text('Completed Movements'), findsOneWidget);
+      expect(find.text('Hand Stall'), findsOneWidget);
+      expect(find.text('First Steps'), findsOneWidget);
+    });
+
+    testWidgets('owner profile does not show Practice History heading', (
+      tester,
+    ) async {
+      await pumpLoadedProfile(
+        tester,
+        userId: 'viewer',
+        currentUserId: 'viewer',
+      );
+      expect(find.text('Practice History'), findsNothing);
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.text('Completed Movements'), findsOneWidget);
+      expect(find.text('Profile Visitors'), findsOneWidget);
+    });
+
+    test('controller does not request fetchSessionsPage', () async {
+      final publicRepo = _FakePublicProfileRepository(
+        root: PublicProfile(
+          userId: 'p1',
+          displayName: 'Alice',
+          visibility: ProfileVisibility.public,
+        ),
+        summary: const PublicProfileSummary(
+          totalDurationSeconds: 60,
+          completedMovementNames: ['Hand Stall'],
+        ),
+        claimedAchievementIds: const ['first_steps'],
+      );
+      final controller = UserProfileController(
+        userId: 'p1',
+        currentUserId: 'viewer',
+        initialEntry: _entry('p1', 'Alice', 300),
+        initialRank: 1,
+        leaderboardRepository: _FakeLeaderboardRepository([
+          _entry('p1', 'Alice', 300),
+        ]),
+        publicProfileRepository: publicRepo,
+        profileVisitRepository: _FakeProfileVisitRepository(),
+      );
+
+      await controller.initialize(displayName: 'Viewer User');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(publicRepo.fetchSessionsPageCalls, 0);
+      expect(publicRepo.getSummaryCalls, greaterThan(0));
+      expect(publicRepo.fetchClaimedAchievementIdsCalls, greaterThan(0));
+      expect(controller.summary?.completedMovementNames, ['Hand Stall']);
+      expect(controller.claimedAchievements.map((a) => a.id), ['first_steps']);
+      controller.dispose();
+    });
+  });
+
+  group('profile visitor navigation', () {
+    Future<({GoRouter router, _SeededProfileController controller})>
+    pumpOwnerProfile(
+      WidgetTester tester, {
+      required List<ProfileVisitDisplay> visitors,
+      ProfileVisitorsState visitorsState = ProfileVisitorsState.loaded,
+      bool settle = true,
+    }) async {
+      await _setSurface(tester);
+      final auth = _testAuth();
+      final ownerController = _SeededProfileController(
+        userId: 'viewer',
+        currentUserId: 'viewer',
+        seedState: ProfileLoadState.loaded,
+        entry: _entry('viewer', 'Viewer User', 100),
+        root: PublicProfile(
+          userId: 'viewer',
+          displayName: 'Viewer User',
+          visibility: ProfileVisibility.public,
+        ),
+        summary: const PublicProfileSummary(
+          totalDurationSeconds: 30,
+          completedMovementNames: ['Hand Stall'],
+        ),
+        visitorsState: visitorsState,
+        visitors: visitors,
+        rank: 2,
+      );
+
+      final router = GoRouter(
+        initialLocation: '/profile/viewer',
+        routes: [
+          GoRoute(
+            path: '/profile/:userId',
+            builder: (context, state) {
+              final userId = state.pathParameters['userId']!;
+              if (userId == 'viewer') {
+                return UserProfileScreen(
+                  userId: userId,
+                  controller: ownerController,
+                );
+              }
+              return UserProfileScreen(
+                userId: userId,
+                controller: _SeededProfileController(
+                  userId: userId,
+                  currentUserId: 'viewer',
+                  seedState: ProfileLoadState.loaded,
+                  entry: _entry(userId, 'Opened Visitor', 50),
+                  root: PublicProfile(
+                    userId: userId,
+                    displayName: 'Opened Visitor',
+                    visibility: ProfileVisibility.public,
+                  ),
+                ),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/leaderboard',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Leaderboard')),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthService>.value(
+          value: auth,
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      if (settle) {
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pump();
+      }
+      return (router: router, controller: ownerController);
+    }
+
+    Future<void> tapVisitorRow(
+      WidgetTester tester,
+      String semanticLabel,
+    ) async {
+      final row = find.bySemanticsLabel(semanticLabel);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('seeded visitors render and open by viewerId', (tester) async {
+      final visitors = [
+        _visitor(viewerId: 'alice-id', displayName: 'Alice Visitor'),
+        _visitor(viewerId: 'bob-id', displayName: 'Player'),
+      ];
+      final env = await pumpOwnerProfile(tester, visitors: visitors);
+
+      expect(find.text('Alice Visitor'), findsOneWidget);
+      expect(find.text('Player'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.chevron_right), findsNWidgets(2));
+      expect(
+        find.bySemanticsLabel("View Alice Visitor's profile"),
+        findsOneWidget,
+      );
+
+      await tapVisitorRow(tester, "View Alice Visitor's profile");
+
+      expect(env.router.state.uri.path, '/profile/alice-id');
+      expect(env.router.canPop(), isTrue);
+      expect(find.text('Opened Visitor'), findsOneWidget);
+
+      await tester.tap(_backButton());
+      await tester.pumpAndSettle();
+
+      expect(env.router.state.uri.path, '/profile/viewer');
+      expect(find.text('Alice Visitor'), findsOneWidget);
+      expect(find.text('Profile Visitors'), findsOneWidget);
+    });
+
+    testWidgets('fallback display name still navigates by viewerId', (
+      tester,
+    ) async {
+      final env = await pumpOwnerProfile(
+        tester,
+        visitors: [_visitor(viewerId: 'fallback-id', displayName: 'Player')],
+      );
+
+      await tapVisitorRow(tester, "View Player's profile");
+
+      expect(env.router.state.uri.path, '/profile/fallback-id');
+      expect(env.router.canPop(), isTrue);
+    });
+
+    testWidgets('empty visitor state has no tappable rows', (tester) async {
+      await pumpOwnerProfile(
+        tester,
+        visitors: const [],
+        visitorsState: ProfileVisitorsState.empty,
+      );
+
+      expect(find.text('No profile visitors yet.'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.chevron_right), findsNothing);
+      expect(
+        find.bySemanticsLabel(RegExp(r"^View .+\'s profile$")),
+        findsNothing,
+      );
+    });
+
+    testWidgets('loading visitor state has no tappable rows', (tester) async {
+      await pumpOwnerProfile(
+        tester,
+        visitors: const [],
+        visitorsState: ProfileVisitorsState.loading,
+        settle: false,
+      );
+
+      expect(find.byType(ProgressRing), findsWidgets);
+      expect(find.byIcon(FluentIcons.chevron_right), findsNothing);
+    });
+
+    testWidgets('error visitor state has no tappable rows', (tester) async {
+      await pumpOwnerProfile(
+        tester,
+        visitors: const [],
+        visitorsState: ProfileVisitorsState.error,
+      );
+
+      expect(find.text('Could not load profile visitors.'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.chevron_right), findsNothing);
     });
   });
 }
