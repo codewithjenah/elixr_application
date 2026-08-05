@@ -13,6 +13,7 @@ from api import websocket as websocket_api
 from assessment.rule_engine import validate_movement_difficulty, validate_movement_name
 from schemas.commands import (
     ActivateCommand,
+    BeginReadinessCommand,
     PrepareCommand,
     StartCommand,
     StopCommand,
@@ -952,6 +953,224 @@ def test_prepare_ack_sent_only_after_camera_open(monkeypatch):
         ack = await _wait_for_ack(ws, "req-order")()
         assert ack["accepted"] is True
         assert open_finished["n"] == 1
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: begin_readiness protocol tests
+# ---------------------------------------------------------------------------
+
+
+def _begin_readiness_payload(**overrides):
+    payload = {
+        "protocol_version": 1,
+        "request_id": "req-r1",
+        "session_id": "session-1",
+        "action": "begin_readiness",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_valid_begin_readiness_command_parses():
+    cmd = parse_v1_command(_begin_readiness_payload())
+    assert isinstance(cmd, BeginReadinessCommand)
+    assert cmd.action == "begin_readiness"
+    assert cmd.session_id == "session-1"
+
+
+def test_begin_readiness_before_prepare_rejected(monkeypatch):
+    """begin_readiness without a prepared session returns session_not_prepared."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(_begin_readiness_payload())
+        ack = await _wait_for_ack(ws, "req-r1")()
+
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "session_not_prepared"
+        assert ack["session_state"] == "idle"
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_begin_readiness_after_activate_rejected_with_already_active(monkeypatch):
+    """begin_readiness on an active session returns session_already_active."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        ),
+    )
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        # Prepare + activate in one step (Normal Grip uses "Easy" difficulty).
+        await ws.push(
+            {
+                "protocol_version": 1,
+                "request_id": "req-start",
+                "session_id": "session-1",
+                "action": "start",
+                "movement": "Normal Grip",
+                "difficulty": "Easy",
+                "bottle_detection_enabled": True,
+            }
+        )
+        start_ack = await _wait_for_ack(ws, "req-start")()
+        assert start_ack["accepted"] is True
+        assert start_ack["session_state"] == "active"
+
+        # Now try begin_readiness on the active session.
+        await ws.push(_begin_readiness_payload())
+        ack = await _wait_for_ack(ws, "req-r1")()
+
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "session_already_active"
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_begin_readiness_accepted_after_prepare_and_transitions_to_readying(monkeypatch):
+    """prepare -> begin_readiness acknowledges with session_state='readying'."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(_prepare_payload())
+        prepare_ack = await _wait_for_ack(ws, "req-1")()
+        assert prepare_ack["accepted"] is True
+        assert prepare_ack["session_state"] == "preparing"
+
+        await ws.push(_begin_readiness_payload())
+        readiness_ack = await _wait_for_ack(ws, "req-r1")()
+
+        assert readiness_ack["accepted"] is True
+        assert readiness_ack["session_state"] == "readying"
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_begin_readiness_idempotent_when_already_readying(monkeypatch):
+    """Sending begin_readiness twice both get accepted with session_state='readying'."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(_prepare_payload())
+        await _wait_for_ack(ws, "req-1")()
+
+        await ws.push(_begin_readiness_payload())
+        ack1 = await _wait_for_ack(ws, "req-r1")()
+        assert ack1["accepted"] is True
+        assert ack1["session_state"] == "readying"
+
+        await ws.push(_begin_readiness_payload(request_id="req-r2"))
+        ack2 = await _wait_for_ack(ws, "req-r2")()
+        assert ack2["accepted"] is True
+        assert ack2["session_state"] == "readying"
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_activate_accepted_after_begin_readiness(monkeypatch):
+    """prepare -> begin_readiness -> activate must be accepted."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        ),
+    )
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(_prepare_payload())
+        await _wait_for_ack(ws, "req-1")()
+
+        await ws.push(_begin_readiness_payload())
+        await _wait_for_ack(ws, "req-r1")()
+
+        await ws.push(
+            {
+                "protocol_version": 1,
+                "request_id": "req-activate",
+                "session_id": "session-1",
+                "action": "activate",
+            }
+        )
+        activate_ack = await _wait_for_ack(ws, "req-activate")()
+        assert activate_ack["accepted"] is True
+        assert activate_ack["session_state"] == "active"
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_begin_readiness_session_id_mismatch_rejected(monkeypatch):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(_prepare_payload())
+        await _wait_for_ack(ws, "req-1")()
+
+        await ws.push(
+            _begin_readiness_payload(session_id="wrong-session")
+        )
+        ack = await _wait_for_ack(ws, "req-r1")()
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "session_id_mismatch"
 
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)

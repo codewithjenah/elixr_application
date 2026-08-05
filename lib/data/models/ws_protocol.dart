@@ -125,6 +125,17 @@ class CommandAckMismatchException implements Exception {
       '$pendingSessionId, ack=$ackAction/$ackSessionId)';
 }
 
+/// Known [CommandAck.sessionState] values produced by the backend.
+///
+/// - `preparing` – camera and model are warming up; preview frames stream.
+/// - `readying`  – pre-practice readiness gate is active; checklist items arrive
+///   in [PracticeFeedback.readinessItems] until `readiness_stable` is true.
+/// - `active`    – movement evaluation and scoring are running.
+/// - `idle`      – no active session.
+/// - `unavailable` – camera or model is permanently unavailable.
+///
+/// Unknown values must be silently ignored so future backend additions are
+/// non-breaking for older clients.
 sealed class WsInboundMessage {
   const WsInboundMessage();
 }

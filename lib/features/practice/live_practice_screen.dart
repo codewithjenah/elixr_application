@@ -422,6 +422,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     return switch (_run.phase) {
       PracticeRunPhase.active => TrainingActionKind.finish,
       PracticeRunPhase.preparingCamera ||
+      PracticeRunPhase.readiness ||
       PracticeRunPhase.countdown => TrainingActionKind.cancel,
       PracticeRunPhase.error => TrainingActionKind.retry,
       PracticeRunPhase.idle ||
@@ -433,6 +434,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     return switch (_run.phase) {
       PracticeRunPhase.idle => TrainingSessionPhase.ready,
       PracticeRunPhase.preparingCamera => TrainingSessionPhase.preparingCamera,
+      PracticeRunPhase.readiness => TrainingSessionPhase.preparingCamera,
       PracticeRunPhase.countdown => TrainingSessionPhase.getReady,
       PracticeRunPhase.active => TrainingSessionPhase.inProgress,
       PracticeRunPhase.completed => TrainingSessionPhase.completed,

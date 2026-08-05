@@ -173,6 +173,11 @@ HOLD_MAX_FRAME_GAP_SECONDS = float(os.getenv("HOLD_MAX_FRAME_GAP_SECONDS", "0.35
 # Minimum share of positive/stable frames in the current hold segment.
 HOLD_MIN_POSITIVE_RATIO = float(os.getenv("HOLD_MIN_POSITIVE_RATIO", "0.85"))
 
+# Pre-practice readiness gate (observability only — not technique thresholds).
+READINESS_ITEM_PASS_FRAMES = int(os.getenv("READINESS_ITEM_PASS_FRAMES", "3"))
+READINESS_ITEM_FAIL_FRAMES = int(os.getenv("READINESS_ITEM_FAIL_FRAMES", "3"))
+READINESS_STABLE_DURATION_S = float(os.getenv("READINESS_STABLE_DURATION_S", "1.0"))
+
 MOVEMENT_CONFIG: dict[str, dict] = {
     "Normal Grip": {"difficulty": "Easy", "requires_hands": True},
     "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True},

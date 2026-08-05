@@ -166,6 +166,220 @@ void main() {
     });
   });
 
+  group('PracticeRunController guided-practice readiness gate', () {
+    test(
+      'first JPEG arms preview; enterReadiness goes to readiness not countdown',
+      () {
+        final run = PracticeRunController();
+        run.beginPreparing(onTimeout: () {});
+        expect(run.phase, PracticeRunPhase.preparingCamera);
+
+        final armed = run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        expect(armed, isTrue);
+        expect(run.phase, PracticeRunPhase.preparingCamera);
+
+        run.enterReadiness();
+        expect(run.phase, PracticeRunPhase.readiness);
+        expect(run.isReadiness, isTrue);
+        expect(run.isCameraSessionLive, isTrue);
+        run.dispose();
+      },
+    );
+
+    test('requestStartPractice without stable returns false', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      expect(run.phase, PracticeRunPhase.readiness);
+
+      final result = run.requestStartPractice(readinessStable: false);
+      expect(result, isFalse);
+      expect(run.phase, PracticeRunPhase.readiness);
+      expect(run.readinessFrozen, isFalse);
+      run.dispose();
+    });
+
+    test('requestStartPractice with stable freezes and enters countdown', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+
+      final result = run.requestStartPractice(readinessStable: true);
+      expect(result, isTrue);
+      expect(run.phase, PracticeRunPhase.countdown);
+      expect(run.readinessFrozen, isTrue);
+      run.dispose();
+    });
+
+    test('duplicate requestStartPractice returns false', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      expect(run.requestStartPractice(readinessStable: true), isTrue);
+      expect(run.phase, PracticeRunPhase.countdown);
+
+      // Second call: already frozen
+      expect(run.requestStartPractice(readinessStable: true), isFalse);
+      // Third call: phase is now countdown, not readiness
+      expect(run.requestStartPractice(readinessStable: true), isFalse);
+      expect(run.phase, PracticeRunPhase.countdown);
+      run.dispose();
+    });
+
+    test('applyReadinessUpdate accepted during readiness phase', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+
+      final applied = run.applyReadinessUpdate(readinessStable: true);
+      expect(applied, isTrue);
+      expect(run.readinessStable, isTrue);
+      run.dispose();
+    });
+
+    test('ordinary readiness loss after freeze does not leave countdown', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      expect(run.phase, PracticeRunPhase.countdown);
+
+      // Readiness becomes false after freeze — must be ignored (frozen guard).
+      final applied = run.applyReadinessUpdate(readinessStable: false);
+      expect(applied, isFalse);
+      expect(run.phase, PracticeRunPhase.countdown);
+      run.dispose();
+    });
+
+    test('late applyReadinessUpdate during countdown is ignored', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      expect(run.phase, PracticeRunPhase.countdown);
+
+      final applied = run.applyReadinessUpdate(readinessStable: false);
+      expect(applied, isFalse);
+      expect(run.phase, PracticeRunPhase.countdown);
+      run.dispose();
+    });
+
+    test('late applyReadinessUpdate during active phase is ignored', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      run.enterActive();
+      expect(run.phase, PracticeRunPhase.active);
+
+      final applied = run.applyReadinessUpdate(readinessStable: false);
+      expect(applied, isFalse);
+      expect(run.phase, PracticeRunPhase.active);
+      run.dispose();
+    });
+
+    test('fatal error during readiness enters error', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      expect(run.phase, PracticeRunPhase.readiness);
+
+      final result = run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: 'Camera lost',
+      );
+      expect(result, isFalse);
+      expect(run.phase, PracticeRunPhase.error);
+      expect(run.errorMessage, 'Camera lost');
+      run.dispose();
+    });
+
+    test('fatal error during countdown enters error', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      expect(run.phase, PracticeRunPhase.countdown);
+
+      run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: 'Fatal during countdown',
+      );
+      expect(run.phase, PracticeRunPhase.error);
+      expect(run.errorMessage, 'Fatal during countdown');
+      run.dispose();
+    });
+
+    test('lifecycleGeneration increments on each beginPreparing', () {
+      final run = PracticeRunController();
+      final gen0 = run.lifecycleGeneration;
+
+      run.beginPreparing(onTimeout: () {});
+      expect(run.lifecycleGeneration, gen0 + 1);
+
+      run.cancelToIdle();
+      run.beginPreparing(onTimeout: () {});
+      expect(run.lifecycleGeneration, gen0 + 2);
+
+      run.dispose();
+    });
+
+    test('cancelToIdle clears readinessFrozen and readinessStable', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.applyReadinessUpdate(readinessStable: true);
+      run.requestStartPractice(readinessStable: true);
+      expect(run.readinessFrozen, isTrue);
+
+      run.cancelToIdle();
+      expect(run.phase, PracticeRunPhase.idle);
+      expect(run.readinessFrozen, isFalse);
+      expect(run.readinessStable, isNull);
+      run.dispose();
+    });
+
+    test('beginPreparing clears readiness freeze and stable state', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      expect(run.readinessFrozen, isTrue);
+
+      run.cancelToIdle();
+      run.beginPreparing(onTimeout: () {});
+      expect(run.readinessFrozen, isFalse);
+      expect(run.readinessStable, isNull);
+      run.dispose();
+    });
+
+    test('enterCountdown from readiness+frozen (guided path) works', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      // Manually freeze without requestStartPractice (internal path test).
+      run.requestStartPractice(readinessStable: true);
+      expect(run.phase, PracticeRunPhase.countdown);
+      run.enterActive();
+      expect(run.phase, PracticeRunPhase.active);
+      run.dispose();
+    });
+  });
+
   group('PracticeFeedback lifecycle fields', () {
     test('parses optional camera_ready and session_state', () {
       final feedback = PracticeFeedback.fromJson({
@@ -223,6 +437,177 @@ void main() {
       expect(shaker.propType, TrainingProp.shaker);
       expect(shaker.bottleCount, 1);
       expect(legacy.propType, TrainingProp.bottle);
+    });
+  });
+
+  group('PracticeFeedback readiness fields', () {
+    test('parses readiness_items when present', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Checking readiness…',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_complete': false,
+        'readiness_stable': false,
+        'readiness_stable_progress': 0.4,
+        'readiness_items': [
+          {
+            'code': 'camera_ready',
+            'status': 'ready',
+            'message': 'Camera is ready',
+          },
+          {
+            'code': 'bottle_visible',
+            'status': 'waiting',
+            'message': 'Hold bottle up',
+          },
+        ],
+      });
+
+      expect(feedback.isReadying, isTrue);
+      expect(feedback.readinessComplete, isFalse);
+      expect(feedback.readinessStable, isFalse);
+      expect(feedback.readinessStableProgress, closeTo(0.4, 0.001));
+      expect(feedback.readinessItems, hasLength(2));
+      expect(feedback.readinessItems![0].code, 'camera_ready');
+      expect(feedback.readinessItems![0].status, 'ready');
+      expect(feedback.readinessItems![0].message, 'Camera is ready');
+      expect(feedback.readinessItems![1].code, 'bottle_visible');
+      expect(feedback.readinessItems![1].status, 'waiting');
+    });
+
+    test('readiness_items absent returns null safely', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Preparing…',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'preparing',
+      });
+
+      expect(feedback.readinessItems, isNull);
+      expect(feedback.readinessComplete, isNull);
+      expect(feedback.readinessStable, isNull);
+      expect(feedback.readinessStableProgress, isNull);
+      expect(feedback.isReadying, isFalse);
+    });
+
+    test('malformed readiness_items entries are skipped gracefully', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Check',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_items': [
+          {'code': 'good_item', 'status': 'ready', 'message': 'OK'},
+          'not_a_map',
+          {'code': 'missing_status', 'message': 'No status field'},
+          {'code': 123, 'status': 'ready', 'message': 'Bad code type'},
+          {'code': 'another_good', 'status': 'error', 'message': 'Failed'},
+        ],
+      });
+
+      // Only valid entries parsed; malformed ones skipped.
+      expect(feedback.readinessItems, hasLength(2));
+      expect(feedback.readinessItems![0].code, 'good_item');
+      expect(feedback.readinessItems![1].code, 'another_good');
+      expect(feedback.readinessItems![1].status, 'error');
+    });
+
+    test('unknown item codes and statuses are preserved as-is', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Check',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_items': [
+          {
+            'code': 'future_unknown_check',
+            'status': 'future_status',
+            'message': 'Some future message',
+          },
+        ],
+      });
+
+      expect(feedback.readinessItems, hasLength(1));
+      expect(feedback.readinessItems![0].code, 'future_unknown_check');
+      expect(feedback.readinessItems![0].status, 'future_status');
+    });
+
+    test('non-list readiness_items returns null', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Check',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'readiness_items': 'not_a_list',
+      });
+      expect(feedback.readinessItems, isNull);
+    });
+
+    test('readiness_stable true and complete true are parsed', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Ready!',
+        'feedback_type': 'positive',
+        'posture_status': 'stable',
+        'session_state': 'readying',
+        'readiness_complete': true,
+        'readiness_stable': true,
+        'readiness_stable_progress': 1.0,
+        'readiness_items': [],
+      });
+
+      expect(feedback.readinessComplete, isTrue);
+      expect(feedback.readinessStable, isTrue);
+      expect(feedback.readinessStableProgress, closeTo(1.0, 0.001));
+      expect(feedback.readinessItems, isEmpty);
+    });
+
+    test('semanticEquals includes readiness fields', () {
+      final a = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Checking',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_stable': false,
+        'readiness_items': [
+          {'code': 'x', 'status': 'waiting', 'message': 'Wait'},
+        ],
+      });
+      final b = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Checking',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_stable': true, // different
+        'readiness_items': [
+          {'code': 'x', 'status': 'waiting', 'message': 'Wait'},
+        ],
+      });
+      expect(a.semanticEquals(b), isFalse);
+      expect(a.semanticEquals(a), isTrue);
     });
   });
 

@@ -3,6 +3,23 @@ import 'dart:typed_data';
 
 import 'training_prop.dart';
 
+/// A single checklist item from the pre-practice readiness gate.
+class ReadinessItemView {
+  const ReadinessItemView({
+    required this.code,
+    required this.status,
+    required this.message,
+  });
+
+  /// Backend-defined identifier for the check (e.g. 'camera_ready', 'bottle_visible').
+  final String code;
+
+  /// One of: ready | waiting | error
+  final String status;
+
+  final String message;
+}
+
 class PracticeFeedback {
   const PracticeFeedback({
     required this.bottleDetected,
@@ -27,6 +44,10 @@ class PracticeFeedback {
     this.messageType,
     this.sessionId,
     this.propType = TrainingProp.bottle,
+    this.readinessItems,
+    this.readinessComplete,
+    this.readinessStable,
+    this.readinessStableProgress,
   });
 
   final bool bottleDetected;
@@ -64,8 +85,21 @@ class PracticeFeedback {
   final String? sessionId;
   final TrainingProp propType;
 
+  /// Readiness gate checklist items. Present only when session_state is 'readying'.
+  final List<ReadinessItemView>? readinessItems;
+
+  /// True when all readiness checks have passed at least once.
+  final bool? readinessComplete;
+
+  /// True when readiness has been stable long enough to proceed.
+  final bool? readinessStable;
+
+  /// Progress toward stable readiness confirmation (0.0–1.0). Absent when not readying.
+  final double? readinessStableProgress;
+
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
+  bool get isReadying => sessionState == 'readying';
 
   bool get isSessionFatal =>
       errorCode != null ||
@@ -98,7 +132,11 @@ class PracticeFeedback {
         protocolVersion == other.protocolVersion &&
         messageType == other.messageType &&
         sessionId == other.sessionId &&
-        propType == other.propType;
+        propType == other.propType &&
+        readinessComplete == other.readinessComplete &&
+        readinessStable == other.readinessStable &&
+        readinessStableProgress == other.readinessStableProgress &&
+        _readinessItemsEqual(readinessItems, other.readinessItems);
   }
 
   /// Fields Free Practice actually displays (excludes score/hold/hidden metrics).
@@ -134,7 +172,10 @@ class PracticeFeedback {
         protocolVersion == other.protocolVersion &&
         messageType == other.messageType &&
         sessionId == other.sessionId &&
-        propType == other.propType;
+        propType == other.propType &&
+        readinessComplete == other.readinessComplete &&
+        readinessStable == other.readinessStable &&
+        _readinessItemsEqual(readinessItems, other.readinessItems);
   }
 
   factory PracticeFeedback.fromJson(Map<String, dynamic> json) {
@@ -146,6 +187,11 @@ class PracticeFeedback {
 
     final rawTarget = json['hold_target_ms'];
     final holdTargetMs = rawTarget is num ? rawTarget.toInt() : 0;
+
+    final rawProgress = json['readiness_stable_progress'];
+    double? readinessStableProgress = rawProgress is num
+        ? rawProgress.toDouble()
+        : null;
 
     return PracticeFeedback(
       bottleDetected: json['bottle_detected'] as bool? ?? false,
@@ -171,6 +217,44 @@ class PracticeFeedback {
       messageType: json['message_type'] as String?,
       sessionId: json['session_id'] as String?,
       propType: TrainingProp.fromProtocolValue(json['prop_type']),
+      readinessItems: _parseReadinessItems(json['readiness_items']),
+      readinessComplete: json['readiness_complete'] as bool?,
+      readinessStable: json['readiness_stable'] as bool?,
+      readinessStableProgress: readinessStableProgress,
     );
+  }
+
+  static List<ReadinessItemView>? _parseReadinessItems(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is! List) return null;
+    final result = <ReadinessItemView>[];
+    for (final entry in raw) {
+      if (entry is! Map) continue;
+      final code = entry['code'];
+      final status = entry['status'];
+      final message = entry['message'];
+      if (code is! String || status is! String || message is! String) continue;
+      result.add(
+        ReadinessItemView(code: code, status: status, message: message),
+      );
+    }
+    return result;
+  }
+
+  static bool _readinessItemsEqual(
+    List<ReadinessItemView>? a,
+    List<ReadinessItemView>? b,
+  ) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].code != b[i].code ||
+          a[i].status != b[i].status ||
+          a[i].message != b[i].message) {
+        return false;
+      }
+    }
+    return true;
   }
 }

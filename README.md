@@ -8,18 +8,19 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 
 - Email/password authentication with Firebase Authentication.
 - User profiles, completed sessions, and feedback history stored in Cloud Firestore.
-- Guided practice with countdown, live annotated video, movement feedback, score, combo tracking, hold confirmation, music, and an optional session save flow.
+- Guided practice with a pre-practice readiness check, countdown, live annotated video, movement feedback, score, combo tracking, hold confirmation, music, and an optional session save flow.
 - Free-practice camera mode with live detection overlays and no score or saved session.
 - Dashboard, session history, and progress statistics derived from Firestore data.
 - Global leaderboard with XP awards for completed sessions, live top-player rankings, and paginated player lists.
-- Local computer vision for eleven movements:
+- Local computer vision for twelve movements:
   - Easy: Normal Grip, Bartender's Grip, Reverse Grip, Claw Grip
     (Claw Grip is an upright top-down hold with curled fingers around the upper neck)
   - Medium: Hand Stall, One Finger Stall, Forearm Stall, Elbow Stall
     (One Finger Stall balances one upright selected prop on one extended index fingertip)
-  - Hard: Reverse Forearm Stall, Shoulder Stall, Double Hand Stall
+  - Hard: Reverse Forearm Stall, Shoulder Stall, Double Hand Stall, Bottle in a tin
     (Double Hand Stall balances two upright bottles simultaneously,
-    one on each open palm — not a single bottle between the hands, and not a handoff)
+    one on each open palm — not a single bottle between the hands, and not a handoff;
+    Bottle in a tin balances one upright bottle on a horizontal cocktail shaker)
 
 ## Runtime architecture
 
@@ -392,25 +393,31 @@ Camera preferences are stored locally (`%APPDATA%\Elixr\settings.json` on Window
 
 ## Practice session lifecycle
 
-Guided practice and free practice follow the same camera lifecycle. The practice timer and scoring must **not** start while:
+Guided practice and free practice share camera ownership and prepare/activate boundaries, but **guided practice inserts a readiness gate** before countdown. The practice timer and scoring must **not** start while:
 
 - The backend is unavailable.
 - The selected camera is still opening.
 - The preview is black or the client is still waiting for the first usable JPEG frame.
+- Guided readiness inputs are not yet stably ready, or the user has not tapped Start Practice.
 - The session has not been explicitly activated.
 
-### End-to-end flow
+### Guided practice end-to-end flow
 
 1. **Backend connection** — Flutter connects to `ws://127.0.0.1:8000/ws` (`WebSocketConnectionState.connected`).
-2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, selected `prop_type`, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring.
-3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout). Countdown must not start merely because prepare was sent.
-4. **Countdown** — After the first usable frame, Flutter enters `PracticeRunPhase.countdown` and plays countdown audio/SFX.
-5. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. Backend activates only the matching prepared session and returns `command_ack` with `session_state: "active"`.
-6. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active` only after accepted activation (or matching authoritative active feedback), starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
-7. **Hold confirmation** — The Python backend accumulates continuous positive/stable hold time during `session_state: active` and emits `hold_progress`, `hold_duration_ms`, `hold_confirmed`, and `positive_frame_ratio` on each evaluated frame. Flutter displays backend `hold_progress` and completes the movement only when `hold_confirmed` is true. Preview and countdown frames never advance hold confirmation.
-8. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends protocol v1 `stop` for the current `session_id`; backend cancels the frame loop, closes detectors, and releases the shared camera (with debounce). A stale `session_id` cannot stop a newer session. Disconnect/navigation also stops the session and releases backend camera resources.
+2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, selected `prop_type`, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring or detectors.
+3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout).
+4. **Readiness check** — After the first JPEG, guided practice sends protocol v1 `begin_readiness`. The backend loads detectors on the same camera session, streams annotated frames with `session_state: "readying"`, and emits optional checklist fields (`readiness_items`, `readiness_complete`, `readiness_stable`, `readiness_stable_progress`). Readiness validates **camera, prop, and landmark observability only** — it is not technique coaching and does not score, update hold confirmation, or evaluate movement success thresholds.
+5. **Manual Start Practice** — Start Practice enables only after `readiness_stable` is true (consecutive per-item frames plus a monotonic stable duration). On tap, Flutter freezes the checklist and enters `PracticeRunPhase.countdown`. Ordinary detection loss during countdown does **not** cancel countdown; only fatal camera/backend/model errors abort.
+6. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. Backend transitions the matching prepared/readying session to active **without reopening the camera** and returns `command_ack` with `session_state: "active"`.
+7. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active` only after accepted activation, starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
+8. **Hold confirmation** — Backend-authoritative during `session_state: active` only. Preview, readiness, and countdown frames never advance hold confirmation.
+9. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends protocol v1 `stop`; readiness attempts are never saved as sessions.
 
-Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided/free practice uses protocol v1 `prepare` → `activate`.
+### Free practice flow
+
+Free practice keeps `prepare` → first JPEG → countdown → `activate` (no readiness gate). It remains unscored and does not persist sessions.
+
+Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided practice uses protocol v1 `prepare` → `begin_readiness` → Start Practice → countdown → `activate`.
 
 ### WebSocket contract
 
@@ -431,6 +438,19 @@ Prepare (preview only):
   "camera_device_id": "\\\\?\\usb#vid_1234&pid_5678"
 }
 ```
+
+Begin readiness (guided practice, after prepare):
+
+```json
+{
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "begin_readiness"
+}
+```
+
+`begin_readiness` is idempotent when the session is already readying for the same attempt. It is rejected before prepare and after activation.
 
 Activate after countdown:
 
@@ -497,9 +517,17 @@ Flutter treats missing `message_type` as legacy feedback. Flutter session flags 
 
 Hold confirmation is **backend-authoritative**. Flutter must not run a parallel client-side hold timer. During `session_state: active`, the backend tracks continuous positive/stable frames using monotonic time, resets on invalid feedback or excessive frame gaps, and sets `hold_confirmed: true` once per activated session when the configured duration is reached. Preview, unavailable, and error messages use safe hold defaults (`hold_progress: 0`, `hold_confirmed: false`).
 
+Optional readiness fields on feedback (present during `readying`; omitted otherwise):
+
+- `readiness_items` — checklist rows `{code, status, message}` with status `ready` | `waiting` | `error`
+- `readiness_complete` — all required items currently ready
+- `readiness_stable` — all items continuously ready for the configured stable duration
+- `readiness_stable_progress` — monotonic progress in `[0, 1]` toward stable
+
 `session_state` values used today:
 
-- `preparing` — preview JPEG stream before activation; no scoring updates
+- `preparing` — preview JPEG stream before readiness/activation; no detectors or scoring
+- `readying` — detectors run for observability checklist only; no score/hold/technique evaluation
 - `active` — movement evaluation and scoring are running
 - `idle` — no active practice session (used on successful stop acknowledgments)
 - `unavailable` — fatal session/camera error (often with `error_code`)
@@ -509,8 +537,9 @@ Common `error_code` values:
 - `camera_unavailable` — Auto-select found no usable camera
 - `selected_camera_unavailable` — explicit `camera_device_id` could not be opened
 - `invalid_camera_device_id` / `invalid_camera_index` — malformed selection
-- `invalid_prop_type` — prop is not `bottle` or `shaker`
-- `session_not_prepared` — `activate` with no prepared session
+- `invalid_prop_type` — prop is not `bottle`, `shaker`, or `bottle_and_shaker`
+- `session_not_prepared` — `activate` / `begin_readiness` with no prepared session
+- `session_already_active` — `begin_readiness` after the session is already active
 - `session_id_mismatch` — command targeted a stale practice attempt
 - `invalid_movement` / `difficulty_mismatch` / `invalid_boolean` — strict v1 validation
 - `invalid_json` / `invalid_command` / `unknown_action` / `unsupported_protocol_version`
@@ -526,7 +555,9 @@ Any contract change must update the backend producer and Dart parser together:
 - `backend/schemas/feedback.py`
 - `backend/schemas/commands.py`
 - `backend/schemas/protocol.py`
+- `backend/schemas/readiness.py`
 - `backend/schemas/camera.py`
+- `backend/assessment/readiness.py`
 - `backend/api/websocket.py`
 - `backend/api/cameras.py`
 - `lib/data/models/practice_feedback.dart`

@@ -24,6 +24,7 @@ import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
 import 'practice_run_phase.dart';
 import 'session_summary_sheet.dart';
+import 'widgets/readiness_checklist_panel.dart';
 import 'widgets/training_action_area.dart';
 import 'widgets/training_camera_workspace.dart';
 import 'widgets/training_performance.dart';
@@ -72,6 +73,12 @@ class _PracticeScreenState extends State<PracticeScreen>
   bool _isShowingSummary = false;
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
+
+  // Readiness gate state.
+  List<ReadinessItemView>? _readinessItems;
+  double _readinessProgress = 0;
+  bool _readinessStable = false;
+  List<ReadinessItemView>? _frozenReadinessItems;
 
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
@@ -185,19 +192,40 @@ class _PracticeScreenState extends State<PracticeScreen>
       return;
     }
 
-    // Preparing: store frame; first JPEG starts countdown once.
+    // Preparing: store frame; first JPEG enters the readiness gate.
     if (_run.isPreparingCamera) {
       _publishFrame(feedback.frameJpegBytes);
       final hadError = _sessionError != null;
       if (hadError) {
         setState(() => _sessionError = null);
       }
-      final startCountdown = _run.onPreviewFeedback(
+      final firstFrame = _run.onPreviewFeedback(
         hasJpegFrame: feedback.frameJpegBytes != null,
         isFatal: false,
       );
-      if (startCountdown) {
-        unawaited(_startCountdownOverlay());
+      if (firstFrame) {
+        _run.enterReadiness();
+        unawaited(_beginReadiness());
+      }
+      return;
+    }
+
+    // Readiness gate: update checklist and progress; ignore late frames once frozen.
+    if (_run.isReadiness) {
+      _publishFrame(feedback.frameJpegBytes);
+      if (_sessionError != null) {
+        setState(() => _sessionError = null);
+      }
+      if (!_run.readinessFrozen) {
+        final items = feedback.readinessItems;
+        final progress = feedback.readinessStableProgress ?? 0.0;
+        final stable = feedback.readinessStable ?? false;
+        _run.applyReadinessUpdate(readinessStable: feedback.readinessStable);
+        setState(() {
+          if (items != null) _readinessItems = items;
+          _readinessProgress = progress;
+          _readinessStable = stable;
+        });
       }
       return;
     }
@@ -243,11 +271,68 @@ class _PracticeScreenState extends State<PracticeScreen>
     }
   }
 
-  Future<void> _startCountdownOverlay() async {
+  /// Send begin_readiness after entering the readiness phase.
+  ///
+  /// Captures the lifecycle generation before the await to guard against
+  /// stale callbacks from a cancelled/restarted session.
+  Future<void> _beginReadiness() async {
+    final gen = _run.lifecycleGeneration;
+    try {
+      final ack = await _ws.sendBeginReadiness();
+      if (!mounted) return;
+      if (_run.lifecycleGeneration != gen) return;
+      if (!ack.accepted) {
+        final message =
+            ack.message ?? ack.errorCode ?? 'Readiness check was rejected.';
+        _run.onPreviewFeedback(
+          hasJpegFrame: false,
+          isFatal: true,
+          fatalMessage: message,
+        );
+        unawaited(_stopWebSocketSession());
+        setState(() {
+          _sessionError = message;
+          _clearFrame();
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      if (_run.lifecycleGeneration != gen) return;
+      final message = error is CommandTimeoutException
+          ? 'Readiness check timed out. Check the backend and try again.'
+          : 'Readiness check failed. Check the backend and try again.';
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage: message,
+      );
+      unawaited(_stopWebSocketSession());
+      setState(() {
+        _sessionError = message;
+        _clearFrame();
+      });
+    }
+  }
+
+  /// Handle the "Start Practice" button press during the readiness gate.
+  void _onStartPractice() {
+    if (_commandInFlight) return;
+    final stable = _readinessStable || (_run.readinessStable == true);
+    if (!stable) return;
+    if (!_run.requestStartPractice(readinessStable: stable)) return;
+    _frozenReadinessItems = List.of(_readinessItems ?? []);
+    setState(() {});
+    unawaited(_startGuidedCountdownOverlay());
+  }
+
+  /// Play the countdown SFX after requestStartPractice enters countdown.
+  ///
+  /// The [GameCountdownOverlay] is already mounted because [_run.isCountdown]
+  /// became true. When the overlay animation completes it calls
+  /// [_beginSessionAfterCountdown] via [onCountdownComplete].
+  Future<void> _startGuidedCountdownOverlay() async {
     await _sfx.playCountdown();
-    if (!mounted || !_run.isPreparingCamera) return;
-    if (!_run.countdownTriggered) return;
-    _run.enterCountdown();
+    // SFX completes; the overlay drives the rest via onCountdownComplete.
   }
 
   Future<void> _onMovementConfirmed() async {
@@ -424,6 +509,10 @@ class _PracticeScreenState extends State<PracticeScreen>
     _scorePopupNotifier.value = const ScorePopupState();
     _lastPulsedScore = null;
     _movementConfirmedShowing = false;
+    _readinessItems = null;
+    _readinessProgress = 0;
+    _readinessStable = false;
+    _frozenReadinessItems = null;
   }
 
   Future<void> _cancelPreActive() async {
@@ -438,8 +527,11 @@ class _PracticeScreenState extends State<PracticeScreen>
   Future<void> _stopSession({bool heldSteady = false}) async {
     if (_isShowingSummary) return;
 
-    // Cancel during prepare/countdown/error: no summary.
-    if (_run.isPreparingCamera || _run.isCountdown || _run.isError) {
+    // Cancel during prepare/readiness/countdown/error: no summary.
+    if (_run.isPreparingCamera ||
+        _run.isReadiness ||
+        _run.isCountdown ||
+        _run.isError) {
       await _cancelPreActive();
       return;
     }
@@ -560,7 +652,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   void _onBack() {
     if (_isShowingSummary) return;
-    if (_run.isPreparingCamera || _run.isCountdown) {
+    if (_run.isPreparingCamera || _run.isReadiness || _run.isCountdown) {
       _cancelPreActive();
       return;
     }
@@ -575,6 +667,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     return switch (_run.phase) {
       PracticeRunPhase.active => TrainingActionKind.finish,
       PracticeRunPhase.preparingCamera ||
+      PracticeRunPhase.readiness ||
       PracticeRunPhase.countdown => TrainingActionKind.cancel,
       PracticeRunPhase.error => TrainingActionKind.retry,
       PracticeRunPhase.idle ||
@@ -586,6 +679,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     return switch (_run.phase) {
       PracticeRunPhase.idle => TrainingSessionPhase.ready,
       PracticeRunPhase.preparingCamera => TrainingSessionPhase.preparingCamera,
+      PracticeRunPhase.readiness => TrainingSessionPhase.readiness,
       PracticeRunPhase.countdown => TrainingSessionPhase.getReady,
       PracticeRunPhase.active => TrainingSessionPhase.inProgress,
       PracticeRunPhase.completed => TrainingSessionPhase.completed,
@@ -742,6 +836,8 @@ class _PracticeScreenState extends State<PracticeScreen>
     required bool hasConnectionError,
   }) {
     final actionKind = _actionKind();
+    final isReadiness = _run.isReadiness;
+    final readinessFrozen = _run.readinessFrozen;
 
     return TrainingSessionPanel(
       phase: _panelPhase(),
@@ -814,16 +910,27 @@ class _PracticeScreenState extends State<PracticeScreen>
             const TrainingPerformanceBar(score: null),
         ],
       ),
-      statusContent: TrainingStatusRow(
-        detection: resolveDetectionStatus(
-          sessionActive: isTrainingActive,
-          bottleDetected: _feedback.latestFeedback?.bottleDetected,
-        ),
-        propLabel: _prop.displayLabel,
-        postureLabel: postureDisplayLabel(
-          isTrainingActive ? _feedback.latestFeedback?.postureStatus : null,
-        ),
-      ),
+      statusContent: (isReadiness || (_run.isCountdown && readinessFrozen))
+          ? ReadinessChecklistPanel(
+              items:
+                  (readinessFrozen ? _frozenReadinessItems : _readinessItems) ??
+                  const [],
+              progress: _readinessProgress,
+              stable: _readinessStable,
+              frozen: readinessFrozen,
+            )
+          : TrainingStatusRow(
+              detection: resolveDetectionStatus(
+                sessionActive: isTrainingActive,
+                bottleDetected: _feedback.latestFeedback?.bottleDetected,
+              ),
+              propLabel: _prop.displayLabel,
+              postureLabel: postureDisplayLabel(
+                isTrainingActive
+                    ? _feedback.latestFeedback?.postureStatus
+                    : null,
+              ),
+            ),
       supportingContent: ValueListenableBuilder<ComboState>(
         valueListenable: _comboNotifier,
         builder: (context, comboState, _) {
@@ -859,17 +966,43 @@ class _PracticeScreenState extends State<PracticeScreen>
                     ),
                   )
                 : null),
-      actionArea: TrainingActionArea(
-        kind: actionKind,
-        startLabel: 'Start Session',
-        onPressed: switch (actionKind) {
-          TrainingActionKind.finish => () => _stopSession(),
-          TrainingActionKind.cancel => _cancelPreActive,
-          TrainingActionKind.retry || TrainingActionKind.start =>
-            _ws.isConnected ? _startSession : _connect,
-        },
-        isLoading: _connecting || _commandInFlight,
-      ),
+      actionArea: isReadiness
+          ? _buildReadinessActionArea()
+          : TrainingActionArea(
+              kind: actionKind,
+              startLabel: 'Start Session',
+              onPressed: switch (actionKind) {
+                TrainingActionKind.finish => () => _stopSession(),
+                TrainingActionKind.cancel => _cancelPreActive,
+                TrainingActionKind.retry || TrainingActionKind.start =>
+                  _ws.isConnected ? _startSession : _connect,
+              },
+              isLoading: _connecting || _commandInFlight,
+            ),
+    );
+  }
+
+  /// Action area shown during the readiness gate: Start Practice + Cancel.
+  Widget _buildReadinessActionArea() {
+    final canStart =
+        (_readinessStable || _run.readinessStable == true) && !_commandInFlight;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TrainingActionArea(
+          kind: TrainingActionKind.start,
+          startLabel: 'Start Practice',
+          onPressed: canStart ? _onStartPractice : null,
+          isLoading: _commandInFlight,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        TrainingActionArea(
+          kind: TrainingActionKind.cancel,
+          startLabel: 'Cancel',
+          onPressed: _cancelPreActive,
+        ),
+      ],
     );
   }
 }

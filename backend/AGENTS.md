@@ -48,16 +48,28 @@ Keep Flutter independent of these implementation details except for the document
 - Session startup requires consecutive usable frames (`_STARTUP_REQUIRED_CONSECUTIVE_FRAMES`, `_STARTUP_TIMEOUT_S`). A camera that opens but returns black frames is not healthy.
 - Do not assume all cameras share resolution, FPS, or warm-up behavior. Do not hard-code vendor-specific behavior.
 - Preserve shared-camera locking, Windows capture-profile fallback, black-frame rejection, blank-frame recovery, and debounced release (`CAMERA_RELEASE_DEBOUNCE_S`).
-- WebSocket lifecycle: version-1 `prepare` / `activate` / `stop` require
-  `protocol_version`, `request_id`, and `session_id`, and receive a correlated
-  `command_ack` only after the backend completes the corresponding work.
-  `prepare` opens the camera and streams preview (`session_state: preparing`)
-  without scoring; `activate` transitions to active inference/scoring; legacy
-  `start` (no protocol version) still combines both; `stop` cancels the session
-  task and schedules camera release. Stale `session_id` values must not stop or
-  activate a newer session. Malformed JSON and invalid v1 commands return
-  structured errors without closing a healthy connection.
+- WebSocket lifecycle: version-1 `prepare` / `begin_readiness` / `activate` /
+  `stop` require `protocol_version`, `request_id`, and `session_id`, and receive
+  a correlated `command_ack` only after the backend completes the corresponding
+  work. `prepare` opens the camera and streams preview
+  (`session_state: preparing`) without detectors or scoring.
+  `begin_readiness` (guided practice) loads detectors on the same session,
+  streams `session_state: readying` with observability checklist fields, and
+  must not call movement technique evaluation, `SessionScorer.record`, or
+  `HoldValidator.update`. It is idempotent when already readying and rejected
+  before prepare or after activation. `activate` transitions prepared **or**
+  readying to active inference/scoring without reopening the camera and reuses
+  detectors loaded during readiness when present. Legacy `start` (no protocol
+  version) still combines prepare+activate; Free Practice keeps prepare →
+  activate without readiness. `stop` cancels the session task and schedules
+  camera release. Stale `session_id` values must not stop or activate a newer
+  session. Malformed JSON and invalid v1 commands return structured errors
+  without closing a healthy connection.
 - Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record score changes.
+- Readiness lives in `assessment/readiness.py` and checks camera/prop/landmark
+  observability only (not palm openness, grip orientation, proximity, or
+  steadiness). Stabilization uses per-item consecutive pass/fail frames plus a
+  monotonic global `READINESS_STABLE_DURATION_S`.
 - Await in-flight frame work before releasing camera and detector resources on stop, cancellation, or disconnect.
 - Return machine-readable fatal errors such as `camera_unavailable`, `selected_camera_unavailable`, `invalid_camera_device_id`, `invalid_camera_index`, `session_not_prepared`, `model_load_failed`, `pipeline_init_failed`, and `pipeline_error`.
 - Camera changes require tests for Auto-select, `identity_stable` native IDs and `opencv:N` fallback IDs, legacy migration, unavailable saved devices, slow warm-up, reconnects, stop, disconnect, and prepare/activate boundaries where relevant.

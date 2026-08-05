@@ -11,6 +11,12 @@ from pydantic import ValidationError
 
 from assessment.feedback_codes import category_for
 from assessment.hold_validator import HoldValidator
+from assessment.readiness import (
+    ReadinessObservation,
+    ReadinessTracker,
+    readiness_needs_hands,
+    readiness_needs_pose,
+)
 from assessment.rule_engine import (
     evaluate_movement,
     movement_is_prop_detection_only,
@@ -31,6 +37,7 @@ from config import (
 from schemas.commands import (
     PROTOCOL_VERSION,
     ActivateCommand,
+    BeginReadinessCommand,
     PrepareCommand,
     PropType,
     StartCommand,
@@ -61,6 +68,7 @@ _MAX_CAMERA_INDEX = 10
 _MAX_DEVICE_ID_LENGTH = 1024
 
 SESSION_PREPARED = "prepared"
+SESSION_READYING = "readying"
 SESSION_ACTIVE = "active"
 SESSION_CLOSED = "closed"
 
@@ -347,6 +355,7 @@ def _human_error_message(error_code: str) -> str:
             "camera in Settings, or use Auto-select."
         ),
         "session_not_prepared": "No matching prepared session is available.",
+        "session_already_active": "The session is already active.",
         "session_id_mismatch": "The session_id does not match the current session.",
         "pipeline_init_failed": "Vision pipeline failed to start.",
         "prepare_timeout": (
@@ -429,6 +438,7 @@ class VisionSession:
         self._model_checked = False
         self._lifecycle = SESSION_PREPARED
         self._hold_validator = HoldValidator()
+        self._readiness_tracker: ReadinessTracker | None = None
         self.timings = _PipelineTimings()
         # Wall-clock start of the latest process_* call (for end_to_end timing).
         self._pipeline_started_at: float | None = None
@@ -440,6 +450,10 @@ class VisionSession:
     @property
     def is_prepared(self) -> bool:
         return self._lifecycle == SESSION_PREPARED
+
+    @property
+    def is_readying(self) -> bool:
+        return self._lifecycle == SESSION_READYING
 
     @property
     def is_active(self) -> bool:
@@ -466,16 +480,46 @@ class VisionSession:
         if self._pose_needed and self.pose_detector is None:
             self.pose_detector = PoseDetector()
 
-    def activate(self) -> bool:
-        """Transition prepared → active without reopening the camera.
+    def _ensure_readiness_detectors(self) -> None:
+        """Create only the detectors required for readiness observation."""
+        if self._prop_detection_only:
+            return
+        needs_h = readiness_needs_hands(self.movement, self.prop_type)
+        needs_p = readiness_needs_pose(self.movement, self.prop_type)
+        if needs_h and self.hands_detector is None:
+            self.hands_detector = HandsDetector(
+                rotated_fallback=self._hands_rotated_fallback,
+                bartender_roi_fallback=self._hands_bartender_roi,
+            )
+        if needs_p and self.pose_detector is None:
+            self.pose_detector = PoseDetector()
 
+    def begin_readiness(self) -> bool:
+        """Transition prepared → readying. Idempotent when already READYING.
+
+        Returns True on success or when already readying.
+        Returns False if CLOSED or ACTIVE.
+        """
+        if self._lifecycle == SESSION_READYING:
+            return True
+        if self._lifecycle != SESSION_PREPARED:
+            return False
+        self._ensure_readiness_detectors()
+        self._readiness_tracker = ReadinessTracker(self.movement, self.prop_type)
+        self._lifecycle = SESSION_READYING
+        return True
+
+    def activate(self) -> bool:
+        """Transition prepared or readying → active without reopening the camera.
+
+        Reuses existing detectors if already created by begin_readiness.
         Returns True when activation succeeded or the session was already
         active (idempotent). Returns False when the session is closed.
         """
         if self._lifecycle == SESSION_ACTIVE:
             return True
 
-        if self._lifecycle != SESSION_PREPARED:
+        if self._lifecycle not in (SESSION_PREPARED, SESSION_READYING):
             return False
 
         self._ensure_detectors()
@@ -489,6 +533,7 @@ class VisionSession:
         if self._is_dual_prop:
             self.prop_detector.reset_cache()
         self._frame_index = 0
+        self._readiness_tracker = None
         self._lifecycle = SESSION_ACTIVE
         return True
 
@@ -564,6 +609,142 @@ class VisionSession:
                 frame_jpeg_base64=frame_b64,
                 camera_ready=True,
                 session_state="preparing",
+            )
+        )
+        self.timings.add("encode", time.perf_counter() - t0)
+        self.timings.add("processing_total", time.perf_counter() - total_start)
+        return message
+
+    def process_readiness_frame(self) -> FeedbackMessage | None:
+        """Run camera + prop detect + hand/pose (as needed) + readiness update.
+
+        Does NOT call evaluate_movement, scorer.record, or hold_validator.
+        """
+        self._pipeline_started_at = time.perf_counter()
+        total_start = self._pipeline_started_at
+
+        model_error = self._check_model()
+        if model_error is not None:
+            return model_error
+
+        t0 = time.perf_counter()
+        frame = self.camera.read()
+        self.timings.add("camera", time.perf_counter() - t0)
+
+        if frame is None:
+            return None
+
+        processing_start = time.monotonic()
+        captured_at = self.camera.last_captured_at_monotonic
+        if captured_at is not None:
+            self.timings.add_frame_age(processing_start - captured_at)
+
+        self._frame_index += 1
+        run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
+
+        bottles = self._last_bottles
+        shakers = self._last_shakers
+
+        if self.bottle_detection_enabled and run_yolo:
+            t0 = time.perf_counter()
+            if self._is_dual_prop:
+                dual_result = self.prop_detector.detect(frame)
+                bottles = dual_result.bottles
+                shakers = dual_result.shakers
+            else:
+                bottles = self.prop_detector.detect(frame)
+            self.timings.add("yolo", time.perf_counter() - t0)
+            self._last_bottles = bottles
+            self._last_shakers = shakers
+        elif not self.bottle_detection_enabled:
+            bottles = []
+            shakers = []
+            self._last_bottles = []
+            self._last_shakers = []
+
+        needs_h = readiness_needs_hands(self.movement, self.prop_type)
+        needs_p = readiness_needs_pose(self.movement, self.prop_type)
+
+        hands = None
+        if needs_h and self.hands_detector is not None:
+            bottle_ref = bottles[0] if bottles else (shakers[0] if shakers else None)
+            t0 = time.perf_counter()
+            hands = self.hands_detector.detect(frame, bottle=bottle_ref)
+            self.timings.add("hands", time.perf_counter() - t0)
+
+        pose = None
+        if needs_p and self.pose_detector is not None:
+            t0 = time.perf_counter()
+            pose = self.pose_detector.detect(frame)
+            self.timings.add("pose", time.perf_counter() - t0)
+
+        obs = ReadinessObservation(
+            has_camera_frame=True,
+            bottles=list(bottles),
+            shakers=list(shakers),
+            hands=hands,
+            pose=pose,
+        )
+
+        snapshot = None
+        if self._readiness_tracker is not None:
+            snapshot = self._readiness_tracker.update(obs)
+
+        readiness_items = list(snapshot.items) if snapshot is not None else None
+        readiness_complete = snapshot.readiness_complete if snapshot is not None else None
+        readiness_stable = snapshot.readiness_stable if snapshot is not None else None
+        readiness_stable_progress = (
+            snapshot.readiness_stable_progress if snapshot is not None else None
+        )
+
+        boxes_to_draw = bottles + shakers if self._is_dual_prop else list(bottles)
+        t0 = time.perf_counter()
+        annotated = annotate_frame(
+            frame,
+            boxes_to_draw,
+            hands,
+            "Checking readiness\u2026",
+            "positive",
+            self.movement,
+            self.scorer.score,
+            pose=pose,
+            prop_label=self.prop_display_name,
+        )
+        self.timings.add("annotate", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        _, buffer = cv2.imencode(
+            ".jpg",
+            annotated,
+            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+        )
+        self.timings.add("jpeg", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        frame_b64 = base64.b64encode(buffer).decode("ascii")
+        if self._is_dual_prop:
+            detected = len(bottles) > 0 and len(shakers) > 0
+            combined_count = len(bottles) + len(shakers)
+        else:
+            detected = len(bottles) > 0
+            combined_count = len(bottles)
+        message = self._stamp(
+            FeedbackMessage(
+                bottle_detected=detected,
+                bottle_count=combined_count,
+                prop_type=self.prop_type,
+                movement=self.movement,
+                score=self.scorer.score,
+                feedback="Checking readiness\u2026",
+                feedback_type="positive",
+                posture_status="unknown",
+                frame_jpeg_base64=frame_b64,
+                camera_ready=True,
+                session_state="readying",
+                readiness_items=readiness_items,
+                readiness_complete=readiness_complete,
+                readiness_stable=readiness_stable,
+                readiness_stable_progress=readiness_stable_progress,
             )
         )
         self.timings.add("encode", time.perf_counter() - t0)
@@ -830,12 +1011,15 @@ class VisionSession:
     def process_tick(self) -> FeedbackMessage | None:
         if self._lifecycle == SESSION_ACTIVE:
             return self.process_frame()
+        if self._lifecycle == SESSION_READYING:
+            return self.process_readiness_frame()
         if self._lifecycle == SESSION_PREPARED:
             return self.process_preview_frame()
         return None
 
     def close(self) -> None:
         self._lifecycle = SESSION_CLOSED
+        self._readiness_tracker = None
         self._hold_validator.reset()
         self.camera.release()
         if self.hands_detector is not None:
@@ -1188,6 +1372,8 @@ def _public_session_state(
         return "idle"
     if session.is_active:
         return "active"
+    if session.is_readying:
+        return "readying"
     if session.is_prepared:
         return "preparing"
     return "idle"
@@ -1403,6 +1589,66 @@ async def websocket_endpoint(websocket: WebSocket):
                 message=error_message or _human_error_message(code),
             )
 
+    async def handle_v1_begin_readiness(command: BeginReadinessCommand) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+
+        if active_id is not None and command.session_id != active_id:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="begin_readiness",
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_id_mismatch",
+                message=_human_error_message("session_id_mismatch"),
+            )
+            return
+
+        if session is not None and session.is_active:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="begin_readiness",
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_already_active",
+                message=_human_error_message("session_already_active"),
+            )
+            return
+
+        if session is None or not (session.is_prepared or session.is_readying):
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="begin_readiness",
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_not_prepared",
+                message=_human_error_message("session_not_prepared"),
+            )
+            return
+
+        # Idempotent: begin_readiness returns True if already readying.
+        session.begin_readiness()
+
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action="begin_readiness",
+            accepted=True,
+            session_state="readying",
+        )
+
     async def handle_v1_activate(command: ActivateCommand) -> None:
         session = session_ref.get("session")
         active_id = session_ref.get("session_id") or current_session_id
@@ -1422,7 +1668,9 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
-        if session is None or not (session.is_prepared or session.is_active):
+        if session is None or not (
+            session.is_prepared or session.is_readying or session.is_active
+        ):
             await send_ack(
                 request_id=command.request_id,
                 session_id=command.session_id,
@@ -1598,6 +1846,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await handle_v1_prepare_or_start(command)
         elif isinstance(command, ActivateCommand):
             await handle_v1_activate(command)
+        elif isinstance(command, BeginReadinessCommand):
+            await handle_v1_begin_readiness(command)
         elif isinstance(command, StopCommand):
             await handle_v1_stop(command)
 
@@ -1666,7 +1916,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
         elif action == "activate":
             session = session_ref.get("session")
-            if session is None or not (session.is_prepared or session.is_active):
+            if session is None or not (
+                session.is_prepared or session.is_readying or session.is_active
+            ):
                 error = FeedbackMessage(
                     bottle_detected=False,
                     prop_type=getattr(session, "prop_type", "bottle"),

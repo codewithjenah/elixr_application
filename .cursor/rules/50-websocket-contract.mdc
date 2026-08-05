@@ -26,15 +26,16 @@ Treat these files as one public contract:
 
 ## Client control actions (WebSocket inbound)
 
-- `prepare` — open the selected camera and stream preview only.
-- `activate` — transition a prepared session to active inference/scoring without reopening the camera.
+- `prepare` — open the selected camera and stream preview only (no detectors/scoring).
+- `begin_readiness` — guided practice only; load detectors on the prepared session and stream observability checklist frames (`session_state: readying`). Idempotent when already readying; rejected before prepare or after activate. Does not score, hold-validate, or evaluate technique.
+- `activate` — transition a prepared **or** readying session to active inference/scoring without reopening the camera; reuse detectors when already loaded.
 - `start` — legacy compatibility: prepare and activate immediately.
 - `stop` — cancel the session loop and release the shared camera (with debounce).
 
 Shared prepare/start fields:
 
 - `movement`, `difficulty`, `bottle_detection_enabled`
-- `prop_type` (`bottle` or `shaker`, defaults to `bottle` when omitted)
+- `prop_type` (`bottle`, `shaker`, or `bottle_and_shaker`, defaults to `bottle` when omitted)
 - Prefer `camera_device_id` (`null` = Auto-select).
 - Legacy `camera_index` is accepted only when `camera_device_id` is absent.
 
@@ -45,7 +46,8 @@ Important fields:
 - `bottle_detected`, `bottle_count`, `prop_type`, `movement`, `score`, `feedback`, `feedback_type`, `posture_status`
 - `frame_jpeg_base64` (may be omitted on fatal errors)
 - `error_code` for machine-readable fatal states
-- `camera_ready`, `session_state` (`preparing`, `active`, `unavailable`)
+- `camera_ready`, `session_state` (`preparing`, `readying`, `active`, `unavailable`)
+- Optional readiness fields during `readying`: `readiness_items`, `readiness_complete`, `readiness_stable`, `readiness_stable_progress`
 - `hold_progress`, `hold_duration_ms`, `hold_confirmed`, `positive_frame_ratio` (backend-authoritative hold confirmation during `active` only)
 
 Rules:
@@ -55,8 +57,10 @@ Rules:
 - Error payloads may omit `frame_jpeg_base64`; the UI must remain stable.
 - Clients must use `error_code`, not parse human `feedback` text, for fatal decisions.
 - Preview frames with `session_state: preparing` are not active scored-session frames.
-- Do not start client timer/scoring UI from preview frames; wait for explicit activation.
+- Readying frames are observability-only; Flutter freezes the checklist after Start Practice and ignores ordinary readiness demotions during countdown.
+- Do not start client timer/scoring UI from preview or readiness frames; wait for explicit activation.
 - Hold confirmation is backend-authoritative. Flutter displays `hold_progress` and completes only on `hold_confirmed`; do not run a parallel client-side hold timer.
+- Free Practice does not use `begin_readiness`.
 - Preserve legacy `start` and `camera_index` compatibility explicitly and test migration behavior.
 - Keep `bottle_detected` and `bottle_count` populated from the selected prop
   for protocol-v1 compatibility; `prop_type` is the canonical prop field.

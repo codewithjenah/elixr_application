@@ -39,6 +39,7 @@ class WebSocketService extends ChangeNotifier {
   String? _errorMessage;
   bool _sessionPrepared = false;
   bool _sessionActive = false;
+  bool _sessionReadying = false;
   String? _currentSessionId;
   ProtocolErrorMessage? _lastProtocolError;
   int _protocolErrorCount = 0;
@@ -70,6 +71,10 @@ class WebSocketService extends ChangeNotifier {
 
   /// Movement evaluation / scoring is active after accepted activate/start.
   bool get sessionActive => _sessionActive;
+
+  /// Readiness gate is active (session_state == 'readying').
+  /// sessionPrepared remains true throughout readying; sessionActive is false.
+  bool get sessionReadying => _sessionReadying;
 
   /// Practice-attempt identity for the current prepare/activate lifecycle.
   String? get currentSessionId => _currentSessionId;
@@ -170,6 +175,31 @@ class WebSocketService extends ChangeNotifier {
       timeout: commandTimeout,
       sessionId: resolvedSessionId,
       payload: buildActivatePayload(
+        sessionId: resolvedSessionId,
+        requestId: _nextId('req'),
+      ),
+    );
+  }
+
+  /// Begins the pre-practice readiness gate for an already-prepared session.
+  ///
+  /// Mirrors [sendActivate] in structure. An accepted ack with
+  /// session_state == 'readying' sets [sessionReadying]; prepared stays true,
+  /// active stays false. Duplicate in-flight calls for the same action are
+  /// rejected by [_sendTrackedCommand].
+  Future<CommandAck> sendBeginReadiness({String? sessionId}) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
+      return Future.error(
+        StateError('Cannot begin readiness without a current session_id'),
+      );
+    }
+
+    return _sendTrackedCommand(
+      action: 'begin_readiness',
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: buildBeginReadinessPayload(
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
       ),
@@ -421,6 +451,20 @@ class WebSocketService extends ChangeNotifier {
       'request_id': requestId,
       'session_id': sessionId,
       'action': 'activate',
+    };
+  }
+
+  /// Builds the WebSocket begin_readiness payload. Exposed for unit tests.
+  @visibleForTesting
+  static Map<String, dynamic> buildBeginReadinessPayload({
+    required String sessionId,
+    required String requestId,
+  }) {
+    return <String, dynamic>{
+      'protocol_version': wsProtocolVersion,
+      'request_id': requestId,
+      'session_id': sessionId,
+      'action': 'begin_readiness',
     };
   }
 
@@ -708,16 +752,26 @@ class WebSocketService extends ChangeNotifier {
         if (ack.sessionState == 'preparing' || ack.sessionState == null) {
           _sessionPrepared = true;
           _sessionActive = false;
+          _sessionReadying = false;
           if (ack.sessionId != null) {
             _currentSessionId = ack.sessionId;
           }
         } else {
           _reconcileFromSessionState(ack.sessionState!);
         }
+      case 'begin_readiness':
+        // Prepared stays true through readying; active stays false.
+        _sessionPrepared = true;
+        _sessionActive = false;
+        _sessionReadying = ack.sessionState == 'readying';
+        if (ack.sessionId != null) {
+          _currentSessionId = ack.sessionId;
+        }
       case 'activate':
       case 'start':
         _sessionPrepared = true;
         _sessionActive = true;
+        _sessionReadying = false;
         if (ack.sessionId != null) {
           _currentSessionId = ack.sessionId;
         }
@@ -728,6 +782,7 @@ class WebSocketService extends ChangeNotifier {
             stopSessionId == _currentSessionId) {
           _sessionPrepared = false;
           _sessionActive = false;
+          _sessionReadying = false;
           if (stopSessionId != null && _currentSessionId == stopSessionId) {
             _currentSessionId = null;
           }
@@ -743,22 +798,32 @@ class WebSocketService extends ChangeNotifier {
   void _reconcileFromSessionState(String sessionState) {
     final previousPrepared = _sessionPrepared;
     final previousActive = _sessionActive;
+    final previousReadying = _sessionReadying;
     switch (sessionState) {
       case 'preparing':
         _sessionPrepared = true;
         _sessionActive = false;
+        _sessionReadying = false;
+      case 'readying':
+        // Prepared stays true through the readiness gate; active is still false.
+        _sessionPrepared = true;
+        _sessionActive = false;
+        _sessionReadying = true;
       case 'active':
         _sessionPrepared = true;
         _sessionActive = true;
+        _sessionReadying = false;
       case 'idle':
       case 'unavailable':
         _sessionPrepared = false;
         _sessionActive = false;
+        _sessionReadying = false;
       default:
         return;
     }
     if ((previousPrepared != _sessionPrepared ||
-            previousActive != _sessionActive) &&
+            previousActive != _sessionActive ||
+            previousReadying != _sessionReadying) &&
         !_disposing) {
       notifyListeners();
     }
@@ -805,6 +870,7 @@ class WebSocketService extends ChangeNotifier {
   void _clearSessionFlags({bool notify = true}) {
     _sessionPrepared = false;
     _sessionActive = false;
+    _sessionReadying = false;
     if (notify && !_disposing) notifyListeners();
   }
 
@@ -895,6 +961,7 @@ class WebSocketService extends ChangeNotifier {
     final sessionId = _currentSessionId;
     _sessionPrepared = false;
     _sessionActive = false;
+    _sessionReadying = false;
     _currentSessionId = null;
     if (_outboundSink != null &&
         _connectionState == WebSocketConnectionState.connected) {

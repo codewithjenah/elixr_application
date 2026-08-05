@@ -1552,6 +1552,200 @@ void main() {
     expect(startPayload['prop_type'], 'bottle_and_shaker');
   });
 
+  test('buildBeginReadinessPayload uses begin_readiness action', () {
+    final payload = WebSocketService.buildBeginReadinessPayload(
+      sessionId: 'session-r',
+      requestId: 'req-r',
+    );
+    expect(payload['action'], 'begin_readiness');
+    expect(payload['protocol_version'], 1);
+    expect(payload['session_id'], 'session-r');
+    expect(payload['request_id'], 'req-r');
+  });
+
+  group('WebSocketService begin_readiness lifecycle', () {
+    late StreamController<dynamic> inbound;
+    late StreamController<dynamic> outbound;
+    late WebSocketService service;
+    late List<Map<String, dynamic>> sent;
+
+    setUp(() {
+      inbound = StreamController<dynamic>.broadcast();
+      outbound = StreamController<dynamic>.broadcast();
+      sent = <Map<String, dynamic>>[];
+      outbound.stream.listen((event) {
+        if (event is String) {
+          sent.add(jsonDecode(event) as Map<String, dynamic>);
+        }
+      });
+      service = WebSocketService(
+        commandTimeout: const Duration(milliseconds: 80),
+        prepareTimeout: const Duration(milliseconds: 80),
+      );
+      service.debugAttachTransport(
+        inbound: inbound.stream,
+        outbound: outbound.sink,
+      );
+    });
+
+    tearDown(() async {
+      service.dispose();
+      await inbound.close();
+      await outbound.close();
+    });
+
+    Future<void> push(Map<String, dynamic> payload) async {
+      inbound.add(jsonEncode(payload));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('sendBeginReadiness sends correct protocol payload', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+
+      // Seed prepared state first.
+      final prepare = service.sendPrepare(
+        movement: 'Normal Grip',
+        difficulty: 'Easy',
+        sessionId: sessionId,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'prepare',
+        'accepted': true,
+        'session_state': 'preparing',
+      });
+      await prepare;
+      expect(service.sessionPrepared, isTrue);
+
+      final readinessFuture = service.sendBeginReadiness(sessionId: sessionId);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(sent.last['action'], 'begin_readiness');
+      expect(sent.last['protocol_version'], 1);
+      expect(sent.last['session_id'], sessionId);
+      expect(sent.last['request_id'], isNotEmpty);
+      // sessionPrepared stays true; sessionActive stays false.
+      expect(service.sessionPrepared, isTrue);
+      expect(service.sessionActive, isFalse);
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'begin_readiness',
+        'accepted': true,
+        'session_state': 'readying',
+      });
+      final ack = await readinessFuture;
+      expect(ack.accepted, isTrue);
+      expect(service.sessionPrepared, isTrue);
+      expect(service.sessionActive, isFalse);
+      expect(service.sessionReadying, isTrue);
+    });
+
+    test('sendBeginReadiness without session_id errors', () {
+      expect(() => service.sendBeginReadiness(), throwsA(isA<StateError>()));
+    });
+
+    test('duplicate sendBeginReadiness is rejected while in flight', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+
+      final first = service.sendBeginReadiness(sessionId: sessionId);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        () => service.sendBeginReadiness(sessionId: sessionId),
+        throwsA(isA<StateError>()),
+      );
+      // Resolve first to avoid unhandled timeout.
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'begin_readiness',
+        'accepted': true,
+        'session_state': 'readying',
+      });
+      await first;
+    });
+
+    test(
+      'readying session_state in feedback reconciles to prepared=true active=false',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionId = service.currentSessionId!;
+
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': sessionId,
+            'bottle_detected': false,
+            'movement': 'Hand Stall',
+            'score': 0,
+            'feedback': 'Checking',
+            'feedback_type': 'positive',
+            'posture_status': 'unknown',
+            'session_state': 'readying',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.sessionPrepared, isTrue);
+        expect(service.sessionActive, isFalse);
+        expect(service.sessionReadying, isTrue);
+      },
+    );
+
+    test(
+      'transitioning from readying to active via activate clears readying',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionId = service.currentSessionId!;
+
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': sessionId,
+            'bottle_detected': false,
+            'movement': 'Hand Stall',
+            'score': 0,
+            'feedback': 'Checking',
+            'feedback_type': 'positive',
+            'posture_status': 'unknown',
+            'session_state': 'readying',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(service.sessionReadying, isTrue);
+
+        final activate = service.sendActivate(sessionId: sessionId);
+        await Future<void>.delayed(Duration.zero);
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': sent.last['request_id'],
+          'session_id': sessionId,
+          'action': 'activate',
+          'accepted': true,
+          'session_state': 'active',
+        });
+        await activate;
+        expect(service.sessionPrepared, isTrue);
+        expect(service.sessionActive, isTrue);
+        expect(service.sessionReadying, isFalse);
+      },
+    );
+  });
+
   group('guided-practice countdown still follows lifecycle helpers', () {
     test('countdown waits for preview JPEG after preparing', () {
       final run = PracticeRunController();

@@ -3,6 +3,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 from schemas.commands import PROTOCOL_VERSION, PropType
+from schemas.readiness import ReadinessItem
 
 
 class FeedbackMessage(BaseModel):
@@ -17,7 +18,7 @@ class FeedbackMessage(BaseModel):
     frame_jpeg_base64: Optional[str] = None
     error_code: Optional[str] = None
     # Optional lifecycle fields (backward-compatible defaults).
-    # session_state: preparing | active | recovering | unavailable
+    # session_state: preparing | readying | active | recovering | unavailable
     camera_ready: Optional[bool] = None
     session_state: Optional[str] = None
     # Backend-authoritative hold confirmation (active sessions only).
@@ -33,6 +34,11 @@ class FeedbackMessage(BaseModel):
     protocol_version: Optional[Literal[1]] = None
     message_type: Optional[Literal["feedback"]] = None
     session_id: Optional[str] = None
+    # Optional readiness gate fields (session_state == "readying" only).
+    readiness_items: Optional[list[ReadinessItem]] = None
+    readiness_complete: Optional[bool] = None
+    readiness_stable: Optional[bool] = None
+    readiness_stable_progress: Optional[float] = None
 
     def with_session(self, session_id: str | None) -> "FeedbackMessage":
         """Stamp protocol v1 identity fields when a session_id is known."""

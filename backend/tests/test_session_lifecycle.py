@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from api import websocket as websocket_api
+from assessment.readiness import ReadinessTracker, readiness_needs_hands, readiness_needs_pose
 from assessment.scoring import SessionScorer
 from schemas.feedback import FeedbackMessage
 
@@ -1348,5 +1349,355 @@ def test_startup_failure_clears_session_identity(monkeypatch):
         assert session_ref["session_id"] is None
         assert len(sent) == 1
         assert "error_code" in sent[0]
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Readiness Gate lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+def test_readiness_needs_helpers_classify_movements():
+    """readiness_needs_hands/pose return the expected values per movement."""
+    # Grip movements: hands only.
+    for mv in ("Normal Grip", "Bartender's Grip", "Reverse Grip", "Claw Grip"):
+        assert readiness_needs_hands(mv) is True, mv
+        assert readiness_needs_pose(mv) is False, mv
+
+    # Hand Stall / One Finger Stall: hands only.
+    assert readiness_needs_hands("Hand Stall") is True
+    assert readiness_needs_pose("Hand Stall") is False
+    assert readiness_needs_hands("One Finger Stall") is True
+    assert readiness_needs_pose("One Finger Stall") is False
+
+    # Forearm / Elbow Stall: both (pose_forearm_or_hand).
+    for mv in ("Forearm Stall", "Elbow Stall", "Arm Stall"):
+        assert readiness_needs_hands(mv) is True, mv
+        assert readiness_needs_pose(mv) is True, mv
+
+    # Reverse Forearm / Upper Forearm / Shoulder: pose only.
+    for mv in ("Reverse Forearm Stall", "Upper Forearm Stall", "Shoulder Stall"):
+        assert readiness_needs_hands(mv) is False, mv
+        assert readiness_needs_pose(mv) is True, mv
+
+    # Double Hand Stall: hands only.
+    assert readiness_needs_hands("Double Hand Stall") is True
+    assert readiness_needs_pose("Double Hand Stall") is False
+
+    # Bottle in a tin: hands only (supporting_hand_visible).
+    assert readiness_needs_hands("Bottle in a tin") is True
+    assert readiness_needs_pose("Bottle in a tin") is False
+
+
+def test_begin_readiness_transitions_prepared_to_readying(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+
+    assert session.is_prepared
+    result = session.begin_readiness()
+    assert result is True
+    assert session.is_readying
+    assert not session.is_prepared
+    assert not session.is_active
+    session.close()
+
+
+def test_begin_readiness_is_idempotent_when_already_readying(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+
+    assert session.begin_readiness() is True
+    assert session.begin_readiness() is True  # second call is idempotent
+    assert session.is_readying
+    assert StubCamera.open_calls == 1
+    session.close()
+
+
+def test_begin_readiness_after_close_returns_false(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.close()
+    assert session.begin_readiness() is False
+
+
+def test_begin_readiness_after_activate_returns_false(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.activate()
+    assert session.begin_readiness() is False
+
+
+def test_process_readiness_frame_does_not_evaluate_or_score(monkeypatch):
+    """prepare -> begin_readiness -> process_readiness_frame must not call
+    evaluate_movement or scorer.record."""
+    _patch_vision(monkeypatch)
+    evaluate_calls = {"n": 0}
+    record_calls = {"n": 0}
+
+    def tracking_evaluate(*args, **kwargs):
+        evaluate_calls["n"] += 1
+        raise AssertionError("evaluate_movement must not run during readiness")
+
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+
+    real_record = SessionScorer.record
+
+    def tracking_record(self, feedback_type):
+        record_calls["n"] += 1
+        return real_record(self, feedback_type)
+
+    monkeypatch.setattr(SessionScorer, "record", tracking_record)
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.begin_readiness()
+
+    msg = session.process_readiness_frame()
+
+    assert msg is not None
+    assert msg.session_state == "readying"
+    assert msg.camera_ready is True
+    assert msg.frame_jpeg_base64 is not None
+    assert msg.readiness_items is not None
+    assert msg.readiness_complete is not None
+    assert msg.readiness_stable is not None
+    assert msg.readiness_stable_progress is not None
+    assert evaluate_calls["n"] == 0
+    assert record_calls["n"] == 0
+    # Score must be the unmodified baseline (no recording happened).
+    assert msg.score == SessionScorer().score
+    session.close()
+
+
+def test_process_tick_dispatches_readiness_frame_when_readying(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.begin_readiness()
+
+    msg = session.process_tick()
+    assert msg is not None
+    assert msg.session_state == "readying"
+    session.close()
+
+
+def test_camera_opens_once_across_readying_and_activate(monkeypatch):
+    _patch_vision(monkeypatch)
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    assert StubCamera.open_calls == 1
+
+    session.begin_readiness()
+    session.process_readiness_frame()
+    session.activate()
+    session.process_frame()
+
+    assert StubCamera.open_calls == 1, "camera must open only once"
+    session.close()
+
+
+def test_hands_detector_created_once_across_readiness_and_activate(monkeypatch):
+    """For a grip movement that needs hands, the detector is created during
+    begin_readiness and reused by activate; no second instance is created."""
+    _patch_vision(monkeypatch)
+
+    hands_inits = {"n": 0}
+
+    class TrackingHands(StubHandsDetector):
+        def __init__(self, **kwargs):
+            hands_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+
+    # begin_readiness creates the hands detector (Hand Stall needs hands).
+    assert session.hands_detector is None
+    session.begin_readiness()
+    assert session.hands_detector is not None
+    assert hands_inits["n"] == 1
+
+    # activate calls _ensure_detectors, but hands_detector is not None → no new creation.
+    session.activate()
+    assert hands_inits["n"] == 1, "hands detector must not be re-created on activate"
+    session.close()
+
+
+def test_pose_only_movement_creates_pose_on_readiness_hands_on_activate(monkeypatch):
+    """For Reverse Forearm Stall (pose only for readiness), begin_readiness
+    creates pose; activate then creates hands (for active use) but not a second pose."""
+    _patch_vision(monkeypatch)
+
+    hands_inits = {"n": 0}
+    pose_inits = {"n": 0}
+
+    class TrackingHands(StubHandsDetector):
+        def __init__(self, **kwargs):
+            hands_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    class TrackingPose(StubPoseDetector):
+        def __init__(self, **kwargs):
+            pose_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
+
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Reverse Forearm Stall")
+    session.start()
+
+    # Reverse Forearm Stall: readiness_needs_hands=False, readiness_needs_pose=True.
+    session.begin_readiness()
+    assert pose_inits["n"] == 1
+    assert hands_inits["n"] == 0
+
+    # activate: _ensure_detectors creates hands; pose already exists.
+    session.activate()
+    assert pose_inits["n"] == 1, "pose must not be re-created on activate"
+    assert hands_inits["n"] == 1, "hands created once on activate"
+    session.close()
+
+
+def test_readying_to_active_via_activate_clears_readiness_tracker(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.begin_readiness()
+
+    assert session._readiness_tracker is not None
+    session.activate()
+    assert session._readiness_tracker is None
+    assert session.is_active
+    session.close()
+
+
+def test_close_clears_readiness_tracker(monkeypatch):
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.begin_readiness()
+    assert session._readiness_tracker is not None
+    session.close()
+    assert session._readiness_tracker is None
+
+
+def test_prepared_to_active_directly_still_works(monkeypatch):
+    """Free Practice / direct-activate path: prepare -> activate without readiness."""
+    _patch_vision(monkeypatch)
+    StubPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", StubPropDetector)
+
+    session = websocket_api.VisionSession("Free Practice", prop_type="shaker")
+    session.start()
+    assert session.is_prepared
+
+    activated = session.activate()
+    assert activated is True
+    assert session.is_active
+    assert session._readiness_tracker is None
+
+    msg = session.process_tick()
+    assert msg is not None
+    assert msg.session_state == "active"
+    session.close()
+
+
+def test_readiness_frame_session_state_is_readying_not_preparing(monkeypatch):
+    """process_readiness_frame must emit session_state='readying', not 'preparing'."""
+    _patch_vision(monkeypatch)
+    session = websocket_api.VisionSession("Normal Grip")
+    session.start()
+    session.begin_readiness()
+
+    msg = session.process_readiness_frame()
+    assert msg is not None
+    assert msg.session_state == "readying"
+    assert msg.readiness_items is not None
+    session.close()
+
+
+def test_readiness_stop_cleans_up(monkeypatch):
+    """Stopping from the READYING state must release the camera and clear state."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+
+    async def _run():
+        async def fake_send(text):
+            return None
+
+        ws = MagicMock()
+        ws.send_text = fake_send
+
+        session_ref: dict = {"session": None}
+        task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                ws,
+                "Hand Stall",
+                session_ref=session_ref,
+                start_active=False,
+                send_text=fake_send,
+            )
+        )
+
+        for _ in range(100):
+            if session_ref.get("session") is not None:
+                break
+            await asyncio.sleep(0.01)
+
+        session = session_ref["session"]
+        assert session is not None
+        assert session.is_prepared
+
+        # Transition to readying.
+        session.begin_readiness()
+        assert session.is_readying
+
+        await websocket_api._stop_session_task(task)
+        assert task.done()
+        assert session_ref.get("session") is None
+        assert StubCamera.instances[-1].released is True
 
     asyncio.run(_run())

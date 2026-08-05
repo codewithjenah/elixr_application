@@ -7,6 +7,10 @@ import '../../../core/widgets/elix_card.dart';
 enum TrainingSessionPhase {
   ready,
   preparingCamera,
+
+  /// Pre-practice readiness gate (Guided Practice only).
+  readiness,
+
   getReady,
   inProgress,
   completed,
@@ -39,6 +43,7 @@ class TrainingSessionPanel extends StatelessWidget {
   String get _phaseLabel => switch (phase) {
     TrainingSessionPhase.ready => 'Ready',
     TrainingSessionPhase.preparingCamera => 'Preparing Camera',
+    TrainingSessionPhase.readiness => 'Readiness Check',
     TrainingSessionPhase.getReady => 'Get Ready',
     TrainingSessionPhase.inProgress => 'In Progress',
     TrainingSessionPhase.completed => 'Completed',
