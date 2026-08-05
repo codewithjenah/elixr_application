@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -25,6 +26,7 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
 
   User? _user;
   int updateCallCount = 0;
+  int updatePictureCallCount = 0;
   int isCurrentEmailVerifiedCallCount = 0;
   int requestCurrentEmailVerificationCallCount = 0;
   int requestEmailChangeCallCount = 0;
@@ -33,6 +35,7 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   String? lastFirstName;
   String? lastMiddleName;
   String? lastLastName;
+  ProfilePictureUpdate? lastPictureUpdate;
   Map<String, dynamic>? lastUpdateFields;
 
   @override
@@ -67,6 +70,7 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
     lastFirstName = firstName;
     lastMiddleName = middleName;
     lastLastName = lastName;
+    lastPictureUpdate = profilePictureUpdate;
     lastUpdateFields = {
       'first_name': firstName,
       'middle_name': middleName ?? FieldValue.delete(),
@@ -81,6 +85,25 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
       profilePictureUrl: profilePictureUpdate?.url ?? _user?.profilePictureUrl,
       profilePictureStoragePath:
           profilePictureUpdate?.storagePath ?? _user?.profilePictureStoragePath,
+    );
+    return _user!;
+  }
+
+  @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    updatePictureCallCount++;
+    lastPictureUpdate = profilePictureUpdate;
+    _user = User(
+      id: userId,
+      firstName: _user?.firstName ?? 'Test',
+      middleName: _user?.middleName,
+      lastName: _user?.lastName ?? 'User',
+      email: _user?.email ?? 'user@example.com',
+      profilePictureUrl: profilePictureUpdate.url,
+      profilePictureStoragePath: profilePictureUpdate.storagePath,
     );
     return _user!;
   }
@@ -131,6 +154,8 @@ class _TrackingProfileImageRepository implements ProfileImageRepositoryBase {
   int uploadCallCount = 0;
   Uint8List? lastBytes;
   String? lastContentType;
+  Object? uploadError;
+  Completer<void>? uploadGate;
 
   @override
   Future<void> deleteProfileImage({
@@ -147,6 +172,13 @@ class _TrackingProfileImageRepository implements ProfileImageRepositoryBase {
     uploadCallCount++;
     lastBytes = bytes;
     lastContentType = contentType;
+    final gate = uploadGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    if (uploadError != null) {
+      throw uploadError!;
+    }
     return ProfileImageUploadResult(
       downloadUrl: 'https://storage.example/avatar_$uploadCallCount.png',
       storagePath: 'users/$userId/profile/avatar_$uploadCallCount.png',
@@ -453,7 +485,7 @@ void main() {
     });
   });
 
-  group('AccountProfileSection crop staging', () {
+  group('AccountProfileSection immediate profile picture upload', () {
     XFile memoryPickFile() {
       return XFile.fromData(
         _testPngBytes(),
@@ -466,6 +498,7 @@ void main() {
       WidgetTester tester, {
       AccountProfileImagePicker? pickProfileImage,
       AccountProfileImageCropper? cropProfileImage,
+      ValueChanged<bool>? onDirtyChanged,
     }) async {
       await tester.pumpWidget(
         wrap(
@@ -473,6 +506,7 @@ void main() {
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
             pickProfileImage: pickProfileImage,
             cropProfileImage: cropProfileImage,
+            onDirtyChanged: onDirtyChanged,
           ),
         ),
       );
@@ -485,6 +519,13 @@ void main() {
       await tester.tap(target);
       await tester.pump();
       await _pumpFrames(tester, count: 30);
+    }
+
+    Finder saveChangesButton() {
+      return find.descendant(
+        of: find.byType(AccountProfileSection),
+        matching: find.widgetWithText(FilledButton, 'Save changes'),
+      );
     }
 
     testWidgets('selecting an image and cancelling crop keeps section clean', (
@@ -505,72 +546,13 @@ void main() {
       );
       expect(state.isDirty, isFalse);
       expect(imageRepository.uploadCallCount, 0);
+      expect(
+        tester.widget<FilledButton>(saveChangesButton()).onPressed,
+        isNull,
+      );
     });
 
-    testWidgets('applying a crop marks the section dirty', (tester) async {
-      await _setSurface(tester);
-      final croppedBytes = Uint8List.fromList(<int>[9, 8, 7, 6]);
-
-      await pumpSection(
-        tester,
-        pickProfileImage: () async => memoryPickFile(),
-        cropProfileImage: (context, bytes) async {
-          return PendingProfileCrop(bytes: croppedBytes);
-        },
-      );
-
-      await tapAvatar(tester);
-
-      final state = tester.state<AccountProfileSectionState>(
-        find.byType(AccountProfileSection),
-      );
-      expect(state.isDirty, isTrue);
-
-      final avatar = tester.widget<ProfileAvatarWidget>(
-        find.byType(ProfileAvatarWidget),
-      );
-      expect(avatar.memoryPreviewBytes, croppedBytes);
-    });
-
-    testWidgets('discard changes removes the crop preview', (tester) async {
-      await _setSurface(tester);
-      authService.seedAuthenticatedUser(
-        User(
-          id: 'u1',
-          firstName: 'Test',
-          lastName: 'User',
-          email: 'user@example.com',
-          profilePictureUrl: 'https://storage.example/saved.jpg',
-        ),
-      );
-      final croppedBytes = Uint8List.fromList(<int>[1, 1, 1, 1]);
-
-      await pumpSection(
-        tester,
-        pickProfileImage: () async => memoryPickFile(),
-        cropProfileImage: (context, bytes) async {
-          return PendingProfileCrop(bytes: croppedBytes);
-        },
-      );
-
-      await tapAvatar(tester);
-
-      final state = tester.state<AccountProfileSectionState>(
-        find.byType(AccountProfileSection),
-      );
-      expect(state.isDirty, isTrue);
-      state.discardChanges();
-      await tester.pump();
-
-      expect(state.isDirty, isFalse);
-      final avatar = tester.widget<ProfileAvatarWidget>(
-        find.byType(ProfileAvatarWidget),
-      );
-      expect(avatar.memoryPreviewBytes, isNull);
-      expect(avatar.networkImageUrl, 'https://storage.example/saved.jpg');
-    });
-
-    testWidgets('save uploads exactly the cropped PNG bytes once', (
+    testWidgets('applying a crop uploads once without requiring Save changes', (
       tester,
     ) async {
       await _setSurface(tester);
@@ -585,20 +567,211 @@ void main() {
       );
 
       await tapAvatar(tester);
-      await _tapSaveChanges(tester);
       await _pumpFrames(tester);
 
       expect(imageRepository.uploadCallCount, 1);
       expect(imageRepository.lastContentType, 'image/png');
       expect(imageRepository.lastBytes, croppedBytes);
-      expect(authRepository.updateCallCount, 1);
-      expect(find.text('Profile updated successfully.'), findsOneWidget);
+      expect(authRepository.updatePictureCallCount, 1);
+      expect(authRepository.updateCallCount, 0);
+      expect(
+        find.text('Profile picture updated successfully.'),
+        findsOneWidget,
+      );
 
       final state = tester.state<AccountProfileSectionState>(
         find.byType(AccountProfileSection),
       );
       expect(state.isDirty, isFalse);
+      expect(
+        tester.widget<FilledButton>(saveChangesButton()).onPressed,
+        isNull,
+      );
+      expect(
+        authService.currentUser?.profilePictureUrl,
+        'https://storage.example/avatar_1.png',
+      );
+
+      final avatar = tester.widget<ProfileAvatarWidget>(
+        find.byType(ProfileAvatarWidget),
+      );
+      expect(avatar.memoryPreviewBytes, isNull);
     });
+
+    testWidgets('successful upload leaves existing dirty name edits unsaved', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      final croppedBytes = Uint8List.fromList(<int>[2, 4, 6, 8]);
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async {
+          return PendingProfileCrop(bytes: croppedBytes);
+        },
+      );
+
+      await tester.enterText(_accountField('First Name'), 'Edited');
+      await tester.pump();
+
+      final stateBefore = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(stateBefore.isDirty, isTrue);
+
+      await tapAvatar(tester);
+      await _pumpFrames(tester);
+
+      expect(imageRepository.uploadCallCount, 1);
+      expect(authRepository.updatePictureCallCount, 1);
+      expect(authRepository.updateCallCount, 0);
+      expect(authRepository.requestEmailChangeCallCount, 0);
+      expect(authRepository.lastFirstName, isNull);
+
+      final stateAfter = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(stateAfter.isDirty, isTrue);
+      expect(
+        tester.widget<FilledButton>(saveChangesButton()).onPressed,
+        isNotNull,
+      );
+      expect(
+        tester.widget<TextBox>(_accountField('First Name')).controller?.text,
+        'Edited',
+      );
+    });
+
+    testWidgets(
+      'dirty email edits do not trigger email-change during image upload',
+      (tester) async {
+        await _setSurface(tester);
+        final croppedBytes = Uint8List.fromList(<int>[3, 3, 3, 3]);
+
+        await pumpSection(
+          tester,
+          pickProfileImage: () async => memoryPickFile(),
+          cropProfileImage: (context, bytes) async {
+            return PendingProfileCrop(bytes: croppedBytes);
+          },
+        );
+
+        await tester.enterText(_accountField('Email'), 'new@example.com');
+        await tester.pump();
+        expect(
+          tester
+              .state<AccountProfileSectionState>(
+                find.byType(AccountProfileSection),
+              )
+              .isDirty,
+          isTrue,
+        );
+
+        await tapAvatar(tester);
+        await _pumpFrames(tester);
+
+        expect(imageRepository.uploadCallCount, 1);
+        expect(authRepository.requestEmailChangeCallCount, 0);
+        expect(authRepository.updateCallCount, 0);
+        expect(
+          tester
+              .state<AccountProfileSectionState>(
+                find.byType(AccountProfileSection),
+              )
+              .isDirty,
+          isTrue,
+        );
+      },
+    );
+
+    testWidgets(
+      'upload failure restores old avatar and preserves dirty form state',
+      (tester) async {
+        await _setSurface(tester);
+        authService.seedAuthenticatedUser(
+          User(
+            id: 'u1',
+            firstName: 'Test',
+            lastName: 'User',
+            email: 'user@example.com',
+            profilePictureUrl: 'https://storage.example/saved.jpg',
+          ),
+        );
+        imageRepository.uploadError = Exception('Upload failed');
+
+        await pumpSection(
+          tester,
+          pickProfileImage: () async => memoryPickFile(),
+          cropProfileImage: (context, bytes) async {
+            return PendingProfileCrop(bytes: Uint8List.fromList(<int>[9, 9]));
+          },
+        );
+
+        await tester.enterText(_accountField('Last Name'), 'Dirty');
+        await tester.pump();
+
+        await tapAvatar(tester);
+        await _pumpFrames(tester);
+
+        expect(find.textContaining('Upload failed'), findsOneWidget);
+        expect(
+          authService.currentUser?.profilePictureUrl,
+          'https://storage.example/saved.jpg',
+        );
+
+        final avatar = tester.widget<ProfileAvatarWidget>(
+          find.byType(ProfileAvatarWidget),
+        );
+        expect(avatar.memoryPreviewBytes, isNull);
+        expect(avatar.networkImageUrl, 'https://storage.example/saved.jpg');
+
+        final state = tester.state<AccountProfileSectionState>(
+          find.byType(AccountProfileSection),
+        );
+        expect(state.isDirty, isTrue);
+        expect(authRepository.updateCallCount, 0);
+      },
+    );
+
+    testWidgets(
+      'avatar tap while upload is active cannot produce duplicate uploads',
+      (tester) async {
+        await _setSurface(tester);
+        imageRepository.uploadGate = Completer<void>();
+        var pickCount = 0;
+
+        await pumpSection(
+          tester,
+          pickProfileImage: () async {
+            pickCount++;
+            return memoryPickFile();
+          },
+          cropProfileImage: (context, bytes) async {
+            return PendingProfileCrop(
+              bytes: Uint8List.fromList(<int>[1, 2, 3]),
+            );
+          },
+        );
+
+        await tester.tap(find.byKey(const Key('account_profile_avatar_tap')));
+        await tester.pump();
+        await _pumpFrames(tester, count: 10);
+
+        expect(imageRepository.uploadCallCount, 1);
+
+        await tester.tap(find.byKey(const Key('account_profile_avatar_tap')));
+        await tester.pump();
+        await _pumpFrames(tester, count: 5);
+
+        expect(pickCount, 1);
+        expect(imageRepository.uploadCallCount, 1);
+
+        imageRepository.uploadGate!.complete();
+        await _pumpFrames(tester, count: 30);
+        expect(imageRepository.uploadCallCount, 1);
+      },
+    );
 
     testWidgets('crop failure shows error and does not mark dirty', (
       tester,
@@ -626,7 +799,7 @@ void main() {
       expect(imageRepository.uploadCallCount, 0);
     });
 
-    testWidgets('memory crop preview is preferred over saved network avatar', (
+    testWidgets('memory crop preview is shown while upload is in flight', (
       tester,
     ) async {
       await _setSurface(tester);
@@ -639,6 +812,7 @@ void main() {
           profilePictureUrl: 'https://storage.example/saved.jpg',
         ),
       );
+      imageRepository.uploadGate = Completer<void>();
       final croppedBytes = _testPngBytes();
 
       await pumpSection(
@@ -649,18 +823,139 @@ void main() {
         },
       );
 
-      await tapAvatar(tester);
+      await tester.tap(find.byKey(const Key('account_profile_avatar_tap')));
+      await tester.pump();
+      await _pumpFrames(tester, count: 10);
 
       final avatar = tester.widget<ProfileAvatarWidget>(
         find.byType(ProfileAvatarWidget),
       );
       expect(avatar.memoryPreviewBytes, croppedBytes);
       expect(avatar.networkImageUrl, 'https://storage.example/saved.jpg');
+      expect(find.byType(ProgressRing), findsWidgets);
 
-      final memoryImages = tester
-          .widgetList<Image>(find.byType(Image))
-          .where((image) => image.image is MemoryImage);
-      expect(memoryImages, isNotEmpty);
+      imageRepository.uploadGate!.complete();
+      await _pumpFrames(tester, count: 30);
+
+      final after = tester.widget<ProfileAvatarWidget>(
+        find.byType(ProfileAvatarWidget),
+      );
+      expect(after.memoryPreviewBytes, isNull);
+    });
+
+    testWidgets(
+      'closing Settings after only a successful image update skips discard',
+      (tester) async {
+        await _setSurface(tester);
+        final croppedBytes = Uint8List.fromList(<int>[5, 5, 5, 5]);
+
+        await tester.pumpWidget(
+          wrap(
+            SettingsScreen(
+              initialSection: SettingsSection.accountProfile,
+              watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+              pickProfileImage: () async => memoryPickFile(),
+              cropProfileImage: (context, bytes) async {
+                return PendingProfileCrop(bytes: croppedBytes);
+              },
+            ),
+          ),
+        );
+        await _pumpFrames(tester);
+
+        await tester.tap(find.byKey(const Key('account_profile_avatar_tap')));
+        await _pumpFrames(tester, count: 40);
+
+        expect(imageRepository.uploadCallCount, 1);
+        expect(
+          find.text('Profile picture updated successfully.'),
+          findsOneWidget,
+        );
+
+        // Dismiss success dialog if still open.
+        final okButton = find.text('OK');
+        if (okButton.evaluate().isNotEmpty) {
+          await tester.tap(okButton.last);
+          await tester.pump();
+          await _pumpFrames(tester);
+        }
+
+        await tester.tap(find.byIcon(FluentIcons.cancel));
+        await _pumpFrames(tester);
+
+        expect(find.text('Discard unsaved changes?'), findsNothing);
+      },
+    );
+
+    testWidgets('name-only Save changes performs no profile-image upload', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      await tester.pumpWidget(
+        wrap(
+          SettingsScreen(
+            initialSection: SettingsSection.accountProfile,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+          ),
+        ),
+      );
+      await _pumpFrames(tester);
+
+      await tester.enterText(_accountField('First Name'), 'Updated');
+      await tester.enterText(_accountField('Last Name'), 'Name');
+      await _tapSaveChanges(tester);
+
+      expect(imageRepository.uploadCallCount, 0);
+      expect(authRepository.updatePictureCallCount, 0);
+      expect(authRepository.updateCallCount, 1);
+      expect(authRepository.lastPictureUpdate, isNull);
+    });
+
+    testWidgets('email-change Save changes performs no profile-image upload', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      await tester.pumpWidget(
+        wrap(
+          SettingsScreen(
+            initialSection: SettingsSection.accountProfile,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+          ),
+        ),
+      );
+      await _pumpFrames(tester);
+
+      await tester.enterText(_accountField('Email'), 'changed@example.com');
+      await _tapSaveChanges(tester);
+      await _pumpFrames(tester);
+
+      // Password prompt appears for email change; cancel it.
+      final cancel = find.text('Cancel');
+      if (cancel.evaluate().isNotEmpty) {
+        await tester.tap(cancel.last);
+        await _pumpFrames(tester);
+      }
+
+      expect(imageRepository.uploadCallCount, 0);
+      expect(authRepository.updatePictureCallCount, 0);
+    });
+
+    testWidgets('Practice Save practice preferences button remains available', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+
+      await tester.pumpWidget(
+        wrap(
+          SettingsScreen(
+            initialSection: SettingsSection.practice,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+          ),
+        ),
+      );
+      await _pumpFrames(tester);
+
+      expect(find.text('Save practice preferences'), findsOneWidget);
     });
   });
 }

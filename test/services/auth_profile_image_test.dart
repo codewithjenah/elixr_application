@@ -10,8 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 class _FakeAuthRepository implements AuthRepositoryBase {
   User? user;
   int updateCallCount = 0;
+  int updatePictureCallCount = 0;
   ProfilePictureUpdate? lastPictureUpdate;
   Object? updateProfileError;
+  Object? updatePictureError;
   String? lastFirstName;
   String? lastMiddleName;
   String? lastLastName;
@@ -44,6 +46,29 @@ class _FakeAuthRepository implements AuthRepositoryBase {
       profilePictureUrl: profilePictureUpdate?.url ?? user?.profilePictureUrl,
       profilePictureStoragePath:
           profilePictureUpdate?.storagePath ?? user?.profilePictureStoragePath,
+    );
+    return user!;
+  }
+
+  @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    updatePictureCallCount++;
+    lastPictureUpdate = profilePictureUpdate;
+    if (updatePictureError != null) {
+      throw updatePictureError!;
+    }
+    user = User(
+      id: userId,
+      firstName: user?.firstName ?? 'Test',
+      middleName: user?.middleName,
+      lastName: user?.lastName ?? 'User',
+      email: user?.email ?? 'user@example.com',
+      profilePicturePath: null,
+      profilePictureUrl: profilePictureUpdate.url,
+      profilePictureStoragePath: profilePictureUpdate.storagePath,
     );
     return user!;
   }
@@ -280,6 +305,83 @@ void main() {
       expect(authRepository.updateCallCount, 0);
       expect(imageRepository.deleteCallCount, 0);
     });
+  });
+
+  group('AuthService.updateProfilePicture', () {
+    test('uploads image without writing name fields', () async {
+      final seeded = _testUser().copyWith(
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+      );
+      authRepository.user = seeded;
+      authService.seedAuthenticatedUser(seeded);
+      var notified = false;
+      authService.addListener(() => notified = true);
+
+      await authService.updateProfilePicture(
+        bytes: Uint8List.fromList([1, 2, 3]),
+        contentType: 'image/png',
+      );
+
+      expect(imageRepository.uploadCallCount, 1);
+      expect(authRepository.updatePictureCallCount, 1);
+      expect(authRepository.updateCallCount, 0);
+      expect(authRepository.lastFirstName, isNull);
+      expect(notified, isTrue);
+      expect(
+        authService.currentUser?.profilePictureUrl,
+        'https://storage.example/new.jpg',
+      );
+      expect(authService.currentUser?.firstName, 'Ada');
+      expect(authService.currentUser?.lastName, 'Lovelace');
+    });
+
+    test(
+      'deletes the previous image after a successful picture-only update',
+      () async {
+        authService.seedAuthenticatedUser(
+          _testUser(
+            profilePictureUrl: 'https://storage.example/old.jpg',
+            profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+          ),
+        );
+
+        await authService.updateProfilePicture(
+          bytes: Uint8List.fromList([1, 2, 3]),
+          contentType: 'image/jpeg',
+        );
+
+        expect(imageRepository.deleteCallCount, 1);
+        expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
+      },
+    );
+
+    test(
+      'rolls back the uploaded image when Firestore picture write fails',
+      () async {
+        final previousUser = _testUser(
+          profilePictureUrl: 'https://storage.example/old.jpg',
+          profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+        );
+        authService.seedAuthenticatedUser(previousUser);
+        authRepository.user = previousUser;
+        authRepository.updatePictureError = Exception('Firestore unavailable');
+
+        await expectLater(
+          authService.updateProfilePicture(
+            bytes: Uint8List.fromList([1, 2, 3]),
+            contentType: 'image/jpeg',
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_2.jpg']);
+        expect(
+          authService.currentUser?.profilePictureUrl,
+          'https://storage.example/old.jpg',
+        );
+      },
+    );
   });
 
   group('LeaderboardRepository.buildPublicProfileFields', () {

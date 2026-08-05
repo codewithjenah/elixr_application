@@ -95,6 +95,14 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    throw UnimplementedError();
+  }
 }
 
 Future<void> _setSurface(WidgetTester tester) async {

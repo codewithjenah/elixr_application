@@ -88,6 +88,15 @@ abstract class AuthRepositoryBase {
     ProfilePictureUpdate? profilePictureUpdate,
   });
 
+  /// Persists only Cloud Storage avatar fields for [userId].
+  ///
+  /// Does not write name or email fields. Retires the legacy local
+  /// `profile_picture_path` once a cloud URL exists.
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  });
+
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
@@ -223,6 +232,29 @@ class AuthRepository implements AuthRepositoryBase {
       fields['profile_picture_path'] = FieldValue.delete();
     }
     await _db.updateUserProfileField(userId, fields);
+
+    final updated = await _db.getUserById(userId);
+    if (updated == null) throw Exception('User profile not found');
+    return updated;
+  }
+
+  @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) throw Exception('Not authenticated');
+    if (firebaseUser.uid != userId) {
+      throw Exception('Authenticated user does not match the profile.');
+    }
+
+    await _db.updateUserProfileField(userId, {
+      'profile_picture_url': profilePictureUpdate.url,
+      'profile_picture_storage_path': profilePictureUpdate.storagePath,
+      // Retire the legacy local-path field now that a cross-device URL exists.
+      'profile_picture_path': FieldValue.delete(),
+    });
 
     final updated = await _db.getUserById(userId);
     if (updated == null) throw Exception('User profile not found');

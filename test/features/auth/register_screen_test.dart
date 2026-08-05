@@ -85,6 +85,14 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   }
 
   @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<void> updatePassword({
     required String currentPassword,
     required String newPassword,

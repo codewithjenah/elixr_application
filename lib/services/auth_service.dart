@@ -145,6 +145,9 @@ class AuthService extends ChangeNotifier {
   /// When [newProfileImageBytes] and [newProfileImageContentType] are both
   /// provided, the image is uploaded first; Firestore is only updated after
   /// the upload succeeds. A name-only update never touches Cloud Storage.
+  ///
+  /// Prefer [updateProfilePicture] for image-only updates so unsaved name or
+  /// email edits are never written as a side effect.
   Future<void> updateProfileDetails({
     required String firstName,
     String? middleName,
@@ -160,14 +163,10 @@ class AuthService extends ChangeNotifier {
 
     ProfilePictureUpdate? pictureUpdate;
     if (newProfileImageBytes != null && newProfileImageContentType != null) {
-      final uploaded = await _profileImageRepository.uploadProfileImage(
+      pictureUpdate = await _uploadProfilePicture(
         userId: userId,
         bytes: newProfileImageBytes,
         contentType: newProfileImageContentType,
-      );
-      pictureUpdate = ProfilePictureUpdate(
-        url: uploaded.downloadUrl,
-        storagePath: uploaded.storagePath,
       );
     }
 
@@ -189,7 +188,73 @@ class AuthService extends ChangeNotifier {
     }
 
     notifyListeners();
+    await _afterSuccessfulPictureUpdate(
+      userId: userId,
+      previousUser: previousUser,
+      pictureUpdate: pictureUpdate,
+    );
+  }
 
+  /// Uploads and persists a new profile avatar without writing name or email.
+  ///
+  /// Reuses [ProfileImageRepository] upload/delete rules (content type, 5 MB
+  /// limit, ownership paths) and refreshes [currentUser] + listeners so all
+  /// avatar consumers update.
+  Future<void> updateProfilePicture({
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    if (_currentUser?.id == null) {
+      throw Exception('Not authenticated');
+    }
+    final userId = _currentUser!.id!;
+    final previousUser = _currentUser!;
+
+    final pictureUpdate = await _uploadProfilePicture(
+      userId: userId,
+      bytes: bytes,
+      contentType: contentType,
+    );
+
+    try {
+      _currentUser = await _repository.updateProfilePicture(
+        userId: userId,
+        profilePictureUpdate: pictureUpdate,
+      );
+    } catch (error) {
+      await _bestEffortDeleteImage(userId, pictureUpdate.storagePath);
+      rethrow;
+    }
+
+    notifyListeners();
+    await _afterSuccessfulPictureUpdate(
+      userId: userId,
+      previousUser: previousUser,
+      pictureUpdate: pictureUpdate,
+    );
+  }
+
+  Future<ProfilePictureUpdate> _uploadProfilePicture({
+    required String userId,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final uploaded = await _profileImageRepository.uploadProfileImage(
+      userId: userId,
+      bytes: bytes,
+      contentType: contentType,
+    );
+    return ProfilePictureUpdate(
+      url: uploaded.downloadUrl,
+      storagePath: uploaded.storagePath,
+    );
+  }
+
+  Future<void> _afterSuccessfulPictureUpdate({
+    required String userId,
+    required User previousUser,
+    required ProfilePictureUpdate? pictureUpdate,
+  }) async {
     if (pictureUpdate != null) {
       final previousStoragePath = previousUser.profilePictureStoragePath;
       if (previousStoragePath != null && previousStoragePath.isNotEmpty) {

@@ -44,6 +44,12 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }) async => _user!;
 
   @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async => _user!;
+
+  @override
   Future<void> clearCurrentUser() async => _user = null;
 
   @override

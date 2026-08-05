@@ -64,12 +64,14 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   late final TextEditingController _lastNameController;
   late final TextEditingController _emailController;
 
+  /// Temporary preview while an immediate profile-picture upload is in flight.
   PendingProfileCrop? _pendingCrop;
   late final AuthService _authService;
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
   String? _equippedBorderId;
 
   bool _savingProfile = false;
+  bool _uploadingProfilePicture = false;
   bool _refreshingEmail = false;
   bool _editingEmail = false;
 
@@ -136,12 +138,15 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     }
   }
 
+  /// True when unsaved name/email form fields differ from the last snapshot.
+  ///
+  /// Profile-picture pick/crop/upload never contributes to this flag; avatar
+  /// changes save immediately via [_updateProfilePicture].
   bool get isDirty {
     return _firstNameController.text != _originalFirstName ||
         _middleNameController.text != _originalMiddleName ||
         _lastNameController.text != _originalLastName ||
-        _emailController.text != _originalEmail ||
-        _pendingCrop != null;
+        _emailController.text != _originalEmail;
   }
 
   void captureSnapshot() {
@@ -158,7 +163,10 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     _lastNameController.text = _originalLastName;
     _emailController.text = _originalEmail;
     setState(() {
-      _pendingCrop = null;
+      // Keep an in-flight upload preview; otherwise clear any stale preview.
+      if (!_uploadingProfilePicture) {
+        _pendingCrop = null;
+      }
       _editingEmail = false;
     });
     _notifyDirtyChanged();
@@ -223,16 +231,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     );
   }
 
-  static String? _contentTypeForPath(String path) {
-    final lower = path.toLowerCase();
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-    if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.webp')) return 'image/webp';
-    return null;
-  }
-
   Future<void> _pickImage() async {
-    if (_savingProfile) return;
+    if (_savingProfile || _uploadingProfilePicture) return;
 
     final pick =
         widget.pickProfileImage ??
@@ -269,8 +269,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       final cropped = await crop(context, sourceBytes);
       if (!mounted) return;
       if (cropped == null) return;
-      setState(() => _pendingCrop = cropped);
-      _notifyDirtyChanged();
+      await _updateProfilePicture(cropped);
     } catch (e) {
       if (!mounted) return;
       await ElixDialog.error(
@@ -280,31 +279,77 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     }
   }
 
-  Future<({Uint8List bytes, String contentType})?> _resolveImageForUpload(
-    AuthService authService,
-  ) async {
-    final pending = _pendingCrop;
-    if (pending != null) {
-      return (bytes: pending.bytes, contentType: pending.contentType);
+  /// Uploads a cropped avatar immediately without touching name/email fields.
+  ///
+  /// Legacy note: name-only Save changes no longer migrates a machine-local
+  /// `profilePicturePath` to Cloud Storage. Local paths still render via
+  /// [ProfileAvatarWidget.legacyLocalPath] until the user uploads a new
+  /// cloud avatar, which retires the legacy path.
+  Future<void> _updateProfilePicture(PendingProfileCrop crop) async {
+    if (_uploadingProfilePicture) return;
+
+    if (!_authService.isAuthenticated) {
+      await ElixDialog.error(
+        context,
+        'You must be signed in to update your profile picture.',
+      );
+      return;
     }
 
-    // No staged crop: preserve legacy local-file migration when the account
-    // still has only a machine-local path and no Cloud Storage URL.
-    final currentUser = authService.currentUser;
-    final hasCloudImage = (currentUser?.profilePictureUrl ?? '').isNotEmpty;
-    final legacyPath = currentUser?.profilePicturePath;
-    if (!hasCloudImage && legacyPath != null && legacyPath.isNotEmpty) {
-      final legacyFile = File(legacyPath);
-      if (legacyFile.existsSync()) {
-        final contentType = _contentTypeForPath(legacyPath);
-        if (contentType != null) {
-          final bytes = await legacyFile.readAsBytes();
-          return (bytes: bytes, contentType: contentType);
-        }
-      }
+    if (crop.bytes.isEmpty) {
+      await ElixDialog.error(context, 'Selected image is empty.');
+      return;
     }
 
-    return null;
+    if (!ProfileImageRepository.isAllowedContentType(crop.contentType)) {
+      await ElixDialog.error(
+        context,
+        'Unsupported image type. Choose a JPEG, PNG, or WebP image.',
+      );
+      return;
+    }
+
+    if (crop.bytes.length > ProfileImageRepository.maxUploadBytes) {
+      await ElixDialog.error(
+        context,
+        'Image is too large. Choose a file smaller than 5 MB.',
+      );
+      return;
+    }
+
+    setState(() {
+      _pendingCrop = crop;
+      _uploadingProfilePicture = true;
+    });
+
+    try {
+      await _authService.updateProfilePicture(
+        bytes: crop.bytes,
+        contentType: crop.contentType,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pendingCrop = null;
+        _uploadingProfilePicture = false;
+      });
+      // Picture changes must not affect account-form dirty state.
+      _notifyDirtyChanged();
+      await ElixDialog.success(
+        context,
+        'Profile picture updated successfully.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _pendingCrop = null;
+        _uploadingProfilePicture = false;
+      });
+      _notifyDirtyChanged();
+      await ElixDialog.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
+    }
   }
 
   Future<void> _saveProfile() async {
@@ -355,31 +400,6 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       if (currentPassword == null) return;
     }
 
-    Uint8List? imageBytes;
-    String? imageContentType;
-    try {
-      final resolved = await _resolveImageForUpload(authService);
-      if (resolved != null) {
-        if (resolved.bytes.length > ProfileImageRepository.maxUploadBytes) {
-          if (!mounted) return;
-          await ElixDialog.error(
-            context,
-            'Image is too large. Choose a file smaller than 5 MB.',
-          );
-          return;
-        }
-        imageBytes = resolved.bytes;
-        imageContentType = resolved.contentType;
-      }
-    } catch (e) {
-      if (!mounted) return;
-      await ElixDialog.error(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
-      return;
-    }
-
     setState(() => _savingProfile = true);
     try {
       var verificationSent = false;
@@ -395,14 +415,11 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         firstName: normalized.firstName,
         middleName: normalized.middleName,
         lastName: normalized.lastName,
-        newProfileImageBytes: imageBytes,
-        newProfileImageContentType: imageContentType,
       );
 
       if (!mounted) return;
       setState(() {
         _editingEmail = false;
-        _pendingCrop = null;
         _firstNameController.text = normalized.firstName;
         _middleNameController.text = normalized.middleName ?? '';
         _lastNameController.text = normalized.lastName;
@@ -598,20 +615,20 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildAvatar() {
     final user = context.watch<AuthService>().currentUser;
-    final stackAvatar =
-        MediaQuery.sizeOf(context).width < settingsWideBreakpoint;
+    final avatarBusy = _uploadingProfilePicture;
+    final avatarDisabled = _savingProfile || avatarBusy;
 
-    final avatar = GestureDetector(
+    return GestureDetector(
       key: const Key('account_profile_avatar_tap'),
-      onTap: _savingProfile ? null : _pickImage,
+      onTap: avatarDisabled ? null : _pickImage,
       child: MouseRegion(
-        cursor: _savingProfile
+        cursor: avatarDisabled
             ? SystemMouseCursors.basic
             : SystemMouseCursors.click,
         child: Stack(
+          alignment: Alignment.center,
           children: [
             ProfileAvatarWidget(
               memoryPreviewBytes: _pendingCrop?.bytes,
@@ -621,6 +638,16 @@ class AccountProfileSectionState extends State<AccountProfileSection>
               initials: userInitials(_composedDisplayName()),
               equippedBorderId: _equippedBorderId,
             ),
+            if (avatarBusy)
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(child: ProgressRing(strokeWidth: 2.5)),
+              ),
             Positioned(
               bottom: 0,
               right: 0,
@@ -630,7 +657,10 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                 decoration: BoxDecoration(
                   color: AppColors.primary,
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF1A1A1F), width: 2),
+                  border: Border.all(
+                    color: const Color(0xFF1A1A1F),
+                    width: 2,
+                  ),
                 ),
                 child: const Icon(
                   FluentIcons.camera,
@@ -643,6 +673,15 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         ),
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().currentUser;
+    final stackAvatar =
+        MediaQuery.sizeOf(context).width < settingsWideBreakpoint;
+
+    final avatar = _buildAvatar();
 
     final formFields = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
