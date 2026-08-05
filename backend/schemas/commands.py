@@ -98,6 +98,10 @@ class BeginReadinessCommand(_CommandBase):
     action: Literal["begin_readiness"]
 
 
+class ConfirmReadinessCommand(_CommandBase):
+    action: Literal["confirm_readiness"]
+
+
 class StopCommand(_CommandBase):
     action: Literal["stop"]
 
@@ -141,6 +145,7 @@ InboundCommand = Union[
     PrepareCommand,
     ActivateCommand,
     BeginReadinessCommand,
+    ConfirmReadinessCommand,
     StopCommand,
     StartCommand,
 ]
@@ -155,6 +160,8 @@ def parse_v1_command(data: dict) -> InboundCommand:
         return ActivateCommand.model_validate(data)
     if action == "begin_readiness":
         return BeginReadinessCommand.model_validate(data)
+    if action == "confirm_readiness":
+        return ConfirmReadinessCommand.model_validate(data)
     if action == "stop":
         return StopCommand.model_validate(data)
     if action == "start":

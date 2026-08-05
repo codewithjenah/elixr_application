@@ -13,6 +13,7 @@ from assessment.feedback_codes import category_for
 from assessment.hold_validator import HoldValidator
 from assessment.readiness import (
     ReadinessObservation,
+    ReadinessSnapshot,
     ReadinessTracker,
     readiness_needs_hands,
     readiness_needs_pose,
@@ -38,6 +39,7 @@ from schemas.commands import (
     PROTOCOL_VERSION,
     ActivateCommand,
     BeginReadinessCommand,
+    ConfirmReadinessCommand,
     PrepareCommand,
     PropType,
     StartCommand,
@@ -357,6 +359,14 @@ def _human_error_message(error_code: str) -> str:
         "session_not_prepared": "No matching prepared session is available.",
         "session_already_active": "The session is already active.",
         "session_id_mismatch": "The session_id does not match the current session.",
+        "readiness_not_stable": (
+            "Readiness is not stable yet. Keep the required inputs visible "
+            "and try again."
+        ),
+        "readiness_not_confirmed": (
+            "Readiness must be confirmed before activation. Complete calibration "
+            "and press Start Practice."
+        ),
         "pipeline_init_failed": "Vision pipeline failed to start.",
         "prepare_timeout": (
             "Camera preparation timed out. Check the camera connection and try again."
@@ -439,6 +449,9 @@ class VisionSession:
         self._lifecycle = SESSION_PREPARED
         self._hold_validator = HoldValidator()
         self._readiness_tracker: ReadinessTracker | None = None
+        self._latest_readiness_snapshot: ReadinessSnapshot | None = None
+        self._readiness_confirmed = False
+        self._frozen_readiness_snapshot: ReadinessSnapshot | None = None
         self.timings = _PipelineTimings()
         # Wall-clock start of the latest process_* call (for end_to_end timing).
         self._pipeline_started_at: float | None = None
@@ -506,21 +519,57 @@ class VisionSession:
             return False
         self._ensure_readiness_detectors()
         self._readiness_tracker = ReadinessTracker(self.movement, self.prop_type)
+        self._latest_readiness_snapshot = None
+        self._readiness_confirmed = False
+        self._frozen_readiness_snapshot = None
         self._lifecycle = SESSION_READYING
         return True
 
-    def activate(self) -> bool:
+    def confirm_readiness(self) -> tuple[bool, str | None]:
+        """Lock readiness after the client confirms stable calibration.
+
+        Idempotent when already confirmed for this readiness cycle.
+        Returns (accepted, error_code).
+        """
+        if self._lifecycle != SESSION_READYING:
+            if self._lifecycle == SESSION_ACTIVE:
+                return False, "session_already_active"
+            return False, "session_not_prepared"
+
+        if self._readiness_confirmed:
+            return True, None
+
+        snapshot = self._latest_readiness_snapshot
+        if snapshot is None or not snapshot.readiness_stable:
+            return False, "readiness_not_stable"
+
+        self._readiness_confirmed = True
+        self._frozen_readiness_snapshot = snapshot
+        return True, None
+
+    @property
+    def readiness_confirmed(self) -> bool:
+        return self._readiness_confirmed
+
+    def activate(self) -> tuple[bool, str | None]:
         """Transition prepared or readying → active without reopening the camera.
 
-        Reuses existing detectors if already created by begin_readiness.
-        Returns True when activation succeeded or the session was already
-        active (idempotent). Returns False when the session is closed.
+        Free Practice may activate directly from prepared (never entered
+        readiness). Guided practice that entered readying must have confirmed
+        readiness first; detection loss after confirmation does not revoke it.
+
+        Returns (success, error_code). error_code is None on success.
         """
         if self._lifecycle == SESSION_ACTIVE:
-            return True
+            return True, None
 
         if self._lifecycle not in (SESSION_PREPARED, SESSION_READYING):
-            return False
+            return False, "session_not_prepared"
+
+        # Sessions that entered the readiness gate require explicit confirmation
+        # before activation. prepared→active remains for Free Practice only.
+        if self._lifecycle == SESSION_READYING and not self._readiness_confirmed:
+            return False, "readiness_not_confirmed"
 
         self._ensure_detectors()
         self.scorer.reset()
@@ -534,8 +583,11 @@ class VisionSession:
             self.prop_detector.reset_cache()
         self._frame_index = 0
         self._readiness_tracker = None
+        self._latest_readiness_snapshot = None
+        self._frozen_readiness_snapshot = None
+        self._readiness_confirmed = False
         self._lifecycle = SESSION_ACTIVE
-        return True
+        return True, None
 
     def _check_model(self) -> FeedbackMessage | None:
         if not self.bottle_detection_enabled:
@@ -687,8 +739,11 @@ class VisionSession:
         )
 
         snapshot = None
-        if self._readiness_tracker is not None:
+        if self._readiness_tracker is not None and not self._readiness_confirmed:
             snapshot = self._readiness_tracker.update(obs)
+            self._latest_readiness_snapshot = snapshot
+        elif self._readiness_confirmed and self._frozen_readiness_snapshot is not None:
+            snapshot = self._frozen_readiness_snapshot
 
         readiness_items = list(snapshot.items) if snapshot is not None else None
         readiness_complete = snapshot.readiness_complete if snapshot is not None else None
@@ -1020,6 +1075,9 @@ class VisionSession:
     def close(self) -> None:
         self._lifecycle = SESSION_CLOSED
         self._readiness_tracker = None
+        self._latest_readiness_snapshot = None
+        self._frozen_readiness_snapshot = None
+        self._readiness_confirmed = False
         self._hold_validator.reset()
         self.camera.release()
         if self.hands_detector is not None:
@@ -1649,6 +1707,76 @@ async def websocket_endpoint(websocket: WebSocket):
             session_state="readying",
         )
 
+    async def handle_v1_confirm_readiness(command: ConfirmReadinessCommand) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+
+        if active_id is not None and command.session_id != active_id:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="confirm_readiness",
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_id_mismatch",
+                message=_human_error_message("session_id_mismatch"),
+            )
+            return
+
+        if session is not None and session.is_active:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="confirm_readiness",
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_already_active",
+                message=_human_error_message("session_already_active"),
+            )
+            return
+
+        if session is None or not session.is_readying:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="confirm_readiness",
+                accepted=False,
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code="session_not_prepared",
+                message=_human_error_message("session_not_prepared"),
+            )
+            return
+
+        accepted, error_code = session.confirm_readiness()
+        if not accepted:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="confirm_readiness",
+                accepted=False,
+                session_state="readying",
+                error_code=error_code,
+                message=_human_error_message(error_code or "invalid_command"),
+            )
+            return
+
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action="confirm_readiness",
+            accepted=True,
+            session_state="readying",
+        )
+
     async def handle_v1_activate(command: ActivateCommand) -> None:
         session = session_ref.get("session")
         active_id = session_ref.get("session_id") or current_session_id
@@ -1685,7 +1813,7 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
-        activated = session.activate()
+        activated, activation_error = session.activate()
         logger.info(
             "CV session activate: movement=%s ok=%s lifecycle=%s session_id=%s",
             movement,
@@ -1695,14 +1823,18 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         if not activated:
+            code = activation_error or "session_not_prepared"
             await send_ack(
                 request_id=command.request_id,
                 session_id=command.session_id,
                 action="activate",
                 accepted=False,
-                session_state="idle",
-                error_code="session_not_prepared",
-                message=_human_error_message("session_not_prepared"),
+                session_state=_public_session_state(
+                    session,
+                    current_session_id=current_session_id,
+                ),
+                error_code=code,
+                message=_human_error_message(code),
             )
             return
 
@@ -1848,6 +1980,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await handle_v1_activate(command)
         elif isinstance(command, BeginReadinessCommand):
             await handle_v1_begin_readiness(command)
+        elif isinstance(command, ConfirmReadinessCommand):
+            await handle_v1_confirm_readiness(command)
         elif isinstance(command, StopCommand):
             await handle_v1_stop(command)
 
@@ -1938,13 +2072,28 @@ async def websocket_endpoint(websocket: WebSocket):
                 await safe_send(error.model_dump_json())
                 return
 
-            activated = session.activate()
+            activated, activation_error = session.activate()
             logger.info(
                 "CV session activate (legacy): movement=%s ok=%s lifecycle=%s",
                 movement,
                 activated,
                 session.lifecycle,
             )
+            if not activated and activation_error == "readiness_not_confirmed":
+                error = FeedbackMessage(
+                    bottle_detected=False,
+                    prop_type=getattr(session, "prop_type", "bottle"),
+                    movement=movement,
+                    score=0,
+                    feedback=_human_error_message("readiness_not_confirmed"),
+                    feedback_type="error",
+                    posture_status="unknown",
+                    frame_jpeg_base64=None,
+                    error_code="readiness_not_confirmed",
+                    camera_ready=False,
+                    session_state="readying",
+                )
+                await safe_send(error.model_dump_json())
 
         elif action == "stop":
             await _stop_session_task(session_task)

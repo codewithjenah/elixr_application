@@ -200,7 +200,7 @@ void main() {
       run.dispose();
     });
 
-    test('requestStartPractice with stable freezes and enters countdown', () {
+    test('requestStartPractice with stable marks confirmation in flight', () {
       final run = PracticeRunController();
       run.beginPreparing(onTimeout: () {});
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
@@ -208,8 +208,24 @@ void main() {
 
       final result = run.requestStartPractice(readinessStable: true);
       expect(result, isTrue);
+      expect(run.phase, PracticeRunPhase.readiness);
+      expect(run.readinessConfirming, isTrue);
+      expect(run.readinessFrozen, isFalse);
+      run.dispose();
+    });
+
+    test('onConfirmReadinessAccepted freezes and enters countdown', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+
+      final accepted = run.onConfirmReadinessAccepted();
+      expect(accepted, isTrue);
       expect(run.phase, PracticeRunPhase.countdown);
       expect(run.readinessFrozen, isTrue);
+      expect(run.readinessConfirmed, isTrue);
       run.dispose();
     });
 
@@ -219,13 +235,43 @@ void main() {
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
       run.enterReadiness();
       expect(run.requestStartPractice(readinessStable: true), isTrue);
+      expect(run.readinessConfirming, isTrue);
+
+      // Second call: confirmation already in flight
+      expect(run.requestStartPractice(readinessStable: true), isFalse);
+      run.onConfirmReadinessAccepted();
       expect(run.phase, PracticeRunPhase.countdown);
 
-      // Second call: already frozen
-      expect(run.requestStartPractice(readinessStable: true), isFalse);
       // Third call: phase is now countdown, not readiness
       expect(run.requestStartPractice(readinessStable: true), isFalse);
       expect(run.phase, PracticeRunPhase.countdown);
+      run.dispose();
+    });
+
+    test('onConfirmReadinessRejected clears confirming without countdown', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessRejected();
+      expect(run.phase, PracticeRunPhase.readiness);
+      expect(run.readinessConfirming, isFalse);
+      expect(run.readinessFrozen, isFalse);
+      run.dispose();
+    });
+
+    test('onActivationRejected returns to readiness from countdown', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
+      expect(run.phase, PracticeRunPhase.countdown);
+      run.onActivationRejected();
+      expect(run.phase, PracticeRunPhase.readiness);
+      expect(run.readinessFrozen, isFalse);
       run.dispose();
     });
 
@@ -247,6 +293,7 @@ void main() {
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
       run.enterReadiness();
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       expect(run.phase, PracticeRunPhase.countdown);
 
       // Readiness becomes false after freeze — must be ignored (frozen guard).
@@ -262,6 +309,7 @@ void main() {
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
       run.enterReadiness();
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       expect(run.phase, PracticeRunPhase.countdown);
 
       final applied = run.applyReadinessUpdate(readinessStable: false);
@@ -276,6 +324,7 @@ void main() {
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
       run.enterReadiness();
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       run.enterActive();
       expect(run.phase, PracticeRunPhase.active);
 
@@ -309,6 +358,7 @@ void main() {
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
       run.enterReadiness();
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       expect(run.phase, PracticeRunPhase.countdown);
 
       run.onPreviewFeedback(
@@ -342,6 +392,7 @@ void main() {
       run.enterReadiness();
       run.applyReadinessUpdate(readinessStable: true);
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       expect(run.readinessFrozen, isTrue);
 
       run.cancelToIdle();
@@ -357,6 +408,7 @@ void main() {
       run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
       run.enterReadiness();
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       expect(run.readinessFrozen, isTrue);
 
       run.cancelToIdle();
@@ -373,6 +425,7 @@ void main() {
       run.enterReadiness();
       // Manually freeze without requestStartPractice (internal path test).
       run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
       expect(run.phase, PracticeRunPhase.countdown);
       run.enterActive();
       expect(run.phase, PracticeRunPhase.active);
@@ -639,6 +692,17 @@ void main() {
       expect(payload['protocol_version'], 1);
       expect(payload['session_id'], 'session-b');
       expect(payload['request_id'], 'req-b');
+    });
+
+    test('buildConfirmReadinessPayload uses confirm_readiness action', () {
+      final payload = WebSocketService.buildConfirmReadinessPayload(
+        sessionId: 'session-d',
+        requestId: 'req-d',
+      );
+      expect(payload['action'], 'confirm_readiness');
+      expect(payload['protocol_version'], 1);
+      expect(payload['session_id'], 'session-d');
+      expect(payload['request_id'], 'req-d');
     });
 
     test('legacy start payload remains available', () {

@@ -63,6 +63,20 @@ def _hands(*hands: HandLandmarks) -> HandsResult:
     return HandsResult(hands=list(hands))
 
 
+def _pose_upper_body() -> PoseLandmarks:
+    return PoseLandmarks(
+        points={
+            11: Point2D(0.35, 0.3),
+            12: Point2D(0.65, 0.3),
+            13: Point2D(0.4, 0.4),
+            15: Point2D(0.45, 0.55),
+            14: Point2D(0.6, 0.4),
+            16: Point2D(0.65, 0.55),
+        },
+        visibility={11: 1.0, 12: 1.0, 13: 1.0, 15: 1.0, 14: 1.0, 16: 1.0},
+    )
+
+
 def _pose_arm() -> PoseLandmarks:
     return PoseLandmarks(
         points={
@@ -129,16 +143,16 @@ def _full_obs_for(
             bottles = []
             shakers = [_bottle(300)]
     elif movement in ("Forearm Stall", "Elbow Stall", "Arm Stall"):
-        pose = _pose_arm()
-        hands = _hands(palm)
+        pose = _pose_upper_body()
+        hands = None
         if prop_type == "shaker":
             bottles = []
             shakers = [_bottle(300)]
     elif movement in ("Reverse Forearm Stall", "Upper Forearm Stall"):
-        pose = _pose_arm()
+        pose = _pose_upper_body()
         hands = None
     elif movement == "Shoulder Stall":
-        pose = _pose_shoulder()
+        pose = _pose_upper_body()
         hands = None
     elif movement == "Double Hand Stall":
         bottles = [_bottle(150), _bottle(350)]
@@ -456,7 +470,7 @@ class TestMissingInputs:
         grip = next(i for i in snap.items if i.code == "grip_landmarks_visible")
         assert grip.status == "waiting"
 
-    def test_missing_pose_keeps_shoulder_waiting(self):
+    def test_missing_pose_keeps_upper_body_waiting(self):
         tracker = ReadinessTracker(
             "Shoulder Stall", pass_frames=2, fail_frames=2, stable_duration_s=1.0
         )
@@ -467,8 +481,8 @@ class TestMissingInputs:
         )
         tracker.update(obs)
         snap = tracker.update(obs)
-        shoulder = next(i for i in snap.items if i.code == "pose_shoulder")
-        assert shoulder.status == "waiting"
+        upper = next(i for i in snap.items if i.code == "upper_body_visible")
+        assert upper.status == "waiting"
 
     def test_item_error_sets_error_status(self):
         tracker = ReadinessTracker(

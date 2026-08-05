@@ -46,6 +46,12 @@ class PracticeRunController extends ChangeNotifier {
   /// True after [requestStartPractice] accepts and freezes the readiness state.
   bool _readinessFrozen = false;
 
+  /// True while waiting for backend [confirm_readiness] acknowledgement.
+  bool _readinessConfirming = false;
+
+  /// True after backend accepted [confirm_readiness].
+  bool _readinessConfirmed = false;
+
   /// Last readiness-stable value received via [applyReadinessUpdate].
   bool? _readinessStable;
 
@@ -58,6 +64,12 @@ class PracticeRunController extends ChangeNotifier {
 
   /// True after [requestStartPractice] freezes the readiness checklist.
   bool get readinessFrozen => _readinessFrozen;
+
+  /// True while a [confirm_readiness] command is in flight.
+  bool get readinessConfirming => _readinessConfirming;
+
+  /// True after the backend accepted [confirm_readiness].
+  bool get readinessConfirmed => _readinessConfirmed;
 
   /// Last readiness-stable state received while in the readiness phase.
   bool? get readinessStable => _readinessStable;
@@ -88,6 +100,8 @@ class PracticeRunController extends ChangeNotifier {
     _errorMessage = null;
     _countdownTriggered = false;
     _readinessFrozen = false;
+    _readinessConfirming = false;
+    _readinessConfirmed = false;
     _readinessStable = null;
     _lifecycleGeneration++;
     _onPreparationTimeout = onTimeout;
@@ -159,19 +173,51 @@ class PracticeRunController extends ChangeNotifier {
   ///
   /// Returns false without changing state when:
   /// - [readinessStable] is false (backend not yet confirmed stable).
-  /// - [readinessFrozen] is already true (duplicate tap guard).
+  /// - [readinessConfirming] or [readinessFrozen] is already true.
   /// - Phase is not [PracticeRunPhase.readiness].
   ///
-  /// On success: freezes the readiness checklist snapshot, transitions to
-  /// countdown, and returns true.
+  /// On success: marks confirmation in flight. Call [onConfirmReadinessAccepted]
+  /// after the backend ack to freeze the checklist and enter countdown.
   bool requestStartPractice({required bool readinessStable}) {
     if (!readinessStable) return false;
-    if (_readinessFrozen) return false;
+    if (_readinessConfirming || _readinessFrozen || _readinessConfirmed) {
+      return false;
+    }
     if (_phase != PracticeRunPhase.readiness) return false;
+    _readinessConfirming = true;
+    notifyListeners();
+    return true;
+  }
+
+  /// Backend accepted [confirm_readiness]. Freezes checklist and enters countdown.
+  bool onConfirmReadinessAccepted() {
+    if (!_readinessConfirming || _phase != PracticeRunPhase.readiness) {
+      return false;
+    }
+    _readinessConfirming = false;
+    _readinessConfirmed = true;
     _readinessFrozen = true;
     _phase = PracticeRunPhase.countdown;
     notifyListeners();
     return true;
+  }
+
+  /// Backend rejected [confirm_readiness] (e.g. readiness_not_stable).
+  void onConfirmReadinessRejected() {
+    if (!_readinessConfirming) return;
+    _readinessConfirming = false;
+    notifyListeners();
+  }
+
+  /// Activation rejected after countdown (e.g. readiness_not_confirmed).
+  void onActivationRejected() {
+    _readinessConfirming = false;
+    _readinessConfirmed = false;
+    _readinessFrozen = false;
+    if (_phase == PracticeRunPhase.countdown) {
+      _phase = PracticeRunPhase.readiness;
+    }
+    notifyListeners();
   }
 
   /// Apply a readiness update received from the backend.
@@ -213,6 +259,8 @@ class PracticeRunController extends ChangeNotifier {
     _errorMessage = null;
     _countdownTriggered = false;
     _readinessFrozen = false;
+    _readinessConfirming = false;
+    _readinessConfirmed = false;
     _readinessStable = null;
     notifyListeners();
   }

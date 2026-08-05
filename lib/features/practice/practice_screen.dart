@@ -320,9 +320,64 @@ class _PracticeScreenState extends State<PracticeScreen>
     final stable = _readinessStable || (_run.readinessStable == true);
     if (!stable) return;
     if (!_run.requestStartPractice(readinessStable: stable)) return;
-    _frozenReadinessItems = List.of(_readinessItems ?? []);
     setState(() {});
-    unawaited(_startGuidedCountdownOverlay());
+    unawaited(_confirmReadinessAndCountdown());
+  }
+
+  /// Send confirm_readiness; enter countdown only after backend acceptance.
+  Future<void> _confirmReadinessAndCountdown() async {
+    final gen = _run.lifecycleGeneration;
+    _commandInFlight = true;
+    try {
+      final ack = await _ws.sendConfirmReadiness();
+      if (!mounted) return;
+      if (_run.lifecycleGeneration != gen) return;
+
+      if (!ack.accepted) {
+        _run.onConfirmReadinessRejected();
+        if (ack.errorCode == 'readiness_not_stable') {
+          setState(() {
+            _sessionError =
+                ack.message ??
+                'Readiness is no longer stable. Keep required inputs visible.';
+          });
+          return;
+        }
+        final message =
+            ack.message ??
+            ack.errorCode ??
+            'Readiness confirmation was rejected.';
+        _run.onPreviewFeedback(
+          hasJpegFrame: false,
+          isFatal: true,
+          fatalMessage: message,
+        );
+        unawaited(_stopWebSocketSession());
+        setState(() {
+          _sessionError = message;
+          _clearFrame();
+        });
+        return;
+      }
+
+      _frozenReadinessItems = List.of(_readinessItems ?? []);
+      if (!_run.onConfirmReadinessAccepted()) return;
+      setState(() {});
+      unawaited(_startGuidedCountdownOverlay());
+    } catch (error) {
+      if (!mounted) return;
+      if (_run.lifecycleGeneration != gen) return;
+      _run.onConfirmReadinessRejected();
+      final message = error is CommandTimeoutException
+          ? 'Readiness confirmation timed out. Check the backend and try again.'
+          : 'Readiness confirmation failed. Check the backend and try again.';
+      setState(() {
+        _sessionError = message;
+      });
+    } finally {
+      _commandInFlight = false;
+      if (mounted) setState(() {});
+    }
   }
 
   /// Play the countdown SFX after requestStartPractice enters countdown.
@@ -453,6 +508,15 @@ class _PracticeScreenState extends State<PracticeScreen>
       if (!_run.isCountdown) return;
 
       if (!ack.accepted) {
+        if (ack.errorCode == 'readiness_not_confirmed') {
+          _run.onActivationRejected();
+          setState(() {
+            _sessionError =
+                ack.message ??
+                'Readiness must be confirmed before practice can start.';
+          });
+          return;
+        }
         final message =
             ack.message ?? ack.errorCode ?? 'Session activation was rejected.';
         _run.onPreviewFeedback(
@@ -970,7 +1034,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           ? _buildReadinessActionArea()
           : TrainingActionArea(
               kind: actionKind,
-              startLabel: 'Start Session',
+              startLabel: 'Begin Calibration',
               onPressed: switch (actionKind) {
                 TrainingActionKind.finish => () => _stopSession(),
                 TrainingActionKind.cancel => _cancelPreActive,
@@ -985,11 +1049,27 @@ class _PracticeScreenState extends State<PracticeScreen>
   /// Action area shown during the readiness gate: Start Practice + Cancel.
   Widget _buildReadinessActionArea() {
     final canStart =
-        (_readinessStable || _run.readinessStable == true) && !_commandInFlight;
+        (_readinessStable || _run.readinessStable == true) &&
+        !_commandInFlight &&
+        !_run.readinessConfirming &&
+        !_run.readinessConfirmed &&
+        _run.isReadiness;
+    final confirming = _run.readinessConfirming;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (confirming)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              'Confirming readiness…',
+              style: AppTheme.bodySecondary.copyWith(
+                color: context.elixTextSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
         TrainingActionArea(
           kind: TrainingActionKind.start,
           startLabel: 'Start Practice',

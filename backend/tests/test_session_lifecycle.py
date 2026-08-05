@@ -8,7 +8,12 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from api import websocket as websocket_api
-from assessment.readiness import ReadinessTracker, readiness_needs_hands, readiness_needs_pose
+from assessment.readiness import (
+    ReadinessSnapshot,
+    ReadinessTracker,
+    readiness_needs_hands,
+    readiness_needs_pose,
+)
 from assessment.scoring import SessionScorer
 from schemas.feedback import FeedbackMessage
 
@@ -116,6 +121,32 @@ def _patch_vision(monkeypatch):
     )
 
 
+def _stable_readiness_snapshot() -> ReadinessSnapshot:
+    return ReadinessSnapshot(
+        items=(),
+        readiness_complete=True,
+        readiness_stable=True,
+        readiness_stable_progress=1.0,
+    )
+
+
+def _confirm_session_readiness(session: websocket_api.VisionSession) -> None:
+    session._latest_readiness_snapshot = _stable_readiness_snapshot()
+    ok, error = session.confirm_readiness()
+    assert ok, error
+
+
+def _activate_prepared(session: websocket_api.VisionSession) -> None:
+    ok, error = session.activate()
+    assert (ok, error) == (True, None)
+
+
+def _activate_after_readiness(session: websocket_api.VisionSession) -> None:
+    _confirm_session_readiness(session)
+    ok, error = session.activate()
+    assert (ok, error) == (True, None)
+
+
 def test_prepare_opens_one_camera_session(monkeypatch):
     _patch_vision(monkeypatch)
     evaluate_calls = {"n": 0}
@@ -170,7 +201,7 @@ def test_shaker_session_preserves_prop_and_loads_only_after_activation(monkeypat
     detector = StubPropDetector.instances[-1]
     assert detector.ensure_calls == 0
 
-    assert session.activate() is True
+    _activate_prepared(session)
     active = session.process_frame()
 
     assert active is not None
@@ -257,7 +288,7 @@ def test_bottle_and_shaker_session_constructs_single_dual_detector(monkeypatch):
         "Bottle in a tin", prop_type="bottle_and_shaker"
     )
     session.start()
-    session.activate()
+    _activate_prepared(session)
     session.process_frame()
 
     assert len(_StubDualPropDetector.instances) == 1
@@ -279,7 +310,7 @@ def test_bottle_and_shaker_model_failure_is_fatal(monkeypatch):
         "Bottle in a tin", prop_type="bottle_and_shaker"
     )
     session.start()
-    session.activate()
+    _activate_prepared(session)
 
     message = session.process_frame()
 
@@ -315,7 +346,7 @@ def test_bottle_and_shaker_evaluate_receives_bottles_and_shakers_separately(
         "Bottle in a tin", prop_type="bottle_and_shaker"
     )
     session.start()
-    session.activate()
+    _activate_prepared(session)
     session.process_frame()
 
     assert captured["prop_type"] == "bottle_and_shaker"
@@ -342,7 +373,7 @@ def test_bottle_and_shaker_annotation_receives_combined_boxes(monkeypatch):
         "Bottle in a tin", prop_type="bottle_and_shaker"
     )
     session.start()
-    session.activate()
+    _activate_prepared(session)
     session.process_frame()
 
     assert captured_boxes["boxes"] is not None
@@ -363,14 +394,14 @@ def test_bottle_and_shaker_caches_reset_on_activation(monkeypatch):
         "Bottle in a tin", prop_type="bottle_and_shaker"
     )
     session.start()
-    session.activate()
+    _activate_prepared(session)
     session.process_frame()
 
     assert session._last_bottles
     assert session._last_shakers
 
     session._lifecycle = websocket_api.SESSION_PREPARED
-    session.activate()
+    _activate_prepared(session)
 
     assert session._last_bottles == []
     assert session._last_shakers == []
@@ -386,7 +417,7 @@ def test_single_prop_session_still_uses_one_detector_without_dual_overhead(
 
     session = websocket_api.VisionSession("Hand Stall", prop_type="shaker")
     session.start()
-    session.activate()
+    _activate_prepared(session)
     session.process_frame()
 
     assert len(_TaggedPropDetector.instances) == 1
@@ -410,7 +441,7 @@ def test_model_load_failure_is_structured_session_fatal_feedback(monkeypatch):
     monkeypatch.setattr(websocket_api, "BottleDetector", FailingDetector)
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    session.activate()
+    _activate_prepared(session)
 
     message = session.process_frame()
 
@@ -484,7 +515,7 @@ def test_activate_reuses_same_camera_and_resets_state(monkeypatch):
     session._last_bottles = [object()]  # type: ignore[list-item]
     session._frame_index = 9
 
-    assert session.activate() is True
+    _activate_prepared(session)
     assert session.is_active
     assert session.hands_detector is not None
     assert StubCamera.open_calls == 1
@@ -513,8 +544,8 @@ def test_repeated_activate_is_idempotent(monkeypatch):
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
 
-    assert session.activate() is True
-    assert session.activate() is True
+    _activate_prepared(session)
+    _activate_prepared(session)
     assert session.is_active
     assert StubCamera.open_calls == 1
     session.close()
@@ -525,7 +556,7 @@ def test_activate_after_close_returns_false(monkeypatch):
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
     session.close()
-    assert session.activate() is False
+    assert session.activate() == (False, "session_not_prepared")
 
 
 def test_stop_works_before_and_after_activation(monkeypatch):
@@ -662,7 +693,7 @@ def test_active_frame_derives_feedback_category_from_registry(monkeypatch):
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    assert session.activate() is True
+    _activate_prepared(session)
     message = session.process_frame()
     assert message is not None
     assert message.feedback_code == FeedbackCode.HAND_STALL_LOCKED.value
@@ -692,7 +723,7 @@ def test_active_frame_unknown_code_leaves_category_null(monkeypatch):
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    assert session.activate() is True
+    _activate_prepared(session)
     message = session.process_frame()
     assert message is not None
     assert message.feedback_code == "not_a_registered_code"
@@ -720,7 +751,7 @@ def test_active_frame_missing_code_remains_legacy_safe(monkeypatch):
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    assert session.activate() is True
+    _activate_prepared(session)
     message = session.process_frame()
     assert message is not None
     assert message.feedback_code is None
@@ -736,7 +767,7 @@ def test_free_practice_active_frame_has_no_coaching_identity(monkeypatch):
 
     session = websocket_api.VisionSession("Free Practice", prop_type="shaker")
     session.start()
-    assert session.activate() is True
+    _activate_prepared(session)
     message = session.process_frame()
     assert message is not None
     assert message.movement == "Free Practice"
@@ -766,7 +797,7 @@ def test_pipeline_timing_does_not_change_feedback_payload(monkeypatch):
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    assert session.activate() is True
+    _activate_prepared(session)
     message = session.process_frame()
     assert message is not None
     assert message.feedback == "Hold steady"
@@ -827,7 +858,7 @@ def test_free_practice_skips_hands_pose_scoring_and_hold(monkeypatch):
     session = websocket_api.VisionSession("Free Practice", prop_type="shaker")
     assert session.is_prop_detection_only
     session.start()
-    assert session.activate() is True
+    _activate_prepared(session)
     assert session.hands_detector is None
     assert session.pose_detector is None
     assert hands_inits["n"] == 0
@@ -1371,9 +1402,9 @@ def test_readiness_needs_helpers_classify_movements():
     assert readiness_needs_hands("One Finger Stall") is True
     assert readiness_needs_pose("One Finger Stall") is False
 
-    # Forearm / Elbow Stall: both (pose_forearm_or_hand).
+    # Forearm / Elbow Stall: pose only (upper_body_visible; no hand fallback).
     for mv in ("Forearm Stall", "Elbow Stall", "Arm Stall"):
-        assert readiness_needs_hands(mv) is True, mv
+        assert readiness_needs_hands(mv) is False, mv
         assert readiness_needs_pose(mv) is True, mv
 
     # Reverse Forearm / Upper Forearm / Shoulder: pose only.
@@ -1428,7 +1459,7 @@ def test_begin_readiness_after_activate_returns_false(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
-    session.activate()
+    _activate_prepared(session)
     assert session.begin_readiness() is False
 
 
@@ -1506,7 +1537,7 @@ def test_camera_opens_once_across_readying_and_activate(monkeypatch):
 
     session.begin_readiness()
     session.process_readiness_frame()
-    session.activate()
+    _activate_after_readiness(session)
     session.process_frame()
 
     assert StubCamera.open_calls == 1, "camera must open only once"
@@ -1548,7 +1579,7 @@ def test_hands_detector_created_once_across_readiness_and_activate(monkeypatch):
     assert hands_inits["n"] == 1
 
     # activate calls _ensure_detectors, but hands_detector is not None → no new creation.
-    session.activate()
+    _activate_after_readiness(session)
     assert hands_inits["n"] == 1, "hands detector must not be re-created on activate"
     session.close()
 
@@ -1595,7 +1626,7 @@ def test_pose_only_movement_creates_pose_on_readiness_hands_on_activate(monkeypa
     assert hands_inits["n"] == 0
 
     # activate: _ensure_detectors creates hands; pose already exists.
-    session.activate()
+    _activate_after_readiness(session)
     assert pose_inits["n"] == 1, "pose must not be re-created on activate"
     assert hands_inits["n"] == 1, "hands created once on activate"
     session.close()
@@ -1608,7 +1639,7 @@ def test_readying_to_active_via_activate_clears_readiness_tracker(monkeypatch):
     session.begin_readiness()
 
     assert session._readiness_tracker is not None
-    session.activate()
+    _activate_after_readiness(session)
     assert session._readiness_tracker is None
     assert session.is_active
     session.close()
@@ -1634,8 +1665,7 @@ def test_prepared_to_active_directly_still_works(monkeypatch):
     session.start()
     assert session.is_prepared
 
-    activated = session.activate()
-    assert activated is True
+    assert session.activate() == (True, None)
     assert session.is_active
     assert session._readiness_tracker is None
 

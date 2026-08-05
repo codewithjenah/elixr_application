@@ -80,6 +80,23 @@ void main() {
       expect(info.title, 'Shoulder Visible');
       expect(info.instruction, isNotEmpty);
     });
+
+    test('upper_body_visible resolves correctly and uses backend fallback', () {
+      final info = resolveReadinessDisplay('upper_body_visible');
+      expect(info.title, 'Upper Body Visible');
+      expect(
+        info.instruction,
+        'Keep your shoulders, elbows, and wrists visible in the camera.',
+      );
+
+      const backendMsg = 'Keep your shoulders, elbows, and wrists visible.';
+      final fallback = resolveReadinessDisplay(
+        'upper_body_visible',
+        backendMessage: backendMsg,
+      );
+      expect(fallback.title, 'Upper Body Visible');
+      expect(fallback.instruction, isNotEmpty);
+    });
   });
 
   group('resolveReadinessDisplay — unknown codes', () {

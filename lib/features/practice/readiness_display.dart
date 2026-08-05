@@ -79,6 +79,11 @@ ReadinessDisplayInfo resolveReadinessDisplay(
       title: 'Shoulder Visible',
       instruction: 'Step back or tilt the camera so your shoulder is in frame.',
     ),
+    'upper_body_visible' => const ReadinessDisplayInfo(
+      title: 'Upper Body Visible',
+      instruction:
+          'Keep your shoulders, elbows, and wrists visible in the camera.',
+    ),
     _ => ReadinessDisplayInfo(
       title: backendMessage ?? code,
       instruction: backendMessage ?? 'Follow the on-screen guidance.',

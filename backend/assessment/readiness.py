@@ -33,6 +33,10 @@ _GRIP_LANDMARKS = (0, 4, 8, 9, 12, 16, 20)
 _PALM_LANDMARKS = (0, 9)
 _INDEX_LANDMARKS = (0, 5, 6, 7, 8)
 _POSE_ARM_PAIRS = ((13, 15), (14, 16))
+_POSE_ARM_CHAINS = (
+    (11, 13, 15),  # left shoulder → elbow → wrist
+    (12, 14, 16),  # right shoulder → elbow → wrist
+)
 _POSE_ELBOW_INDICES = (13, 14)
 _POSE_SHOULDER_INDICES = (11, 12)
 
@@ -101,6 +105,34 @@ def _pose_has_any_shoulder(pose: Optional[PoseLandmarks]) -> bool:
     if pose is None:
         return False
     return any(pose.get(i) is not None for i in _POSE_SHOULDER_INDICES)
+
+
+def _pose_has_both_shoulders(pose: Optional[PoseLandmarks]) -> bool:
+    if pose is None:
+        return False
+    return all(pose.get(i) is not None for i in _POSE_SHOULDER_INDICES)
+
+
+def _pose_has_complete_arm_chain(pose: Optional[PoseLandmarks]) -> bool:
+    """At least one shoulder→elbow→wrist chain with visibility threshold."""
+    if pose is None:
+        return False
+    for shoulder_i, elbow_i, wrist_i in _POSE_ARM_CHAINS:
+        if (
+            pose.get(shoulder_i) is not None
+            and pose.get(elbow_i) is not None
+            and pose.get(wrist_i) is not None
+        ):
+            return True
+    return False
+
+
+def _pass_upper_body_visible(obs: ReadinessObservation) -> bool:
+    """Observability-only: both shoulders plus one complete arm chain."""
+    pose = obs.pose
+    if not _pose_has_both_shoulders(pose):
+        return False
+    return _pose_has_complete_arm_chain(pose)
 
 
 def _pass_camera(obs: ReadinessObservation) -> bool:
@@ -226,15 +258,29 @@ def requirements_for(movement: str, prop_type: str = "bottle") -> list[Requireme
             ),
         ]
 
-    if movement in ("Forearm Stall", "Elbow Stall", "Arm Stall"):
+    upper_body: RequirementSpec = (
+        "upper_body_visible",
+        "Keep your shoulders, elbows, and wrists visible in the camera.",
+        _pass_upper_body_visible,
+    )
+
+    if movement in ("Forearm Stall", "Arm Stall"):
         return [
             camera,
             single_prop,
+            upper_body,
             (
-                "pose_forearm_or_hand",
-                "Show your arm pose landmarks or hand in frame.",
-                _pass_pose_forearm_or_hand,
+                "pose_upper_forearm",
+                "Show your upper-arm pose landmarks in frame.",
+                _pass_pose_upper_forearm,
             ),
+        ]
+
+    if movement == "Elbow Stall":
+        return [
+            camera,
+            single_prop,
+            upper_body,
         ]
 
     if movement in ("Reverse Forearm Stall", "Upper Forearm Stall"):
@@ -245,6 +291,7 @@ def requirements_for(movement: str, prop_type: str = "bottle") -> list[Requireme
                 "Show the bottle in frame.",
                 _pass_bottle_detected,
             ),
+            upper_body,
             (
                 "pose_upper_forearm",
                 "Show your upper-arm pose landmarks in frame.",
@@ -260,11 +307,7 @@ def requirements_for(movement: str, prop_type: str = "bottle") -> list[Requireme
                 "Show the bottle in frame.",
                 _pass_bottle_detected,
             ),
-            (
-                "pose_shoulder",
-                "Show your shoulder landmarks in frame.",
-                _pass_pose_shoulder,
-            ),
+            upper_body,
         ]
 
     if movement == "Double Hand Stall":
@@ -320,6 +363,7 @@ _POSE_REQUIREMENT_CODES: frozenset[str] = frozenset({
     "pose_forearm_or_hand",
     "pose_upper_forearm",
     "pose_shoulder",
+    "upper_body_visible",
 })
 
 

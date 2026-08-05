@@ -407,8 +407,8 @@ Guided practice and free practice share camera ownership and prepare/activate bo
 2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, selected `prop_type`, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring or detectors.
 3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout).
 4. **Readiness check** — After the first JPEG, guided practice sends protocol v1 `begin_readiness`. The backend loads detectors on the same camera session, streams annotated frames with `session_state: "readying"`, and emits optional checklist fields (`readiness_items`, `readiness_complete`, `readiness_stable`, `readiness_stable_progress`). Readiness validates **camera, prop, and landmark observability only** — it is not technique coaching and does not score, update hold confirmation, or evaluate movement success thresholds.
-5. **Manual Start Practice** — Start Practice enables only after `readiness_stable` is true (consecutive per-item frames plus a monotonic stable duration). On tap, Flutter freezes the checklist and enters `PracticeRunPhase.countdown`. Ordinary detection loss during countdown does **not** cancel countdown; only fatal camera/backend/model errors abort.
-6. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. Backend transitions the matching prepared/readying session to active **without reopening the camera** and returns `command_ack` with `session_state: "active"`.
+5. **Manual Start Practice** — Start Practice enables only after `readiness_stable` is true (consecutive per-item frames plus a monotonic stable duration). On tap, Flutter sends protocol v1 `confirm_readiness`. The backend accepts only when the latest readiness snapshot is currently stable, then Flutter freezes the checklist and enters `PracticeRunPhase.countdown`. Ordinary detection loss during countdown does **not** cancel countdown or revoke confirmation; only fatal camera/backend/model errors abort.
+6. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. For sessions that entered `readying`, the backend requires a prior accepted `confirm_readiness`. Backend transitions the matching prepared/readying session to active **without reopening the camera** and returns `command_ack` with `session_state: "active"`.
 7. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active` only after accepted activation, starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
 8. **Hold confirmation** — Backend-authoritative during `session_state: active` only. Preview, readiness, and countdown frames never advance hold confirmation.
 9. **Stop, cancellation, disconnect, or navigation teardown** — Flutter sends protocol v1 `stop`; readiness attempts are never saved as sessions.
@@ -417,7 +417,7 @@ Guided practice and free practice share camera ownership and prepare/activate bo
 
 Free practice keeps `prepare` → first JPEG → countdown → `activate` (no readiness gate). It remains unscored and does not persist sessions.
 
-Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided practice uses protocol v1 `prepare` → `begin_readiness` → Start Practice → countdown → `activate`.
+Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided practice uses protocol v1 `prepare` → `begin_readiness` → Start Practice (`confirm_readiness`) → countdown → `activate`.
 
 ### WebSocket contract
 
@@ -450,7 +450,20 @@ Begin readiness (guided practice, after prepare):
 }
 ```
 
-`begin_readiness` is idempotent when the session is already readying for the same attempt. It is rejected before prepare and after activation.
+`begin_readiness` is idempotent when the session is already readying for the same attempt. It is rejected before prepare and after activation. It resets readiness confirmation state when transitioning from `preparing` to `readying`.
+
+Confirm readiness (guided practice, after stable checklist — before countdown):
+
+```json
+{
+  "protocol_version": 1,
+  "request_id": "req-...",
+  "session_id": "session-...",
+  "action": "confirm_readiness"
+}
+```
+
+`confirm_readiness` succeeds only when `session_state` is `readying`, a latest readiness snapshot exists, and `readiness_stable` is true. Duplicate accepted confirmations are idempotent. Early confirmation is rejected with `readiness_not_stable`. Once accepted, the approved readiness result is frozen through countdown; ordinary landmark loss does not revoke it.
 
 Activate after countdown:
 
@@ -538,8 +551,10 @@ Common `error_code` values:
 - `selected_camera_unavailable` — explicit `camera_device_id` could not be opened
 - `invalid_camera_device_id` / `invalid_camera_index` — malformed selection
 - `invalid_prop_type` — prop is not `bottle`, `shaker`, or `bottle_and_shaker`
-- `session_not_prepared` — `activate` / `begin_readiness` with no prepared session
-- `session_already_active` — `begin_readiness` after the session is already active
+- `session_not_prepared` — `activate` / `begin_readiness` / `confirm_readiness` with no prepared session
+- `session_already_active` — `begin_readiness` or `confirm_readiness` after the session is already active
+- `readiness_not_stable` — `confirm_readiness` before stable readiness
+- `readiness_not_confirmed` — `activate` from `readying` without accepted `confirm_readiness`
 - `session_id_mismatch` — command targeted a stale practice attempt
 - `invalid_movement` / `difficulty_mismatch` / `invalid_boolean` — strict v1 validation
 - `invalid_json` / `invalid_command` / `unknown_action` / `unsupported_protocol_version`

@@ -206,6 +206,28 @@ class WebSocketService extends ChangeNotifier {
     );
   }
 
+  /// Confirms stable readiness before countdown (guided practice only).
+  ///
+  /// An accepted ack keeps [sessionReadying] true until [sendActivate].
+  Future<CommandAck> sendConfirmReadiness({String? sessionId}) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
+      return Future.error(
+        StateError('Cannot confirm readiness without a current session_id'),
+      );
+    }
+
+    return _sendTrackedCommand(
+      action: 'confirm_readiness',
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: buildConfirmReadinessPayload(
+        sessionId: resolvedSessionId,
+        requestId: _nextId('req'),
+      ),
+    );
+  }
+
   /// Legacy start: prepare + immediate activation on the backend.
   Future<CommandAck> sendStart({
     required String movement,
@@ -465,6 +487,20 @@ class WebSocketService extends ChangeNotifier {
       'request_id': requestId,
       'session_id': sessionId,
       'action': 'begin_readiness',
+    };
+  }
+
+  /// Builds the WebSocket confirm_readiness payload. Exposed for unit tests.
+  @visibleForTesting
+  static Map<String, dynamic> buildConfirmReadinessPayload({
+    required String sessionId,
+    required String requestId,
+  }) {
+    return <String, dynamic>{
+      'protocol_version': wsProtocolVersion,
+      'request_id': requestId,
+      'session_id': sessionId,
+      'action': 'confirm_readiness',
     };
   }
 
@@ -764,6 +800,13 @@ class WebSocketService extends ChangeNotifier {
         _sessionPrepared = true;
         _sessionActive = false;
         _sessionReadying = ack.sessionState == 'readying';
+        if (ack.sessionId != null) {
+          _currentSessionId = ack.sessionId;
+        }
+      case 'confirm_readiness':
+        _sessionPrepared = true;
+        _sessionActive = false;
+        _sessionReadying = ack.sessionState == 'readying' || _sessionReadying;
         if (ack.sessionId != null) {
           _currentSessionId = ack.sessionId;
         }

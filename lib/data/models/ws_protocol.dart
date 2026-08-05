@@ -130,6 +130,7 @@ class CommandAckMismatchException implements Exception {
 /// - `preparing` – camera and model are warming up; preview frames stream.
 /// - `readying`  – pre-practice readiness gate is active; checklist items arrive
 ///   in [PracticeFeedback.readinessItems] until `readiness_stable` is true.
+///   Start Practice sends `confirm_readiness`; countdown begins only after ack.
 /// - `active`    – movement evaluation and scoring are running.
 /// - `idle`      – no active session.
 /// - `unavailable` – camera or model is permanently unavailable.

@@ -27,8 +27,9 @@ Treat these files as one public contract:
 ## Client control actions (WebSocket inbound)
 
 - `prepare` — open the selected camera and stream preview only (no detectors/scoring).
-- `begin_readiness` — guided practice only; load detectors on the prepared session and stream observability checklist frames (`session_state: readying`). Idempotent when already readying; rejected before prepare or after activate. Does not score, hold-validate, or evaluate technique.
-- `activate` — transition a prepared **or** readying session to active inference/scoring without reopening the camera; reuse detectors when already loaded.
+- `begin_readiness` — guided practice only; load detectors on the prepared session and stream observability checklist frames (`session_state: readying`). Idempotent when already readying; rejected before prepare or after activate. Does not score, hold-validate, or evaluate technique. Resets readiness confirmation when entering readying from prepared.
+- `confirm_readiness` — guided practice only; lock stable readiness before countdown. Accepted only when latest snapshot is `readiness_stable`. Idempotent after success. Rejects early with `readiness_not_stable`. Freezes approved readiness through countdown.
+- `activate` — transition a prepared **or** confirmed-readying session to active inference/scoring without reopening the camera; reuse detectors when already loaded. `prepared→active` remains for Free Practice; `readying→active` requires prior `confirm_readiness`.
 - `start` — legacy compatibility: prepare and activate immediately.
 - `stop` — cancel the session loop and release the shared camera (with debounce).
 
@@ -57,7 +58,7 @@ Rules:
 - Error payloads may omit `frame_jpeg_base64`; the UI must remain stable.
 - Clients must use `error_code`, not parse human `feedback` text, for fatal decisions.
 - Preview frames with `session_state: preparing` are not active scored-session frames.
-- Readying frames are observability-only; Flutter freezes the checklist after Start Practice and ignores ordinary readiness demotions during countdown.
+- Readying frames are observability-only; pose-required movements include `upper_body_visible` (both shoulders plus one shoulder→elbow→wrist chain). Flutter sends `confirm_readiness` on Start Practice and enters countdown only after acceptance; the checklist freezes and ordinary readiness demotions during countdown are ignored.
 - Do not start client timer/scoring UI from preview or readiness frames; wait for explicit activation.
 - Hold confirmation is backend-authoritative. Flutter displays `hold_progress` and completes only on `hold_confirmed`; do not run a parallel client-side hold timer.
 - Free Practice does not use `begin_readiness`.

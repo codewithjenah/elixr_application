@@ -441,6 +441,9 @@ class GameActionButton extends StatefulWidget {
 }
 
 class _GameActionButtonState extends State<GameActionButton> {
+  static const _kIconSize = 18.0;
+  static const _kIconLaneWidth = AppSpacing.md + _kIconSize + AppSpacing.sm;
+
   bool _hovering = false;
 
   @override
@@ -489,36 +492,51 @@ class _GameActionButtonState extends State<GameActionButton> {
                   ]
                 : null,
           ),
-          child: Center(
-            child: widget.isLoading
-                ? const SizedBox(
+          child: widget.isLoading
+              ? const Center(
+                  child: SizedBox(
                     width: 22,
                     height: 22,
                     child: ProgressRing(
                       strokeWidth: 3,
                       activeColor: Colors.white,
                     ),
-                  )
-                : Row(
-                    children: [
-                      Icon(widget.icon, size: 18, color: Colors.white),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          widget.label.toUpperCase(),
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 2,
-                            color: Colors.white,
-                          ),
+                  ),
+                )
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Align(
+                      alignment: Alignment.center,
+                      child: Text(
+                        widget.label.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 2,
+                          color: Colors.white,
                         ),
                       ),
-                    ],
-                  ),
-          ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: _kIconLaneWidth,
+                      child: Center(
+                        child: Icon(
+                          widget.icon,
+                          size: _kIconSize,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );

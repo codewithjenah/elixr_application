@@ -14,6 +14,7 @@ from assessment.rule_engine import validate_movement_difficulty, validate_moveme
 from schemas.commands import (
     ActivateCommand,
     BeginReadinessCommand,
+    ConfirmReadinessCommand,
     PrepareCommand,
     StartCommand,
     StopCommand,
@@ -1109,12 +1110,25 @@ def test_begin_readiness_idempotent_when_already_readying(monkeypatch):
     asyncio.run(_run())
 
 
-def test_activate_accepted_after_begin_readiness(monkeypatch):
-    """prepare -> begin_readiness -> activate must be accepted."""
+def test_activate_accepted_after_begin_readiness_and_confirm(monkeypatch):
+    """prepare -> begin_readiness -> confirm_readiness -> activate must be accepted."""
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
 
+    from assessment.readiness import ReadinessSnapshot
     from assessment.rules.base import RuleResult
+
+    class _ConfirmingSession(websocket_api.VisionSession):
+        def confirm_readiness(self):
+            self._latest_readiness_snapshot = ReadinessSnapshot(
+                items=(),
+                readiness_complete=True,
+                readiness_stable=True,
+                readiness_stable_progress=1.0,
+            )
+            return super().confirm_readiness()
+
+    monkeypatch.setattr(websocket_api, "VisionSession", _ConfirmingSession)
 
     monkeypatch.setattr(
         websocket_api,
@@ -1139,6 +1153,18 @@ def test_activate_accepted_after_begin_readiness(monkeypatch):
         await ws.push(
             {
                 "protocol_version": 1,
+                "request_id": "req-cr1",
+                "session_id": "session-1",
+                "action": "confirm_readiness",
+            }
+        )
+        confirm_ack = await _wait_for_ack(ws, "req-cr1")()
+        assert confirm_ack["accepted"] is True
+        assert confirm_ack["session_state"] == "readying"
+
+        await ws.push(
+            {
+                "protocol_version": 1,
                 "request_id": "req-activate",
                 "session_id": "session-1",
                 "action": "activate",
@@ -1147,6 +1173,39 @@ def test_activate_accepted_after_begin_readiness(monkeypatch):
         activate_ack = await _wait_for_ack(ws, "req-activate")()
         assert activate_ack["accepted"] is True
         assert activate_ack["session_state"] == "active"
+
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_activate_rejected_after_begin_readiness_without_confirm(monkeypatch):
+    """activate from readying without confirm_readiness is rejected."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+
+        await ws.push(_prepare_payload())
+        await _wait_for_ack(ws, "req-1")()
+
+        await ws.push(_begin_readiness_payload())
+        await _wait_for_ack(ws, "req-r1")()
+
+        await ws.push(
+            {
+                "protocol_version": 1,
+                "request_id": "req-activate",
+                "session_id": "session-1",
+                "action": "activate",
+            }
+        )
+        activate_ack = await _wait_for_ack(ws, "req-activate")()
+        assert activate_ack["accepted"] is False
+        assert activate_ack["error_code"] == "readiness_not_confirmed"
 
         await ws.close_client()
         await asyncio.wait_for(task, timeout=2)

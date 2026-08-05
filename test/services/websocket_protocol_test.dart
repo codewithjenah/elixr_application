@@ -1746,6 +1746,144 @@ void main() {
     );
   });
 
+  group('WebSocketService confirm_readiness lifecycle', () {
+    late StreamController<dynamic> inbound;
+    late StreamController<dynamic> outbound;
+    late WebSocketService service;
+    late List<Map<String, dynamic>> sent;
+
+    setUp(() {
+      inbound = StreamController<dynamic>.broadcast();
+      outbound = StreamController<dynamic>.broadcast();
+      sent = <Map<String, dynamic>>[];
+      outbound.stream.listen((event) {
+        if (event is String) {
+          sent.add(jsonDecode(event) as Map<String, dynamic>);
+        }
+      });
+      service = WebSocketService(
+        commandTimeout: const Duration(milliseconds: 80),
+        prepareTimeout: const Duration(milliseconds: 80),
+      );
+      service.debugAttachTransport(
+        inbound: inbound.stream,
+        outbound: outbound.sink,
+      );
+    });
+
+    tearDown(() async {
+      service.dispose();
+      await inbound.close();
+      await outbound.close();
+    });
+
+    Future<void> push(Map<String, dynamic> payload) async {
+      inbound.add(jsonEncode(payload));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('sendConfirmReadiness sends correct protocol payload', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+
+      final confirmFuture = service.sendConfirmReadiness(sessionId: sessionId);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(sent.last['action'], 'confirm_readiness');
+      expect(sent.last['session_id'], sessionId);
+
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'confirm_readiness',
+        'accepted': true,
+        'session_state': 'readying',
+      });
+      final ack = await confirmFuture;
+      expect(ack.accepted, isTrue);
+      expect(service.sessionReadying, isTrue);
+      expect(service.sessionActive, isFalse);
+    });
+
+    test('duplicate sendConfirmReadiness is rejected while in flight', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+
+      final first = service.sendConfirmReadiness(sessionId: sessionId);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        () => service.sendConfirmReadiness(sessionId: sessionId),
+        throwsA(isA<StateError>()),
+      );
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'confirm_readiness',
+        'accepted': true,
+        'session_state': 'readying',
+      });
+      await first;
+    });
+
+    test('readiness_not_stable rejection keeps readying state', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+
+      final prepare = service.sendPrepare(
+        movement: 'Hand Stall',
+        difficulty: 'Medium',
+        sessionId: sessionId,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'prepare',
+        'accepted': true,
+        'session_state': 'preparing',
+      });
+      await prepare;
+
+      final begin = service.sendBeginReadiness(sessionId: sessionId);
+      await Future<void>.delayed(Duration.zero);
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'begin_readiness',
+        'accepted': true,
+        'session_state': 'readying',
+      });
+      await begin;
+      expect(service.sessionReadying, isTrue);
+
+      final confirmFuture = service.sendConfirmReadiness(sessionId: sessionId);
+      await Future<void>.delayed(Duration.zero);
+      await push({
+        'protocol_version': 1,
+        'message_type': 'command_ack',
+        'request_id': sent.last['request_id'],
+        'session_id': sessionId,
+        'action': 'confirm_readiness',
+        'accepted': false,
+        'session_state': 'readying',
+        'error_code': 'readiness_not_stable',
+      });
+      final ack = await confirmFuture;
+      expect(ack.accepted, isFalse);
+      expect(ack.errorCode, 'readiness_not_stable');
+      expect(service.sessionReadying, isTrue);
+      expect(service.sessionActive, isFalse);
+    });
+  });
+
   group('guided-practice countdown still follows lifecycle helpers', () {
     test('countdown waits for preview JPEG after preparing', () {
       final run = PracticeRunController();
