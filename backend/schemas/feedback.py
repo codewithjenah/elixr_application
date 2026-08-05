@@ -25,6 +25,10 @@ class FeedbackMessage(BaseModel):
     hold_duration_ms: int = 0
     hold_confirmed: bool = False
     positive_frame_ratio: float = 0.0
+    hold_target_ms: int = 0
+    # Optional coaching identity (category is registry-derived on the producer).
+    feedback_code: Optional[str] = None
+    feedback_category: Optional[str] = None
     # Protocol v1 envelope (optional for legacy compatibility).
     protocol_version: Optional[Literal[1]] = None
     message_type: Optional[Literal["feedback"]] = None

@@ -9,6 +9,7 @@ import cv2
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from assessment.feedback_codes import category_for
 from assessment.hold_validator import HoldValidator
 from assessment.rule_engine import (
     evaluate_movement,
@@ -798,6 +799,8 @@ class VisionSession:
         else:
             detected = len(bottles) > 0
             combined_count = len(bottles)
+        feedback_code = rule_result.feedback_code
+        category = category_for(feedback_code)
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=detected,
@@ -815,6 +818,9 @@ class VisionSession:
                 hold_duration_ms=hold.hold_duration_ms,
                 hold_confirmed=hold.hold_confirmed,
                 positive_frame_ratio=hold.positive_frame_ratio,
+                hold_target_ms=hold.hold_target_ms,
+                feedback_code=feedback_code,
+                feedback_category=category.value if category is not None else None,
             )
         )
         self.timings.add("encode", time.perf_counter() - t0)

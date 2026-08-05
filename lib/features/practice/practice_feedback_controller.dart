@@ -163,10 +163,12 @@ class PracticeFeedbackController {
   }
 
   SessionAssessment buildSessionAssessment({
+    required String movement,
     required int finalScore,
     required bool heldSteady,
   }) {
     return _assessmentAccumulator.buildAssessment(
+      movement: movement,
       finalScore: finalScore,
       heldSteady: heldSteady,
       latestFeedback: latestFeedback,

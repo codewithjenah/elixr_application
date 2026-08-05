@@ -17,6 +17,8 @@ class HoldSnapshot:
     hold_duration_ms: int = 0
     hold_confirmed: bool = False
     positive_frame_ratio: float = 0.0
+    # Backend-authoritative confirmation target (ms). 0 when inactive.
+    hold_target_ms: int = 0
 
 
 class HoldValidator:
@@ -65,7 +67,7 @@ class HoldValidator:
     ) -> HoldSnapshot:
         """Update hold state for one evaluated active frame."""
         if not session_active or not self._activated:
-            return HoldSnapshot()
+            return HoldSnapshot()  # hold_target_ms remains 0 when inactive
 
         if self._confirmed:
             return self._confirmed_snapshot()
@@ -114,6 +116,9 @@ class HoldValidator:
             return 0.0
         return self._segment_positive_frames / self._segment_total_frames
 
+    def _hold_target_ms(self) -> int:
+        return int(round(self._confirmation_seconds * 1000))
+
     def _build_snapshot(self) -> HoldSnapshot:
         duration_ms = int(round(self._accumulated_seconds * 1000))
         if self._confirmed:
@@ -131,6 +136,7 @@ class HoldValidator:
             hold_duration_ms=duration_ms,
             hold_confirmed=self._confirmed,
             positive_frame_ratio=self._positive_frame_ratio(),
+            hold_target_ms=self._hold_target_ms(),
         )
 
     def _confirmed_snapshot(self) -> HoldSnapshot:
@@ -143,4 +149,5 @@ class HoldValidator:
             ),
             hold_confirmed=True,
             positive_frame_ratio=self._positive_frame_ratio(),
+            hold_target_ms=self._hold_target_ms(),
         )

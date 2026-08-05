@@ -326,6 +326,7 @@ void main() {
       controller.reset();
 
       final assessment = controller.buildSessionAssessment(
+        movement: 'Normal Grip',
         finalScore: 80,
         heldSteady: false,
       );
@@ -347,6 +348,7 @@ void main() {
       }
 
       final assessment = controller.buildSessionAssessment(
+        movement: 'Normal Grip',
         finalScore: 88,
         heldSteady: false,
       );
@@ -594,10 +596,76 @@ void main() {
       expect(state.panelBuilds, panelsAfterFirst);
 
       final assessment = state.controller.buildSessionAssessment(
+        movement: 'Normal Grip',
         finalScore: 72,
         heldSteady: false,
       );
       expect(assessment.totalApplicableSamples, 3);
     });
+
+    test('hold target and duration changes do not trigger chrome rebuild', () {
+      final first = _base(holdProgress: 0.2, score: 70);
+      final second = PracticeFeedback(
+        bottleDetected: first.bottleDetected,
+        bottleCount: first.bottleCount,
+        movement: first.movement,
+        score: first.score,
+        feedback: first.feedback,
+        feedbackType: first.feedbackType,
+        postureStatus: first.postureStatus,
+        sessionState: first.sessionState,
+        holdProgress: 0.8,
+        holdDurationMs: 2000,
+        holdTargetMs: 2500,
+        feedbackCode: 'hand_stall_locked',
+        feedbackCategory: 'technique',
+        holdConfirmed: first.holdConfirmed,
+      );
+      expect(first.scoredPracticeChromeEquals(second), isTrue);
+      expect(first.semanticEquals(second), isFalse);
+    });
+
+    test(
+      'accumulator still records every active frame despite chrome equals',
+      () {
+        final controller = PracticeFeedbackController();
+        final baseline = PracticeFeedback(
+          bottleDetected: true,
+          movement: 'Normal Grip',
+          score: 70,
+          feedback: 'Issue A',
+          feedbackType: 'warning',
+          postureStatus: 'unstable',
+          sessionState: 'active',
+          holdDurationMs: 0,
+          holdTargetMs: 2500,
+        );
+        controller.applyActiveFeedback(baseline);
+
+        for (var i = 1; i <= 3; i++) {
+          final frame = PracticeFeedback(
+            bottleDetected: true,
+            movement: 'Normal Grip',
+            score: 70 + i,
+            feedback: 'Issue A',
+            feedbackType: 'warning',
+            postureStatus: 'unstable',
+            sessionState: 'active',
+            holdDurationMs: 100 * i,
+            holdTargetMs: 2500,
+          );
+          final result = controller.applyActiveFeedback(frame);
+          expect(result.chromeChanged, isFalse);
+        }
+        final assessment = controller.buildSessionAssessment(
+          movement: 'Normal Grip',
+          finalScore: 73,
+          heldSteady: false,
+        );
+        expect(assessment.totalApplicableSamples, 4);
+        expect(assessment.maxHoldDurationMs, 300);
+        expect(assessment.holdTargetMs, 2500);
+      },
+    );
   });
 }

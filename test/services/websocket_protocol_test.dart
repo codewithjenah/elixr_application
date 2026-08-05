@@ -40,6 +40,40 @@ void main() {
       final feedback = (decoded as WsFeedbackMessage).feedback;
       expect(feedback.score, 80);
       expect(feedback.sessionId, isNull);
+      expect(feedback.feedbackCode, isNull);
+      expect(feedback.feedbackCategory, isNull);
+      expect(feedback.holdTargetMs, 0);
+    });
+
+    test('optional coaching fields parse from feedback JSON', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Hand Stall',
+        'score': 85,
+        'feedback': 'Hand stall locked in.',
+        'feedback_type': 'positive',
+        'posture_status': 'stable',
+        'session_state': 'active',
+        'hold_target_ms': 2500,
+        'feedback_code': 'hand_stall_locked',
+        'feedback_category': 'technique',
+      });
+      expect(feedback.holdTargetMs, 2500);
+      expect(feedback.feedbackCode, 'hand_stall_locked');
+      expect(feedback.feedbackCategory, 'technique');
+    });
+
+    test('invalid hold_target_ms defaults to zero', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Hand Stall',
+        'score': 70,
+        'feedback': 'Keep steady',
+        'feedback_type': 'warning',
+        'posture_status': 'unstable',
+        'hold_target_ms': 'nope',
+      });
+      expect(feedback.holdTargetMs, 0);
     });
 
     test('version 1 feedback parses', () {

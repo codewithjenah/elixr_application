@@ -20,6 +20,9 @@ class PracticeFeedback {
     this.holdDurationMs = 0,
     this.holdConfirmed = false,
     this.positiveFrameRatio = 0,
+    this.holdTargetMs = 0,
+    this.feedbackCode,
+    this.feedbackCategory,
     this.protocolVersion,
     this.messageType,
     this.sessionId,
@@ -47,6 +50,13 @@ class PracticeFeedback {
   final int holdDurationMs;
   final bool holdConfirmed;
   final double positiveFrameRatio;
+
+  /// Backend-authoritative confirmation target in milliseconds (0 when unknown).
+  final int holdTargetMs;
+
+  /// Optional stable coaching identity from the backend registry.
+  final String? feedbackCode;
+  final String? feedbackCategory;
 
   /// Optional protocol v1 envelope fields (absent on legacy frames).
   final int? protocolVersion;
@@ -82,6 +92,9 @@ class PracticeFeedback {
         holdDurationMs == other.holdDurationMs &&
         holdConfirmed == other.holdConfirmed &&
         positiveFrameRatio == other.positiveFrameRatio &&
+        holdTargetMs == other.holdTargetMs &&
+        feedbackCode == other.feedbackCode &&
+        feedbackCategory == other.feedbackCategory &&
         protocolVersion == other.protocolVersion &&
         messageType == other.messageType &&
         sessionId == other.sessionId &&
@@ -102,8 +115,9 @@ class PracticeFeedback {
 
   /// Scored-practice chrome fields that require a full screen rebuild.
   ///
-  /// Score and hold progress are intentionally excluded so high-frequency
-  /// updates can use narrowly scoped [ValueNotifier]s instead.
+  /// Score, hold progress, hold duration/target, feedback codes/categories,
+  /// and JPEG bytes are intentionally excluded so high-frequency updates can
+  /// use narrowly scoped [ValueNotifier]s / the session accumulator instead.
   bool scoredPracticeChromeEquals(PracticeFeedback? other) {
     if (identical(this, other)) return true;
     if (other == null) return false;
@@ -130,6 +144,9 @@ class PracticeFeedback {
       frameBytes = base64Decode(frameB64);
     }
 
+    final rawTarget = json['hold_target_ms'];
+    final holdTargetMs = rawTarget is num ? rawTarget.toInt() : 0;
+
     return PracticeFeedback(
       bottleDetected: json['bottle_detected'] as bool? ?? false,
       bottleCount: (json['bottle_count'] as num?)?.toInt() ?? 0,
@@ -147,6 +164,9 @@ class PracticeFeedback {
       holdConfirmed: json['hold_confirmed'] as bool? ?? false,
       positiveFrameRatio:
           (json['positive_frame_ratio'] as num?)?.toDouble() ?? 0,
+      holdTargetMs: holdTargetMs < 0 ? 0 : holdTargetMs,
+      feedbackCode: json['feedback_code'] as String?,
+      feedbackCategory: json['feedback_category'] as String?,
       protocolVersion: json['protocol_version'] as int?,
       messageType: json['message_type'] as String?,
       sessionId: json['session_id'] as String?,

@@ -13,29 +13,12 @@ PracticeFeedback _practiceFeedback(
 }) {
   return PracticeFeedback(
     bottleDetected: true,
-    movement: 'Basic Flip',
+    movement: 'Hand Stall',
     score: score,
     feedback: message,
     feedbackType: feedbackType,
     postureStatus: 'ok',
     sessionState: 'active',
-  );
-}
-
-SessionAssessment _assessment({
-  required int score,
-  List<SessionImprovement> improvements = const [],
-  bool heldSteady = false,
-  PracticeFeedback? latestFeedback,
-}) {
-  return SessionAssessment(
-    finalScore: score,
-    heldSteady: heldSteady,
-    totalApplicableSamples: 20,
-    positiveSampleCount: 16,
-    positiveRatio: 0.8,
-    improvements: improvements,
-    latestFeedback: latestFeedback,
   );
 }
 
@@ -47,6 +30,35 @@ SessionImprovement _improvement(String message) {
     occurrenceRatio: 0.2,
     feedbackType: frame.feedbackType,
     representativeFeedback: frame,
+    code: 'bottle_not_upright',
+  );
+}
+
+SessionAssessment _assessment({
+  required int score,
+  List<SessionImprovement> improvements = const [],
+  List<SessionStrength> strengths = const [],
+  SessionRecommendation? recommendation,
+  bool heldSteady = false,
+  PracticeFeedback? latestFeedback,
+  bool includeEmptyCoaching = false,
+}) {
+  final coaching = includeEmptyCoaching
+      ? const SessionCoachingSummary.empty()
+      : SessionCoachingSummary(
+          strengths: strengths,
+          improvements: improvements,
+          recommendation: recommendation,
+        );
+  return SessionAssessment(
+    finalScore: score,
+    heldSteady: heldSteady,
+    totalApplicableSamples: 20,
+    positiveSampleCount: 16,
+    positiveRatio: 0.8,
+    improvements: improvements,
+    latestFeedback: latestFeedback,
+    coaching: coaching,
   );
 }
 
@@ -54,8 +66,9 @@ Future<void> _openSummary(
   WidgetTester tester, {
   required SessionAssessment assessment,
   required Future<String> Function(String? existingSessionId) onSave,
+  Size size = const Size(1366, 768),
 }) async {
-  tester.view.physicalSize = const Size(1200, 1200);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   await tester.pumpWidget(
@@ -67,7 +80,7 @@ Future<void> _openSummary(
               onPressed: () async {
                 await SessionSummarySheet.show(
                   context,
-                  movement: 'Basic Flip',
+                  movement: 'Hand Stall',
                   durationSeconds: 45,
                   assessment: assessment,
                   onSave: onSave,
@@ -89,7 +102,100 @@ Future<void> _openSummary(
 Finder get _saveButton => find.byType(GameActionButton);
 
 void main() {
-  testWidgets('score 100 with no improvements shows great-form message', (
+  testWidgets('populated coaching summary renders all three sections', (
+    tester,
+  ) async {
+    final improvements = [
+      _improvement('Keep the bottle upright on your palm.'),
+    ];
+    await _openSummary(
+      tester,
+      assessment: _assessment(
+        score: 78,
+        heldSteady: true,
+        improvements: improvements,
+        strengths: const [
+          SessionStrength(
+            code: 'hold_confirmed',
+            message: 'Hold confirmed',
+            sampleCount: 1,
+            sampleRatio: 1,
+            evidenceKind: 'holdConfirmed',
+          ),
+        ],
+        recommendation: const SessionRecommendation(
+          movementName: 'Hand Stall',
+          reason: 'Focus: Keep the bottle upright',
+          targetLabel: 'Complete one confirmed hold (2.5 seconds)',
+          targetUsesHoldMs: true,
+          recommendedDurationSeconds: 180,
+        ),
+      ),
+      onSave: (_) async => 'session-coaching',
+    );
+
+    expect(find.text('What Went Well'), findsOneWidget);
+    expect(find.text('Needs Improvement'), findsOneWidget);
+    expect(find.text('Recommended Next Session'), findsOneWidget);
+    expect(find.text('Hold confirmed'), findsOneWidget);
+    expect(find.text('Keep the bottle upright on your palm.'), findsOneWidget);
+    expect(find.textContaining('Practice Hand Stall again'), findsOneWidget);
+    expect(find.textContaining('mistakes'), findsNothing);
+    expect(find.textContaining(' times'), findsNothing);
+  });
+
+  testWidgets('empty legacy coaching does not fabricate a recommendation', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(score: 70, includeEmptyCoaching: true),
+      onSave: (_) async => 'session-legacy',
+    );
+
+    expect(find.text('Recommended Next Session'), findsNothing);
+    expect(find.textContaining('Practice Hand Stall again'), findsNothing);
+    expect(find.text('What Went Well'), findsOneWidget);
+    expect(find.text('Needs Improvement'), findsOneWidget);
+  });
+
+  testWidgets('confirmed strength and recurring improvement can coexist', (
+    tester,
+  ) async {
+    final improvements = [
+      _improvement('Keep the bottle upright on your palm.'),
+    ];
+    await _openSummary(
+      tester,
+      assessment: _assessment(
+        score: 100,
+        heldSteady: true,
+        improvements: improvements,
+        strengths: const [
+          SessionStrength(
+            code: 'hold_confirmed',
+            message: 'Hold confirmed',
+            sampleCount: 1,
+            sampleRatio: 1,
+            evidenceKind: 'holdConfirmed',
+          ),
+        ],
+        recommendation: const SessionRecommendation(
+          movementName: 'Hand Stall',
+          reason: 'Focus: Keep the bottle upright',
+          targetLabel: 'Complete one confirmed hold',
+          targetUsesHoldMs: false,
+          recommendedDurationSeconds: 180,
+        ),
+      ),
+      onSave: (_) async => 'session-coexist',
+    );
+
+    expect(find.text('Hold confirmed'), findsOneWidget);
+    expect(find.text('Keep the bottle upright on your palm.'), findsOneWidget);
+  });
+
+  testWidgets('score 100 with no improvements shows threshold message', (
     tester,
   ) async {
     await _openSummary(
@@ -106,39 +212,15 @@ void main() {
       onSave: (_) async => 'session-perfect',
     );
 
-    expect(find.text('Performance'), findsOneWidget);
-    expect(find.text('What to Improve'), findsNothing);
+    expect(find.text('Needs Improvement'), findsOneWidget);
     expect(
-      find.text('Great form — no corrections needed this session!'),
+      find.text('No recurring technique issue met the session threshold.'),
       findsOneWidget,
     );
   });
 
-  testWidgets('perfect assessment does not show old warning messages', (
-    tester,
-  ) async {
-    await _openSummary(
-      tester,
-      assessment: _assessment(
-        score: 100,
-        heldSteady: true,
-        latestFeedback: _practiceFeedback(
-          'Great grip!',
-          feedbackType: 'positive',
-          score: 100,
-        ),
-      ),
-      onSave: (_) async => 'session-perfect',
-    );
-
-    expect(
-      find.textContaining('Move your hand to the upper bottle neck'),
-      findsNothing,
-    );
-  });
-
   testWidgets(
-    'score below 80 with no improvements does not show no corrections needed',
+    'score below 80 with no improvements shows neutral needs-improvement message',
     (tester) async {
       await _openSummary(
         tester,
@@ -146,43 +228,8 @@ void main() {
         onSave: (_) async => 'session-low',
       );
 
-      expect(
-        find.text('Great form — no corrections needed this session!'),
-        findsNothing,
-      );
-    },
-  );
-
-  testWidgets(
-    'score below 80 with no improvements does not mention tips below',
-    (tester) async {
-      await _openSummary(
-        tester,
-        assessment: _assessment(score: 55),
-        onSave: (_) async => 'session-low',
-      );
-
-      expect(find.textContaining('tips below'), findsNothing);
-      expect(find.textContaining('fine-tune'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'score below 80 with no improvements shows neutral performance message',
-    (tester) async {
-      await _openSummary(
-        tester,
-        assessment: _assessment(score: 55),
-        onSave: (_) async => 'session-low',
-      );
-
-      expect(find.text('Performance'), findsOneWidget);
       expect(
         find.textContaining('No recurring technique issue was detected'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Keep practicing to improve your overall score'),
         findsOneWidget,
       );
     },
@@ -198,32 +245,69 @@ void main() {
     );
 
     expect(
-      find.text('You held "Basic Flip" steady. Well done!'),
+      find.text('You held "Hand Stall" steady. Well done!'),
       findsOneWidget,
     );
     expect(find.byIcon(FluentIcons.trophy2_solid), findsOneWidget);
   });
 
-  testWidgets('non-perfect assessment displays persistent improvements', (
+  testWidgets('long coaching content keeps actions reachable at 1366x768', (
     tester,
   ) async {
+    final improvements = [
+      _improvement(
+        'Keep the bottle upright on your palm while maintaining open fingers '
+        'and centering the base carefully over the palm center.',
+      ),
+      _improvement(
+        'Hold the bottle steady on your open palm without horizontal drift '
+        'or sudden vertical bounce during the confirmation window.',
+      ),
+      _improvement(
+        'Place the bottle base directly on your open palm and avoid letting '
+        'the bottom drop clearly below the tracked palm landmark.',
+      ),
+    ];
     await _openSummary(
       tester,
+      size: const Size(1366, 768),
       assessment: _assessment(
-        score: 72,
-        improvements: [
-          _improvement('Keep your wrist steady'),
-          _improvement('Lower your elbow'),
+        score: 64,
+        improvements: improvements,
+        strengths: const [
+          SessionStrength(
+            code: 'hold_partial_progress',
+            message: 'Best hold reached 82% of the target',
+            sampleCount: 1,
+            sampleRatio: 0.82,
+            evidenceKind: 'holdPartialProgress',
+          ),
+          SessionStrength(
+            code: 'hand_stall_locked',
+            message: 'Hand stall locked in.',
+            sampleCount: 12,
+            sampleRatio: 0.4,
+            evidenceKind: 'positiveCode',
+          ),
         ],
+        recommendation: const SessionRecommendation(
+          movementName: 'Hand Stall',
+          reason:
+              'Focus: Keep the bottle upright on your palm while refining '
+              'steady balance through the full confirmation window',
+          targetLabel: 'Complete one confirmed hold (2.5 seconds)',
+          targetUsesHoldMs: true,
+          recommendedDurationSeconds: 180,
+        ),
       ),
-      onSave: (_) async => 'session-improve',
+      onSave: (_) async => 'session-long',
     );
 
-    expect(find.text('What to Improve'), findsOneWidget);
-    expect(find.text('Performance'), findsNothing);
-    expect(find.text('Keep your wrist steady'), findsOneWidget);
-    expect(find.text('Lower your elbow'), findsOneWidget);
-    expect(find.textContaining('2 tips'), findsOneWidget);
+    expect(find.text('Try Again'), findsOneWidget);
+    expect(find.text('Discard without saving'), findsOneWidget);
+    await tester.ensureVisible(_saveButton);
+    expect(_saveButton, findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('duplicate save clicks issue one persistence operation', (
@@ -297,7 +381,7 @@ void main() {
                 onPressed: () async {
                   result = await SessionSummarySheet.show(
                     context,
-                    movement: 'Basic Flip',
+                    movement: 'Hand Stall',
                     durationSeconds: 45,
                     assessment: _assessment(
                       score: 50,

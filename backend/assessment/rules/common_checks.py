@@ -12,6 +12,7 @@ from config import (
     DOUBLE_HAND_OPEN_PALM_EXTENSION_RATIO,
     DOUBLE_HAND_MIN_EXTENDED_FINGERS,
 )
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from vision.types import (
     BottleDetection,
@@ -197,6 +198,7 @@ def check_bottle_visible(
             feedback=f"{prop_name} not detected. Keep the {prop_name.lower()} visible.",
             feedback_type="error",
             posture_status="unknown",
+            feedback_code=FeedbackCode.PROP_NOT_DETECTED.value,
         )
     return None
 
@@ -207,6 +209,7 @@ def check_hands_visible(hands: Optional[HandsResult]) -> Optional[RuleResult]:
             feedback="Hand not detected. Keep your hand in frame.",
             feedback_type="warning",
             posture_status="unknown",
+            feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
         )
     return None
 

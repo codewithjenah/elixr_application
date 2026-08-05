@@ -134,7 +134,7 @@ class SessionSummarySheet extends StatelessWidget {
   static String _tierMessage(int score, {required bool hasImprovements}) {
     if (score >= 80) {
       return hasImprovements
-          ? 'Strong score — refine the recurring tips below.'
+          ? 'Strong finish — review recurring technique notes below.'
           : 'Solid execution. Keep the consistency going.';
     }
     if (score >= 60) {
@@ -154,7 +154,7 @@ class SessionSummarySheet extends StatelessWidget {
 
   static String _performanceMessage(int score) {
     if (score >= 80) {
-      return 'Great form — no corrections needed this session!';
+      return 'No recurring technique issue met the session threshold.';
     }
     return 'No recurring technique issue was detected. '
         'Keep practicing to improve your overall score.';
@@ -176,7 +176,6 @@ class SessionSummarySheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final improvements = assessment.improvementMessages;
     final scoreClr = _scoreColor(_score);
     final tier = _tier(_score);
 
@@ -209,7 +208,7 @@ class SessionSummarySheet extends StatelessWidget {
             _buildHeader(),
             _buildScoreSection(scoreClr, tier, assessment.hasImprovements),
             _buildDurationRow(context),
-            Flexible(child: _buildImprovements(context, improvements)),
+            Flexible(child: _buildCoachingScroll(context)),
             _buildActions(context),
           ],
         ),
@@ -430,47 +429,136 @@ class SessionSummarySheet extends StatelessWidget {
     );
   }
 
-  Widget _buildImprovements(BuildContext context, List<String> improvements) {
+  Widget _buildCoachingScroll(BuildContext context) {
+    final coaching = assessment.coaching;
+    final strengths = coaching.strengths;
+    final improvements = assessment.improvements;
+    final recommendation = coaching.recommendation;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(AppSpacing.xl, 0, AppSpacing.xl, 0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                improvements.isEmpty ? 'Performance' : 'What to Improve',
-                style: AppTheme.headingMedium.copyWith(fontSize: 15),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildCoachingSectionHeader(
+              title: 'What Went Well',
+              accent: AppColors.success,
+              count: strengths.length,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            if (strengths.isEmpty)
+              _buildEmptyCoachingCard(
+                context,
+                message: _heldSteady
+                    ? 'Hold confirmed — keep reinforcing clean technique.'
+                    : 'No standout technique strength met the session threshold.',
+                accent: AppColors.success,
+                icon: FluentIcons.emoji2,
+              )
+            else
+              _BulletCard(
+                accent: AppColors.success,
+                items: strengths.map((s) => s.message).toList(growable: false),
               ),
-              if (improvements.isNotEmpty) ...[
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${improvements.length} tip${improvements.length > 1 ? 's' : ''}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.warning,
-                    ),
-                  ),
-                ),
-              ],
+            const SizedBox(height: AppSpacing.lg),
+            _buildCoachingSectionHeader(
+              title: 'Needs Improvement',
+              accent: AppColors.warning,
+              count: improvements.length,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            if (improvements.isEmpty)
+              _buildPerformanceCard()
+            else
+              _BulletCard(
+                accent: AppColors.warning,
+                items: improvements
+                    .map((i) => i.message)
+                    .toList(growable: false),
+              ),
+            if (recommendation != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _buildCoachingSectionHeader(
+                title: 'Recommended Next Session',
+                accent: AppColors.primary,
+                count: null,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _RecommendationCard(recommendation: recommendation),
             ],
+            const SizedBox(height: AppSpacing.sm),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCoachingSectionHeader({
+    required String title,
+    required Color accent,
+    required int? count,
+  }) {
+    return Row(
+      children: [
+        Text(title, style: AppTheme.headingMedium.copyWith(fontSize: 15)),
+        if (count != null && count > 0) ...[
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: accent,
+              ),
+            ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          if (improvements.isEmpty)
-            _buildPerformanceCard()
-          else
-            Flexible(child: _TipsCard(tips: improvements)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildEmptyCoachingCard(
+    BuildContext context, {
+    required String message,
+    required Color accent,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 18, color: accent),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.elixTextSecondary,
+                height: 1.4,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -651,11 +739,12 @@ class _AnimatedEntranceState extends State<_AnimatedEntrance>
   }
 }
 
-/// Single beginner-friendly tips card (all tips in one place).
-class _TipsCard extends StatelessWidget {
-  const _TipsCard({required this.tips});
+/// Compact bullet list for strengths or improvements (no nested scroll).
+class _BulletCard extends StatelessWidget {
+  const _BulletCard({required this.accent, required this.items});
 
-  final List<String> tips;
+  final Color accent;
+  final List<String> items;
 
   @override
   Widget build(BuildContext context) {
@@ -668,44 +757,109 @@ class _TipsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.elixBackground,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+        border: Border.all(color: accent.withValues(alpha: 0.3)),
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < tips.length; i++) ...[
-              if (i > 0) const SizedBox(height: AppSpacing.sm),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: AppColors.warning,
-                        shape: BoxShape.circle,
-                      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      shape: BoxShape.circle,
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      tips[i],
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textPrimary,
-                        height: 1.45,
-                      ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    items[i],
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.elixTextPrimary,
+                      height: 1.45,
                     ),
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ],
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecommendationCard extends StatelessWidget {
+  const _RecommendationCard({required this.recommendation});
+
+  final SessionRecommendation recommendation;
+
+  static String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return s > 0 ? '${m}m ${s}s' : '${m}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: context.elixBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Practice ${recommendation.movementName} again',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            recommendation.reason,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.elixTextSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Target: ${recommendation.targetLabel}',
+            style: TextStyle(
+              fontSize: 13,
+              color: context.elixTextPrimary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Recommended duration: '
+            '${_formatDuration(recommendation.recommendedDurationSeconds)}',
+            style: TextStyle(
+              fontSize: 13,
+              color: context.elixTextPrimary,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }

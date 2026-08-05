@@ -488,6 +488,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     final summaryScore = _feedback.latestFeedback?.score ?? 0;
     final summaryDuration = _run.elapsedSeconds;
     final sessionAssessment = _feedback.buildSessionAssessment(
+      movement: _movement,
       finalScore: summaryScore,
       heldSteady: heldSteady,
     );
