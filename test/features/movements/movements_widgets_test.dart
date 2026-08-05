@@ -1,9 +1,6 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/movement.dart';
-import 'package:elixr_application/data/models/movement_mastery.dart';
-import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
-import 'package:elixr_application/core/constants/movement_mastery_rules.dart';
 import 'package:elixr_application/features/movements/movements_presentation.dart';
 import 'package:elixr_application/features/movements/widgets/movement_card.dart';
 import 'package:elixr_application/features/movements/widgets/movement_difficulty_section.dart';
@@ -132,56 +129,6 @@ const bottleInATinMovement = Movement(
   supportedProps: [TrainingProp.bottleAndShaker],
 );
 
-MovementMastery masteryFor(
-  Movement movement, {
-  List<Session> sessions = const [],
-}) {
-  final built = buildMovementMasteries(
-    sessions: sessions,
-    movements: [movement],
-  );
-  if (built.isNotEmpty) return built.first;
-
-  final noviceReq = requirementForLevel(MovementMasteryLevel.novice);
-  return MovementMastery(
-    movement: movement,
-    catalogIndex: 0,
-    level: MovementMasteryLevel.unpracticed,
-    masteryPoints: 0,
-    completedSessions: 0,
-    lifetimeAverageScore: null,
-    recentAverageScore: null,
-    previousRecentAverageScore: null,
-    bestScore: null,
-    scoreTrend: ScoreTrend.unknown,
-    lastPracticedAt: null,
-    progressToNextLevel: 0,
-    grandmasterProgress: 0,
-    sessionsRemaining: noviceReq.minSessions,
-    masteryPointsRemaining: noviceReq.minMasteryPoints,
-    nextLevel: MovementMasteryLevel.novice,
-  );
-}
-
-Session practiceSession(
-  Movement movement, {
-  int score = 70,
-  String? createdAt,
-}) {
-  return Session(
-    userId: 'user-1',
-    movementName: movement.name,
-    difficulty: movement.difficulty,
-    score: score,
-    durationSeconds: 60,
-    createdAt: createdAt,
-  );
-}
-
-Map<String, MovementMastery> masteryMap(List<MovementMastery> masteries) {
-  return {for (final m in masteries) normalizeMovementName(m.movement.name): m};
-}
-
 void main() {
   group('MovementsHeader', () {
     testWidgets('shows practiced, sessions, and weighted average labels', (
@@ -195,9 +142,6 @@ void main() {
               totalMovements: 9,
               totalSessions: 6,
               overallAverage: 84,
-              overallMasteryProgress: 0.33,
-              totalMasteryPoints: 120,
-              grandmasterCount: 0,
             ),
           ),
         ),
@@ -213,7 +157,6 @@ void main() {
       expect(find.text('3 of 9'), findsOneWidget);
       expect(find.text('6'), findsWidgets);
       expect(find.text('84%'), findsOneWidget);
-      expect(find.text('33%'), findsWidgets);
       expect(find.textContaining('Best avg'), findsNothing);
     });
 
@@ -226,9 +169,6 @@ void main() {
               totalMovements: 9,
               totalSessions: 0,
               overallAverage: null,
-              overallMasteryProgress: 0,
-              totalMasteryPoints: 0,
-              grandmasterCount: 0,
             ),
           ),
         ),
@@ -243,15 +183,19 @@ void main() {
     testWidgets('shows new state for unpracticed movement', (tester) async {
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 900,
-            child: MovementCard(mastery: masteryFor(easyMovement)),
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
           ),
         ),
       );
 
-      expect(find.text('Lv. 0 · Unpracticed'), findsOneWidget);
-      expect(find.text('Start your Novice path'), findsWidgets);
+      expect(find.text('New'), findsOneWidget);
+      expect(find.text('Ready to learn'), findsOneWidget);
       expect(find.text('Start practice'), findsOneWidget);
       expect(find.text('Hands tracking'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
@@ -261,50 +205,36 @@ void main() {
     testWidgets('shows average score and practice-again for practiced', (
       tester,
     ) async {
-      final mastery = masteryFor(
-        easyMovement,
-        sessions: [
-          practiceSession(
-            easyMovement,
-            score: 84,
-            createdAt: '2026-01-01T00:00:00.000Z',
-          ),
-          practiceSession(
-            easyMovement,
-            score: 84,
-            createdAt: '2026-01-02T00:00:00.000Z',
-          ),
-        ],
-      );
-
       await tester.pumpWidget(
-        wrap(SizedBox(width: 900, child: MovementCard(mastery: mastery))),
+        wrap(
+          const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 2,
+              avgScore: 84.4,
+            ),
+          ),
+        ),
       );
 
+      expect(find.text('Practiced'), findsOneWidget);
+      expect(find.text('2 sessions'), findsOneWidget);
+      expect(find.text('Average score 84%'), findsOneWidget);
       expect(find.text('Practice again'), findsOneWidget);
-      expect(find.textContaining('mastery pts'), findsOneWidget);
-      expect(find.textContaining('Lv.'), findsOneWidget);
-      expect(find.textContaining('Recent'), findsOneWidget);
-      expect(find.textContaining('Best'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
-      expect(find.textContaining('Average score'), findsNothing);
-      expect(find.text('Practiced'), findsNothing);
     });
 
     testWidgets('wide desktop layout does not overflow', (tester) async {
       await setSurface(tester, const Size(1280, 800));
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 1200,
             child: MovementCard(
-              mastery: masteryFor(
-                easyMovement,
-                sessions: [
-                  practiceSession(easyMovement, score: 100),
-                  practiceSession(easyMovement, score: 100),
-                ],
-              ),
+              movement: easyMovement,
+              sessionCount: 2,
+              avgScore: 100,
             ),
           ),
         ),
@@ -318,16 +248,12 @@ void main() {
       await setSurface(tester, const Size(400, 800));
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 360,
             child: MovementCard(
-              mastery: masteryFor(
-                easyMovement,
-                sessions: [
-                  practiceSession(easyMovement, score: 100),
-                  practiceSession(easyMovement, score: 100),
-                ],
-              ),
+              movement: easyMovement,
+              sessionCount: 2,
+              avgScore: 100,
             ),
           ),
         ),
@@ -342,9 +268,13 @@ void main() {
     ) async {
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 900,
-            child: MovementCard(mastery: masteryFor(disabledMovement)),
+            child: MovementCard(
+              movement: disabledMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
           ),
         ),
       );
@@ -360,9 +290,13 @@ void main() {
     ) async {
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 900,
-            child: MovementCard(mastery: masteryFor(mediumMovement)),
+            child: MovementCard(
+              movement: mediumMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
           ),
         ),
       );
@@ -386,9 +320,13 @@ void main() {
       late final GoRouter router;
       router = practiceTrackingRouter(
         home: ScaffoldPage(
-          content: SizedBox(
+          content: const SizedBox(
             width: 900,
-            child: MovementCard(mastery: masteryFor(mediumMovement)),
+            child: MovementCard(
+              movement: mediumMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
           ),
         ),
         navigatedLocations: navigated,
@@ -424,13 +362,12 @@ void main() {
       late final GoRouter router;
       router = practiceTrackingRouter(
         home: ScaffoldPage(
-          content: SizedBox(
+          content: const SizedBox(
             width: 900,
             child: MovementCard(
-              mastery: masteryFor(
-                mediumMovement,
-                sessions: [practiceSession(mediumMovement, score: 70)],
-              ),
+              movement: mediumMovement,
+              sessionCount: 1,
+              avgScore: 70,
             ),
           ),
         ),
@@ -459,9 +396,13 @@ void main() {
     ) async {
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 900,
-            child: MovementCard(mastery: masteryFor(bottleInATinMovement)),
+            child: MovementCard(
+              movement: bottleInATinMovement,
+              sessionCount: 0,
+              avgScore: 0,
+            ),
           ),
         ),
       );
@@ -480,13 +421,12 @@ void main() {
       late final GoRouter router;
       router = practiceTrackingRouter(
         home: ScaffoldPage(
-          content: SizedBox(
+          content: const SizedBox(
             width: 900,
             child: MovementCard(
-              mastery: masteryFor(
-                bottleInATinMovement,
-                sessions: [practiceSession(bottleInATinMovement, score: 90)],
-              ),
+              movement: bottleInATinMovement,
+              sessionCount: 1,
+              avgScore: 90,
             ),
           ),
         ),
@@ -513,21 +453,21 @@ void main() {
       await tester.pumpWidget(
         wrap(
           Column(
-            children: [
+            children: const [
               SizedBox(
                 width: 900,
-                child: MovementCard(mastery: masteryFor(easyMovement)),
+                child: MovementCard(
+                  movement: easyMovement,
+                  sessionCount: 0,
+                  avgScore: 0,
+                ),
               ),
               SizedBox(
                 width: 900,
                 child: MovementCard(
-                  mastery: masteryFor(
-                    hardMovement,
-                    sessions: [
-                      practiceSession(hardMovement, score: 88),
-                      practiceSession(hardMovement, score: 88),
-                    ],
-                  ),
+                  movement: hardMovement,
+                  sessionCount: 2,
+                  avgScore: 88,
                 ),
               ),
             ],
@@ -548,16 +488,12 @@ void main() {
       await setSurface(tester, const Size(400, 800));
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 360,
             child: MovementCard(
-              mastery: masteryFor(
-                mediumMovement,
-                sessions: [
-                  practiceSession(mediumMovement, score: 80),
-                  practiceSession(mediumMovement, score: 80),
-                ],
-              ),
+              movement: mediumMovement,
+              sessionCount: 2,
+              avgScore: 80,
             ),
           ),
         ),
@@ -575,22 +511,17 @@ void main() {
       await setSurface(tester, const Size(1280, 1200));
       await tester.pumpWidget(
         wrap(
-          SizedBox(
+          const SizedBox(
             width: 1200,
             child: MovementDifficultySection(
               difficulty: 'Easy',
-              movements: const [
+              movements: [
                 easyMovement,
                 secondEasyMovement,
                 thirdEasyMovement,
                 fourthEasyMovement,
               ],
-              masteryByName: masteryMap([
-                masteryFor(
-                  easyMovement,
-                  sessions: [practiceSession(easyMovement, score: 70)],
-                ),
-              ]),
+              stats: {'Normal Grip': (count: 1, avgScore: 70)},
             ),
           ),
         ),
@@ -598,7 +529,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Easy — Foundations'), findsOneWidget);
-      expect(find.textContaining('Easy mastery'), findsOneWidget);
+      expect(find.text('1 of 4 practiced'), findsOneWidget);
       expect(find.byType(MovementCard), findsNWidgets(4));
       expect(find.byType(GridView), findsNothing);
 
@@ -622,7 +553,7 @@ void main() {
             child: MovementDifficultySection(
               difficulty: 'Easy',
               movements: [easyMovement, secondEasyMovement],
-              masteryByName: {},
+              stats: {},
             ),
           ),
         ),
@@ -650,114 +581,83 @@ void main() {
     testWidgets('section practiced count remains correct', (tester) async {
       await tester.pumpWidget(
         wrap(
-          MovementDifficultySection(
+          const MovementDifficultySection(
             difficulty: 'Medium',
-            movements: const [
-              easyMovement,
-              secondEasyMovement,
-              thirdEasyMovement,
-            ],
-            masteryByName: masteryMap([
-              masteryFor(
-                easyMovement,
-                sessions: [
-                  practiceSession(
-                    easyMovement,
-                    score: 80,
-                    createdAt: '2026-01-01T00:00:00.000Z',
-                  ),
-                  practiceSession(
-                    easyMovement,
-                    score: 80,
-                    createdAt: '2026-01-02T00:00:00.000Z',
-                  ),
-                ],
-              ),
-              masteryFor(
-                secondEasyMovement,
-                sessions: [practiceSession(secondEasyMovement, score: 70)],
-              ),
-            ]),
+            movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
+            stats: {
+              'Normal Grip': (count: 2, avgScore: 80),
+              "Bartender's Grip": (count: 1, avgScore: 70),
+            },
           ),
         ),
       );
 
       expect(find.text('Medium — Balance and control'), findsOneWidget);
-      expect(find.textContaining('Medium mastery'), findsOneWidget);
+      expect(find.text('2 of 3 practiced'), findsOneWidget);
     });
   });
 
   group('theme readability', () {
     testWidgets('header and cards render in light theme', (tester) async {
-      final cardMastery = masteryFor(
-        easyMovement,
-        sessions: [
-          practiceSession(easyMovement, score: 75),
-          practiceSession(easyMovement, score: 75),
-        ],
-      );
-
       await tester.pumpWidget(
         wrap(
           brightness: Brightness.light,
           Column(
-            children: [
-              const MovementsHeader(
+            children: const [
+              MovementsHeader(
                 summary: MovementsSummary(
                   practicedCount: 1,
                   totalMovements: 9,
                   totalSessions: 2,
                   overallAverage: 75,
-                  overallMasteryProgress: 0.12,
-                  totalMasteryPoints: 34,
-                  grandmasterCount: 0,
                 ),
               ),
-              SizedBox(width: 900, child: MovementCard(mastery: cardMastery)),
+              SizedBox(
+                width: 900,
+                child: MovementCard(
+                  movement: easyMovement,
+                  sessionCount: 2,
+                  avgScore: 75,
+                ),
+              ),
             ],
           ),
         ),
       );
 
       expect(find.text('75%'), findsOneWidget);
-      expect(find.textContaining('mastery pts'), findsOneWidget);
-      expect(find.textContaining('Lv.'), findsOneWidget);
+      expect(find.text('Average score 75%'), findsOneWidget);
     });
 
     testWidgets('header and cards render in dark theme', (tester) async {
-      final cardMastery = masteryFor(
-        easyMovement,
-        sessions: [
-          practiceSession(easyMovement, score: 75),
-          practiceSession(easyMovement, score: 75),
-        ],
-      );
-
       await tester.pumpWidget(
         wrap(
           brightness: Brightness.dark,
           Column(
-            children: [
-              const MovementsHeader(
+            children: const [
+              MovementsHeader(
                 summary: MovementsSummary(
                   practicedCount: 1,
                   totalMovements: 9,
                   totalSessions: 2,
                   overallAverage: 75,
-                  overallMasteryProgress: 0.12,
-                  totalMasteryPoints: 34,
-                  grandmasterCount: 0,
                 ),
               ),
-              SizedBox(width: 900, child: MovementCard(mastery: cardMastery)),
+              SizedBox(
+                width: 900,
+                child: MovementCard(
+                  movement: easyMovement,
+                  sessionCount: 2,
+                  avgScore: 75,
+                ),
+              ),
             ],
           ),
         ),
       );
 
       expect(find.text('75%'), findsOneWidget);
-      expect(find.textContaining('mastery pts'), findsOneWidget);
-      expect(find.textContaining('Lv.'), findsOneWidget);
+      expect(find.text('Average score 75%'), findsOneWidget);
     });
   });
 }
