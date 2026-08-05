@@ -3,10 +3,12 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
+import 'package:elixr_application/features/settings/models/pending_profile_crop.dart';
 import 'package:elixr_application/features/settings/sections/account_profile_section.dart';
 import 'package:elixr_application/features/settings/settings_screen.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
@@ -15,6 +17,7 @@ import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 class _TrackingAuthRepository implements AuthRepositoryBase {
@@ -124,7 +127,11 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   }) async {}
 }
 
-class _NoopProfileImageRepository implements ProfileImageRepositoryBase {
+class _TrackingProfileImageRepository implements ProfileImageRepositoryBase {
+  int uploadCallCount = 0;
+  Uint8List? lastBytes;
+  String? lastContentType;
+
   @override
   Future<void> deleteProfileImage({
     required String authenticatedUid,
@@ -137,8 +144,90 @@ class _NoopProfileImageRepository implements ProfileImageRepositoryBase {
     required Uint8List bytes,
     required String contentType,
   }) async {
-    throw UnimplementedError();
+    uploadCallCount++;
+    lastBytes = bytes;
+    lastContentType = contentType;
+    return ProfileImageUploadResult(
+      downloadUrl: 'https://storage.example/avatar_$uploadCallCount.png',
+      storagePath: 'users/$userId/profile/avatar_$uploadCallCount.png',
+    );
   }
+}
+
+/// Minimal valid 1×1 PNG.
+Uint8List _testPngBytes() {
+  return Uint8List.fromList(<int>[
+    0x89,
+    0x50,
+    0x4E,
+    0x47,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+    0x00,
+    0x00,
+    0x00,
+    0x0D,
+    0x49,
+    0x48,
+    0x44,
+    0x52,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x08,
+    0x02,
+    0x00,
+    0x00,
+    0x00,
+    0x90,
+    0x77,
+    0x53,
+    0xDE,
+    0x00,
+    0x00,
+    0x00,
+    0x0C,
+    0x49,
+    0x44,
+    0x41,
+    0x54,
+    0x08,
+    0xD7,
+    0x63,
+    0xF8,
+    0xCF,
+    0xC0,
+    0x00,
+    0x00,
+    0x00,
+    0x03,
+    0x00,
+    0x01,
+    0x00,
+    0x05,
+    0xFE,
+    0xD4,
+    0xEF,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x49,
+    0x45,
+    0x4E,
+    0x44,
+    0xAE,
+    0x42,
+    0x60,
+    0x82,
+  ]);
 }
 
 User _testUser() {
@@ -174,6 +263,12 @@ Future<void> _tapSaveChanges(WidgetTester tester) async {
   }
 }
 
+Future<void> _pumpFrames(WidgetTester tester, {int count = 20}) async {
+  for (var i = 0; i < count; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
 /// Finds the TextBox under a SettingsFormField label within Account & Profile.
 Finder _accountField(String label) {
   final labelFinder = find.descendant(
@@ -193,6 +288,7 @@ void main() {
   late Directory tempDir;
   late File settingsFile;
   late _TrackingAuthRepository authRepository;
+  late _TrackingProfileImageRepository imageRepository;
   late AuthService authService;
   late SettingsService settingsService;
   late CameraDeviceService cameraDeviceService;
@@ -201,6 +297,7 @@ void main() {
     tempDir = await Directory.systemTemp.createTemp('elixr_profile_save_');
     settingsFile = File('${tempDir.path}/settings.json');
     authRepository = _TrackingAuthRepository(initialUser: _testUser());
+    imageRepository = _TrackingProfileImageRepository();
     settingsService = SettingsService(settingsFile: settingsFile);
     await settingsService.initialize();
     cameraDeviceService = CameraDeviceService(
@@ -209,7 +306,7 @@ void main() {
     authService = AuthService(
       repository: authRepository,
       leaderboardRepository: null,
-      profileImageRepository: _NoopProfileImageRepository(),
+      profileImageRepository: imageRepository,
     );
     authService.seedAuthenticatedUser(_testUser());
   });
@@ -251,7 +348,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await _pumpFrames(tester);
 
       await tester.enterText(_accountField('First Name'), 'Updated');
       await tester.enterText(_accountField('Last Name'), 'Name');
@@ -286,7 +383,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await _pumpFrames(tester);
 
       await tester.enterText(_accountField('First Name'), 'Grace');
       await tester.enterText(_accountField('Last Name'), 'Hopper');
@@ -353,6 +450,217 @@ void main() {
       expect(authRepository.isCurrentEmailVerifiedCallCount, 0);
       expect(authRepository.requestCurrentEmailVerificationCallCount, 0);
       expect(authService.hasPendingEmailChange, isTrue);
+    });
+  });
+
+  group('AccountProfileSection crop staging', () {
+    XFile memoryPickFile() {
+      return XFile.fromData(
+        _testPngBytes(),
+        name: 'picked.png',
+        mimeType: 'image/png',
+      );
+    }
+
+    Future<void> pumpSection(
+      WidgetTester tester, {
+      AccountProfileImagePicker? pickProfileImage,
+      AccountProfileImageCropper? cropProfileImage,
+    }) async {
+      await tester.pumpWidget(
+        wrap(
+          AccountProfileSection(
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            pickProfileImage: pickProfileImage,
+            cropProfileImage: cropProfileImage,
+          ),
+        ),
+      );
+      await _pumpFrames(tester);
+    }
+
+    Future<void> tapAvatar(WidgetTester tester) async {
+      final target = find.byKey(const Key('account_profile_avatar_tap'));
+      expect(target, findsOneWidget);
+      await tester.tap(target);
+      await tester.pump();
+      await _pumpFrames(tester, count: 30);
+    }
+
+    testWidgets('selecting an image and cancelling crop keeps section clean', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async => null,
+      );
+
+      await tapAvatar(tester);
+
+      final state = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(state.isDirty, isFalse);
+      expect(imageRepository.uploadCallCount, 0);
+    });
+
+    testWidgets('applying a crop marks the section dirty', (tester) async {
+      await _setSurface(tester);
+      final croppedBytes = Uint8List.fromList(<int>[9, 8, 7, 6]);
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async {
+          return PendingProfileCrop(bytes: croppedBytes);
+        },
+      );
+
+      await tapAvatar(tester);
+
+      final state = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(state.isDirty, isTrue);
+
+      final avatar = tester.widget<ProfileAvatarWidget>(
+        find.byType(ProfileAvatarWidget),
+      );
+      expect(avatar.memoryPreviewBytes, croppedBytes);
+    });
+
+    testWidgets('discard changes removes the crop preview', (tester) async {
+      await _setSurface(tester);
+      authService.seedAuthenticatedUser(
+        User(
+          id: 'u1',
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'user@example.com',
+          profilePictureUrl: 'https://storage.example/saved.jpg',
+        ),
+      );
+      final croppedBytes = Uint8List.fromList(<int>[1, 1, 1, 1]);
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async {
+          return PendingProfileCrop(bytes: croppedBytes);
+        },
+      );
+
+      await tapAvatar(tester);
+
+      final state = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(state.isDirty, isTrue);
+      state.discardChanges();
+      await tester.pump();
+
+      expect(state.isDirty, isFalse);
+      final avatar = tester.widget<ProfileAvatarWidget>(
+        find.byType(ProfileAvatarWidget),
+      );
+      expect(avatar.memoryPreviewBytes, isNull);
+      expect(avatar.networkImageUrl, 'https://storage.example/saved.jpg');
+    });
+
+    testWidgets('save uploads exactly the cropped PNG bytes once', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      final croppedBytes = Uint8List.fromList(List<int>.generate(64, (i) => i));
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async {
+          return PendingProfileCrop(bytes: croppedBytes);
+        },
+      );
+
+      await tapAvatar(tester);
+      await _tapSaveChanges(tester);
+      await _pumpFrames(tester);
+
+      expect(imageRepository.uploadCallCount, 1);
+      expect(imageRepository.lastContentType, 'image/png');
+      expect(imageRepository.lastBytes, croppedBytes);
+      expect(authRepository.updateCallCount, 1);
+      expect(find.text('Profile updated successfully.'), findsOneWidget);
+
+      final state = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(state.isDirty, isFalse);
+    });
+
+    testWidgets('crop failure shows error and does not mark dirty', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async {
+          throw Exception('Crop pipeline failed');
+        },
+      );
+
+      await tapAvatar(tester);
+      await _pumpFrames(tester);
+
+      expect(find.text('Error'), findsOneWidget);
+      expect(find.textContaining('Crop pipeline failed'), findsOneWidget);
+
+      final state = tester.state<AccountProfileSectionState>(
+        find.byType(AccountProfileSection),
+      );
+      expect(state.isDirty, isFalse);
+      expect(imageRepository.uploadCallCount, 0);
+    });
+
+    testWidgets('memory crop preview is preferred over saved network avatar', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      authService.seedAuthenticatedUser(
+        User(
+          id: 'u1',
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'user@example.com',
+          profilePictureUrl: 'https://storage.example/saved.jpg',
+        ),
+      );
+      final croppedBytes = _testPngBytes();
+
+      await pumpSection(
+        tester,
+        pickProfileImage: () async => memoryPickFile(),
+        cropProfileImage: (context, bytes) async {
+          return PendingProfileCrop(bytes: croppedBytes);
+        },
+      );
+
+      await tapAvatar(tester);
+
+      final avatar = tester.widget<ProfileAvatarWidget>(
+        find.byType(ProfileAvatarWidget),
+      );
+      expect(avatar.memoryPreviewBytes, croppedBytes);
+      expect(avatar.networkImageUrl, 'https://storage.example/saved.jpg');
+
+      final memoryImages = tester
+          .widgetList<Image>(find.byType(Image))
+          .where((image) => image.image is MemoryImage);
+      expect(memoryImages, isNotEmpty);
     });
   });
 }

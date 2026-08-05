@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -9,22 +10,25 @@ import 'profile_border_frame.dart';
 /// settings screen.
 ///
 /// Resolves the image to show using this priority:
-/// 1. [localPreviewPath] — a just-picked file not yet uploaded, when it
-///    still exists on disk (profile settings screen only).
-/// 2. [networkImageUrl] — the saved Firebase Cloud Storage avatar, which
+/// 1. [memoryPreviewBytes] — an in-memory cropped preview not yet uploaded
+///    (profile settings crop flow).
+/// 2. [localPreviewPath] — a just-picked file not yet uploaded, when it
+///    still exists on disk (legacy / compatibility).
+/// 3. [networkImageUrl] — the saved Firebase Cloud Storage avatar, which
 ///    works across Windows machines.
-/// 3. [legacyLocalPath] — a pre-Cloud-Storage local file path, only usable
+/// 4. [legacyLocalPath] — a pre-Cloud-Storage local file path, only usable
 ///    on the PC where it was picked.
-/// 4. `assets/default_profile.png`.
-/// 5. [initials] rendered over a tinted circle, if the asset itself fails
+/// 5. `assets/default_profile.png`.
+/// 6. [initials] rendered over a tinted circle, if the asset itself fails
 ///    to load.
 ///
 /// Performs no Firebase or repository calls; all resolution here is either
-/// a synchronous local file-existence check or delegated to [Image.network]
-/// / [Image.asset] loading and error callbacks.
+/// a synchronous local file-existence check or delegated to [Image.memory] /
+/// [Image.network] / [Image.asset] loading and error callbacks.
 class ProfileAvatarWidget extends StatelessWidget {
   const ProfileAvatarWidget({
     super.key,
+    this.memoryPreviewBytes,
     this.localPreviewPath,
     this.networkImageUrl,
     this.legacyLocalPath,
@@ -34,6 +38,10 @@ class ProfileAvatarWidget extends StatelessWidget {
     this.showBorder = true,
   });
 
+  /// In-memory cropped (or otherwise staged) avatar bytes. Takes priority
+  /// over path and network sources so Settings can preview a crop before
+  /// Save changes uploads it.
+  final Uint8List? memoryPreviewBytes;
   final String? localPreviewPath;
   final String? networkImageUrl;
   final String? legacyLocalPath;
@@ -58,6 +66,20 @@ class ProfileAvatarWidget extends StatelessWidget {
   }
 
   Widget _resolveContent() {
+    final memory = memoryPreviewBytes;
+    if (memory != null && memory.isNotEmpty) {
+      return Image.memory(
+        memory,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => _pathOrNetwork(),
+      );
+    }
+
+    return _pathOrNetwork();
+  }
+
+  Widget _pathOrNetwork() {
     final previewFile = _existingFileOrNull(localPreviewPath);
     if (previewFile != null) {
       return _fileImage(previewFile);

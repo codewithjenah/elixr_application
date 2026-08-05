@@ -17,7 +17,19 @@ import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../data/repositories/profile_image_repository.dart';
 import '../../../services/auth_service.dart';
+import '../models/pending_profile_crop.dart';
+import '../widgets/profile_image_crop_dialog.dart';
 import '../widgets/settings_components.dart';
+
+/// Picks a gallery image for the Account & Profile avatar. Injectable for tests.
+typedef AccountProfileImagePicker = Future<XFile?> Function();
+
+/// Opens the crop dialog (or a test double) for [sourceBytes].
+typedef AccountProfileImageCropper =
+    Future<PendingProfileCrop?> Function(
+      BuildContext context,
+      Uint8List sourceBytes,
+    );
 
 /// Merged Account & Profile Settings section.
 class AccountProfileSection extends StatefulWidget {
@@ -25,6 +37,8 @@ class AccountProfileSection extends StatefulWidget {
     super.key,
     this.watchPlayer,
     this.onDirtyChanged,
+    this.pickProfileImage,
+    this.cropProfileImage,
   });
 
   /// Optional override for tests (avoids constructing Firestore).
@@ -32,6 +46,12 @@ class AccountProfileSection extends StatefulWidget {
 
   /// Notified whenever [AccountProfileSectionState.isDirty] changes.
   final ValueChanged<bool>? onDirtyChanged;
+
+  /// Optional gallery picker override (defaults to [ImagePicker]).
+  final AccountProfileImagePicker? pickProfileImage;
+
+  /// Optional crop-dialog override (defaults to [ProfileImageCropDialog.show]).
+  final AccountProfileImageCropper? cropProfileImage;
 
   @override
   AccountProfileSectionState createState() => AccountProfileSectionState();
@@ -44,7 +64,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   late final TextEditingController _lastNameController;
   late final TextEditingController _emailController;
 
-  XFile? _pendingImage;
+  PendingProfileCrop? _pendingCrop;
   late final AuthService _authService;
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
   String? _equippedBorderId;
@@ -121,7 +141,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         _middleNameController.text != _originalMiddleName ||
         _lastNameController.text != _originalLastName ||
         _emailController.text != _originalEmail ||
-        _pendingImage != null;
+        _pendingCrop != null;
   }
 
   void captureSnapshot() {
@@ -138,7 +158,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     _lastNameController.text = _originalLastName;
     _emailController.text = _originalEmail;
     setState(() {
-      _pendingImage = null;
+      _pendingCrop = null;
       _editingEmail = false;
     });
     _notifyDirtyChanged();
@@ -213,30 +233,63 @@ class AccountProfileSectionState extends State<AccountProfileSection>
 
   Future<void> _pickImage() async {
     if (_savingProfile) return;
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+
+    final pick =
+        widget.pickProfileImage ??
+        () => ImagePicker().pickImage(source: ImageSource.gallery);
+    final picked = await pick();
+    if (!mounted || picked == null) return;
+
+    late final Uint8List sourceBytes;
+    try {
+      if (picked.path.isNotEmpty) {
+        sourceBytes = await File(picked.path).readAsBytes();
+      } else {
+        sourceBytes = await picked.readAsBytes();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      await ElixDialog.error(
+        context,
+        'Could not read the selected image. Try another file.',
+      );
+      return;
+    }
     if (!mounted) return;
-    if (picked != null) {
-      setState(() => _pendingImage = picked);
+    if (sourceBytes.isEmpty) {
+      await ElixDialog.error(context, 'Selected image is empty.');
+      return;
+    }
+
+    final crop =
+        widget.cropProfileImage ??
+        (ctx, bytes) => ProfileImageCropDialog.show(ctx, sourceBytes: bytes);
+
+    try {
+      final cropped = await crop(context, sourceBytes);
+      if (!mounted) return;
+      if (cropped == null) return;
+      setState(() => _pendingCrop = cropped);
       _notifyDirtyChanged();
+    } catch (e) {
+      if (!mounted) return;
+      await ElixDialog.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
     }
   }
 
   Future<({Uint8List bytes, String contentType})?> _resolveImageForUpload(
     AuthService authService,
   ) async {
-    final pending = _pendingImage;
+    final pending = _pendingCrop;
     if (pending != null) {
-      final contentType = _contentTypeForPath(pending.path);
-      if (contentType == null) {
-        throw Exception(
-          'Unsupported image type. Choose a JPEG, PNG, or WebP image.',
-        );
-      }
-      final bytes = await File(pending.path).readAsBytes();
-      return (bytes: bytes, contentType: contentType);
+      return (bytes: pending.bytes, contentType: pending.contentType);
     }
 
+    // No staged crop: preserve legacy local-file migration when the account
+    // still has only a machine-local path and no Cloud Storage URL.
     final currentUser = authService.currentUser;
     final hasCloudImage = (currentUser?.profilePictureUrl ?? '').isNotEmpty;
     final legacyPath = currentUser?.profilePicturePath;
@@ -349,7 +402,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       if (!mounted) return;
       setState(() {
         _editingEmail = false;
-        _pendingImage = null;
+        _pendingCrop = null;
         _firstNameController.text = normalized.firstName;
         _middleNameController.text = normalized.middleName ?? '';
         _lastNameController.text = normalized.lastName;
@@ -552,6 +605,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         MediaQuery.sizeOf(context).width < settingsWideBreakpoint;
 
     final avatar = GestureDetector(
+      key: const Key('account_profile_avatar_tap'),
       onTap: _savingProfile ? null : _pickImage,
       child: MouseRegion(
         cursor: _savingProfile
@@ -560,7 +614,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         child: Stack(
           children: [
             ProfileAvatarWidget(
-              localPreviewPath: _pendingImage?.path,
+              memoryPreviewBytes: _pendingCrop?.bytes,
               networkImageUrl: user?.profilePictureUrl,
               legacyLocalPath: user?.profilePicturePath,
               radius: 48,

@@ -20,6 +20,8 @@ class SettingsScreen extends StatefulWidget {
     super.key,
     this.initialSection = SettingsSection.accountProfile,
     this.watchPlayer,
+    this.pickProfileImage,
+    this.cropProfileImage,
   });
 
   final SettingsSection initialSection;
@@ -27,6 +29,12 @@ class SettingsScreen extends StatefulWidget {
   /// Optional override for tests (avoids constructing Firestore).
   /// Stored as a public field so tests can assert injection.
   final Stream<LeaderboardEntry?> Function(String userId)? watchPlayer;
+
+  /// Optional gallery picker override forwarded to [AccountProfileSection].
+  final AccountProfileImagePicker? pickProfileImage;
+
+  /// Optional crop-dialog override forwarded to [AccountProfileSection].
+  final AccountProfileImageCropper? cropProfileImage;
 
   static Future<void> show(
     BuildContext context, {
@@ -315,6 +323,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: AccountProfileSection(
                     key: _accountKey,
                     watchPlayer: widget.watchPlayer,
+                    pickProfileImage: widget.pickProfileImage,
+                    cropProfileImage: widget.cropProfileImage,
                   ),
                 ),
               ),

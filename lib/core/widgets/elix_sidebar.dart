@@ -693,6 +693,7 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final sidebarFirstName = normalizeNamePart(widget.user?.firstName ?? '');
     final level = GamificationRules.levelForXp(widget.totalXp);
     final expInLevel = GamificationRules.xpIntoLevel(widget.totalXp);
 
@@ -761,10 +762,9 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
                                     children: [
                                       Flexible(
                                         child: Text(
-                                          widget.user?.fullName
-                                                  .split(' ')
-                                                  .first ??
-                                              'User',
+                                          sidebarFirstName.isNotEmpty
+                                              ? sidebarFirstName
+                                              : 'User',
                                           style: AppTheme.bodySecondary
                                               .copyWith(
                                                 fontWeight: FontWeight.w600,

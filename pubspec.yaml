@@ -41,6 +41,7 @@ dependencies:
   firebase_auth: ^6.5.4
   firebase_storage: ^13.4.3
   image_picker: ^1.2.2
+  crop: ^0.5.5
   fluent_ui: 4.9.2
   audioplayers: ^6.7.1
 
