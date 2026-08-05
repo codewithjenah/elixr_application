@@ -994,6 +994,206 @@ def test_cancel_waits_for_in_flight_frame_before_close(monkeypatch):
     asyncio.run(_run())
 
 
+def test_cancel_reraises_after_cleanup(monkeypatch):
+    """CancelledError propagates after in-flight frame and camera cleanup."""
+    import threading
+
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
+
+    frame_started = threading.Event()
+    frame_can_finish = threading.Event()
+    original_tick = websocket_api.VisionSession.process_tick
+
+    def gated_tick(self):
+        frame_started.set()
+        frame_can_finish.wait(timeout=2.0)
+        return original_tick(self)
+
+    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+
+    async def _run():
+        async def fake_send(_text):
+            return None
+
+        ws = MagicMock()
+        loop_task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                ws,
+                "Hand Stall",
+                send_text=fake_send,
+            )
+        )
+
+        for _ in range(100):
+            if frame_started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert frame_started.is_set()
+
+        loop_task.cancel()
+        frame_can_finish.set()
+        cancelled = False
+        try:
+            await loop_task
+        except asyncio.CancelledError:
+            cancelled = True
+
+        assert cancelled
+        assert StubCamera.instances[-1].released is True
+
+    asyncio.run(_run())
+
+
+def test_cancel_releases_camera_exactly_once(monkeypatch):
+    """Camera release runs once during cancellation cleanup."""
+    import threading
+
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
+
+    frame_started = threading.Event()
+    frame_can_finish = threading.Event()
+    release_calls = {"n": 0}
+    original_tick = websocket_api.VisionSession.process_tick
+    original_release = StubCamera.release
+
+    def gated_tick(self):
+        frame_started.set()
+        frame_can_finish.wait(timeout=2.0)
+        return original_tick(self)
+
+    def counting_release(self):
+        release_calls["n"] += 1
+        return original_release(self)
+
+    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+    monkeypatch.setattr(StubCamera, "release", counting_release)
+
+    async def _run():
+        async def fake_send(_text):
+            return None
+
+        ws = MagicMock()
+        loop_task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                ws,
+                "Hand Stall",
+                send_text=fake_send,
+            )
+        )
+
+        for _ in range(100):
+            if frame_started.is_set():
+                break
+            await asyncio.sleep(0.01)
+
+        loop_task.cancel()
+        frame_can_finish.set()
+        try:
+            await loop_task
+        except asyncio.CancelledError:
+            pass
+
+        assert release_calls["n"] == 1
+
+    asyncio.run(_run())
+
+
+def test_process_tick_exception_still_closes_camera(monkeypatch):
+    """A frame-processing failure still releases the camera on loop exit."""
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
+
+    def failing_tick(self):
+        raise RuntimeError("synthetic frame failure")
+
+    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", failing_tick)
+
+    async def _run():
+        sent: list[str] = []
+
+        async def fake_send(text):
+            sent.append(text)
+
+        ws = MagicMock()
+        session_ref: dict = {"session": None}
+        loop_task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                ws,
+                "Hand Stall",
+                session_ref=session_ref,
+                send_text=fake_send,
+            )
+        )
+
+        for _ in range(100):
+            if session_ref.get("session") is not None:
+                break
+            await asyncio.sleep(0.01)
+
+        await loop_task
+        assert StubCamera.instances[-1].released is True
+        assert len(sent) == 1
+        assert "pipeline_error" in sent[0]
+
+    asyncio.run(_run())
+
+
+def test_cancel_cleanup_does_not_start_second_frame(monkeypatch):
+    """Cancellation cleanup does not launch another process_tick."""
+    import threading
+
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+    monkeypatch.setattr(websocket_api, "TARGET_FPS", 50)
+
+    frame_started = threading.Event()
+    frame_can_finish = threading.Event()
+    tick_calls = {"n": 0}
+    original_tick = websocket_api.VisionSession.process_tick
+
+    def gated_tick(self):
+        tick_calls["n"] += 1
+        frame_started.set()
+        frame_can_finish.wait(timeout=2.0)
+        return original_tick(self)
+
+    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+
+    async def _run():
+        async def fake_send(_text):
+            return None
+
+        ws = MagicMock()
+        loop_task = asyncio.create_task(
+            websocket_api._cv_session_loop(
+                ws,
+                "Hand Stall",
+                send_text=fake_send,
+            )
+        )
+
+        for _ in range(100):
+            if frame_started.is_set():
+                break
+            await asyncio.sleep(0.01)
+
+        loop_task.cancel()
+        frame_can_finish.set()
+        try:
+            await loop_task
+        except asyncio.CancelledError:
+            pass
+
+        assert tick_calls["n"] == 1
+
+    asyncio.run(_run())
+
+
 def test_startup_failure_clears_session_identity(monkeypatch):
     """Failed camera open rejects prepare and clears session_ref identity."""
     _patch_vision(monkeypatch)

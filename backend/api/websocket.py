@@ -999,12 +999,9 @@ async def _cv_session_loop(
                 asyncio.to_thread(session.process_tick)
             )
 
-            try:
-                message = await frame_task
-            except asyncio.CancelledError:
-                if not frame_task.done():
-                    await frame_task
-                raise
+            # Shield the in-flight worker so outer cancellation cannot cancel
+            # the asyncio wrapper before the thread finishes process_tick.
+            message = await asyncio.shield(frame_task)
 
             frame_task = None
 
@@ -1082,11 +1079,21 @@ async def _cv_session_loop(
         await _send(error.model_dump_json())
 
     finally:
-        if frame_task is not None and not frame_task.done():
-            try:
-                await frame_task
-            except Exception:
-                pass
+        if frame_task is not None:
+            if not frame_task.done():
+                try:
+                    await frame_task
+                except Exception:
+                    logger.exception(
+                        "In-flight frame processing failed during session shutdown"
+                    )
+            else:
+                frame_exc = frame_task.exception()
+                if frame_exc is not None:
+                    logger.exception(
+                        "In-flight frame processing failed during session shutdown",
+                        exc_info=frame_exc,
+                    )
 
         if session_ref is not None:
             if session_ref.get("session") is session:
