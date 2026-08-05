@@ -137,7 +137,7 @@ void main() {
       expect(recommendation.movementName, isNot(equals('Normal Grip')));
     });
 
-    test('low data produces neutral same-movement fallback', () {
+    test('low data produces movement-specific same-movement reason', () {
       final recommendation = buildSessionRecommendation(
         movement: 'Hand Stall',
         prop: TrainingProp.bottle,
@@ -152,9 +152,161 @@ void main() {
       );
 
       expect(recommendation.movementName, 'Hand Stall');
-      expect(recommendation.reason.toLowerCase(), contains('gather'));
+      expect(
+        recommendation.reason,
+        lowDataRecommendationReasonFor('Hand Stall', TrainingProp.bottle),
+      );
+      expect(recommendation.reason.toLowerCase(), contains('bottle'));
+      expect(recommendation.reason.toLowerCase(), contains('open palm'));
+      expect(recommendation.reason, isNot(contains('seconds')));
+      expect(
+        recommendation.reason,
+        isNot(
+          contains('Practice Hand Stall again to gather technique feedback.'),
+        ),
+      );
     });
 
+    test(
+      'unconfirmed without technique issue uses movement-specific reason',
+      () {
+        final normalGrip = buildSessionRecommendation(
+          movement: 'Normal Grip',
+          prop: TrainingProp.bottle,
+          heldSteady: false,
+          finalScore: 60,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 2500,
+        );
+        expect(
+          normalGrip.reason,
+          unconfirmedRecommendationReasonFor(
+            'Normal Grip',
+            TrainingProp.bottle,
+          ),
+        );
+        expect(normalGrip.reason, contains('overhand neck grip'));
+        expect(
+          normalGrip.reason,
+          isNot(
+            equals(
+              'Practice Normal Grip again and complete one confirmed hold.',
+            ),
+          ),
+        );
+
+        final handStall = buildSessionRecommendation(
+          movement: 'Hand Stall',
+          prop: TrainingProp.shaker,
+          heldSteady: false,
+          finalScore: 60,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 2500,
+        );
+        expect(
+          handStall.reason,
+          unconfirmedRecommendationReasonFor('Hand Stall', TrainingProp.shaker),
+        );
+        expect(handStall.reason.toLowerCase(), contains('open palm'));
+        expect(handStall.reason.toLowerCase(), contains('cocktail shaker'));
+
+        final oneFinger = buildSessionRecommendation(
+          movement: 'One Finger Stall',
+          prop: TrainingProp.bottle,
+          heldSteady: false,
+          finalScore: 60,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 0,
+        );
+        expect(oneFinger.reason, contains('index fingertip'));
+        expect(oneFinger.reason, isNot(contains('seconds')));
+        expect(oneFinger.targetUsesHoldMs, isFalse);
+
+        final doubleHand = buildSessionRecommendation(
+          movement: 'Double Hand Stall',
+          prop: TrainingProp.bottle,
+          heldSteady: false,
+          finalScore: 60,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 2500,
+        );
+        expect(doubleHand.reason.toLowerCase(), contains('both'));
+        expect(doubleHand.targetLabel, contains('2.5'));
+
+        final bottleInTin = buildSessionRecommendation(
+          movement: 'Bottle in a tin',
+          prop: TrainingProp.bottleAndShaker,
+          heldSteady: false,
+          finalScore: 60,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 2500,
+        );
+        expect(bottleInTin.reason.toLowerCase(), contains('horizontal shaker'));
+      },
+    );
+
+    test('technique improvements override unconfirmed generic coaching', () {
+      final recommendation = buildSessionRecommendation(
+        movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
+        heldSteady: false,
+        finalScore: 65,
+        positiveRatio: 0.4,
+        totalApplicableSamples: 20,
+        improvements: [
+          SessionImprovement(
+            message: 'Rotate your wrist into an overhand grip.',
+            occurrenceCount: 5,
+            occurrenceRatio: 0.25,
+            feedbackType: 'warning',
+            representativeFeedback: _frame(
+              feedback: 'Rotate your wrist into an overhand grip.',
+              feedbackCode: 'overhand_grip_required',
+            ),
+            code: 'overhand_grip_required',
+          ),
+        ],
+        maxHoldDurationMs: 500,
+        maxHoldProgress: 0.2,
+        holdTargetMs: 2500,
+      );
+
+      expect(
+        recommendation.reason,
+        'Focus: Rotate your wrist into an overhand grip',
+      );
+      expect(
+        recommendation.reason,
+        isNot(
+          equals(
+            unconfirmedRecommendationReasonFor(
+              'Normal Grip',
+              TrainingProp.bottle,
+            ),
+          ),
+        ),
+      );
+    });
     test('output is deterministic', () {
       SessionRecommendation build() => buildSessionRecommendation(
         movement: 'Hand Stall',

@@ -56,6 +56,8 @@ class MovementCoachingProfile {
     required this.formStrengthMessage,
     required this.cleanSessionMessage,
     required this.successfulRecommendationReason,
+    required this.lowDataRecommendationReason,
+    required this.unconfirmedRecommendationReason,
     required this.holdTargetInstruction,
   });
 
@@ -63,6 +65,12 @@ class MovementCoachingProfile {
   final String formStrengthMessage;
   final String cleanSessionMessage;
   final String successfulRecommendationReason;
+
+  /// May include `{prop}` for prop-aware stall movements.
+  final String lowDataRecommendationReason;
+
+  /// May include `{prop}` for prop-aware stall movements.
+  final String unconfirmedRecommendationReason;
 
   /// May include `{prop}` for prop-aware stall movements.
   final String holdTargetInstruction;
@@ -76,6 +84,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring neck-grip issues — overhand finger wrap stayed consistent.',
     successfulRecommendationReason:
         'Repeat overhand neck grips to lock in a faster, steadier hold.',
+    lowDataRecommendationReason:
+        'Show the full overhand neck grip longer so ELIXR can evaluate finger wrap and wrist orientation.',
+    unconfirmedRecommendationReason:
+        'Keep the overhand neck grip secure long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Maintain the overhand neck grip through one confirmed hold',
   ),
@@ -86,6 +98,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring pinch issues — thumb-and-index neck control stayed steady.',
     successfulRecommendationReason:
         'Repeat the neck pinch until thumb-and-index control locks in cleanly.',
+    lowDataRecommendationReason:
+        'Show the neck pinch longer so ELIXR can evaluate thumb, index finger, and hand position.',
+    unconfirmedRecommendationReason:
+        'Maintain the thumb-and-index neck pinch long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Maintain the thumb-and-index neck pinch through one confirmed hold',
   ),
@@ -96,6 +112,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring grip issues — reverse underhand orientation held stable.',
     successfulRecommendationReason:
         'Repeat reverse underhand grips to build a steadier confirmed hold.',
+    lowDataRecommendationReason:
+        'Show the reverse grip longer so ELIXR can evaluate the underhand orientation and finger wrap.',
+    unconfirmedRecommendationReason:
+        'Keep the reverse underhand grip stable long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Maintain the reverse underhand grip through one confirmed hold',
   ),
@@ -106,6 +126,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring claw issues — top-down finger curl stayed controlled.',
     successfulRecommendationReason:
         'Repeat top-down claw grips until curled fingers lock around the neck.',
+    lowDataRecommendationReason:
+        'Show the top-down claw position longer so ELIXR can evaluate finger curl and wrist placement.',
+    unconfirmedRecommendationReason:
+        'Keep the curled-finger claw grip locked long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep the top-down claw grip through one confirmed hold',
   ),
@@ -116,6 +140,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — open-palm stall position stayed stable.',
     successfulRecommendationReason:
         'Repeat open-palm balancing to extend steady hold time.',
+    lowDataRecommendationReason:
+        'Balance the {prop} over the open palm longer so ELIXR can evaluate alignment and steadiness.',
+    unconfirmedRecommendationReason:
+        'Keep the {prop} upright over the open palm long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Balance the {prop} upright on the open palm through one confirmed hold',
   ),
@@ -126,6 +154,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — index-fingertip centering stayed controlled.',
     successfulRecommendationReason:
         'Repeat index-fingertip balancing to build a longer confirmed hold.',
+    lowDataRecommendationReason:
+        'Show the {prop} centered over the index fingertip longer so ELIXR can evaluate the balance position.',
+    unconfirmedRecommendationReason:
+        'Keep the {prop} centered over the extended index fingertip long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Center the {prop} over the extended index fingertip through one confirmed hold',
   ),
@@ -136,6 +168,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — forearm alignment stayed steady.',
     successfulRecommendationReason:
         'Repeat forearm stalls to keep the prop aligned longer through confirmation.',
+    lowDataRecommendationReason:
+        'Keep the {prop} visible on the forearm longer so ELIXR can evaluate placement and steadiness.',
+    unconfirmedRecommendationReason:
+        'Maintain the {prop} on the forearm balance point long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep the {prop} aligned on the forearm through one confirmed hold',
   ),
@@ -146,6 +182,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — elbow-crease placement stayed steady.',
     successfulRecommendationReason:
         'Repeat elbow-crease balancing to hold the prop steady through confirmation.',
+    lowDataRecommendationReason:
+        'Keep the {prop} visible over the elbow crease longer so ELIXR can evaluate the stall position.',
+    unconfirmedRecommendationReason:
+        'Maintain the {prop} over the elbow crease long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Maintain the {prop} over the elbow crease through one confirmed hold',
   ),
@@ -156,6 +196,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — reverse forearm placement held steady.',
     successfulRecommendationReason:
         'Repeat reverse forearm placement to extend a steady confirmed balance.',
+    lowDataRecommendationReason:
+        'Show the bottle on the reverse forearm longer so ELIXR can evaluate its placement.',
+    unconfirmedRecommendationReason:
+        'Keep the bottle steady on the reverse forearm long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep the bottle on the reverse forearm through one confirmed hold',
   ),
@@ -166,6 +210,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — shoulder stall position stayed stable.',
     successfulRecommendationReason:
         'Repeat shoulder balancing to keep the bottle stable through confirmation.',
+    lowDataRecommendationReason:
+        'Keep the bottle and shoulder visible longer so ELIXR can evaluate the balance position.',
+    unconfirmedRecommendationReason:
+        'Keep the bottle balanced on top of the shoulder long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep the bottle balanced on top of the shoulder through one confirmed hold',
   ),
@@ -176,6 +224,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — both palm stalls stayed coordinated.',
     successfulRecommendationReason:
         'Repeat dual-palm stalls until both bottles hold together through confirmation.',
+    lowDataRecommendationReason:
+        'Show both bottles and both palms longer so ELIXR can evaluate the dual-stall position.',
+    unconfirmedRecommendationReason:
+        'Keep both bottles balanced over the open palms long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep both bottles balanced simultaneously through one confirmed hold',
   ),
@@ -186,6 +238,10 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'No recurring balance issues — bottle stayed centered on the shaker.',
     successfulRecommendationReason:
         'Repeat bottle-on-shaker balancing to center the bottle through confirmation.',
+    lowDataRecommendationReason:
+        'Show the bottle and horizontal shaker longer so ELIXR can evaluate their alignment.',
+    unconfirmedRecommendationReason:
+        'Keep the bottle centered on the horizontal shaker long enough to complete a confirmed hold.',
     holdTargetInstruction:
         'Keep the bottle centered on the horizontal shaker through one confirmed hold',
   ),
@@ -209,6 +265,28 @@ String cleanSessionMessageFor(String movement) =>
 String successfulRecommendationReasonFor(String movement) =>
     movementCoachingProfileFor(movement)?.successfulRecommendationReason ??
     'Practice $movement again to reinforce a confirmed hold.';
+
+/// Prop-aware low-data recommendation reason for unknown-safe lookups.
+String lowDataRecommendationReasonFor(String movement, TrainingProp prop) {
+  final reason = movementCoachingProfileFor(
+    movement,
+  )?.lowDataRecommendationReason;
+  if (reason == null) {
+    return 'Practice $movement again to gather technique feedback.';
+  }
+  return reason.replaceAll('{prop}', coachingPropLabel(prop));
+}
+
+/// Prop-aware unconfirmed recommendation reason for unknown-safe lookups.
+String unconfirmedRecommendationReasonFor(String movement, TrainingProp prop) {
+  final reason = movementCoachingProfileFor(
+    movement,
+  )?.unconfirmedRecommendationReason;
+  if (reason == null) {
+    return 'Practice $movement again and complete one confirmed hold.';
+  }
+  return reason.replaceAll('{prop}', coachingPropLabel(prop));
+}
 
 /// Prop-aware hold target instruction before duration suffixing.
 String holdTargetInstructionFor(String movement, TrainingProp prop) {

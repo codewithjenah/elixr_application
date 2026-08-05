@@ -323,26 +323,29 @@ void main() {
       expect(formStrength.sampleCount, 12);
     });
 
-    test('locked positive code uses profile form strength not raw feedback', () {
-      final accumulator = SessionAssessmentAccumulator();
-      _recordFrames(
-        accumulator,
-        20,
-        frame: _frame(
-          feedback: 'Hand stall locked in.',
-          feedbackType: 'positive',
-          feedbackCode: 'hand_stall_locked',
-          feedbackCategory: 'technique',
-        ),
-      );
+    test(
+      'locked positive code uses profile form strength not raw feedback',
+      () {
+        final accumulator = SessionAssessmentAccumulator();
+        _recordFrames(
+          accumulator,
+          20,
+          frame: _frame(
+            feedback: 'Hand stall locked in.',
+            feedbackType: 'positive',
+            feedbackCode: 'hand_stall_locked',
+            feedbackCategory: 'technique',
+          ),
+        );
 
-      final assessment = _build(accumulator, heldSteady: false);
-      final formStrength = assessment.coaching.strengths.singleWhere(
-        (s) => s.code == 'hand_stall_locked',
-      );
-      expect(formStrength.message, formStrengthMessageFor('Hand Stall'));
-      expect(formStrength.message, isNot(contains('Hand stall locked in')));
-    });
+        final assessment = _build(accumulator, heldSteady: false);
+        final formStrength = assessment.coaching.strengths.singleWhere(
+          (s) => s.code == 'hand_stall_locked',
+        );
+        expect(formStrength.message, formStrengthMessageFor('Hand Stall'));
+        expect(formStrength.message, isNot(contains('Hand stall locked in')));
+      },
+    );
 
     test('only top 3 persistent issues are returned', () {
       final accumulator = SessionAssessmentAccumulator();

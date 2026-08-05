@@ -26,7 +26,7 @@ SessionRecommendation buildSessionRecommendation({
   if (totalApplicableSamples == 0) {
     return SessionRecommendation(
       movementName: movement,
-      reason: 'Practice $movement again to gather technique feedback.',
+      reason: lowDataRecommendationReasonFor(movement, prop),
       targetLabel: targetLabel,
       targetUsesHoldMs: targetUsesHoldMs,
       recommendedDurationSeconds: durationSeconds,
@@ -52,7 +52,7 @@ SessionRecommendation buildSessionRecommendation({
   if (!heldSteady) {
     return SessionRecommendation(
       movementName: movement,
-      reason: 'Practice $movement again and complete one confirmed hold.',
+      reason: unconfirmedRecommendationReasonFor(movement, prop),
       targetLabel: targetLabel,
       targetUsesHoldMs: targetUsesHoldMs,
       recommendedDurationSeconds: durationSeconds,

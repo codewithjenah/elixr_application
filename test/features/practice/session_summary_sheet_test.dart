@@ -148,6 +148,40 @@ void main() {
     expect(find.textContaining(' times'), findsNothing);
   });
 
+  testWidgets(
+    'summary renders movement-specific unconfirmed reason without inventing copy',
+    (tester) async {
+      const reason =
+          'Keep the overhand neck grip secure long enough to complete a confirmed hold.';
+      await _openSummary(
+        tester,
+        movement: 'Normal Grip',
+        assessment: _assessment(
+          score: 55,
+          heldSteady: false,
+          recommendation: const SessionRecommendation(
+            movementName: 'Normal Grip',
+            reason: reason,
+            targetLabel:
+                'Maintain the overhand neck grip through one confirmed hold',
+            targetUsesHoldMs: false,
+            recommendedDurationSeconds: 120,
+          ),
+        ),
+        onSave: (_) async => 'session-unconfirmed-copy',
+      );
+
+      expect(find.text('Recommended Next Session'), findsOneWidget);
+      expect(find.textContaining('Practice Normal Grip again'), findsOneWidget);
+      expect(find.text(reason), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Practice Normal Grip again and complete one confirmed hold.',
+        ),
+        findsNothing,
+      );
+    },
+  );
   testWidgets('empty legacy coaching does not fabricate a recommendation', (
     tester,
   ) async {

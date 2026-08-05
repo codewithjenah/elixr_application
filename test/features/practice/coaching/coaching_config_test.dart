@@ -49,6 +49,16 @@ void main() {
         isNotEmpty,
         reason: entry.key,
       );
+      expect(
+        profile.lowDataRecommendationReason,
+        isNotEmpty,
+        reason: entry.key,
+      );
+      expect(
+        profile.unconfirmedRecommendationReason,
+        isNotEmpty,
+        reason: entry.key,
+      );
       expect(profile.holdTargetInstruction, isNotEmpty, reason: entry.key);
     }
   });
@@ -60,13 +70,37 @@ void main() {
     expect(messages.toSet().length, enabledNames.length);
   });
 
+  test(
+    'low-data recommendation reasons are distinct across enabled movements',
+    () {
+      final reasons = enabledNames
+          .map(
+            (name) => lowDataRecommendationReasonFor(name, TrainingProp.bottle),
+          )
+          .toList(growable: false);
+      expect(reasons.toSet().length, enabledNames.length);
+    },
+  );
+
+  test(
+    'unconfirmed recommendation reasons are distinct across enabled movements',
+    () {
+      final reasons = enabledNames
+          .map(
+            (name) =>
+                unconfirmedRecommendationReasonFor(name, TrainingProp.bottle),
+          )
+          .toList(growable: false);
+      expect(reasons.toSet().length, enabledNames.length);
+    },
+  );
+
   test('hold target instructions are distinct across enabled movements', () {
     final instructions = enabledNames
         .map((name) => holdTargetInstructionFor(name, TrainingProp.bottle))
         .toList(growable: false);
     expect(instructions.toSet().length, enabledNames.length);
   });
-
   test('focus copy covers representative Phase B technique codes', () {
     expect(
       focusCopyForCode(
@@ -140,6 +174,46 @@ void main() {
     );
   });
 
+  test('low-data and unconfirmed recommendations are movement-specific', () {
+    expect(
+      lowDataRecommendationReasonFor('Normal Grip', TrainingProp.bottle),
+      contains('overhand neck grip'),
+    );
+    expect(
+      unconfirmedRecommendationReasonFor('Normal Grip', TrainingProp.bottle),
+      contains('overhand neck grip'),
+    );
+
+    final handStallUnconfirmed = unconfirmedRecommendationReasonFor(
+      'Hand Stall',
+      TrainingProp.shaker,
+    );
+    expect(handStallUnconfirmed.toLowerCase(), contains('open palm'));
+    expect(handStallUnconfirmed.toLowerCase(), contains('cocktail shaker'));
+    expect(handStallUnconfirmed.toLowerCase(), isNot(contains('bottle')));
+
+    expect(
+      unconfirmedRecommendationReasonFor(
+        'One Finger Stall',
+        TrainingProp.bottle,
+      ),
+      contains('index fingertip'),
+    );
+    expect(
+      unconfirmedRecommendationReasonFor(
+        'Double Hand Stall',
+        TrainingProp.bottle,
+      ).toLowerCase(),
+      contains('both'),
+    );
+    expect(
+      unconfirmedRecommendationReasonFor(
+        'Bottle in a tin',
+        TrainingProp.bottleAndShaker,
+      ).toLowerCase(),
+      contains('horizontal shaker'),
+    );
+  });
   test('hold target label derives duration only from holdTargetMs', () {
     final withTarget = formatHoldTargetLabel(
       movement: 'Normal Grip',
@@ -202,6 +276,21 @@ void main() {
     expect(
       cleanSessionMessageFor('Coming Soon Stall'),
       'No recurring technique issue met the session threshold.',
+    );
+    expect(
+      successfulRecommendationReasonFor('Coming Soon Stall'),
+      'Practice Coming Soon Stall again to reinforce a confirmed hold.',
+    );
+    expect(
+      lowDataRecommendationReasonFor('Coming Soon Stall', TrainingProp.bottle),
+      'Practice Coming Soon Stall again to gather technique feedback.',
+    );
+    expect(
+      unconfirmedRecommendationReasonFor(
+        'Coming Soon Stall',
+        TrainingProp.bottle,
+      ),
+      'Practice Coming Soon Stall again and complete one confirmed hold.',
     );
     expect(
       holdTargetInstructionFor('Coming Soon Stall', TrainingProp.bottle),

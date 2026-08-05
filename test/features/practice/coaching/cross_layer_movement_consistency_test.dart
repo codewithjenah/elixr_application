@@ -86,9 +86,18 @@ void main() {
         isNot(contains('confirmed')),
         reason: name,
       );
+      expect(
+        lowDataRecommendationReasonFor(name, TrainingProp.bottle),
+        isNotEmpty,
+        reason: name,
+      );
+      expect(
+        unconfirmedRecommendationReasonFor(name, TrainingProp.bottle),
+        isNotEmpty,
+        reason: name,
+      );
     }
   });
-
   test('coaching config has no extras outside enabled catalog', () {
     expect(
       movementPositiveLockedCodes.keys.toSet(),
@@ -200,5 +209,45 @@ void main() {
     );
     expect(recommendation.movementName, 'Legacy Unknown Stall');
     expect(recommendation.targetLabel, 'Complete one confirmed hold');
+    expect(
+      recommendation.reason,
+      'Practice Legacy Unknown Stall again to gather technique feedback.',
+    );
+
+    final unconfirmed = buildSessionRecommendation(
+      movement: 'Legacy Unknown Stall',
+      prop: TrainingProp.bottle,
+      heldSteady: false,
+      finalScore: 50,
+      positiveRatio: 0.2,
+      totalApplicableSamples: 5,
+      improvements: const [],
+      maxHoldDurationMs: 0,
+      maxHoldProgress: 0,
+      holdTargetMs: 0,
+    );
+    expect(
+      unconfirmed.reason,
+      'Practice Legacy Unknown Stall again and complete one confirmed hold.',
+    );
   });
+
+  test(
+    'low-data and unconfirmed reasons stay distinct across enabled movements',
+    () {
+      final lowData = enabledCatalogNames
+          .map(
+            (name) => lowDataRecommendationReasonFor(name, TrainingProp.bottle),
+          )
+          .toSet();
+      final unconfirmed = enabledCatalogNames
+          .map(
+            (name) =>
+                unconfirmedRecommendationReasonFor(name, TrainingProp.bottle),
+          )
+          .toSet();
+      expect(lowData.length, enabledCatalogNames.length);
+      expect(unconfirmed.length, enabledCatalogNames.length);
+    },
+  );
 }
