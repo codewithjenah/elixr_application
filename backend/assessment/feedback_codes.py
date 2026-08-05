@@ -17,16 +17,19 @@ class FeedbackCategory(str, Enum):
 
 
 class FeedbackCode(str, Enum):
-    """Phase A: shared checks + Hand Stall only."""
+    """Phase A: shared checks + Hand Stall only.
+
+    Hand Stall technique codes are prop-neutral (bottle or shaker).
+    """
 
     PROP_NOT_DETECTED = "prop_not_detected"
     HAND_NOT_VISIBLE = "hand_not_visible"
     HAND_NOT_FULLY_VISIBLE = "hand_not_fully_visible"
     PALM_NOT_OPEN = "palm_not_open"
-    BOTTLE_NOT_UPRIGHT = "bottle_not_upright"
-    BOTTLE_BASE_NOT_ON_PALM = "bottle_base_not_on_palm"
-    BOTTLE_NOT_ABOVE_PALM = "bottle_not_above_palm"
-    BOTTLE_NOT_STEADY = "bottle_not_steady"
+    PROP_NOT_UPRIGHT = "prop_not_upright"
+    PROP_BASE_NOT_ON_PALM = "prop_base_not_on_palm"
+    PROP_NOT_ABOVE_PALM = "prop_not_above_palm"
+    PROP_NOT_STEADY = "prop_not_steady"
     HAND_STALL_LOCKED = "hand_stall_locked"
 
 
@@ -36,10 +39,10 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.HAND_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.HAND_NOT_FULLY_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.PALM_NOT_OPEN: FeedbackCategory.TECHNIQUE,
-    FeedbackCode.BOTTLE_NOT_UPRIGHT: FeedbackCategory.TECHNIQUE,
-    FeedbackCode.BOTTLE_BASE_NOT_ON_PALM: FeedbackCategory.TECHNIQUE,
-    FeedbackCode.BOTTLE_NOT_ABOVE_PALM: FeedbackCategory.TECHNIQUE,
-    FeedbackCode.BOTTLE_NOT_STEADY: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_NOT_UPRIGHT: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_BASE_NOT_ON_PALM: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_NOT_ABOVE_PALM: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_NOT_STEADY: FeedbackCategory.TECHNIQUE,
     FeedbackCode.HAND_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
 }
 

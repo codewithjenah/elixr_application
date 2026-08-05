@@ -3,31 +3,44 @@
 /// No randomness or remote text generation.
 library;
 
+import '../../../data/models/training_prop.dart';
+
 /// Default recommended practice duration when no movement-specific override.
 const int defaultRecommendedDurationSeconds = 180;
 
-/// Phase A focus copy for Hand Stall technique codes.
-const Map<String, String> feedbackCodeFocusCopy = {
-  'palm_not_open': 'Open your palm and extend your fingers',
-  'bottle_not_upright': 'Keep the bottle upright',
-  'bottle_base_not_on_palm': 'Place the bottle base on your open palm',
-  'bottle_not_above_palm': 'Keep the bottle directly above your palm',
-  'bottle_not_steady': 'Hold the bottle steady on your palm',
-  'hand_stall_locked': 'Maintain a locked-in hand stall',
-};
-
 /// Recommended practice duration by movement name (seconds).
 const Map<String, int> movementRecommendedDurationSeconds = {'Hand Stall': 180};
+
+/// Lowercase prop label used inside coaching focus sentences.
+String coachingPropLabel(TrainingProp prop) => prop.displayLabel.toLowerCase();
 
 int recommendedDurationForMovement(String movement) {
   return movementRecommendedDurationSeconds[movement] ??
       defaultRecommendedDurationSeconds;
 }
 
-String focusCopyForCode(String? code, {required String fallbackMessage}) {
-  if (code != null && feedbackCodeFocusCopy.containsKey(code)) {
-    return feedbackCodeFocusCopy[code]!;
+/// Prop-aware focus copy for registered Phase A technique codes.
+String focusCopyForCode(
+  String? code, {
+  required TrainingProp prop,
+  required String fallbackMessage,
+}) {
+  final label = coachingPropLabel(prop);
+  switch (code) {
+    case 'palm_not_open':
+      return 'Open your palm and extend your fingers';
+    case 'prop_not_upright':
+      return 'Keep the $label upright';
+    case 'prop_base_not_on_palm':
+      return 'Place the $label base on your open palm';
+    case 'prop_not_above_palm':
+      return 'Keep the $label directly above your palm';
+    case 'prop_not_steady':
+      return 'Hold the $label steady on your palm';
+    case 'hand_stall_locked':
+      return 'Maintain a locked-in hand stall';
   }
+
   final trimmed = fallbackMessage.trim();
   if (trimmed.isEmpty) {
     return 'Refine your technique';

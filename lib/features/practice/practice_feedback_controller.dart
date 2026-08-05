@@ -1,4 +1,5 @@
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/training_prop.dart';
 import 'session_assessment.dart';
 
 /// High-frequency combo UI state scoped outside page rebuilds.
@@ -164,11 +165,13 @@ class PracticeFeedbackController {
 
   SessionAssessment buildSessionAssessment({
     required String movement,
+    required TrainingProp prop,
     required int finalScore,
     required bool heldSteady,
   }) {
     return _assessmentAccumulator.buildAssessment(
       movement: movement,
+      prop: prop,
       finalScore: finalScore,
       heldSteady: heldSteady,
       latestFeedback: latestFeedback,

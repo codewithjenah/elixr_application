@@ -177,8 +177,54 @@ def test_hand_stall_tilted_bottle_emits_not_upright():
     result, _, _ = evaluate_movement(
         "Hand Stall", bottle, None, hands, None, _stable_state(bottle)
     )
-    assert result.feedback_code == FeedbackCode.BOTTLE_NOT_UPRIGHT.value
+    assert result.feedback_code == FeedbackCode.PROP_NOT_UPRIGHT.value
     assert "upright" in result.feedback.lower()
+
+
+def test_phase_a_prop_neutral_codes_are_registered_once():
+    expected = {
+        FeedbackCode.PROP_NOT_UPRIGHT,
+        FeedbackCode.PROP_BASE_NOT_ON_PALM,
+        FeedbackCode.PROP_NOT_ABOVE_PALM,
+        FeedbackCode.PROP_NOT_STEADY,
+    }
+    registered = set(registered_codes())
+    assert expected <= registered
+    legacy_bottle_values = {
+        "bottle_not_upright",
+        "bottle_base_not_on_palm",
+        "bottle_not_above_palm",
+        "bottle_not_steady",
+    }
+    assert legacy_bottle_values.isdisjoint({c.value for c in registered})
+
+
+def test_hand_stall_bottle_and_shaker_share_prop_neutral_codes():
+    bottle = _bottle_on_palm(0.50, 0.55, width=100, height=60)
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55)])
+    bottle_result, _, _ = evaluate_movement(
+        "Hand Stall",
+        bottle,
+        None,
+        hands,
+        None,
+        _stable_state(bottle),
+        prop_label="Bottle",
+    )
+    shaker_result, _, _ = evaluate_movement(
+        "Hand Stall",
+        bottle,
+        None,
+        hands,
+        None,
+        _stable_state(bottle),
+        prop_label="Cocktail Shaker",
+    )
+    assert bottle_result.feedback_code == FeedbackCode.PROP_NOT_UPRIGHT.value
+    assert shaker_result.feedback_code == FeedbackCode.PROP_NOT_UPRIGHT.value
+    assert "bottle" in bottle_result.feedback.lower()
+    assert "cocktail shaker" in shaker_result.feedback.lower()
+    assert bottle_result.feedback_code == shaker_result.feedback_code
 
 
 def test_hold_target_ms_matches_confirmation_duration():

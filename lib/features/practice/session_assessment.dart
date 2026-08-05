@@ -1,63 +1,9 @@
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/training_prop.dart';
 import 'coaching/session_coaching_models.dart';
 import 'coaching/session_recommendation.dart';
 
 export 'coaching/session_coaching_models.dart';
-
-/// One persistent technique issue identified across an active session.
-class SessionImprovement {
-  const SessionImprovement({
-    required this.message,
-    required this.occurrenceCount,
-    required this.occurrenceRatio,
-    required this.feedbackType,
-    required this.representativeFeedback,
-    this.code,
-  });
-
-  final String message;
-  final int occurrenceCount;
-  final double occurrenceRatio;
-  final String feedbackType;
-  final PracticeFeedback representativeFeedback;
-
-  /// Stable backend feedback code when present; null for legacy message keys.
-  final String? code;
-
-  /// Sample-honest alias for [occurrenceCount] (frame/sample count, not events).
-  int get sampleCount => occurrenceCount;
-
-  /// Sample-honest alias for [occurrenceRatio].
-  double get sampleRatio => occurrenceRatio;
-}
-
-/// Post-session coaching snapshot composed under [SessionAssessment].
-class SessionCoachingSummary {
-  const SessionCoachingSummary({
-    required this.strengths,
-    required this.improvements,
-    this.recommendation,
-  });
-
-  /// Empty coaching for legacy/manual [SessionAssessment] construction.
-  /// Does not fabricate a recommendation or movement name.
-  const SessionCoachingSummary.empty()
-    : strengths = const [],
-      improvements = const [],
-      recommendation = null;
-
-  final List<SessionStrength> strengths;
-
-  /// Same list instance as [SessionAssessment.improvements] on production builds.
-  final List<SessionImprovement> improvements;
-
-  final SessionRecommendation? recommendation;
-
-  bool get hasRecommendation => recommendation != null;
-
-  bool get isEmpty =>
-      strengths.isEmpty && improvements.isEmpty && recommendation == null;
-}
 
 /// Immutable completed-session assessment snapshot.
 class SessionAssessment {
@@ -114,7 +60,19 @@ class SessionAssessmentAccumulator {
 
   static const unconfirmedMinProgress = 0.40;
   static const unconfirmedMinDurationMs = 1000;
-  static const exceptionalHoldExtraMs = 500;
+
+  /// Explicit positive code for Hand Stall success frames.
+  static const handStallLockedCode = 'hand_stall_locked';
+
+  /// Combined confirmed Hand Stall strength identity (not emitted as raw locked).
+  static const handStallConfirmedCode = 'hand_stall_confirmed';
+
+  /// Supportive wording for unconfirmed Hand Stall form evidence.
+  static const handStallFormStrengthMessage =
+      'Correct Hand Stall form detected';
+
+  /// Confirmed Hand Stall combined success wording.
+  static const handStallConfirmedStrengthMessage = 'Hand Stall confirmed';
 
   /// Environment and detection messages excluded from technique assessment
   /// when [PracticeFeedback.feedbackCategory] is absent (legacy frames).
@@ -130,6 +88,7 @@ class SessionAssessmentAccumulator {
     'Target body part',
   ];
 
+  static const _techniqueCategory = 'technique';
   static const _excludedCategories = {'visibility', 'environment', 'system'};
 
   int _totalApplicableSamples = 0;
@@ -201,6 +160,7 @@ class SessionAssessmentAccumulator {
 
   SessionAssessment buildAssessment({
     required String movement,
+    required TrainingProp prop,
     required int finalScore,
     required bool heldSteady,
     PracticeFeedback? latestFeedback,
@@ -209,6 +169,7 @@ class SessionAssessmentAccumulator {
     final strengths = _deriveStrengths(heldSteady: heldSteady);
     final recommendation = buildSessionRecommendation(
       movement: movement,
+      prop: prop,
       heldSteady: heldSteady,
       finalScore: finalScore,
       positiveRatio: positiveRatio,
@@ -287,14 +248,19 @@ class SessionAssessmentAccumulator {
       );
     }
 
+    // Persistence first: ratio → count → severity → stable code/message.
     candidates.sort((a, b) {
+      final ratioCompare = b.sampleRatio.compareTo(a.sampleRatio);
+      if (ratioCompare != 0) return ratioCompare;
+      final countCompare = b.sampleCount.compareTo(a.sampleCount);
+      if (countCompare != 0) return countCompare;
       final severity = _severityRank(
         b.feedbackType,
       ).compareTo(_severityRank(a.feedbackType));
       if (severity != 0) return severity;
-      final ratioCompare = b.occurrenceRatio.compareTo(a.occurrenceRatio);
-      if (ratioCompare != 0) return ratioCompare;
-      return b.occurrenceCount.compareTo(a.occurrenceCount);
+      final codeCompare = (a.code ?? '').compareTo(b.code ?? '');
+      if (codeCompare != 0) return codeCompare;
+      return a.message.compareTo(b.message);
     });
 
     return List<SessionImprovement>.unmodifiable(
@@ -304,24 +270,53 @@ class SessionAssessmentAccumulator {
 
   List<SessionStrength> _deriveStrengths({required bool heldSteady}) {
     final strengths = <SessionStrength>[];
+    final handStallBucket = _positiveBuckets[handStallLockedCode];
+    final hasHandStallLocked = handStallBucket != null;
 
-    final holdStrength = _deriveHoldStrength(heldSteady: heldSteady);
-    if (holdStrength != null) {
-      strengths.add(holdStrength);
+    if (heldSteady && hasHandStallLocked) {
+      // Semantic dedupe: one combined confirmed Hand Stall strength.
+      final count = handStallBucket.count;
+      final ratio = _totalApplicableSamples == 0
+          ? 1.0
+          : count / _totalApplicableSamples;
+      strengths.add(
+        SessionStrength(
+          code: handStallConfirmedCode,
+          message: handStallConfirmedStrengthMessage,
+          sampleCount: count,
+          sampleRatio: ratio,
+          evidenceKind: 'holdConfirmed',
+        ),
+      );
+    } else {
+      final holdStrength = _deriveHoldStrength(heldSteady: heldSteady);
+      if (holdStrength != null) {
+        strengths.add(holdStrength);
+      }
     }
 
     if (_totalApplicableSamples > 0) {
       final positiveCandidates = <SessionStrength>[];
       for (final entry in _positiveBuckets.entries) {
+        if (entry.key == handStallLockedCode && heldSteady) {
+          // Already represented by the combined confirmed strength.
+          continue;
+        }
+
         final count = entry.value.count;
         final ratio = count / _totalApplicableSamples;
         if (count < minOccurrenceCount || ratio < minOccurrenceRatio) {
           continue;
         }
+
+        final message = entry.key == handStallLockedCode
+            ? handStallFormStrengthMessage
+            : entry.value.representative.feedback;
+
         positiveCandidates.add(
           SessionStrength(
             code: entry.key,
-            message: entry.value.representative.feedback,
+            message: message,
             sampleCount: count,
             sampleRatio: ratio,
             evidenceKind: 'positiveCode',
@@ -344,19 +339,8 @@ class SessionAssessmentAccumulator {
 
   SessionStrength? _deriveHoldStrength({required bool heldSteady}) {
     if (heldSteady) {
-      final exceptional =
-          _holdTargetMs > 0 &&
-          _maxHoldDurationMs >= _holdTargetMs + exceptionalHoldExtraMs;
-      if (exceptional) {
-        final seconds = (_maxHoldDurationMs / 1000.0).toStringAsFixed(1);
-        return SessionStrength(
-          code: 'hold_confirmed',
-          message: 'Hold confirmed — best hold $seconds seconds',
-          sampleCount: 1,
-          sampleRatio: 1,
-          evidenceKind: 'holdExceptionalDuration',
-        );
-      }
+      // HoldValidator is sticky after confirmation; do not claim exceptional
+      // post-confirmation duration from synthetic max duration samples.
       return const SessionStrength(
         code: 'hold_confirmed',
         message: 'Hold confirmed',
@@ -419,12 +403,15 @@ class SessionAssessmentAccumulator {
 
     final category = feedback.feedbackCategory;
     if (category != null) {
+      // Only technique is coaching-eligible. Unknown non-null categories are
+      // excluded safely rather than treated as technique.
       if (_excludedCategories.contains(category)) {
         return false;
       }
-      return true;
+      return category == _techniqueCategory;
     }
 
+    // Null category → legacy phrase-based fallback.
     if (_isEnvironmentMessage(feedback.feedback)) return false;
     return true;
   }

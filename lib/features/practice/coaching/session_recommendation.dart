@@ -1,9 +1,11 @@
-import '../session_assessment.dart';
+import '../../../data/models/training_prop.dart';
 import 'coaching_config.dart';
+import 'session_coaching_models.dart';
 
 /// Pure deterministic next-session recommendation for scored practice.
 SessionRecommendation buildSessionRecommendation({
   required String movement,
+  required TrainingProp prop,
   required bool heldSteady,
   required int finalScore,
   required double positiveRatio,
@@ -29,7 +31,11 @@ SessionRecommendation buildSessionRecommendation({
 
   if (improvements.isNotEmpty) {
     final top = improvements.first;
-    final focus = focusCopyForCode(top.code, fallbackMessage: top.message);
+    final focus = focusCopyForCode(
+      top.code,
+      prop: prop,
+      fallbackMessage: top.message,
+    );
     return SessionRecommendation(
       movementName: movement,
       reason: 'Focus: $focus',

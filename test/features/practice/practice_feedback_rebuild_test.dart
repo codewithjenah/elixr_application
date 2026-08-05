@@ -327,6 +327,7 @@ void main() {
 
       final assessment = controller.buildSessionAssessment(
         movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
         finalScore: 80,
         heldSteady: false,
       );
@@ -349,6 +350,7 @@ void main() {
 
       final assessment = controller.buildSessionAssessment(
         movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
         finalScore: 88,
         heldSteady: false,
       );
@@ -597,6 +599,7 @@ void main() {
 
       final assessment = state.controller.buildSessionAssessment(
         movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
         finalScore: 72,
         heldSteady: false,
       );
@@ -659,6 +662,7 @@ void main() {
         }
         final assessment = controller.buildSessionAssessment(
           movement: 'Normal Grip',
+          prop: TrainingProp.bottle,
           finalScore: 73,
           heldSteady: false,
         );

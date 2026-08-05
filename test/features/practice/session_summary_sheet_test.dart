@@ -30,7 +30,7 @@ SessionImprovement _improvement(String message) {
     occurrenceRatio: 0.2,
     feedbackType: frame.feedbackType,
     representativeFeedback: frame,
-    code: 'bottle_not_upright',
+    code: 'prop_not_upright',
   );
 }
 
@@ -284,7 +284,7 @@ void main() {
           ),
           SessionStrength(
             code: 'hand_stall_locked',
-            message: 'Hand stall locked in.',
+            message: 'Correct Hand Stall form detected',
             sampleCount: 12,
             sampleRatio: 0.4,
             evidenceKind: 'positiveCode',

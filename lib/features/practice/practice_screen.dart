@@ -489,6 +489,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     final summaryDuration = _run.elapsedSeconds;
     final sessionAssessment = _feedback.buildSessionAssessment(
       movement: _movement,
+      prop: _prop,
       finalScore: summaryScore,
       heldSteady: heldSteady,
     );
