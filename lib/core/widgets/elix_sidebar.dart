@@ -13,6 +13,7 @@ import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/gamification_rules.dart';
 import '../theme/app_theme.dart';
+import '../utils/user_name.dart';
 import 'profile_avatar.dart';
 import '../../features/profile/profile_menu.dart';
 
@@ -168,13 +169,6 @@ class _ElixSidebarState extends State<ElixSidebar> {
     });
   }
 
-  String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-  }
-
   void _onItemTap(SidebarItem item) {
     if (item.comingSoon) return;
     if (item.route != null) context.go(item.route!);
@@ -184,7 +178,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
     final initials = (user?.fullName.isNotEmpty == true)
-        ? _initials(user!.fullName)
+        ? userInitials(user!.fullName)
         : '?';
     final isDark = context.isDarkTheme;
 

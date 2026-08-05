@@ -79,6 +79,14 @@ UserNameParts normalizeUserNameParts({
   );
 }
 
+/// Avatar initials from a display name: first+last token letters, or `?`.
+String userInitials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+'));
+  if (parts.isEmpty || parts.first.isEmpty) return '?';
+  if (parts.length == 1) return parts.first[0].toUpperCase();
+  return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+}
+
 /// Returns a user-facing validation error, or null when valid.
 String? validateUserNameParts({
   required String firstName,

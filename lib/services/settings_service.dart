@@ -6,8 +6,27 @@ import 'package:flutter/foundation.dart';
 import '../core/constants/movements.dart';
 import '../data/models/camera_device.dart';
 
+/// Result of attempting to persist local Settings JSON.
+///
+/// Validation failures are not represented here — callers validate first and
+/// defensive service checks throw [ArgumentError].
+enum SettingsWriteOutcome {
+  /// Disk write succeeded and in-memory fields were committed.
+  saved,
+
+  /// Candidate matched current in-memory values; no write or notification.
+  unchanged,
+
+  /// Disk write failed; in-memory values were left unchanged.
+  writeFailed,
+}
+
 class SettingsService extends ChangeNotifier {
-  SettingsService({File? settingsFile}) : _settingsFileOverride = settingsFile;
+  SettingsService({
+    File? settingsFile,
+    Future<void> Function(File file, String contents)? writeSettings,
+  }) : _settingsFileOverride = settingsFile,
+       _writeSettingsOverride = writeSettings;
 
   static const _fileName = 'settings.json';
   static const _cameraMirroredKey = 'camera_mirrored';
@@ -24,6 +43,8 @@ class SettingsService extends ChangeNotifier {
   static const _defaultJustDanceIntervalSeconds = 25;
 
   final File? _settingsFileOverride;
+  final Future<void> Function(File file, String contents)?
+  _writeSettingsOverride;
 
   bool _cameraMirrored = true;
   bool _darkMode = true;
@@ -87,78 +108,147 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setCameraMirrored(bool value) async {
-    if (_cameraMirrored == value) return;
-    _cameraMirrored = value;
-    notifyListeners();
-    await _save();
+  Future<SettingsWriteOutcome> setCameraMirrored(bool value) {
+    return _commitCandidate(
+      cameraMirrored: value,
+      darkMode: _darkMode,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
   }
 
-  Future<void> setDarkMode(bool value) async {
-    if (_darkMode == value) return;
-    _darkMode = value;
-    notifyListeners();
-    await _save();
+  Future<SettingsWriteOutcome> setDarkMode(bool value) {
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: value,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
   }
 
-  /// Sets the ordered Just Dance rotation setlist. Ignored when empty — the
-  /// dialog that calls this must already enforce at least one movement.
-  Future<void> setJustDanceSetlist(List<String> movementNames) async {
-    if (movementNames.isEmpty) return;
-    final next = List<String>.unmodifiable(movementNames);
-    if (listEquals(_justDanceMovementNames, next)) return;
-    _justDanceMovementNames = next;
-    notifyListeners();
-    await _save();
+  /// Sets the ordered Just Dance rotation setlist.
+  ///
+  /// Throws [ArgumentError] when [movementNames] is empty or contains no
+  /// catalog movements after normalization.
+  Future<SettingsWriteOutcome> setJustDanceSetlist(List<String> movementNames) {
+    final normalized = _normalizeMovementNames(movementNames);
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: normalized,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
   }
 
-  Future<void> setJustDanceIntervalSeconds(int seconds) async {
-    if (_justDanceIntervalSeconds == seconds) return;
-    _justDanceIntervalSeconds = seconds;
-    notifyListeners();
-    await _save();
+  /// Throws [ArgumentError] when [seconds] is not positive.
+  Future<SettingsWriteOutcome> setJustDanceIntervalSeconds(int seconds) {
+    if (seconds <= 0) {
+      throw ArgumentError.value(
+        seconds,
+        'seconds',
+        'Live Practice interval must be positive',
+      );
+    }
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: seconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
   }
 
-  Future<void> setSelectedMusicTrackId(String? id) async {
-    final normalized = (id == null || id.trim().isEmpty) ? null : id.trim();
-    if (_selectedMusicTrackId == normalized) return;
-    _selectedMusicTrackId = normalized;
-    notifyListeners();
-    await _save();
+  Future<SettingsWriteOutcome> setSelectedMusicTrackId(String? id) {
+    final normalized = _parseTrackId(id);
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: normalized,
+    );
   }
 
-  Future<void> setSelectedCameraDevice(
+  /// Atomically updates Live Practice setlist, interval, and music.
+  ///
+  /// Throws [ArgumentError] when normalization leaves no valid movements or
+  /// [intervalSeconds] is not positive.
+  Future<SettingsWriteOutcome> updateLivePracticePreferences({
+    required List<String> movementNames,
+    required int intervalSeconds,
+    String? musicTrackId,
+  }) {
+    if (intervalSeconds <= 0) {
+      throw ArgumentError.value(
+        intervalSeconds,
+        'intervalSeconds',
+        'Live Practice interval must be positive',
+      );
+    }
+    final normalizedMovements = _normalizeMovementNames(movementNames);
+    final normalizedTrack = _parseTrackId(musicTrackId);
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: normalizedMovements,
+      justDanceIntervalSeconds: intervalSeconds,
+      selectedMusicTrackId: normalizedTrack,
+    );
+  }
+
+  Future<SettingsWriteOutcome> setSelectedCameraDevice(
     String? deviceId, {
     String? displayName,
-  }) async {
+  }) {
     final normalizedId = _parseDeviceId(deviceId);
     final normalizedName = displayName?.trim();
     final name = (normalizedName == null || normalizedName.isEmpty)
         ? null
         : normalizedName;
 
-    if (_selectedCameraDeviceId == normalizedId &&
-        _selectedCameraDisplayName == name &&
-        _legacyCameraIndex == null) {
-      return;
-    }
-
-    _selectedCameraDeviceId = normalizedId;
-    _selectedCameraDisplayName = normalizedId == null ? null : name;
-    _legacyCameraIndex = null;
-    notifyListeners();
-    await _save();
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      cameraDeviceId: normalizedId,
+      cameraDisplayName: normalizedId == null ? null : name,
+      legacyCameraIndex: null,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
   }
 
-  Future<void> clearCameraSelectionForAutoSelect() async {
-    await setSelectedCameraDevice(null);
+  Future<SettingsWriteOutcome> clearCameraSelectionForAutoSelect() {
+    return setSelectedCameraDevice(null);
   }
 
   /// Map a legacy persisted `camera_index` onto a discovered stable device.
   ///
-  /// Does nothing when already migrated, when there is no legacy index, or
-  /// when the legacy index cannot be matched. Never silently picks another
-  /// device.
+  /// Returns `true` only when migration committed successfully (`saved`) or
+  /// the in-memory selection already matches the intended device
+  /// (`unchanged`). On `writeFailed`, returns `false` and retains the legacy
+  /// index for a later retry.
   Future<bool> migrateLegacyCameraIndex(List<CameraDevice> discovered) async {
     if (_selectedCameraDeviceId != null) return false;
     final legacyIndex = _legacyCameraIndex;
@@ -173,11 +263,19 @@ class SettingsService extends ChangeNotifier {
     }
     if (match == null) return false;
 
-    await setSelectedCameraDevice(
+    final outcome = await setSelectedCameraDevice(
       match.deviceId,
       displayName: match.displayName,
     );
-    return true;
+    switch (outcome) {
+      case SettingsWriteOutcome.saved:
+        return true;
+      case SettingsWriteOutcome.unchanged:
+        return _selectedCameraDeviceId == match.deviceId &&
+            _legacyCameraIndex == null;
+      case SettingsWriteOutcome.writeFailed:
+        return false;
+    }
   }
 
   /// Reloads camera selection from disk so practice starts use the saved value
@@ -220,7 +318,9 @@ class SettingsService extends ChangeNotifier {
     final validNames = movementCatalog.map((m) => m.name).toSet();
     final raw = data[_justDanceMovementNamesKey];
     final persisted = raw is List
-        ? raw.whereType<String>().where(validNames.contains).toList()
+        ? _dedupePreservingOrder(
+            raw.whereType<String>().where(validNames.contains),
+          )
         : <String>[];
     _justDanceMovementNames = persisted.isEmpty
         ? _defaultJustDanceMovementNames()
@@ -241,28 +341,98 @@ class SettingsService extends ChangeNotifier {
     return value.isEmpty ? null : value;
   }
 
-  Future<void> _save() async {
+  /// Filters to catalog names, dedupes preserving order. Throws when empty.
+  static List<String> _normalizeMovementNames(List<String> movementNames) {
+    final validNames = movementCatalog.map((m) => m.name).toSet();
+    final normalized = _dedupePreservingOrder(
+      movementNames.where(validNames.contains),
+    );
+    if (normalized.isEmpty) {
+      throw ArgumentError(
+        'Live Practice setlist must contain at least one catalog movement',
+      );
+    }
+    return List.unmodifiable(normalized);
+  }
+
+  static List<String> _dedupePreservingOrder(Iterable<String> names) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final name in names) {
+      if (seen.add(name)) {
+        result.add(name);
+      }
+    }
+    return result;
+  }
+
+  Future<SettingsWriteOutcome> _commitCandidate({
+    required bool cameraMirrored,
+    required bool darkMode,
+    required String? cameraDeviceId,
+    required String? cameraDisplayName,
+    required int? legacyCameraIndex,
+    required List<String> justDanceMovementNames,
+    required int justDanceIntervalSeconds,
+    required String? selectedMusicTrackId,
+  }) async {
+    if (_cameraMirrored == cameraMirrored &&
+        _darkMode == darkMode &&
+        _selectedCameraDeviceId == cameraDeviceId &&
+        _selectedCameraDisplayName == cameraDisplayName &&
+        _legacyCameraIndex == legacyCameraIndex &&
+        listEquals(_justDanceMovementNames, justDanceMovementNames) &&
+        _justDanceIntervalSeconds == justDanceIntervalSeconds &&
+        _selectedMusicTrackId == selectedMusicTrackId) {
+      return SettingsWriteOutcome.unchanged;
+    }
+
+    final payload = <String, dynamic>{
+      _cameraMirroredKey: cameraMirrored,
+      _darkModeKey: darkMode,
+      _cameraDeviceIdKey: cameraDeviceId,
+      _cameraDisplayNameKey: cameraDisplayName,
+      _justDanceMovementNamesKey: justDanceMovementNames,
+      _justDanceIntervalSecondsKey: justDanceIntervalSeconds,
+      _selectedMusicTrackIdKey: selectedMusicTrackId,
+    };
+    if (cameraDeviceId == null && legacyCameraIndex != null) {
+      payload[_cameraIndexKey] = legacyCameraIndex;
+    } else {
+      payload[_cameraIndexKey] = null;
+    }
+
+    final wrote = await _writePayload(payload);
+    if (!wrote) {
+      return SettingsWriteOutcome.writeFailed;
+    }
+
+    _cameraMirrored = cameraMirrored;
+    _darkMode = darkMode;
+    _selectedCameraDeviceId = cameraDeviceId;
+    _selectedCameraDisplayName = cameraDisplayName;
+    _legacyCameraIndex = legacyCameraIndex;
+    _justDanceMovementNames = List.unmodifiable(justDanceMovementNames);
+    _justDanceIntervalSeconds = justDanceIntervalSeconds;
+    _selectedMusicTrackId = selectedMusicTrackId;
+    notifyListeners();
+    return SettingsWriteOutcome.saved;
+  }
+
+  Future<bool> _writePayload(Map<String, dynamic> payload) async {
     try {
       final file = _settingsFile();
       await file.parent.create(recursive: true);
-      final payload = <String, dynamic>{
-        _cameraMirroredKey: _cameraMirrored,
-        _darkModeKey: _darkMode,
-        _cameraDeviceIdKey: _selectedCameraDeviceId,
-        _cameraDisplayNameKey: _selectedCameraDisplayName,
-        _justDanceMovementNamesKey: _justDanceMovementNames,
-        _justDanceIntervalSecondsKey: _justDanceIntervalSeconds,
-        _selectedMusicTrackIdKey: _selectedMusicTrackId,
-      };
-      // Keep legacy key only while migration is still pending.
-      if (_selectedCameraDeviceId == null && _legacyCameraIndex != null) {
-        payload[_cameraIndexKey] = _legacyCameraIndex;
+      final contents = jsonEncode(payload);
+      final writer = _writeSettingsOverride;
+      if (writer != null) {
+        await writer(file, contents);
       } else {
-        payload[_cameraIndexKey] = null;
+        await file.writeAsString(contents);
       }
-      await file.writeAsString(jsonEncode(payload));
+      return true;
     } catch (_) {
-      // Ignore write failures.
+      return false;
     }
   }
 

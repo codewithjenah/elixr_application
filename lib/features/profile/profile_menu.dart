@@ -11,8 +11,10 @@ import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/user.dart';
 import '../../data/repositories/leaderboard_repository.dart';
+import '../../core/utils/user_name.dart';
 import '../../services/auth_service.dart';
-import 'profile_settings_screen.dart';
+import '../settings/settings_screen.dart';
+import '../settings/settings_section.dart';
 
 class ProfileMenu {
   ProfileMenu._();
@@ -115,16 +117,9 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     super.dispose();
   }
 
-  String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-  }
-
-  void _openSettings(BuildContext context, ProfileSettingsSection section) {
+  void _openSettings(BuildContext context, SettingsSection section) {
     widget.onDismiss();
-    ProfileSettingsScreen.show(context, initialSection: section);
+    SettingsScreen.show(context, initialSection: section);
   }
 
   void _openAchievements(BuildContext context) {
@@ -137,7 +132,7 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     final user = context.watch<AuthService>().currentUser;
     final name = user?.fullName ?? 'User';
     final role = user?.role ?? 'Trainee';
-    final initials = _initials(name);
+    final initials = userInitials(name);
     final isDark = context.isDarkTheme;
 
     return Container(
@@ -165,7 +160,7 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
             initials: initials,
             user: user,
             equippedBorderId: _equippedBorderId,
-            onTap: () => _openSettings(context, ProfileSettingsSection.account),
+            onTap: () => _openSettings(context, SettingsSection.accountProfile),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
@@ -182,8 +177,7 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
               icon: FluentIcons.settings,
               label: 'Settings',
               description: 'Preferences & appearance',
-              onTap: () =>
-                  _openSettings(context, ProfileSettingsSection.preferences),
+              onTap: () => _openSettings(context, SettingsSection.appearance),
             ),
           ),
           const SizedBox(height: AppSpacing.xs),

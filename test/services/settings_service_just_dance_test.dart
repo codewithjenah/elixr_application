@@ -63,13 +63,10 @@ void main() {
     expect(service.selectedMusicTrackId, isNull);
   });
 
-  test('setJustDanceSetlist ignores an empty list', () async {
+  test('setJustDanceSetlist throws when the list is empty', () async {
     await service.initialize();
-    final original = service.justDanceMovementNames;
 
-    await service.setJustDanceSetlist(const []);
-
-    expect(service.justDanceMovementNames, original);
+    expect(() => service.setJustDanceSetlist(const []), throwsArgumentError);
   });
 
   test(

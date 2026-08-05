@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/achievement.dart';
 import '../../data/models/achievement_claim.dart';
@@ -304,7 +305,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         .where((v) => v.state == AchievementState.claimed)
         .length;
     final unlockedBorders = _cosmetics?.unlockedBorderIds.toSet() ?? {};
-    final initials = _initials(user?.fullName ?? 'User');
+    final initials = userInitials(user?.fullName ?? 'User');
     final filterCounts = _filterCounts;
 
     return ScaffoldPage(
@@ -479,13 +480,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       _AchievementFilter.locked => 'Locked',
     };
     return '$name $count';
-  }
-
-  static String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 }
 

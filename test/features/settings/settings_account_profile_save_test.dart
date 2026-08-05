@@ -7,7 +7,9 @@ import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
-import 'package:elixr_application/features/profile/profile_settings_screen.dart';
+import 'package:elixr_application/features/settings/sections/account_profile_section.dart';
+import 'package:elixr_application/features/settings/settings_screen.dart';
+import 'package:elixr_application/features/settings/settings_section.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
@@ -152,30 +154,37 @@ Future<void> _setSurface(
   WidgetTester tester, {
   Size size = const Size(1400, 1000),
 }) async {
-  await tester.binding.setSurfaceSize(size);
-  addTearDown(() async {
-    await tester.binding.setSurfaceSize(null);
-  });
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
 }
 
 Future<void> _tapSaveChanges(WidgetTester tester) async {
-  final saveButton = find.text('Save changes');
-  await tester.scrollUntilVisible(
-    saveButton,
-    120,
-    scrollable: find.byType(Scrollable).first,
+  final saveButton = find.descendant(
+    of: find.byType(AccountProfileSection),
+    matching: find.text('Save changes'),
   );
+  await tester.ensureVisible(saveButton);
   await tester.tap(saveButton);
-  await tester.pumpAndSettle();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 100));
+  for (var i = 0; i < 10; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
 }
 
-Finder _profileTextBoxAt(int index) {
-  return find
-      .descendant(
-        of: find.byType(ProfileSettingsScreen),
-        matching: find.byType(TextBox),
-      )
-      .at(index);
+/// Finds the TextBox under a SettingsFormField label within Account & Profile.
+Finder _accountField(String label) {
+  final labelFinder = find.descendant(
+    of: find.byType(AccountProfileSection),
+    matching: find.text(label),
+  );
+  // Nearest Column ancestor is the SettingsFormField root (one TextBox).
+  final fieldColumn = find
+      .ancestor(of: labelFinder, matching: find.byType(Column))
+      .first;
+  return find.descendant(of: fieldColumn, matching: find.byType(TextBox));
 }
 
 void main() {
@@ -229,23 +238,23 @@ void main() {
     );
   }
 
-  group('ProfileSettingsScreen save profile', () {
+  group('SettingsScreen account profile save', () {
     testWidgets('name-only save does not trigger current-email verification', (
       tester,
     ) async {
       await _setSurface(tester);
       await tester.pumpWidget(
         wrap(
-          ProfileSettingsScreen(
-            initialSection: ProfileSettingsSection.profile,
+          SettingsScreen(
+            initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(_profileTextBoxAt(0), 'Updated');
-      await tester.enterText(_profileTextBoxAt(1), 'Name');
+      await tester.enterText(_accountField('First Name'), 'Updated');
+      await tester.enterText(_accountField('Last Name'), 'Name');
       await _tapSaveChanges(tester);
 
       expect(authRepository.isCurrentEmailVerifiedCallCount, 0);
@@ -271,17 +280,17 @@ void main() {
       await _setSurface(tester);
       await tester.pumpWidget(
         wrap(
-          ProfileSettingsScreen(
-            initialSection: ProfileSettingsSection.profile,
+          SettingsScreen(
+            initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(_profileTextBoxAt(0), 'Grace');
-      await tester.enterText(_profileTextBoxAt(1), 'Hopper');
-      await tester.enterText(_profileTextBoxAt(2), 'Marie');
+      await tester.enterText(_accountField('First Name'), 'Grace');
+      await tester.enterText(_accountField('Last Name'), 'Hopper');
+      await tester.enterText(_accountField('Middle Name (Optional)'), 'Marie');
       await _tapSaveChanges(tester);
 
       expect(authRepository.lastFirstName, 'Grace');
@@ -306,17 +315,28 @@ void main() {
       await _setSurface(tester);
       await tester.pumpWidget(
         wrap(
-          ProfileSettingsScreen(
-            initialSection: ProfileSettingsSection.profile,
+          SettingsScreen(
+            initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-      await tester.enterText(_profileTextBoxAt(2), '');
+      final middleField = _accountField('Middle Name (Optional)');
+      await tester.tap(middleField);
+      await tester.pump();
+      // Fluent TextBox: replace then clear so the controller notifies listeners.
+      await tester.enterText(middleField, 'temp');
+      await tester.pump();
+      await tester.enterText(middleField, '');
+      await tester.pump();
+      expect(tester.widget<TextBox>(middleField).controller?.text ?? '', '');
+
       await _tapSaveChanges(tester);
 
+      expect(authRepository.updateCallCount, 1);
       expect(authRepository.lastMiddleName, isNull);
       expect(authService.currentUser?.middleName, isNull);
       expect(authService.currentUser?.fullName, 'Ada Lovelace');
