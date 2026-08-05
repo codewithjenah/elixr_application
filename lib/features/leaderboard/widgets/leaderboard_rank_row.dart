@@ -61,6 +61,7 @@ class LeaderboardRankRow extends StatefulWidget {
     required this.isCurrentUser,
     this.profilePictureUrl,
     this.showDivider = false,
+    this.onTap,
   });
 
   final int rank;
@@ -68,6 +69,7 @@ class LeaderboardRankRow extends StatefulWidget {
   final bool isCurrentUser;
   final String? profilePictureUrl;
   final bool showDivider;
+  final VoidCallback? onTap;
 
   @override
   State<LeaderboardRankRow> createState() => _LeaderboardRankRowState();
@@ -90,9 +92,15 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
             color: context.elixBorder.withValues(alpha: 0.55),
           ),
         MouseRegion(
+          cursor: widget.onTap != null
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
           onEnter: (_) => setState(() => _hovered = true),
           onExit: (_) => setState(() => _hovered = false),
-          child: AnimatedContainer(
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOut,
             width: double.infinity,
@@ -200,6 +208,7 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
               ],
             ),
           ),
+        ),
         ),
       ],
     );

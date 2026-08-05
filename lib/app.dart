@@ -6,6 +6,7 @@ import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/repositories/leaderboard_repository.dart';
+import 'data/repositories/public_profile_repository.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
@@ -23,14 +24,18 @@ class _ElixrAppState extends State<ElixrApp> {
   late final AuthService _authService;
   late final SettingsService _settingsService;
   late final CameraDeviceService _cameraDeviceService;
+  late final PublicProfileRepository _publicProfileRepository;
   late final GoRouter _router;
   bool _splashFinished = false;
 
   @override
   void initState() {
     super.initState();
-    _authService = AuthService(leaderboardRepository: LeaderboardRepository())
-      ..initialize();
+    _publicProfileRepository = PublicProfileRepository();
+    _authService = AuthService(
+      leaderboardRepository: LeaderboardRepository(),
+      publicProfileRepository: _publicProfileRepository,
+    )..initialize();
     _settingsService = SettingsService()..initialize();
     _cameraDeviceService = CameraDeviceService();
     _router = AppRouter.create(_authService);
@@ -50,7 +55,12 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _authService),
         ChangeNotifierProvider.value(value: _settingsService),
         ChangeNotifierProvider.value(value: _cameraDeviceService),
-        ChangeNotifierProvider(create: (_) => SessionService()),
+        ChangeNotifierProvider(
+          create: (_) => SessionService(
+            publicProfileRepository: _publicProfileRepository,
+          ),
+        ),
+        Provider<PublicProfileRepository>.value(value: _publicProfileRepository),
       ],
       child: Consumer<SettingsService>(
         builder: (context, settings, _) {

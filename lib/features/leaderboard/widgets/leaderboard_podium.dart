@@ -15,12 +15,14 @@ class LeaderboardPodium extends StatelessWidget {
     required this.currentUserId,
     this.currentUserProfilePictureUrl,
     this.variant = LeaderboardPodiumVariant.full,
+    this.onTapPlayer,
   });
 
   final List<LeaderboardEntry> podium;
   final String? currentUserId;
   final String? currentUserProfilePictureUrl;
   final LeaderboardPodiumVariant variant;
+  final void Function(LeaderboardEntry entry, int rank)? onTapPlayer;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +45,9 @@ class LeaderboardPodium extends StatelessWidget {
           currentUserProfilePictureUrl: currentUserProfilePictureUrl,
         ),
         variant: variant,
+        onTap: onTapPlayer == null
+            ? null
+            : () => onTapPlayer!(slot.entry, slot.rank),
       );
     }
 
@@ -58,6 +63,7 @@ class LeaderboardPodium extends StatelessWidget {
           currentUserProfilePictureUrl: currentUserProfilePictureUrl,
         ),
         variant: variant,
+        onTap: onTapPlayer == null ? null : () => onTapPlayer!(entry, rank),
       );
     }
 

@@ -7,6 +7,7 @@ import '../data/models/user.dart';
 import '../data/repositories/auth_repository.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
+import '../data/repositories/public_profile_repository.dart';
 
 class _PendingEmailChangeState {
   _PendingEmailChangeState({
@@ -34,11 +35,13 @@ class AuthService extends ChangeNotifier {
   AuthService({
     AuthRepositoryBase? repository,
     LeaderboardRepository? leaderboardRepository,
+    PublicProfileRepository? publicProfileRepository,
     ProfileImageRepositoryBase? profileImageRepository,
     Duration? pendingEmailPollInterval,
     Duration? pendingEmailTimeout,
   }) : _repository = repository ?? AuthRepository(),
        _leaderboardRepository = leaderboardRepository,
+       _publicProfileRepository = publicProfileRepository,
        _explicitProfileImageRepository = profileImageRepository,
        _pendingEmailPollInterval =
            pendingEmailPollInterval ?? const Duration(seconds: 5),
@@ -46,6 +49,7 @@ class AuthService extends ChangeNotifier {
 
   final AuthRepositoryBase _repository;
   final LeaderboardRepository? _leaderboardRepository;
+  final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
   final Duration _pendingEmailTimeout;
 
@@ -272,6 +276,21 @@ class AuthService extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint(
           'Leaderboard public profile sync failed: userId=$userId error=$error',
+        );
+        debugPrint('$stackTrace');
+      }
+    }
+
+    try {
+      await _publicProfileRepository?.updatePublicIdentity(
+        userId: userId,
+        displayName: _currentUser?.fullName ?? '',
+        profilePictureUrl: _currentUser?.profilePictureUrl,
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          'Public profile identity sync failed: userId=$userId error=$error',
         );
         debugPrint('$stackTrace');
       }

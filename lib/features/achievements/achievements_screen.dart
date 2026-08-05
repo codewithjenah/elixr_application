@@ -16,6 +16,7 @@ import '../../data/models/session.dart';
 import '../../data/models/user_cosmetics.dart';
 import '../../data/repositories/achievement_repository.dart';
 import '../../data/repositories/leaderboard_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import 'widgets/achievement_card.dart';
@@ -49,6 +50,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   late final AchievementRepository _achievementRepo;
   late final LeaderboardRepository _leaderboardRepo;
   late final SessionRepository _sessionRepo;
+  bool _reposInitialized = false;
 
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
   StreamSubscription<Set<String>>? _claimsSub;
@@ -68,16 +70,18 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   _AchievementFilter _filter = _AchievementFilter.all;
 
   @override
-  void initState() {
-    super.initState();
-    _achievementRepo = widget._achievementRepository ?? AchievementRepository();
-    _leaderboardRepo = widget._leaderboardRepository ?? LeaderboardRepository();
-    _sessionRepo = widget._sessionRepository ?? SessionRepository();
-  }
-
-  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_reposInitialized) {
+      _reposInitialized = true;
+      final publicProfileRepository = context.read<PublicProfileRepository>();
+      _achievementRepo =
+          widget._achievementRepository ??
+          AchievementRepository(publicProfileRepository: publicProfileRepository);
+      _leaderboardRepo =
+          widget._leaderboardRepository ?? LeaderboardRepository();
+      _sessionRepo = widget._sessionRepository ?? SessionRepository();
+    }
     final userId = context.watch<AuthService>().currentUser?.id;
     if (userId != _userId) {
       _userId = userId;

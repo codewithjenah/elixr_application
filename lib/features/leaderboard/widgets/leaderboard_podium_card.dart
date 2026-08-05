@@ -15,6 +15,7 @@ class LeaderboardPodiumCard extends StatelessWidget {
     required this.isCurrentUser,
     this.profilePictureUrl,
     this.variant = LeaderboardPodiumVariant.full,
+    this.onTap,
   });
 
   final int rank;
@@ -22,6 +23,7 @@ class LeaderboardPodiumCard extends StatelessWidget {
   final bool isCurrentUser;
   final String? profilePictureUrl;
   final LeaderboardPodiumVariant variant;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -43,95 +45,101 @@ class LeaderboardPodiumCard extends StatelessWidget {
     final xpSize = compact ? (isFirst ? 14.0 : 12.0) : (isFirst ? 16.0 : 14.0);
     final rankLabel = rank >= 1 && rank <= 3 ? 'Top $rank' : '#$rank';
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(sidePad, topPad, sidePad, sidePad),
-      decoration: BoxDecoration(
-        color: panel,
-        borderRadius: BorderRadius.circular(compact ? 14 : 16),
-        border: Border.all(
-          color: accent.withValues(alpha: isFirst ? 0.5 : 0.32),
-          width: isFirst ? 1.4 : 1,
+    return MouseRegion(
+      cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.fromLTRB(sidePad, topPad, sidePad, sidePad),
+          decoration: BoxDecoration(
+            color: panel,
+            borderRadius: BorderRadius.circular(compact ? 14 : 16),
+            border: Border.all(
+              color: accent.withValues(alpha: isFirst ? 0.5 : 0.32),
+              width: isFirst ? 1.4 : 1,
+            ),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                accent.withValues(alpha: isFirst ? 0.14 : 0.08),
+                panel.withValues(alpha: 0.15),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: isFirst ? 0.10 : 0.05),
+                blurRadius: isFirst ? 12 : 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                isFirst ? '★ $rankLabel' : rankLabel,
+                style: TextStyle(
+                  fontSize: compact ? 11 : 12,
+                  fontWeight: FontWeight.w800,
+                  color: accent,
+                ),
+              ),
+              SizedBox(height: compact ? 6 : 8),
+              LeaderboardInitialsAvatar(
+                initials: LeaderboardPresentation.initialsFor(entry.displayName),
+                accent: accent,
+                size: avatarSize,
+                profilePictureUrl: profilePictureUrl,
+                equippedBorderId: entry.equippedBorderId,
+                highlightRing: isCurrentUser,
+              ),
+              SizedBox(height: compact ? 8 : 10),
+              Text(
+                entry.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: nameSize,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Lv. ${entry.level}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: context.elixTextSecondary,
+                ),
+              ),
+              SizedBox(height: compact ? 6 : 8),
+              Text(
+                '${entry.totalXp} XP',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: xpSize,
+                  fontWeight: FontWeight.w800,
+                  color: accent,
+                ),
+              ),
+              SizedBox(
+                height: compact ? 22 : 26,
+                child: isCurrentUser
+                    ? const Align(
+                        alignment: Alignment.bottomCenter,
+                        child: LeaderboardYouBadge(compact: true),
+                      )
+                    : null,
+              ),
+            ],
+          ),
         ),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            accent.withValues(alpha: isFirst ? 0.14 : 0.08),
-            panel.withValues(alpha: 0.15),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: isFirst ? 0.10 : 0.05),
-            blurRadius: isFirst ? 12 : 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            isFirst ? '★ $rankLabel' : rankLabel,
-            style: TextStyle(
-              fontSize: compact ? 11 : 12,
-              fontWeight: FontWeight.w800,
-              color: accent,
-            ),
-          ),
-          SizedBox(height: compact ? 6 : 8),
-          LeaderboardInitialsAvatar(
-            initials: LeaderboardPresentation.initialsFor(entry.displayName),
-            accent: accent,
-            size: avatarSize,
-            profilePictureUrl: profilePictureUrl,
-            equippedBorderId: entry.equippedBorderId,
-            highlightRing: isCurrentUser,
-          ),
-          SizedBox(height: compact ? 8 : 10),
-          Text(
-            entry.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: nameSize,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Lv. ${entry.level}',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: context.elixTextSecondary,
-            ),
-          ),
-          SizedBox(height: compact ? 6 : 8),
-          Text(
-            '${entry.totalXp} XP',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: xpSize,
-              fontWeight: FontWeight.w800,
-              color: accent,
-            ),
-          ),
-          // Reserve identical badge slot so YOU never changes card height.
-          SizedBox(
-            height: compact ? 22 : 26,
-            child: isCurrentUser
-                ? const Align(
-                    alignment: Alignment.bottomCenter,
-                    child: LeaderboardYouBadge(compact: true),
-                  )
-                : null,
-          ),
-        ],
       ),
     );
   }

@@ -122,6 +122,13 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     SettingsScreen.show(context, initialSection: section);
   }
 
+  void _openMyProfile(BuildContext context) {
+    final userId = context.read<AuthService>().currentUser?.id;
+    if (userId == null || userId.isEmpty) return;
+    widget.onDismiss();
+    context.go('/profile/$userId');
+  }
+
   void _openAchievements(BuildContext context) {
     widget.onDismiss();
     context.go('/achievements');
@@ -160,7 +167,16 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
             initials: initials,
             user: user,
             equippedBorderId: _equippedBorderId,
-            onTap: () => _openSettings(context, SettingsSection.accountProfile),
+            onTap: () => _openMyProfile(context),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            child: _ProfileMenuItem(
+              icon: FluentIcons.contact,
+              label: 'View My Profile',
+              description: 'See your public player profile',
+              onTap: () => _openMyProfile(context),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),

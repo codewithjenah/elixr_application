@@ -49,13 +49,16 @@ class LeaderboardRepository {
         .collection(FirestoreCollections.leaderboard)
         .orderBy('total_xp', descending: true)
         .orderBy('best_score', descending: true)
+        .orderBy(FieldPath.documentId)
         .limit(limit)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
+          final entries = snapshot.docs
               .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
               .whereType<LeaderboardEntry>()
-              .toList(growable: false);
+              .toList(growable: true);
+          sortLeaderboardEntries(entries);
+          return List<LeaderboardEntry>.unmodifiable(entries);
         });
   }
 
@@ -78,6 +81,7 @@ class LeaderboardRepository {
         .collection(FirestoreCollections.leaderboard)
         .orderBy('total_xp', descending: true)
         .orderBy('best_score', descending: true)
+        .orderBy(FieldPath.documentId)
         .limit(limit);
 
     if (startAfter is _FirestoreLeaderboardPageCursor) {
@@ -93,7 +97,8 @@ class LeaderboardRepository {
     final entries = docs
         .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
         .whereType<LeaderboardEntry>()
-        .toList(growable: false);
+        .toList(growable: true);
+    sortLeaderboardEntries(entries);
 
     final cursor = docs.isEmpty
         ? null
@@ -376,6 +381,55 @@ class LeaderboardRepository {
       _logError('syncPublicProfile', error, stackTrace, userId: userId);
       rethrow;
     }
+  }
+
+  /// Deterministic rank for [userId] using the same ordering as leaderboard
+  /// queries. Returns null when no leaderboard document exists.
+  Future<int?> computeRankForUser(String userId) async {
+    final ref = _firestore.collection(FirestoreCollections.leaderboard).doc(userId);
+    final snap = await ref.get();
+    if (!snap.exists || snap.data() == null) return null;
+
+    final data = snap.data()!;
+    final xp = _readInt(data['total_xp']) ?? 0;
+    final best = _readInt(data['best_score']) ?? 0;
+    final collection = _firestore.collection(FirestoreCollections.leaderboard);
+
+    final aheadByXp = await collection
+        .where('total_xp', isGreaterThan: xp)
+        .count()
+        .get();
+    final aheadByBest = await collection
+        .where('total_xp', isEqualTo: xp)
+        .where('best_score', isGreaterThan: best)
+        .count()
+        .get();
+
+    return 1 + (aheadByXp.count ?? 0) + (aheadByBest.count ?? 0);
+  }
+
+  /// Stable ordering for leaderboard rows when XP and best score tie.
+  @visibleForTesting
+  static int compareLeaderboardEntries(
+    LeaderboardEntry a,
+    LeaderboardEntry b,
+  ) {
+    final xpCmp = b.totalXp.compareTo(a.totalXp);
+    if (xpCmp != 0) return xpCmp;
+    final bestCmp = b.bestScore.compareTo(a.bestScore);
+    if (bestCmp != 0) return bestCmp;
+    return a.userId.compareTo(b.userId);
+  }
+
+  @visibleForTesting
+  static void sortLeaderboardEntries(List<LeaderboardEntry> entries) {
+    entries.sort(compareLeaderboardEntries);
+  }
+
+  static int? _readInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return null;
   }
 
   /// Compatibility delegate for callers that only synchronize display_name.

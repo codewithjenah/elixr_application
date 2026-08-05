@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 /// Top-level Settings navigation sections.
-enum SettingsSection { accountProfile, security, appearance, practice }
+enum SettingsSection { accountProfile, security, appearance, practice, privacy }
 
 extension SettingsSectionX on SettingsSection {
   String get title => switch (this) {
@@ -9,6 +9,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.security => 'Security',
     SettingsSection.appearance => 'Appearance',
     SettingsSection.practice => 'Practice',
+    SettingsSection.privacy => 'Privacy',
   };
 
   String get description => switch (this) {
@@ -19,6 +20,8 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => 'Customize how Elixr looks on this device.',
     SettingsSection.practice =>
       'Camera, mirroring, Live Practice setlist, pace, and music.',
+    SettingsSection.privacy =>
+      'Control who can see your detailed player profile activity.',
   };
 
   IconData get icon => switch (this) {
@@ -26,5 +29,6 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.security => FluentIcons.lock,
     SettingsSection.appearance => FluentIcons.color,
     SettingsSection.practice => FluentIcons.video,
+    SettingsSection.privacy => FluentIcons.shield,
   };
 }

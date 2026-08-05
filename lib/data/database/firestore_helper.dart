@@ -14,6 +14,8 @@ abstract final class FirestoreCollections {
   static const dailyQuestClaims = 'daily_quest_claims';
   static const achievementClaims = 'achievement_claims';
   static const userCosmetics = 'user_cosmetics';
+  static const publicProfiles = 'public_profiles';
+  static const profileVisits = 'profile_visits';
 }
 
 class FirestoreHelper {

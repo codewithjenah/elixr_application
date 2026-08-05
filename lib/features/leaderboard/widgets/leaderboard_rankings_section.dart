@@ -15,12 +15,14 @@ class LeaderboardRankingsSection extends StatelessWidget {
     required this.currentUserId,
     this.currentUserProfilePictureUrl,
     required this.footer,
+    this.onTapPlayer,
   });
 
   final List<({int rank, LeaderboardEntry entry})> rows;
   final String? currentUserId;
   final String? currentUserProfilePictureUrl;
   final Widget footer;
+  final void Function(LeaderboardEntry entry, int rank)? onTapPlayer;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +79,9 @@ class LeaderboardRankingsSection extends StatelessWidget {
                 currentUserProfilePictureUrl: currentUserProfilePictureUrl,
               ),
               showDivider: i > 0,
+              onTap: onTapPlayer == null
+                  ? null
+                  : () => onTapPlayer!(rows[i].entry, rows[i].rank),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(

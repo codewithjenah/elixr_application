@@ -1,11 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/leaderboard_entry.dart';
 import '../../data/repositories/leaderboard_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
+import '../profile/profile_route_args.dart';
 import 'leaderboard_list_controller.dart';
 import 'leaderboard_presentation.dart';
 import 'widgets/leaderboard_header.dart';
@@ -69,17 +73,32 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     _controller.startBackgroundSync(
       force: force,
       userId: userId,
-      syncUser: () => _repository.syncCurrentUserLeaderboard(
-        userId: userId,
-        displayName: user!.fullName,
-        profilePictureUrl: user.profilePictureUrl,
-      ),
+      syncUser: () async {
+        final result = await _repository.syncCurrentUserLeaderboard(
+          userId: userId,
+          displayName: user!.fullName,
+          profilePictureUrl: user.profilePictureUrl,
+        );
+        await PublicProfileRepository().ensurePublicProfile(
+          userId: userId,
+          displayName: user.fullName,
+          profilePictureUrl: user.profilePictureUrl,
+        );
+        return result;
+      },
     );
   }
 
   void _onRefresh() {
     _controller.refresh();
     _startBackgroundSync(force: true);
+  }
+
+  void _onTapPlayer(LeaderboardEntry entry, int rank) {
+    context.go(
+      '/profile/${entry.userId}',
+      extra: ProfileRouteArgs(entry: entry, rank: rank),
+    );
   }
 
   Widget _centered(Widget child) {
@@ -193,6 +212,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         currentUserProfilePictureUrl:
                             currentUserProfilePictureUrl,
                         variant: LeaderboardPodiumVariant.full,
+                        onTapPlayer: _onTapPlayer,
                       ),
                     ),
                   ),
@@ -208,6 +228,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           currentUserProfilePictureUrl:
                               currentUserProfilePictureUrl,
                           footer: loadMoreFooter,
+                          onTapPlayer: _onTapPlayer,
                         ),
                       ),
                     ),

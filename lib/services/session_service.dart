@@ -6,6 +6,7 @@ import '../data/models/practice_feedback.dart';
 import '../data/models/session.dart';
 import '../data/models/training_prop.dart';
 import '../data/repositories/leaderboard_repository.dart';
+import '../data/repositories/public_profile_repository.dart';
 import '../data/repositories/session_repository.dart';
 
 typedef LeaderboardSessionRecorder =
@@ -27,17 +28,20 @@ class SessionService extends ChangeNotifier {
   SessionService({
     SessionRepository? repository,
     LeaderboardRepository? leaderboardRepository,
+    PublicProfileRepository? publicProfileRepository,
     CompletedSessionAtomicSaver? saveCompletedSessionAtomicOverride,
     String Function()? allocateSessionIdOverride,
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
+       _publicProfileRepositoryOrNull = publicProfileRepository,
        _saveCompletedSessionAtomicOverride = saveCompletedSessionAtomicOverride,
        _allocateSessionIdOverride = allocateSessionIdOverride,
        _recordCompletedSessionOverride = recordCompletedSessionOverride;
 
   SessionRepository? _repositoryOrNull;
   LeaderboardRepository? _leaderboardRepositoryOrNull;
+  final PublicProfileRepository? _publicProfileRepositoryOrNull;
   final CompletedSessionAtomicSaver? _saveCompletedSessionAtomicOverride;
   final String Function()? _allocateSessionIdOverride;
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
@@ -100,6 +104,22 @@ class SessionService extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint(
           'Leaderboard sync failed after session save: '
+          'sessionId=$sessionId userId=$userId error=$error',
+        );
+        debugPrint('$stackTrace');
+      }
+    }
+
+    // Public profile projection must not erase a successfully saved session.
+    try {
+      await _publicProfileRepositoryOrNull?.projectSession(
+        sessionId: sessionId,
+        session: session,
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          'Public profile projection failed after session save: '
           'sessionId=$sessionId userId=$userId error=$error',
         );
         debugPrint('$stackTrace');

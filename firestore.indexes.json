@@ -21,7 +21,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "total_xp", "order": "DESCENDING" },
-        { "fieldPath": "best_score", "order": "DESCENDING" }
+        { "fieldPath": "best_score", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {

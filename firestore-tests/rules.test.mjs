@@ -1043,3 +1043,376 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
     assert.equal(after.data().equipped_border_id, undefined);
   });
 });
+
+function publicProfileRoot(userId, overrides = {}) {
+  return {
+    user_id: userId,
+    display_name: 'Alice',
+    visibility: 'private',
+    created_at: Timestamp.now(),
+    updated_at: Timestamp.now(),
+    schema_version: 1,
+    ...overrides,
+  };
+}
+
+function publicProfileSummary(overrides = {}) {
+  return {
+    total_duration_seconds: 120,
+    completed_movement_names: ['basic_pour'],
+    updated_at: Timestamp.now(),
+    ...overrides,
+  };
+}
+
+function publicProfileSession(userId, sessionId, overrides = {}) {
+  return {
+    session_id: sessionId,
+    user_id: userId,
+    movement_name: 'basic_pour',
+    difficulty: 'easy',
+    score: 85,
+    duration_seconds: 60,
+    prop_type: 'bottle',
+    created_at: Timestamp.now(),
+    ...overrides,
+  };
+}
+
+function profileVisit(profileOwnerId, viewerId, overrides = {}) {
+  const now = Timestamp.now();
+  return {
+    profile_owner_id: profileOwnerId,
+    viewer_id: viewerId,
+    first_viewed_at: now,
+    last_viewed_at: now,
+    ...overrides,
+  };
+}
+
+describe('public_profiles', () => {
+  test('signed-in user can read any public profile root', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice')));
+  });
+
+  test('owner can create a valid public profile root', async () => {
+    const db = aliceDb();
+    await assertSucceeds(setDoc(doc(db, 'public_profiles', 'alice'), publicProfileRoot('alice')));
+  });
+
+  test('cross-user cannot create another user public profile root', async () => {
+    const bob = bobDb();
+    await assertFails(setDoc(doc(bob, 'public_profiles', 'alice'), publicProfileRoot('alice')));
+  });
+
+  test('owner can update visibility to public', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'public_profiles', 'alice'),
+        { visibility: 'public', updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('cross-user cannot update another user public profile root', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const bob = bobDb();
+    await assertFails(
+      setDoc(
+        doc(bob, 'public_profiles', 'alice'),
+        { visibility: 'public', updated_at: Timestamp.now() },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('owner can read summary for private profile', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(getDoc(doc(db, 'public_profiles', 'alice', 'details', 'summary')));
+  });
+
+  test('other user cannot read private profile summary', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+      );
+    });
+
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+  });
+
+  test('other user can read public profile summary', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice'),
+        publicProfileRoot('alice', { visibility: 'public' }),
+      );
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+      );
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+  });
+
+  test('owner can write summary projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'public_profiles', 'alice', 'details', 'summary'), publicProfileSummary()),
+    );
+  });
+
+  test('cross-user cannot write summary projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const bob = bobDb();
+    await assertFails(
+      setDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary'), publicProfileSummary()),
+    );
+  });
+
+  test('session projection requires backing session document', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'public_profiles', 'alice', 'sessions', 's1'),
+        publicProfileSession('alice', 's1'),
+      ),
+    );
+  });
+
+  test('owner can write session projection when session exists', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(doc(adminDb, 'sessions', 's1'), { user_id: 'alice', score: 85 });
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'public_profiles', 'alice', 'sessions', 's1'),
+        publicProfileSession('alice', 's1'),
+      ),
+    );
+  });
+
+  test('other user cannot read private session projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(doc(adminDb, 'sessions', 's1'), { user_id: 'alice', score: 85 });
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice', 'sessions', 's1'),
+        publicProfileSession('alice', 's1'),
+      );
+    });
+
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 's1')));
+  });
+
+  test('other user can read public session projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice'),
+        publicProfileRoot('alice', { visibility: 'public' }),
+      );
+      await setDoc(doc(adminDb, 'sessions', 's1'), { user_id: 'alice', score: 85 });
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice', 'sessions', 's1'),
+        publicProfileSession('alice', 's1'),
+      );
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 's1')));
+  });
+
+  test('owner can write achievement projection with known achievement id', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'public_profiles', 'alice', 'achievements', 'first_steps'), {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        claimed_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      }),
+    );
+  });
+
+  test('other user cannot read private achievement projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(doc(adminDb, 'public_profiles', 'alice', 'achievements', 'first_steps'), {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        claimed_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')));
+  });
+
+  test('other user can read public achievement projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice'),
+        publicProfileRoot('alice', { visibility: 'public' }),
+      );
+      await setDoc(doc(adminDb, 'public_profiles', 'alice', 'achievements', 'first_steps'), {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        claimed_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')));
+  });
+});
+
+describe('profile_visits', () => {
+  test('viewer can create a visit record for another profile', async () => {
+    const bob = bobDb();
+    await assertSucceeds(
+      setDoc(
+        doc(bob, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob'),
+      ),
+    );
+  });
+
+  test('user cannot create a self-visit record', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'profile_visits', 'alice', 'visitors', 'alice'),
+        profileVisit('alice', 'alice'),
+      ),
+    );
+  });
+
+  test('profile owner can list visitors', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob'),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(getDocs(collection(db, 'profile_visits', 'alice', 'visitors')));
+  });
+
+  test('non-owner cannot list another user visitors', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob'),
+      );
+    });
+
+    const bob = bobDb();
+    await assertFails(getDocs(collection(bob, 'profile_visits', 'alice', 'visitors')));
+  });
+
+  test('viewer can read own visit record', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob'),
+      );
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'profile_visits', 'alice', 'visitors', 'bob')));
+  });
+
+  test('viewer can update last_viewed_at while preserving first_viewed_at', async () => {
+    const firstViewedAt = Timestamp.fromDate(new Date('2026-01-01T00:00:00Z'));
+    const lastViewedAt = Timestamp.fromDate(new Date('2026-01-02T00:00:00Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob', {
+          first_viewed_at: firstViewedAt,
+          last_viewed_at: firstViewedAt,
+        }),
+      );
+    });
+
+    const bob = bobDb();
+    await assertSucceeds(
+      setDoc(
+        doc(bob, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob', {
+          first_viewed_at: firstViewedAt,
+          last_viewed_at: lastViewedAt,
+        }),
+      ),
+    );
+  });
+
+  test('viewer cannot change first_viewed_at on update', async () => {
+    const firstViewedAt = Timestamp.fromDate(new Date('2026-01-01T00:00:00Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob', { first_viewed_at: firstViewedAt }),
+      );
+    });
+
+    const bob = bobDb();
+    await assertFails(
+      setDoc(
+        doc(bob, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob', {
+          first_viewed_at: Timestamp.fromDate(new Date('2026-02-01T00:00:00Z')),
+        }),
+      ),
+    );
+  });
+});

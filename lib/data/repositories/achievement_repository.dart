@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../database/firestore_helper.dart';
 import '../models/achievement.dart';
@@ -7,6 +8,7 @@ import '../models/leaderboard_entry.dart';
 import '../models/profile_border.dart';
 import '../models/session.dart';
 import '../models/user_cosmetics.dart';
+import 'public_profile_repository.dart';
 
 /// Persistence for claimable achievements and equippable profile borders.
 ///
@@ -20,10 +22,14 @@ import '../models/user_cosmetics.dart';
 /// attacker's own cosmetics. Trusted callable-function evaluation remains
 /// the future hostile-client hardening path.
 class AchievementRepository {
-  AchievementRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  AchievementRepository({
+    FirebaseFirestore? firestore,
+    PublicProfileRepository? publicProfileRepository,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _publicProfileRepository = publicProfileRepository;
 
   final FirebaseFirestore _firestore;
+  final PublicProfileRepository? _publicProfileRepository;
 
   DocumentReference<Map<String, dynamic>> _claimRef(String claimId) =>
       _firestore
@@ -136,6 +142,24 @@ class AchievementRepository {
       }
 
       return AchievementClaimResult.claimed(plan.rewardBorderId);
+    }).then((result) async {
+      if (result.status == AchievementClaimStatus.claimed) {
+        try {
+          await _publicProfileRepository?.projectAchievement(
+                userId: userId,
+                achievementId: achievementId,
+              );
+        } catch (error, stackTrace) {
+          if (kDebugMode) {
+            debugPrint(
+              'Public achievement projection failed: '
+              'userId=$userId achievementId=$achievementId error=$error',
+            );
+            debugPrint('$stackTrace');
+          }
+        }
+      }
+      return result;
     });
   }
 

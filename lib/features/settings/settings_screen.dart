@@ -5,10 +5,12 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/leaderboard_entry.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/settings_service.dart';
 import 'sections/account_profile_section.dart';
 import 'sections/appearance_section.dart';
 import 'sections/practice_section.dart';
+import 'sections/privacy_section.dart';
 import 'sections/security_section.dart';
 import 'settings_section.dart';
 import 'widgets/practice_preferences_controller.dart';
@@ -22,6 +24,7 @@ class SettingsScreen extends StatefulWidget {
     this.watchPlayer,
     this.pickProfileImage,
     this.cropProfileImage,
+    this.publicProfileRepository,
   });
 
   final SettingsSection initialSection;
@@ -36,15 +39,22 @@ class SettingsScreen extends StatefulWidget {
   /// Optional crop-dialog override forwarded to [AccountProfileSection].
   final AccountProfileImageCropper? cropProfileImage;
 
+  /// Optional public profile repository override for [PrivacySection].
+  final PublicProfileRepository? publicProfileRepository;
+
   static Future<void> show(
     BuildContext context, {
     SettingsSection initialSection = SettingsSection.appearance,
   }) {
+    final publicProfileRepository = context.read<PublicProfileRepository>();
     return showDialog<void>(
       context: context,
       barrierDismissible: true,
       barrierColor: const Color(0x99000000),
-      builder: (_) => SettingsScreen(initialSection: initialSection),
+      builder: (_) => SettingsScreen(
+        initialSection: initialSection,
+        publicProfileRepository: publicProfileRepository,
+      ),
     );
   }
 
@@ -347,6 +357,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: _scrollableSection(
                   isWide: isWide,
                   child: PracticeSection(controller: _practiceController),
+                ),
+              ),
+              TickerMode(
+                enabled: _section == SettingsSection.privacy,
+                child: _scrollableSection(
+                  isWide: isWide,
+                  child: PrivacySection(
+                    isActive: _section == SettingsSection.privacy,
+                    publicProfileRepository: widget.publicProfileRepository,
+                  ),
                 ),
               ),
             ],

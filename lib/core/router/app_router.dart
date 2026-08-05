@@ -10,6 +10,8 @@ import '../../features/leaderboard/leaderboard_screen.dart';
 import '../../features/movements/movements_screen.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
+import '../../features/profile/profile_route_args.dart';
+import '../../features/profile/user_profile_screen.dart';
 import '../../features/progress/progress_screen.dart';
 import '../../data/models/training_prop.dart';
 import '../../services/auth_service.dart';
@@ -128,6 +130,19 @@ class AppRouter {
                 key: state.pageKey,
                 child: const AchievementsScreen(),
               ),
+            ),
+            GoRoute(
+              path: '/profile/:userId',
+              pageBuilder: (context, state) {
+                final userId = state.pathParameters['userId'] ?? '';
+                final args = state.extra is ProfileRouteArgs
+                    ? state.extra! as ProfileRouteArgs
+                    : null;
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: UserProfileScreen(userId: userId, initialArgs: args),
+                );
+              },
             ),
           ],
         ),

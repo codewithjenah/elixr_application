@@ -12,6 +12,7 @@ import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
 import '../../leaderboard/widgets/leaderboard_podium.dart';
+import '../../profile/profile_route_args.dart';
 
 const _purple = AppColors.accent;
 const _violet = AppColors.accentSoft;
@@ -198,6 +199,12 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
                 currentUserId: widget.currentUserId,
                 currentUserProfilePictureUrl: widget.profilePictureUrl,
                 variant: LeaderboardPodiumVariant.compact,
+                onTapPlayer: (entry, rank) {
+                  context.go(
+                    '/profile/${entry.userId}',
+                    extra: ProfileRouteArgs(entry: entry, rank: rank),
+                  );
+                },
               ),
               const SizedBox(height: AppSpacing.sm),
               HyperlinkButton(

@@ -779,5 +779,172 @@ service cloud.firestore {
 
       allow delete: if false;
     }
+
+    // ---- Public profiles (privacy-aware player profile viewing) ------------
+    function publicProfilePath(userId) {
+      return /databases/$(database)/documents/public_profiles/$(userId);
+    }
+
+    function publicProfileRootKeys() {
+      return [
+        'user_id',
+        'display_name',
+        'profile_picture_url',
+        'visibility',
+        'created_at',
+        'updated_at',
+        'schema_version'
+      ];
+    }
+
+    function publicProfileSummaryKeys() {
+      return [
+        'total_duration_seconds',
+        'completed_movement_names',
+        'updated_at',
+        'last_backfill_session_id'
+      ];
+    }
+
+    function publicProfileSessionKeys() {
+      return [
+        'session_id',
+        'user_id',
+        'movement_name',
+        'difficulty',
+        'score',
+        'duration_seconds',
+        'prop_type',
+        'created_at'
+      ];
+    }
+
+    function publicProfileAchievementKeys() {
+      return [
+        'user_id',
+        'achievement_id',
+        'claimed_at',
+        'updated_at'
+      ];
+    }
+
+    function profileVisitKeys() {
+      return [
+        'profile_owner_id',
+        'viewer_id',
+        'first_viewed_at',
+        'last_viewed_at'
+      ];
+    }
+
+    function publicProfileVisibility(userId) {
+      return get(publicProfilePath(userId)).data.get('visibility', 'private');
+    }
+
+    function isPublicProfile(userId) {
+      return publicProfileVisibility(userId) == 'public';
+    }
+
+    function canReadProtectedPublicProfile(userId) {
+      return isOwner(userId) || isPublicProfile(userId);
+    }
+
+    function validPublicProfileRoot(data, userId) {
+      return data.keys().hasOnly(publicProfileRootKeys())
+        && data.user_id == userId
+        && data.display_name is string
+        && data.display_name.size() > 0
+        && data.display_name.size() <= 80
+        && data.visibility in ['public', 'private']
+        && (!data.keys().hasAny(['profile_picture_url'])
+          || isValidHttpsProfilePictureUrl(data.profile_picture_url))
+        && (!data.keys().hasAny(['schema_version'])
+          || (data.schema_version is int && data.schema_version >= 1));
+    }
+
+    function validPublicProfileSummary(data, userId) {
+      return data.keys().hasOnly(publicProfileSummaryKeys())
+        && isNonNegInt(data.total_duration_seconds)
+        && data.completed_movement_names is list;
+    }
+
+    function validPublicProfileSession(data, userId, sessionId) {
+      return data.keys().hasOnly(publicProfileSessionKeys())
+        && data.session_id == sessionId
+        && data.user_id == userId
+        && data.movement_name is string
+        && data.difficulty is string
+        && isScore(data.score)
+        && isNonNegInt(data.duration_seconds)
+        && data.prop_type is string
+        && exists(sessionPath(sessionId))
+        && get(sessionPath(sessionId)).data.user_id == userId;
+    }
+
+    function validPublicProfileAchievement(data, userId, achievementId) {
+      return data.keys().hasOnly(publicProfileAchievementKeys())
+        && data.user_id == userId
+        && data.achievement_id == achievementId
+        && isKnownAchievementId(achievementId);
+    }
+
+    match /public_profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId)
+        && validPublicProfileRoot(request.resource.data, userId);
+      allow update: if isOwner(userId)
+        && validPublicProfileRoot(request.resource.data, userId)
+        && request.resource.data.user_id == resource.data.user_id;
+      allow delete: if false;
+
+      match /details/summary {
+        allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
+        allow create, update: if isOwner(userId)
+          && validPublicProfileSummary(request.resource.data, userId);
+        allow delete: if false;
+      }
+
+      match /sessions/{sessionId} {
+        allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
+        allow create, update: if isOwner(userId)
+          && validPublicProfileSession(request.resource.data, userId, sessionId);
+        allow delete: if false;
+      }
+
+      match /achievements/{achievementId} {
+        allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
+        allow create, update: if isOwner(userId)
+          && validPublicProfileAchievement(
+            request.resource.data,
+            userId,
+            achievementId
+          );
+        allow delete: if false;
+      }
+    }
+
+    match /profile_visits/{profileOwnerId}/visitors/{viewerId} {
+      allow get: if isSignedIn()
+        && (isOwner(profileOwnerId) || viewerId == request.auth.uid);
+      allow list: if isSignedIn() && isOwner(profileOwnerId);
+
+      allow create: if isSignedIn()
+        && viewerId == request.auth.uid
+        && profileOwnerId != request.auth.uid
+        && request.resource.data.keys().hasOnly(profileVisitKeys())
+        && request.resource.data.keys().hasAll(profileVisitKeys())
+        && request.resource.data.profile_owner_id == profileOwnerId
+        && request.resource.data.viewer_id == viewerId;
+
+      allow update: if isSignedIn()
+        && viewerId == request.auth.uid
+        && profileOwnerId != request.auth.uid
+        && request.resource.data.keys().hasOnly(profileVisitKeys())
+        && request.resource.data.profile_owner_id == profileOwnerId
+        && request.resource.data.viewer_id == viewerId
+        && request.resource.data.first_viewed_at == resource.data.first_viewed_at;
+
+      allow delete: if false;
+    }
   }
 }
