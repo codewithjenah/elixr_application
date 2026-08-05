@@ -39,19 +39,22 @@ class AuthService extends ChangeNotifier {
     ProfileImageRepositoryBase? profileImageRepository,
     Duration? pendingEmailPollInterval,
     Duration? pendingEmailTimeout,
+    @visibleForTesting Future<void> Function()? awaitInitialAuthState,
   }) : _repository = repository ?? AuthRepository(),
        _leaderboardRepository = leaderboardRepository,
        _publicProfileRepository = publicProfileRepository,
        _explicitProfileImageRepository = profileImageRepository,
        _pendingEmailPollInterval =
            pendingEmailPollInterval ?? const Duration(seconds: 5),
-       _pendingEmailTimeout = pendingEmailTimeout ?? const Duration(minutes: 2);
+       _pendingEmailTimeout = pendingEmailTimeout ?? const Duration(minutes: 2),
+       _awaitInitialAuthState = awaitInitialAuthState;
 
   final AuthRepositoryBase _repository;
   final LeaderboardRepository? _leaderboardRepository;
   final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
   final Duration _pendingEmailTimeout;
+  final Future<void> Function()? _awaitInitialAuthState;
 
   // Lazily constructed so tests that never touch profile-image upload do not
   // need Firebase Storage initialized.
@@ -106,10 +109,16 @@ class AuthService extends ChangeNotifier {
   Future<void> initialize() async {
     _isLoading = true;
     notifyListeners();
-    await fb.FirebaseAuth.instance.authStateChanges().first;
+    final awaitInitialAuthState = _awaitInitialAuthState;
+    if (awaitInitialAuthState != null) {
+      await awaitInitialAuthState();
+    } else {
+      await fb.FirebaseAuth.instance.authStateChanges().first;
+    }
     _currentUser = await _repository.loadPersistedUser();
     _isLoading = false;
     notifyListeners();
+    _scheduleClaimedAchievementProjectionSync();
   }
 
   Future<void> register({
@@ -128,12 +137,45 @@ class AuthService extends ChangeNotifier {
     );
     _currentUser = user;
     notifyListeners();
+    _scheduleClaimedAchievementProjectionSync();
   }
 
   Future<void> login({required String email, required String password}) async {
     final user = await _repository.login(email: email, password: password);
     _currentUser = user;
     notifyListeners();
+    _scheduleClaimedAchievementProjectionSync();
+  }
+
+  /// Best-effort owner-side repair of missing public achievement projections.
+  ///
+  /// Never fails authentication. Concurrent calls for the same user are
+  /// coalesced by [PublicProfileRepository.syncClaimedAchievementProjections].
+  void _scheduleClaimedAchievementProjectionSync() {
+    final user = _currentUser;
+    final userId = user?.id?.trim();
+    if (user == null || userId == null || userId.isEmpty) return;
+
+    final repository = _publicProfileRepository;
+    if (repository == null) return;
+
+    unawaited(() async {
+      try {
+        await repository.syncClaimedAchievementProjections(
+          userId: userId,
+          displayName: user.fullName,
+          profilePictureUrl: user.profilePictureUrl,
+        );
+      } catch (error, stackTrace) {
+        if (kDebugMode) {
+          debugPrint(
+            'Public achievement projection sync failed: '
+            'userId=$userId error=$error',
+          );
+          debugPrint('$stackTrace');
+        }
+      }
+    }());
   }
 
   Future<void> logout() async {

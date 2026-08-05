@@ -11,12 +11,15 @@ class ProfileVisitRepository {
   ProfileVisitRepository({
     FirebaseFirestore? firestore,
     PublicProfileRepository? publicProfileRepository,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+  }) : _firestoreOverride = firestore,
        _publicProfileRepository =
            publicProfileRepository ?? PublicProfileRepository();
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreOverride;
   final PublicProfileRepository _publicProfileRepository;
+
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
 
   DocumentReference<Map<String, dynamic>> _visitRef(
     String profileOwnerId,

@@ -34,9 +34,12 @@ class LeaderboardPage {
 
 class LeaderboardRepository {
   LeaderboardRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestoreOverride = firestore;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreOverride;
+
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
 
   /// In-flight sync futures keyed by userId to prevent duplicate concurrent runs.
   static final Map<String, Future<LeaderboardSyncResult>> _syncInFlight = {};
@@ -386,7 +389,9 @@ class LeaderboardRepository {
   /// Deterministic rank for [userId] using the same ordering as leaderboard
   /// queries. Returns null when no leaderboard document exists.
   Future<int?> computeRankForUser(String userId) async {
-    final ref = _firestore.collection(FirestoreCollections.leaderboard).doc(userId);
+    final ref = _firestore
+        .collection(FirestoreCollections.leaderboard)
+        .doc(userId);
     final snap = await ref.get();
     if (!snap.exists || snap.data() == null) return null;
 
@@ -410,10 +415,7 @@ class LeaderboardRepository {
 
   /// Stable ordering for leaderboard rows when XP and best score tie.
   @visibleForTesting
-  static int compareLeaderboardEntries(
-    LeaderboardEntry a,
-    LeaderboardEntry b,
-  ) {
+  static int compareLeaderboardEntries(LeaderboardEntry a, LeaderboardEntry b) {
     final xpCmp = b.totalXp.compareTo(a.totalXp);
     if (xpCmp != 0) return xpCmp;
     final bestCmp = b.bestScore.compareTo(a.bestScore);

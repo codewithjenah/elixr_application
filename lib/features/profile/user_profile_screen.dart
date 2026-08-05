@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
@@ -69,6 +70,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     super.dispose();
   }
 
+  void _handleBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/leaderboard');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authUser = context.watch<AuthService>().currentUser;
@@ -86,7 +95,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.xl),
-                  child: _buildBody(context, authUser?.profilePictureUrl),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _ProfilePageHeader(onBack: _handleBack),
+                      const SizedBox(height: AppSpacing.lg),
+                      Expanded(
+                        child: _buildBody(context, authUser?.profilePictureUrl),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -104,7 +122,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           child: ProgressRing(activeColor: AppColors.primary),
         );
       case ProfileLoadState.notFound:
-        return _NotFoundState(onBack: () => Navigator.of(context).maybePop());
+        return _NotFoundState(onBack: _handleBack);
       case ProfileLoadState.error:
         return _ErrorState(onRetry: controller.retry);
       case ProfileLoadState.loaded:
@@ -113,8 +131,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     final entry = controller.leaderboardEntry;
     final root = controller.profileRoot;
-    final displayName =
-        root?.displayName ?? entry?.displayName ?? 'Player';
+    final displayName = root?.displayName ?? entry?.displayName ?? 'Player';
     final pictureUrl = root?.profilePictureUrl ?? entry?.profilePictureUrl;
     final resolvedPicture =
         controller.isSelf && (pictureUrl == null || pictureUrl.isEmpty)
@@ -125,15 +142,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Player Profile',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: context.elixTextPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
           ProfileHeader(
             displayName: displayName,
             isSelf: controller.isSelf,
@@ -182,6 +190,46 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           const SizedBox(height: AppSpacing.xl),
         ],
       ),
+    );
+  }
+}
+
+class _ProfilePageHeader extends StatelessWidget {
+  const _ProfilePageHeader({required this.onBack});
+
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Semantics(
+          button: true,
+          label: 'Back',
+          child: Tooltip(
+            message: 'Back',
+            child: IconButton(
+              icon: Icon(
+                FluentIcons.back,
+                size: 14,
+                color: context.elixTextPrimary,
+              ),
+              onPressed: onBack,
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            'Player Profile',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: context.elixTextPrimary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

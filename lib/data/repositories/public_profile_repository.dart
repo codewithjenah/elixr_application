@@ -35,17 +35,95 @@ class PublicProfileSessionPage {
   final bool hasMore;
 }
 
+/// Draft payload for a missing public achievement projection document.
+@immutable
+class ClaimedAchievementProjectionDraft {
+  const ClaimedAchievementProjectionDraft({
+    required this.achievementId,
+    this.claimedAt,
+  });
+
+  final String achievementId;
+
+  /// Authoritative claim timestamp when valid; otherwise null (server timestamp).
+  final Object? claimedAt;
+}
+
+/// Pure planner for owner-side claimed-achievement projection backfill.
+class ClaimedAchievementProjectionPlanner {
+  const ClaimedAchievementProjectionPlanner._();
+
+  /// Returns drafts for known claimed achievements missing from the projection.
+  ///
+  /// Skips unknown, empty, and malformed achievement IDs. Does not rewrite
+  /// IDs that already have a projection document.
+  static List<ClaimedAchievementProjectionDraft> draftsToCreate({
+    required Iterable<Map<String, dynamic>> claimDocuments,
+    required Set<String> existingProjectedIds,
+  }) {
+    final drafts = <ClaimedAchievementProjectionDraft>[];
+    final seen = <String>{};
+
+    for (final data in claimDocuments) {
+      final rawId = data['achievement_id'];
+      if (rawId is! String) {
+        _logSkipped('malformed achievement_id type=${rawId.runtimeType}');
+        continue;
+      }
+      final achievementId = rawId.trim();
+      if (achievementId.isEmpty) {
+        _logSkipped('empty achievement_id');
+        continue;
+      }
+      if (!isKnownAchievementId(achievementId)) {
+        _logSkipped('unknown achievement_id=$achievementId');
+        continue;
+      }
+      if (existingProjectedIds.contains(achievementId)) continue;
+      if (!seen.add(achievementId)) continue;
+
+      drafts.add(
+        ClaimedAchievementProjectionDraft(
+          achievementId: achievementId,
+          claimedAt: _compatibleClaimedAt(data['claimed_at']),
+        ),
+      );
+    }
+
+    return drafts;
+  }
+
+  static Object? _compatibleClaimedAt(dynamic value) {
+    if (value is Timestamp) return value;
+    if (value is DateTime) return Timestamp.fromDate(value);
+    return null;
+  }
+
+  static void _logSkipped(String detail) {
+    if (!kDebugMode) return;
+    debugPrint('PublicProfile achievement sync skipped: $detail');
+  }
+}
+
 /// Persistence for sanitized public profile projections and privacy settings.
 class PublicProfileRepository {
   PublicProfileRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestoreOverride = firestore;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreOverride;
+
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
 
   static final Map<String, Future<void>> _ensureInFlight = {};
+  static final Map<String, Future<void>> _achievementSyncInFlight = {};
 
   @visibleForTesting
   static void clearEnsureInFlightForTest() => _ensureInFlight.clear();
+
+  @visibleForTesting
+  static void clearAchievementSyncInFlightForTest() =>
+      _achievementSyncInFlight.clear();
 
   DocumentReference<Map<String, dynamic>> _rootRef(String userId) =>
       _firestore.collection(FirestoreCollections.publicProfiles).doc(userId);
@@ -150,6 +228,30 @@ class PublicProfileRepository {
     );
   }
 
+  /// Focused owner-side repair of missing public achievement projections.
+  ///
+  /// Reads authoritative `achievement_claims` for [userId] and creates only
+  /// missing `public_profiles/{userId}/achievements/{achievementId}` docs.
+  /// Does not award achievements, borders, XP, or leaderboard values.
+  Future<void> syncClaimedAchievementProjections({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) {
+    final trimmedUserId = userId.trim();
+    if (trimmedUserId.isEmpty) return Future<void>.value();
+
+    return runWithAchievementSyncGuard(
+      trimmedUserId,
+      () => _syncClaimedAchievementProjectionsImpl(
+        userId: trimmedUserId,
+        displayName: displayName,
+        profilePictureUrl: profilePictureUrl,
+        ensureIdentity: true,
+      ),
+    );
+  }
+
   static Future<void> _runWithEnsureGuard(
     String userId,
     Future<void> Function() action,
@@ -161,6 +263,22 @@ class PublicProfileRepository {
       _ensureInFlight.remove(userId);
     });
     _ensureInFlight[userId] = future;
+    return future;
+  }
+
+  /// Shared single-flight guard for [syncClaimedAchievementProjections].
+  @visibleForTesting
+  static Future<void> runWithAchievementSyncGuard(
+    String userId,
+    Future<void> Function() action,
+  ) {
+    final existing = _achievementSyncInFlight[userId];
+    if (existing != null) return existing;
+
+    final future = action().whenComplete(() {
+      _achievementSyncInFlight.remove(userId);
+    });
+    _achievementSyncInFlight[userId] = future;
     return future;
   }
 
@@ -227,19 +345,83 @@ class PublicProfileRepository {
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      // Reuse the focused achievement sync implementation directly (no nested
+      // achievement-sync guard) to avoid deadlocking with ensure's guard.
+      await _syncClaimedAchievementProjectionsImpl(
+        userId: userId,
+        displayName: trimmedName,
+        profilePictureUrl: profilePictureUrl,
+        ensureIdentity: false,
+      );
+    } catch (error, stackTrace) {
+      _logError('ensurePublicProfile', error, stackTrace, userId: userId);
+    }
+  }
+
+  Future<void> _syncClaimedAchievementProjectionsImpl({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+    required bool ensureIdentity,
+  }) async {
+    final trimmedName = displayName.trim().isEmpty
+        ? 'Trainee'
+        : displayName.trim();
+
+    try {
+      if (ensureIdentity) {
+        await _ensureRootDocument(
+          userId: userId,
+          displayName: trimmedName,
+          profilePictureUrl: profilePictureUrl,
+        );
+        await _syncIdentity(
+          userId: userId,
+          displayName: trimmedName,
+          profilePictureUrl: profilePictureUrl,
+        );
+      }
+
       final claimsSnap = await _firestore
           .collection(FirestoreCollections.achievementClaims)
           .where('user_id', isEqualTo: userId)
           .get();
 
-      for (final doc in claimsSnap.docs) {
-        final achievementId = doc.data()['achievement_id'];
-        if (achievementId is String && isKnownAchievementId(achievementId)) {
-          await projectAchievement(userId: userId, achievementId: achievementId);
+      final projectedSnap = await _rootRef(
+        userId,
+      ).collection('achievements').get();
+      final projectedIds = projectedSnap.docs.map((doc) => doc.id).toSet();
+
+      final drafts = ClaimedAchievementProjectionPlanner.draftsToCreate(
+        claimDocuments: claimsSnap.docs.map((doc) => doc.data()),
+        existingProjectedIds: projectedIds,
+      );
+
+      if (drafts.isEmpty) return;
+
+      // Firestore batches are capped at 500 operations.
+      const batchLimit = 500;
+      for (var offset = 0; offset < drafts.length; offset += batchLimit) {
+        final chunk = drafts.skip(offset).take(batchLimit);
+        final batch = _firestore.batch();
+        for (final draft in chunk) {
+          batch.set(_achievementRef(userId, draft.achievementId), {
+            'user_id': userId,
+            'achievement_id': draft.achievementId,
+            'claimed_at': draft.claimedAt ?? FieldValue.serverTimestamp(),
+            'updated_at': FieldValue.serverTimestamp(),
+          });
         }
+        await batch.commit();
       }
     } catch (error, stackTrace) {
-      _logError('ensurePublicProfile', error, stackTrace, userId: userId);
+      _logError(
+        'syncClaimedAchievementProjections',
+        error,
+        stackTrace,
+        userId: userId,
+      );
+      rethrow;
     }
   }
 
@@ -353,7 +535,9 @@ class PublicProfileRepository {
       totalDuration =
           (_readInt(existing['total_duration_seconds']) ?? 0) +
           session.durationSeconds;
-      for (final name in _readStringList(existing['completed_movement_names'])) {
+      for (final name in _readStringList(
+        existing['completed_movement_names'],
+      )) {
         movements.add(name);
       }
     }

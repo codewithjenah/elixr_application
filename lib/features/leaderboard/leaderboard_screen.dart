@@ -95,7 +95,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   void _onTapPlayer(LeaderboardEntry entry, int rank) {
-    context.go(
+    context.push(
       '/profile/${entry.userId}',
       extra: ProfileRouteArgs(entry: entry, rank: rank),
     );

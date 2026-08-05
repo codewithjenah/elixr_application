@@ -1280,6 +1280,22 @@ describe('public_profiles', () => {
     );
   });
 
+  test('other user cannot write achievement projection', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+    });
+
+    const bob = bobDb();
+    await assertFails(
+      setDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps'), {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        claimed_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      }),
+    );
+  });
+
   test('other user cannot read private achievement projection', async () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));

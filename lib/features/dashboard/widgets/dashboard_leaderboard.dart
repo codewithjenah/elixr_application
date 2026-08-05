@@ -200,7 +200,7 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
                 currentUserProfilePictureUrl: widget.profilePictureUrl,
                 variant: LeaderboardPodiumVariant.compact,
                 onTapPlayer: (entry, rank) {
-                  context.go(
+                  context.push(
                     '/profile/${entry.userId}',
                     extra: ProfileRouteArgs(entry: entry, rank: rank),
                   );
