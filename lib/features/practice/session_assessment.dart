@@ -1,5 +1,6 @@
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
+import 'coaching/coaching_config.dart';
 import 'coaching/session_coaching_models.dart';
 import 'coaching/session_recommendation.dart';
 
@@ -62,6 +63,8 @@ class SessionAssessmentAccumulator {
   static const unconfirmedMinDurationMs = 1000;
 
   /// Explicit positive code for Hand Stall success frames.
+  ///
+  /// Prefer [positiveLockedCodeForMovement] for Phase B multi-movement paths.
   static const handStallLockedCode = 'hand_stall_locked';
 
   /// Combined confirmed Hand Stall strength identity (not emitted as raw locked).
@@ -166,7 +169,10 @@ class SessionAssessmentAccumulator {
     PracticeFeedback? latestFeedback,
   }) {
     final improvements = _deriveImprovements();
-    final strengths = _deriveStrengths(heldSteady: heldSteady);
+    final strengths = _deriveStrengths(
+      heldSteady: heldSteady,
+      movement: movement,
+    );
     final recommendation = buildSessionRecommendation(
       movement: movement,
       prop: prop,
@@ -268,21 +274,35 @@ class SessionAssessmentAccumulator {
     );
   }
 
-  List<SessionStrength> _deriveStrengths({required bool heldSteady}) {
+  List<SessionStrength> _deriveStrengths({
+    required bool heldSteady,
+    required String movement,
+  }) {
     final strengths = <SessionStrength>[];
-    final handStallBucket = _positiveBuckets[handStallLockedCode];
-    final hasHandStallLocked = handStallBucket != null;
+    final lockedCode =
+        positiveLockedCodeForMovement(movement) ?? handStallLockedCode;
+    final lockedBucket = _positiveBuckets[lockedCode];
+    final hasLocked = lockedBucket != null;
+    final confirmedCode = lockedCode == handStallLockedCode
+        ? handStallConfirmedCode
+        : confirmedStrengthCodeFor(lockedCode);
+    final confirmedMessage = lockedCode == handStallLockedCode
+        ? handStallConfirmedStrengthMessage
+        : confirmedStrengthMessageFor(movement);
+    final formMessage = lockedCode == handStallLockedCode
+        ? handStallFormStrengthMessage
+        : formStrengthMessageFor(movement);
 
-    if (heldSteady && hasHandStallLocked) {
-      // Semantic dedupe: one combined confirmed Hand Stall strength.
-      final count = handStallBucket.count;
+    if (heldSteady && hasLocked) {
+      // Semantic dedupe: one combined confirmed movement strength.
+      final count = lockedBucket.count;
       final ratio = _totalApplicableSamples == 0
           ? 1.0
           : count / _totalApplicableSamples;
       strengths.add(
         SessionStrength(
-          code: handStallConfirmedCode,
-          message: handStallConfirmedStrengthMessage,
+          code: confirmedCode,
+          message: confirmedMessage,
           sampleCount: count,
           sampleRatio: ratio,
           evidenceKind: 'holdConfirmed',
@@ -298,7 +318,7 @@ class SessionAssessmentAccumulator {
     if (_totalApplicableSamples > 0) {
       final positiveCandidates = <SessionStrength>[];
       for (final entry in _positiveBuckets.entries) {
-        if (entry.key == handStallLockedCode && heldSteady) {
+        if (entry.key == lockedCode && heldSteady) {
           // Already represented by the combined confirmed strength.
           continue;
         }
@@ -309,8 +329,8 @@ class SessionAssessmentAccumulator {
           continue;
         }
 
-        final message = entry.key == handStallLockedCode
-            ? handStallFormStrengthMessage
+        final message = entry.key == lockedCode
+            ? formMessage
             : entry.value.representative.feedback;
 
         positiveCandidates.add(

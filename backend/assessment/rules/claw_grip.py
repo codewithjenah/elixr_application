@@ -1,6 +1,7 @@
 import math
 from typing import Optional
 
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -328,11 +329,16 @@ def _looks_like_bartenders_grip(hand: HandLandmarks, hand_scale: float) -> bool:
     return True
 
 
-def _warning(feedback: str, posture_status: str) -> RuleResult:
+def _warning(
+    feedback: str,
+    posture_status: str,
+    feedback_code: str,
+) -> RuleResult:
     return RuleResult(
         feedback=feedback,
         feedback_type="warning",
         posture_status=posture_status,
+        feedback_code=feedback_code,
     )
 
 
@@ -359,6 +365,7 @@ def evaluate(
             _warning(
                 "Hold the bottle upright for a claw grip.",
                 "unstable",
+                FeedbackCode.PROP_NOT_UPRIGHT.value,
             ),
             prev_hip_center,
             movement_state,
@@ -372,6 +379,7 @@ def evaluate(
             _warning(
                 "Keep your full hand visible above the bottle neck.",
                 "unknown",
+                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -386,6 +394,7 @@ def evaluate(
             _warning(
                 "Keep your full hand visible above the bottle neck.",
                 "unknown",
+                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -397,6 +406,7 @@ def evaluate(
             _warning(
                 "Keep your full hand visible above the bottle neck.",
                 "unknown",
+                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -416,6 +426,7 @@ def evaluate(
             _warning(
                 "Place your wrist above the bottle mouth and upper neck.",
                 "unstable",
+                FeedbackCode.CLAW_WRIST_ABOVE_NECK.value,
             ),
             prev_hip_center,
             movement_state,
@@ -427,6 +438,7 @@ def evaluate(
                 "Reach down from above onto the upper neck, "
                 "not the bottle body.",
                 "unstable",
+                FeedbackCode.CLAW_REACH_FROM_ABOVE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -437,6 +449,7 @@ def evaluate(
             _warning(
                 "Curl your fingers downward around the upper neck.",
                 "unstable",
+                FeedbackCode.CLAW_FINGERS_NOT_CURLED.value,
             ),
             prev_hip_center,
             movement_state,
@@ -448,6 +461,7 @@ def evaluate(
                 "Curl multiple fingers around the neck; "
                 "do not pinch with thumb and index.",
                 "unstable",
+                FeedbackCode.CLAW_NOT_PINCH_GRIP.value,
             ),
             prev_hip_center,
             movement_state,
@@ -458,6 +472,7 @@ def evaluate(
             _warning(
                 "Use a top-down claw grip, not a side overhand wrap.",
                 "unstable",
+                FeedbackCode.CLAW_NOT_SIDE_OVERHAND.value,
             ),
             prev_hip_center,
             movement_state,
@@ -468,6 +483,7 @@ def evaluate(
             _warning(
                 "Use a top-down claw grip, not a reverse underhand hold.",
                 "unstable",
+                FeedbackCode.CLAW_NOT_REVERSE_HOLD.value,
             ),
             prev_hip_center,
             movement_state,
@@ -478,6 +494,7 @@ def evaluate(
             _warning(
                 "Reach down from above with your palm over the bottle mouth.",
                 "unstable",
+                FeedbackCode.CLAW_PALM_OVER_MOUTH.value,
             ),
             prev_hip_center,
             movement_state,
@@ -488,6 +505,7 @@ def evaluate(
             _warning(
                 "Support the opposite side of the neck with your thumb.",
                 "unstable",
+                FeedbackCode.CLAW_THUMB_SUPPORT.value,
             ),
             prev_hip_center,
             movement_state,
@@ -503,6 +521,7 @@ def evaluate(
             _warning(
                 "Curl at least two fingers downward around the upper neck.",
                 "unstable",
+                FeedbackCode.CLAW_FINGERS_NOT_CURLED.value,
             ),
             prev_hip_center,
             movement_state,
@@ -512,6 +531,7 @@ def evaluate(
             _warning(
                 "Curl more fingers around the bottle mouth and upper neck.",
                 "unstable",
+                FeedbackCode.CLAW_MORE_FINGERS_CURLED.value,
             ),
             prev_hip_center,
             movement_state,
@@ -522,6 +542,7 @@ def evaluate(
             feedback="Good claw grip curled over the upper neck.",
             feedback_type="positive",
             posture_status="stable",
+            feedback_code=FeedbackCode.CLAW_GRIP_LOCKED.value,
         ),
         prev_hip_center,
         movement_state,

@@ -6,6 +6,7 @@ from config import (
     UPPER_FOREARM_RATIO,
     UPPER_FOREARM_STALL_PROXIMITY,
 )
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -39,6 +40,7 @@ def evaluate(
                 feedback="Show your elbow and wrist so the reverse forearm can be tracked.",
                 feedback_type="warning",
                 posture_status="unknown",
+                feedback_code=FeedbackCode.POSE_ARM_NOT_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -58,6 +60,7 @@ def evaluate(
                 feedback="Move the bottle away from the elbow onto the reverse forearm.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_TOO_NEAR_ELBOW.value,
             ),
             prev_hip_center,
             state,
@@ -69,6 +72,7 @@ def evaluate(
                 feedback="Keep the bottle on the reverse forearm, not the mid-forearm or wrist.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_TOO_NEAR_MID_FOREARM.value,
             ),
             prev_hip_center,
             state,
@@ -80,6 +84,7 @@ def evaluate(
                 feedback="Balance the bottle on your reverse forearm between elbow and mid-arm.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM.value,
             ),
             prev_hip_center,
             state,
@@ -91,6 +96,7 @@ def evaluate(
                 feedback="Hold the bottle steady on your reverse forearm.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
             ),
             prev_hip_center,
             state,
@@ -101,6 +107,7 @@ def evaluate(
             feedback="Reverse forearm stall locked in.",
             feedback_type="positive",
             posture_status="stable",
+            feedback_code=FeedbackCode.REVERSE_FOREARM_STALL_LOCKED.value,
         ),
         prev_hip_center,
         state,

@@ -176,6 +176,165 @@ void main() {
         second.recommendedDurationSeconds,
       );
     });
+
+    test('Normal Grip uses config focus copy and duration', () {
+      final recommendation = buildSessionRecommendation(
+        movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
+        heldSteady: false,
+        finalScore: 65,
+        positiveRatio: 0.4,
+        totalApplicableSamples: 20,
+        improvements: [
+          SessionImprovement(
+            message: 'Rotate your wrist into an overhand grip.',
+            occurrenceCount: 5,
+            occurrenceRatio: 0.25,
+            feedbackType: 'warning',
+            representativeFeedback: _frame(
+              feedback: 'Rotate your wrist into an overhand grip.',
+              feedbackCode: 'overhand_grip_required',
+            ),
+            code: 'overhand_grip_required',
+          ),
+        ],
+        maxHoldDurationMs: 500,
+        maxHoldProgress: 0.2,
+        holdTargetMs: 2500,
+      );
+
+      expect(recommendation.movementName, 'Normal Grip');
+      expect(
+        recommendation.reason,
+        'Focus: Rotate your wrist into an overhand grip',
+      );
+      expect(recommendation.recommendedDurationSeconds, 120);
+    });
+
+    test('Bottle in a tin recommendation stays same-movement', () {
+      final recommendation = buildSessionRecommendation(
+        movement: 'Bottle in a tin',
+        prop: TrainingProp.bottleAndShaker,
+        heldSteady: false,
+        finalScore: 55,
+        positiveRatio: 0.3,
+        totalApplicableSamples: 20,
+        improvements: [
+          SessionImprovement(
+            message: 'Hold the cocktail shaker horizontally.',
+            occurrenceCount: 6,
+            occurrenceRatio: 0.3,
+            feedbackType: 'warning',
+            representativeFeedback: _frame(
+              feedback: 'Hold the cocktail shaker horizontally.',
+              feedbackCode: 'shaker_not_horizontal',
+            ),
+            code: 'shaker_not_horizontal',
+          ),
+        ],
+        maxHoldDurationMs: 400,
+        maxHoldProgress: 0.15,
+        holdTargetMs: 2500,
+      );
+
+      expect(recommendation.movementName, 'Bottle in a tin');
+      expect(
+        recommendation.reason,
+        'Focus: Hold the cocktail shaker horizontally',
+      );
+      expect(recommendation.recommendedDurationSeconds, 180);
+    });
+
+    test('Double Hand Stall recommendation stays same-movement', () {
+      final recommendation = buildSessionRecommendation(
+        movement: 'Double Hand Stall',
+        prop: TrainingProp.bottle,
+        heldSteady: false,
+        finalScore: 60,
+        positiveRatio: 0.35,
+        totalApplicableSamples: 20,
+        improvements: [
+          SessionImprovement(
+            message: 'Position one bottle directly above each palm.',
+            occurrenceCount: 6,
+            occurrenceRatio: 0.3,
+            feedbackType: 'warning',
+            representativeFeedback: _frame(
+              feedback: 'Position one bottle directly above each palm.',
+              feedbackCode: 'bottles_not_one_per_palm',
+            ),
+            code: 'bottles_not_one_per_palm',
+          ),
+        ],
+        maxHoldDurationMs: 500,
+        maxHoldProgress: 0.2,
+        holdTargetMs: 2500,
+      );
+
+      expect(recommendation.movementName, 'Double Hand Stall');
+      expect(
+        recommendation.reason,
+        'Focus: Position one bottle directly above each palm',
+      );
+      expect(recommendation.movementName, isNot(equals('Hand Stall')));
+    });
+
+    test('bottle-only Normal Grip never recommends another movement', () {
+      final recommendation = buildSessionRecommendation(
+        movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
+        heldSteady: true,
+        finalScore: 90,
+        positiveRatio: 0.9,
+        totalApplicableSamples: 30,
+        improvements: const [],
+        maxHoldDurationMs: 2500,
+        maxHoldProgress: 1,
+        holdTargetMs: 2500,
+      );
+      expect(recommendation.movementName, 'Normal Grip');
+      expect(recommendation.reason.toLowerCase(), contains('normal grip'));
+    });
+
+    test('every enabled movement recommends itself only', () {
+      const movements = [
+        'Normal Grip',
+        "Bartender's Grip",
+        'Reverse Grip',
+        'Claw Grip',
+        'Hand Stall',
+        'One Finger Stall',
+        'Forearm Stall',
+        'Elbow Stall',
+        'Reverse Forearm Stall',
+        'Shoulder Stall',
+        'Double Hand Stall',
+        'Bottle in a tin',
+      ];
+      for (final movement in movements) {
+        final recommendation = buildSessionRecommendation(
+          movement: movement,
+          prop: TrainingProp.bottle,
+          heldSteady: false,
+          finalScore: 70,
+          positiveRatio: 0.5,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 2500,
+        );
+        expect(recommendation.movementName, movement);
+        for (final other in movements) {
+          if (other == movement) continue;
+          expect(
+            recommendation.movementName,
+            isNot(equals(other)),
+            reason: '$movement must not recommend $other',
+          );
+        }
+      }
+    });
   });
 
   group('PracticeFeedbackController movement plumbing', () {

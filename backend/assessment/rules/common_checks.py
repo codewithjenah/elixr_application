@@ -221,12 +221,14 @@ def check_hand_bottle_proximity(
     threshold: float = HAND_BOTTLE_PROXIMITY,
     far_message: str = "Move the bottle closer to your hand.",
     near_message: str = "Good hand-bottle alignment.",
+    success_code: str | None = None,
 ) -> RuleResult:
     if target is None:
         return RuleResult(
             feedback="Hand not detected. Keep your hand in frame.",
             feedback_type="warning",
             posture_status="unknown",
+            feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
         )
 
     bottle_center = bottle.center_normalized(640, 480)
@@ -236,11 +238,13 @@ def check_hand_bottle_proximity(
             feedback=far_message,
             feedback_type="warning",
             posture_status="unstable",
+            feedback_code=FeedbackCode.HAND_BOTTLE_TOO_FAR.value,
         )
     return RuleResult(
         feedback=near_message,
         feedback_type="positive",
         posture_status="stable",
+        feedback_code=success_code,
     )
 
 
@@ -251,12 +255,14 @@ def check_stall_proximity(
     success_message: str,
     threshold: float = STALL_PROXIMITY,
     prop_label: str = "Bottle",
+    success_code: str | None = None,
 ) -> RuleResult:
     if target is None:
         return RuleResult(
             feedback="Hand not detected. Keep your hand in frame.",
             feedback_type="warning",
             posture_status="unknown",
+            feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
         )
 
     bottle_center = bottle.center_normalized(640, 480)
@@ -267,11 +273,13 @@ def check_stall_proximity(
             feedback=f"Align the {prop_name.lower()} over the stall point.",
             feedback_type="warning",
             posture_status="unstable",
+            feedback_code=FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET.value,
         )
     return RuleResult(
         feedback=success_message,
         feedback_type="positive",
         posture_status="stable",
+        feedback_code=success_code,
     )
 
 
@@ -396,6 +404,7 @@ def check_pinch_grip(
     *,
     threshold: float = PINCH_DISTANCE,
     success_message: str = "Good pinch grip.",
+    success_code: str | None = None,
 ) -> RuleResult:
     thumb = hand.points.get(4)
     index = hand.points.get(8)
@@ -404,6 +413,7 @@ def check_pinch_grip(
             feedback="Keep thumb and index finger visible.",
             feedback_type="warning",
             posture_status="unknown",
+            feedback_code=FeedbackCode.PINCH_FINGERS_NOT_VISIBLE.value,
         )
 
     pinch_dist = _dist(thumb, index)
@@ -418,15 +428,18 @@ def check_pinch_grip(
             feedback="Pinch the bottle between thumb and fingers.",
             feedback_type="warning",
             posture_status="unstable",
+            feedback_code=FeedbackCode.PINCH_NOT_CLOSED.value,
         )
     if bottle_dist > HAND_BOTTLE_PROXIMITY:
         return RuleResult(
             feedback="Move the bottle into the pinch.",
             feedback_type="warning",
             posture_status="unstable",
+            feedback_code=FeedbackCode.PROP_NOT_IN_PINCH.value,
         )
     return RuleResult(
         feedback=success_message,
         feedback_type="positive",
         posture_status="stable",
+        feedback_code=success_code,
     )

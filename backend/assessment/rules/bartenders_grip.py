@@ -1,6 +1,7 @@
 import math
 from typing import Optional
 
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -82,11 +83,16 @@ def _index_extension(hand: HandLandmarks) -> Optional[float]:
     return _pixel_distance(complete[0], complete[-1]) / path_length
 
 
-def _warning(feedback: str, posture_status: str) -> RuleResult:
+def _warning(
+    feedback: str,
+    posture_status: str,
+    feedback_code: str,
+) -> RuleResult:
     return RuleResult(
         feedback=feedback,
         feedback_type="warning",
         posture_status=posture_status,
+        feedback_code=feedback_code,
     )
 
 
@@ -128,6 +134,7 @@ def evaluate(
             _warning(
                 "Keep your full gripping hand visible.",
                 "unknown",
+                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -156,6 +163,7 @@ def evaluate(
             _warning(
                 "Keep your full gripping hand visible.",
                 "unknown",
+                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -167,6 +175,7 @@ def evaluate(
             _warning(
                 "Keep your full gripping hand visible.",
                 "unknown",
+                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -180,6 +189,7 @@ def evaluate(
             _warning(
                 "Grip the bottle at the upper neck and shoulder.",
                 "unstable",
+                FeedbackCode.BARTENDER_GRIP_POSITION.value,
             ),
             prev_hip_center,
             movement_state,
@@ -192,6 +202,7 @@ def evaluate(
             _warning(
                 "Secure the neck between your thumb and index finger.",
                 "unstable",
+                FeedbackCode.BARTENDER_PINCH_REQUIRED.value,
             ),
             prev_hip_center,
             movement_state,
@@ -204,6 +215,7 @@ def evaluate(
             _warning(
                 "Turn your hand sideways for a bartender's grip.",
                 "unstable",
+                FeedbackCode.BARTENDER_HAND_ORIENTATION.value,
             ),
             prev_hip_center,
             movement_state,
@@ -220,6 +232,7 @@ def evaluate(
                     "a bartender's grip."
                 ),
                 "unstable",
+                FeedbackCode.BARTENDER_PALM_TOO_LOW.value,
             ),
             prev_hip_center,
             movement_state,
@@ -230,6 +243,7 @@ def evaluate(
             _warning(
                 "Extend your index finger along the bottle neck.",
                 "unstable",
+                FeedbackCode.BARTENDER_INDEX_EXTENSION.value,
             ),
             prev_hip_center,
             movement_state,
@@ -250,6 +264,7 @@ def evaluate(
             _warning(
                 "Wrap your other fingers around the bottle shoulder.",
                 "unstable",
+                FeedbackCode.BARTENDER_WRAP_FINGERS.value,
             ),
             prev_hip_center,
             movement_state,
@@ -260,6 +275,7 @@ def evaluate(
             feedback="Good bartender's grip on the neck and shoulder.",
             feedback_type="positive",
             posture_status="stable",
+            feedback_code=FeedbackCode.BARTENDER_GRIP_LOCKED.value,
         ),
         prev_hip_center,
         movement_state,

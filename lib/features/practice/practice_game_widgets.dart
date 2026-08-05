@@ -500,17 +500,20 @@ class _GameActionButtonState extends State<GameActionButton> {
                     ),
                   )
                 : Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(widget.icon, size: 18, color: Colors.white),
                       const SizedBox(width: AppSpacing.sm),
-                      Text(
-                        widget.label.toUpperCase(),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2,
-                          color: Colors.white,
+                      Expanded(
+                        child: Text(
+                          widget.label.toUpperCase(),
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ],

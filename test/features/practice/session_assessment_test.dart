@@ -835,5 +835,320 @@ void main() {
       expect(assessment.coaching.recommendation, isNull);
       expect(assessment.improvementMessages, isEmpty);
     });
+
+    test(
+      'Normal Grip confirmed session uses config-driven success strength',
+      () {
+        final accumulator = SessionAssessmentAccumulator();
+        _recordFrames(
+          accumulator,
+          4,
+          frame: _frame(
+            feedback: 'Move your hand to the upper bottle neck.',
+            feedbackCode: 'hand_not_at_neck',
+            feedbackCategory: 'technique',
+          ),
+        );
+        _recordFrames(
+          accumulator,
+          12,
+          frame: _frame(
+            feedback: 'Bottle held securely with a full overhand neck grip.',
+            feedbackType: 'positive',
+            feedbackCode: 'normal_grip_locked',
+            feedbackCategory: 'technique',
+            score: 100,
+            holdConfirmed: true,
+            holdProgress: 1,
+            holdDurationMs: 2500,
+            holdTargetMs: 2500,
+          ),
+        );
+
+        final assessment = _build(
+          accumulator,
+          movement: 'Normal Grip',
+          finalScore: 100,
+          heldSteady: true,
+        );
+
+        expect(
+          assessment.coaching.strengths.any(
+            (s) => s.code == 'normal_grip_confirmed',
+          ),
+          isTrue,
+        );
+        expect(
+          assessment.coaching.strengths.any(
+            (s) => s.message == 'Normal Grip confirmed',
+          ),
+          isTrue,
+        );
+        expect(
+          assessment.coaching.strengths.any(
+            (s) => s.code == 'normal_grip_locked',
+          ),
+          isFalse,
+        );
+        expect(assessment.coaching.recommendation?.movementName, 'Normal Grip');
+      },
+    );
+
+    group('Phase C per-movement aggregation', () {
+      const cases =
+          <
+            ({
+              String movement,
+              String successCode,
+              String issueCode,
+              String issueMessage,
+            })
+          >[
+            (
+              movement: 'Normal Grip',
+              successCode: 'normal_grip_locked',
+              issueCode: 'overhand_grip_required',
+              issueMessage: 'Rotate your wrist into an overhand grip.',
+            ),
+            (
+              movement: "Bartender's Grip",
+              successCode: 'bartender_grip_locked',
+              issueCode: 'bartender_pinch_required',
+              issueMessage:
+                  'Secure the neck between your thumb and index finger.',
+            ),
+            (
+              movement: 'Reverse Grip',
+              successCode: 'reverse_grip_locked',
+              issueCode: 'underhand_grip_required',
+              issueMessage: 'Rotate your wrist into a reverse grip.',
+            ),
+            (
+              movement: 'Claw Grip',
+              successCode: 'claw_grip_locked',
+              issueCode: 'claw_fingers_not_curled',
+              issueMessage: 'Curl your fingers downward around the upper neck.',
+            ),
+            (
+              movement: 'Hand Stall',
+              successCode: 'hand_stall_locked',
+              issueCode: 'prop_not_upright',
+              issueMessage: 'Keep the bottle upright on your palm.',
+            ),
+            (
+              movement: 'One Finger Stall',
+              successCode: 'one_finger_stall_locked',
+              issueCode: 'index_finger_not_extended',
+              issueMessage: 'Extend one index finger straight.',
+            ),
+            (
+              movement: 'Forearm Stall',
+              successCode: 'forearm_stall_locked',
+              issueCode: 'prop_not_positioned_on_target',
+              issueMessage: 'Align the bottle over the stall point.',
+            ),
+            (
+              movement: 'Elbow Stall',
+              successCode: 'elbow_stall_locked',
+              issueCode: 'prop_not_positioned_on_target',
+              issueMessage: 'Align the bottle over the stall point.',
+            ),
+            (
+              movement: 'Reverse Forearm Stall',
+              successCode: 'reverse_forearm_stall_locked',
+              issueCode: 'prop_not_on_reverse_forearm',
+              issueMessage: 'Balance the bottle on your reverse forearm.',
+            ),
+            (
+              movement: 'Shoulder Stall',
+              successCode: 'shoulder_stall_locked',
+              issueCode: 'prop_not_on_shoulder',
+              issueMessage: 'Balance the bottle steadily on either shoulder.',
+            ),
+            (
+              movement: 'Double Hand Stall',
+              successCode: 'double_hand_stall_locked',
+              issueCode: 'bottles_not_one_per_palm',
+              issueMessage: 'Position one bottle directly above each palm.',
+            ),
+            (
+              movement: 'Bottle in a tin',
+              successCode: 'bottle_in_tin_locked',
+              issueCode: 'shaker_not_horizontal',
+              issueMessage: 'Hold the cocktail shaker horizontally.',
+            ),
+          ];
+
+      for (final c in cases) {
+        test(
+          '${c.movement} aggregates success and dominant technique issue',
+          () {
+            final accumulator = SessionAssessmentAccumulator();
+            _recordFrames(
+              accumulator,
+              5,
+              frame: _frame(
+                feedback: c.issueMessage,
+                feedbackCode: c.issueCode,
+                feedbackCategory: 'technique',
+                holdTargetMs: 2500,
+              ),
+            );
+            _recordFrames(
+              accumulator,
+              12,
+              frame: _frame(
+                feedback: '${c.movement} locked in.',
+                feedbackType: 'positive',
+                feedbackCode: c.successCode,
+                feedbackCategory: 'technique',
+                holdTargetMs: 2500,
+              ),
+            );
+
+            final assessment = _build(
+              accumulator,
+              movement: c.movement,
+              heldSteady: false,
+              finalScore: 75,
+            );
+
+            expect(assessment.coaching.improvements, isNotEmpty);
+            expect(assessment.coaching.improvements.first.code, c.issueCode);
+            expect(
+              assessment.coaching.improvements.length,
+              lessThanOrEqualTo(3),
+            );
+            expect(assessment.coaching.strengths.length, lessThanOrEqualTo(3));
+            expect(
+              assessment.coaching.strengths
+                  .where(
+                    (s) =>
+                        s.evidenceKind.startsWith('hold') ||
+                        s.code.contains('confirmed') ||
+                        s.evidenceKind == 'holdConfirmed' ||
+                        s.evidenceKind == 'holdPartialProgress' ||
+                        s.evidenceKind == 'holdPartialDuration' ||
+                        s.evidenceKind == 'holdExceptionalDuration',
+                  )
+                  .length,
+              lessThanOrEqualTo(1),
+            );
+            expect(
+              assessment.coaching.strengths.any(
+                (s) =>
+                    s.code == c.successCode ||
+                    s.message.contains('Correct ${c.movement} form'),
+              ),
+              isTrue,
+            );
+            expect(
+              assessment.coaching.recommendation?.movementName,
+              c.movement,
+            );
+            expect(
+              assessment.coaching.recommendation?.reason.toLowerCase(),
+              isNot(contains('mistakes')),
+            );
+            expect(
+              assessment.coaching.recommendation?.reason.toLowerCase(),
+              isNot(contains('hold broke')),
+            );
+            expect(
+              identical(
+                assessment.improvements,
+                assessment.coaching.improvements,
+              ),
+              isTrue,
+            );
+          },
+        );
+      }
+    });
+
+    test('null category uses legacy phrase fallback for environment', () {
+      final accumulator = SessionAssessmentAccumulator();
+      _recordFrames(
+        accumulator,
+        5,
+        frame: _frame(
+          feedback: 'Bottle not detected. Keep the bottle visible.',
+          feedbackCode: null,
+          feedbackCategory: null,
+        ),
+      );
+      _recordFrames(
+        accumulator,
+        10,
+        frame: _frame(
+          feedbackType: 'positive',
+          feedbackCode: 'hand_stall_locked',
+          feedbackCategory: 'technique',
+        ),
+      );
+
+      final assessment = _build(accumulator);
+      expect(
+        assessment.improvements.any(
+          (i) => i.message.toLowerCase().contains('not detected'),
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'generic Hold confirmed fallback when success code never observed',
+      () {
+        final accumulator = SessionAssessmentAccumulator();
+        _recordFrames(
+          accumulator,
+          8,
+          frame: _frame(
+            feedback: 'Keep the bottle upright on your palm.',
+            feedbackCode: 'prop_not_upright',
+            feedbackCategory: 'technique',
+            holdTargetMs: 2500,
+          ),
+        );
+        // Confirm hold without ever observing the movement success code.
+        accumulator.record(
+          _frame(
+            feedback: 'Keep refining technique.',
+            feedbackType: 'warning',
+            feedbackCode: 'prop_not_steady',
+            feedbackCategory: 'technique',
+            holdConfirmed: true,
+            holdProgress: 1,
+            holdDurationMs: 2500,
+            holdTargetMs: 2500,
+            score: 100,
+          ),
+        );
+
+        final assessment = _build(
+          accumulator,
+          heldSteady: true,
+          finalScore: 100,
+        );
+        expect(
+          assessment.coaching.strengths.any(
+            (s) => s.code == 'hold_confirmed' && s.message == 'Hold confirmed',
+          ),
+          isTrue,
+        );
+        expect(
+          assessment.coaching.strengths
+              .where(
+                (s) =>
+                    s.evidenceKind == 'holdConfirmed' ||
+                    s.evidenceKind == 'holdExceptionalDuration' ||
+                    s.evidenceKind == 'holdPartialProgress' ||
+                    s.evidenceKind == 'holdPartialDuration',
+              )
+              .length,
+          1,
+        );
+      },
+    );
   });
 }

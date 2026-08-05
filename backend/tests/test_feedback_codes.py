@@ -199,6 +199,39 @@ def test_phase_a_prop_neutral_codes_are_registered_once():
     assert legacy_bottle_values.isdisjoint({c.value for c in registered})
 
 
+def test_phase_b_positive_locked_codes_are_registered():
+    expected = {
+        FeedbackCode.NORMAL_GRIP_LOCKED,
+        FeedbackCode.BARTENDER_GRIP_LOCKED,
+        FeedbackCode.REVERSE_GRIP_LOCKED,
+        FeedbackCode.CLAW_GRIP_LOCKED,
+        FeedbackCode.HAND_STALL_LOCKED,
+        FeedbackCode.ONE_FINGER_STALL_LOCKED,
+        FeedbackCode.FOREARM_STALL_LOCKED,
+        FeedbackCode.ELBOW_STALL_LOCKED,
+        FeedbackCode.REVERSE_FOREARM_STALL_LOCKED,
+        FeedbackCode.SHOULDER_STALL_LOCKED,
+        FeedbackCode.DOUBLE_HAND_STALL_LOCKED,
+        FeedbackCode.BOTTLE_IN_TIN_LOCKED,
+    }
+    registered = set(registered_codes())
+    assert expected <= registered
+    for code in expected:
+        assert category_for(code) == FeedbackCategory.TECHNIQUE
+
+
+def test_phase_b_shared_technique_codes_are_registered():
+    expected = {
+        FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET,
+        FeedbackCode.HAND_NOT_AT_NECK,
+        FeedbackCode.BOTH_PALMS_NOT_OPEN,
+        FeedbackCode.BOTH_PROPS_NOT_STEADY,
+        FeedbackCode.SHAKER_NOT_HORIZONTAL,
+    }
+    registered = set(registered_codes())
+    assert expected <= registered
+
+
 def test_hand_stall_bottle_and_shaker_share_prop_neutral_codes():
     bottle = _bottle_on_palm(0.50, 0.55, width=100, height=60)
     hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55)])
@@ -313,3 +346,55 @@ def test_legacy_feedback_message_without_codes_remains_valid():
     assert dumped["feedback_code"] is None
     assert dumped["feedback_category"] is None
     assert dumped["hold_target_ms"] == 0
+
+
+def test_rule_result_does_not_carry_feedback_category_field():
+    from assessment.rules.base import RuleResult
+
+    result = RuleResult(
+        feedback="Hold steady",
+        feedback_type="positive",
+        posture_status="stable",
+        feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+    )
+    assert not hasattr(result, "feedback_category")
+    assert category_for(result.feedback_code) == FeedbackCategory.TECHNIQUE
+
+
+def test_every_enabled_movement_positive_code_is_nonempty_and_technique():
+    from assessment.feedback_codes import FeedbackCode as FC
+
+    positives = [
+        FC.NORMAL_GRIP_LOCKED,
+        FC.BARTENDER_GRIP_LOCKED,
+        FC.REVERSE_GRIP_LOCKED,
+        FC.CLAW_GRIP_LOCKED,
+        FC.HAND_STALL_LOCKED,
+        FC.ONE_FINGER_STALL_LOCKED,
+        FC.FOREARM_STALL_LOCKED,
+        FC.ELBOW_STALL_LOCKED,
+        FC.REVERSE_FOREARM_STALL_LOCKED,
+        FC.SHOULDER_STALL_LOCKED,
+        FC.DOUBLE_HAND_STALL_LOCKED,
+        FC.BOTTLE_IN_TIN_LOCKED,
+    ]
+    assert len(positives) == len(set(positives))
+    for code in positives:
+        assert code.value
+        assert category_for(code) == FeedbackCategory.TECHNIQUE
+
+
+def test_shared_visibility_environment_not_technique():
+    assert category_for(FeedbackCode.PROP_NOT_DETECTED) == FeedbackCategory.ENVIRONMENT
+    assert category_for(FeedbackCode.HAND_NOT_VISIBLE) == FeedbackCategory.VISIBILITY
+    assert category_for(FeedbackCode.HAND_NOT_FULLY_VISIBLE) == FeedbackCategory.VISIBILITY
+    assert category_for(FeedbackCode.PROP_NOT_UPRIGHT) == FeedbackCategory.TECHNIQUE
+
+
+def test_bottle_in_a_tin_codes_distinguish_props():
+    assert FeedbackCode.PROP_NOT_UPRIGHT.value == "prop_not_upright"
+    assert FeedbackCode.SHAKER_NOT_HORIZONTAL.value == "shaker_not_horizontal"
+    assert FeedbackCode.BOTTLE_NOT_DETECTED.value == "bottle_not_detected"
+    assert FeedbackCode.SHAKER_NOT_DETECTED.value == "shaker_not_detected"
+    assert category_for(FeedbackCode.SHAKER_NOT_HORIZONTAL) == FeedbackCategory.TECHNIQUE
+    assert category_for(FeedbackCode.BOTTLE_NOT_DETECTED) == FeedbackCategory.ENVIRONMENT

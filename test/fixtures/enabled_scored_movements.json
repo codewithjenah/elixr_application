@@ -1,0 +1,156 @@
+{
+  "authority": "Flutter lib/core/constants/movements.dart movementCatalog entries with enabled:true are the product source of truth. This manifest must match that set exactly. Backend assessment/rule_engine.py mappings and Flutter coaching_config.dart keys must cover every name; Free Practice and legacy aliases are intentionally excluded.",
+  "movements": [
+    {
+      "name": "Normal Grip",
+      "difficulty": "Easy",
+      "positive_code": "normal_grip_locked",
+      "rule_module": "normal_grip.py",
+      "technique_codes": [
+        "hand_not_at_neck",
+        "overhand_grip_required",
+        "insufficient_neck_finger_wrap"
+      ]
+    },
+    {
+      "name": "Bartender's Grip",
+      "difficulty": "Easy",
+      "positive_code": "bartender_grip_locked",
+      "rule_module": "bartenders_grip.py",
+      "technique_codes": [
+        "bartender_grip_position",
+        "bartender_pinch_required",
+        "bartender_hand_orientation",
+        "bartender_palm_too_low",
+        "bartender_index_extension",
+        "bartender_wrap_fingers"
+      ]
+    },
+    {
+      "name": "Reverse Grip",
+      "difficulty": "Easy",
+      "positive_code": "reverse_grip_locked",
+      "rule_module": "reverse_grip.py",
+      "technique_codes": [
+        "hand_not_at_neck",
+        "underhand_grip_required",
+        "reverse_pinky_thumb_orientation",
+        "insufficient_neck_finger_wrap"
+      ]
+    },
+    {
+      "name": "Claw Grip",
+      "difficulty": "Easy",
+      "positive_code": "claw_grip_locked",
+      "rule_module": "claw_grip.py",
+      "technique_codes": [
+        "prop_not_upright",
+        "claw_wrist_above_neck",
+        "claw_reach_from_above",
+        "claw_fingers_not_curled",
+        "claw_not_pinch_grip",
+        "claw_not_side_overhand",
+        "claw_not_reverse_hold",
+        "claw_palm_over_mouth",
+        "claw_thumb_support",
+        "claw_more_fingers_curled"
+      ]
+    },
+    {
+      "name": "Hand Stall",
+      "difficulty": "Medium",
+      "positive_code": "hand_stall_locked",
+      "rule_module": "hand_stall.py",
+      "technique_codes": [
+        "palm_not_open",
+        "prop_not_upright",
+        "prop_base_not_on_palm",
+        "prop_not_above_palm",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "One Finger Stall",
+      "difficulty": "Medium",
+      "positive_code": "one_finger_stall_locked",
+      "rule_module": "one_finger_stall.py",
+      "technique_codes": [
+        "index_finger_not_extended",
+        "other_fingers_not_curled",
+        "prop_not_upright",
+        "prop_base_not_on_index",
+        "prop_not_centered_on_index",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "Forearm Stall",
+      "difficulty": "Medium",
+      "positive_code": "forearm_stall_locked",
+      "rule_module": "arm_stall.py",
+      "technique_codes": [
+        "prop_not_positioned_on_target",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "Elbow Stall",
+      "difficulty": "Medium",
+      "positive_code": "elbow_stall_locked",
+      "rule_module": "elbow_stall.py",
+      "technique_codes": [
+        "prop_not_positioned_on_target",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "Reverse Forearm Stall",
+      "difficulty": "Hard",
+      "positive_code": "reverse_forearm_stall_locked",
+      "rule_module": "upper_forearm_stall.py",
+      "technique_codes": [
+        "prop_too_near_elbow",
+        "prop_too_near_mid_forearm",
+        "prop_not_on_reverse_forearm",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "Shoulder Stall",
+      "difficulty": "Hard",
+      "positive_code": "shoulder_stall_locked",
+      "rule_module": "shoulder_stall.py",
+      "technique_codes": [
+        "prop_below_shoulder",
+        "prop_not_on_shoulder",
+        "prop_not_steady"
+      ]
+    },
+    {
+      "name": "Double Hand Stall",
+      "difficulty": "Hard",
+      "positive_code": "double_hand_stall_locked",
+      "rule_module": "double_hand_stall.py",
+      "technique_codes": [
+        "both_palms_not_open",
+        "both_palms_height_mismatch",
+        "bottles_not_one_per_palm",
+        "prop_not_upright",
+        "both_props_not_steady"
+      ]
+    },
+    {
+      "name": "Bottle in a tin",
+      "difficulty": "Hard",
+      "positive_code": "bottle_in_tin_locked",
+      "rule_module": "bottle_in_a_tin.py",
+      "technique_codes": [
+        "prop_not_upright",
+        "shaker_not_horizontal",
+        "bottle_not_centered_on_shaker",
+        "bottle_not_on_shaker",
+        "both_props_not_steady"
+      ]
+    }
+  ]
+}

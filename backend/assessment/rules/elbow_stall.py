@@ -1,6 +1,7 @@
 from typing import Optional
 
 from config import ARM_STALL_PROXIMITY
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -38,6 +39,7 @@ def evaluate(
             success_message="Elbow stall locked in.",
             threshold=ARM_STALL_PROXIMITY,
             prop_label=prop_name,
+            success_code=FeedbackCode.ELBOW_STALL_LOCKED.value,
         )
     else:
         hands_check = check_hands_visible(hands)
@@ -50,6 +52,7 @@ def evaluate(
             success_message="Elbow stall locked in.",
             threshold=ARM_STALL_PROXIMITY,
             prop_label=prop_name,
+            success_code=FeedbackCode.ELBOW_STALL_LOCKED.value,
         )
     if stall.feedback_type != "positive":
         return stall, prev_hip_center, state
@@ -60,6 +63,7 @@ def evaluate(
                 feedback=f"Hold the {prop_name_lower} steady on your elbow.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
             ),
             prev_hip_center,
             state,

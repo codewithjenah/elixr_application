@@ -5,6 +5,7 @@ from config import (
     SHOULDER_BELOW_REJECT,
     SHOULDER_STALL_PROXIMITY,
 )
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -40,6 +41,7 @@ def evaluate(
                 feedback="Show your shoulders so the stall point can be tracked.",
                 feedback_type="warning",
                 posture_status="unknown",
+                feedback_code=FeedbackCode.SHOULDERS_NOT_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -55,6 +57,7 @@ def evaluate(
                 feedback="Rest the bottle on top of your shoulder, not on your chest.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_BELOW_SHOULDER.value,
             ),
             prev_hip_center,
             state,
@@ -67,6 +70,7 @@ def evaluate(
                 feedback="Balance the bottle steadily on either shoulder.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_NOT_ON_SHOULDER.value,
             ),
             prev_hip_center,
             state,
@@ -78,6 +82,7 @@ def evaluate(
                 feedback="Hold the bottle steady on your shoulder.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
             ),
             prev_hip_center,
             state,
@@ -88,6 +93,7 @@ def evaluate(
             feedback="Shoulder stall locked in.",
             feedback_type="positive",
             posture_status="stable",
+            feedback_code=FeedbackCode.SHOULDER_STALL_LOCKED.value,
         ),
         prev_hip_center,
         state,

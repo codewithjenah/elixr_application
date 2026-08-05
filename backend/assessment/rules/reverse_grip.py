@@ -1,6 +1,7 @@
 import math
 from typing import Optional
 
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_bottle_visible,
@@ -152,6 +153,7 @@ def evaluate(
                 feedback="Keep your full hand visible around the bottle neck.",
                 feedback_type="warning",
                 posture_status="unknown",
+                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -164,6 +166,7 @@ def evaluate(
                 feedback="Move your hand to the upper bottle neck.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.HAND_NOT_AT_NECK.value,
             ),
             prev_hip_center,
             movement_state,
@@ -176,6 +179,7 @@ def evaluate(
                 feedback="Keep your full hand visible around the bottle neck.",
                 feedback_type="warning",
                 posture_status="unknown",
+                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -186,6 +190,7 @@ def evaluate(
                 feedback="Rotate your wrist into a reverse grip.",
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.UNDERHAND_GRIP_REQUIRED.value,
             ),
             prev_hip_center,
             movement_state,
@@ -198,6 +203,7 @@ def evaluate(
                 feedback="Keep your full hand visible around the bottle neck.",
                 feedback_type="warning",
                 posture_status="unknown",
+                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -211,6 +217,7 @@ def evaluate(
                 ),
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.REVERSE_PINKY_THUMB_ORIENTATION.value,
             ),
             prev_hip_center,
             movement_state,
@@ -228,6 +235,7 @@ def evaluate(
                 ),
                 feedback_type="warning",
                 posture_status="unstable",
+                feedback_code=FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP.value,
             ),
             prev_hip_center,
             movement_state,
@@ -240,6 +248,7 @@ def evaluate(
             ),
             feedback_type="positive",
             posture_status="stable",
+            feedback_code=FeedbackCode.REVERSE_GRIP_LOCKED.value,
         ),
         prev_hip_center,
         movement_state,

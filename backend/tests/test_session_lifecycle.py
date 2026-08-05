@@ -633,6 +633,115 @@ def test_preview_frames_use_default_hold_values(monkeypatch):
     assert message.hold_duration_ms == 0
     assert message.hold_confirmed is False
     assert message.positive_frame_ratio == 0.0
+    assert message.hold_target_ms == 0
+    assert message.feedback_code is None
+    assert message.feedback_category is None
+    session.close()
+
+
+def test_active_frame_derives_feedback_category_from_registry(monkeypatch):
+    _patch_vision(monkeypatch)
+    from assessment.feedback_codes import FeedbackCategory, FeedbackCode
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(
+                feedback="Hand stall locked in.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+            ),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    assert session.activate() is True
+    message = session.process_frame()
+    assert message is not None
+    assert message.feedback_code == FeedbackCode.HAND_STALL_LOCKED.value
+    assert message.feedback_category == FeedbackCategory.TECHNIQUE.value
+    assert message.hold_target_ms > 0
+    session.close()
+
+
+def test_active_frame_unknown_code_leaves_category_null(monkeypatch):
+    _patch_vision(monkeypatch)
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(
+                feedback="Keep steady",
+                feedback_type="warning",
+                posture_status="unstable",
+                feedback_code="not_a_registered_code",
+            ),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    assert session.activate() is True
+    message = session.process_frame()
+    assert message is not None
+    assert message.feedback_code == "not_a_registered_code"
+    assert message.feedback_category is None
+    session.close()
+
+
+def test_active_frame_missing_code_remains_legacy_safe(monkeypatch):
+    _patch_vision(monkeypatch)
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(
+                feedback="Hold steady",
+                feedback_type="positive",
+                posture_status="stable",
+            ),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    assert session.activate() is True
+    message = session.process_frame()
+    assert message is not None
+    assert message.feedback_code is None
+    assert message.feedback_category is None
+    assert message.hold_target_ms > 0
+    session.close()
+
+
+def test_free_practice_active_frame_has_no_coaching_identity(monkeypatch):
+    _patch_vision(monkeypatch)
+    StubPropDetector.instances = []
+    monkeypatch.setattr(websocket_api, "PropDetector", StubPropDetector)
+
+    session = websocket_api.VisionSession("Free Practice", prop_type="shaker")
+    session.start()
+    assert session.activate() is True
+    message = session.process_frame()
+    assert message is not None
+    assert message.movement == "Free Practice"
+    assert message.feedback_code is None
+    assert message.feedback_category is None
+    assert message.hold_target_ms == 0
     session.close()
 
 

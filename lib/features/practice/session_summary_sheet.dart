@@ -181,7 +181,7 @@ class SessionSummarySheet extends StatelessWidget {
 
     return Container(
       width: (size.width * 0.9).clamp(320.0, 480.0),
-      constraints: BoxConstraints(maxHeight: size.height * 0.85),
+      constraints: BoxConstraints(maxHeight: size.height * 0.9),
       decoration: BoxDecoration(
         color: context.elixCardSurface,
         borderRadius: BorderRadius.circular(24),
@@ -202,13 +202,15 @@ class SessionSummarySheet extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          // Expand to the constrained max height so Expanded can shrink the
+          // coaching body instead of overflowing pinned header/actions.
+          mainAxisSize: MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildHeader(),
             _buildScoreSection(scoreClr, tier, assessment.hasImprovements),
             _buildDurationRow(context),
-            Flexible(child: _buildCoachingScroll(context)),
+            Expanded(child: _buildCoachingScroll(context)),
             _buildActions(context),
           ],
         ),

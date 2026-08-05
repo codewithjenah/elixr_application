@@ -76,6 +76,57 @@ void main() {
       expect(feedback.holdTargetMs, 0);
     });
 
+    test('legacy payload omitting coaching fields parses safely', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Hand Stall',
+        'score': 72,
+        'feedback': 'Keep the bottle upright on your palm.',
+        'feedback_type': 'warning',
+        'posture_status': 'unstable',
+        'session_state': 'active',
+      });
+      expect(feedback.feedbackCode, isNull);
+      expect(feedback.feedbackCategory, isNull);
+      expect(feedback.holdTargetMs, 0);
+      expect(feedback.feedback, 'Keep the bottle upright on your palm.');
+    });
+
+    test('unknown feedback code and category remain parseable', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': true,
+        'movement': 'Hand Stall',
+        'score': 65,
+        'feedback': 'Keep steady',
+        'feedback_type': 'warning',
+        'posture_status': 'unstable',
+        'session_state': 'active',
+        'feedback_code': 'totally_unknown_future_code',
+        'feedback_category': 'mystery_bucket',
+        'hold_target_ms': 2500,
+      });
+      expect(feedback.feedbackCode, 'totally_unknown_future_code');
+      expect(feedback.feedbackCategory, 'mystery_bucket');
+      expect(feedback.holdTargetMs, 2500);
+    });
+
+    test('preparing and inactive frames default coaching fields safely', () {
+      for (final state in ['preparing', 'inactive']) {
+        final feedback = PracticeFeedback.fromJson({
+          'bottle_detected': false,
+          'movement': 'Hand Stall',
+          'score': 70,
+          'feedback': 'Preparing camera…',
+          'feedback_type': 'positive',
+          'posture_status': 'unknown',
+          'session_state': state,
+        });
+        expect(feedback.feedbackCode, isNull, reason: state);
+        expect(feedback.feedbackCategory, isNull, reason: state);
+        expect(feedback.holdTargetMs, 0, reason: state);
+      }
+    });
+
     test('version 1 feedback parses', () {
       final decoded = decoder.decode(
         jsonEncode({

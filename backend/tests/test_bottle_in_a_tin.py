@@ -62,6 +62,7 @@ def test_no_props_reports_both_missing():
     result, _, _ = _evaluate(None, None, _hands_at())
     assert result.feedback_type == "error"
     assert "bottle and cocktail shaker" in result.feedback.lower()
+    assert result.feedback_code == "both_props_not_detected"
 
 
 def test_missing_bottle_reports_bottle():
@@ -69,6 +70,7 @@ def test_missing_bottle_reports_bottle():
     assert result.feedback_type == "error"
     assert "bottle" in result.feedback.lower()
     assert "above the shaker" in result.feedback.lower()
+    assert result.feedback_code == "bottle_not_detected"
 
 
 def test_missing_shaker_reports_shaker():
@@ -76,6 +78,7 @@ def test_missing_shaker_reports_shaker():
     assert result.feedback_type == "error"
     assert "shaker" in result.feedback.lower()
     assert "under the bottle" in result.feedback.lower()
+    assert result.feedback_code == "shaker_not_detected"
 
 
 # --- B. Orientation ------------------------------------------------------
@@ -86,6 +89,7 @@ def test_bottle_not_upright_warns():
     result, _, _ = _evaluate(tilted_bottle, _shaker(), _hands_at())
     assert result.feedback_type == "warning"
     assert "upright" in result.feedback.lower()
+    assert result.feedback_code == "prop_not_upright"
 
 
 def test_shaker_not_horizontal_warns():
@@ -93,6 +97,7 @@ def test_shaker_not_horizontal_warns():
     result, _, _ = _evaluate(_bottle(), upright_shaker, _hands_at())
     assert result.feedback_type == "warning"
     assert "horizontally" in result.feedback.lower()
+    assert result.feedback_code == "shaker_not_horizontal"
 
 
 # --- C. Contact geometry ---------------------------------------------------

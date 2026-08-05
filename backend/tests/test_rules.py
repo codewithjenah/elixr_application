@@ -2666,3 +2666,45 @@ def test_one_finger_stall_invalid_geometry_does_not_update_history():
 
     assert result.feedback_type == "warning"
     assert returned_state is state
+
+
+# --- Phase C: feedback_code coverage on representative rule paths -----------
+
+from assessment.feedback_codes import FeedbackCategory, FeedbackCode, category_for, is_registered
+
+
+def test_hand_stall_paths_emit_registered_codes():
+    bottle = _bottle_on_palm(0.55, 0.55)
+    hands = HandsResult(hands=[_open_palm_hand(0.55, 0.55)])
+    result, _, _ = evaluate_movement(
+        "Hand Stall", bottle, None, hands, None, _stable_state(bottle)
+    )
+    assert result.feedback_code
+    assert is_registered(result.feedback_code)
+    assert category_for(result.feedback_code) is not None
+
+    missing, _, _ = evaluate_movement("Hand Stall", None, None, hands, None)
+    assert missing.feedback_code == FeedbackCode.PROP_NOT_DETECTED.value
+    assert category_for(missing.feedback_code) == FeedbackCategory.ENVIRONMENT
+
+
+def test_normal_grip_missing_hands_emits_visibility_code():
+    result, _, _ = evaluate_movement("Normal Grip", _bottle(), None, None, None)
+    assert result.feedback_code == FeedbackCode.HAND_NOT_VISIBLE.value
+    assert category_for(result.feedback_code) == FeedbackCategory.VISIBILITY
+    assert result.feedback == "Hand not detected. Keep your hand in frame."
+
+
+def test_double_hand_stall_zero_bottles_emits_environment_code():
+    result, _, _ = evaluate_movement(
+        "Double Hand Stall", None, None, None, None, bottles=[]
+    )
+    assert result.feedback_code == FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE.value
+    assert category_for(result.feedback_code) == FeedbackCategory.ENVIRONMENT
+
+
+def test_rules_never_set_feedback_category_on_result():
+    from assessment.rules.base import RuleResult
+
+    fields = getattr(RuleResult, "__dataclass_fields__", {})
+    assert "feedback_category" not in fields
