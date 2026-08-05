@@ -758,7 +758,11 @@ void main() {
       final recommendation = assessment.coaching.recommendation;
       expect(recommendation, isNotNull);
       expect(recommendation!.movementName, 'Hand Stall');
-      expect(recommendation.reason, 'Focus: Keep the bottle upright');
+      expect(
+        recommendation.reason,
+        'Focus: Keep the bottle upright. Then keep the bottle upright '
+        'over the open palm long enough to complete a confirmed hold.',
+      );
     });
 
     test('shaker prop produces cocktail-shaker recommendation wording', () {
@@ -789,7 +793,9 @@ void main() {
       );
       expect(
         assessment.coaching.recommendation!.reason,
-        'Focus: Keep the cocktail shaker upright',
+        'Focus: Keep the cocktail shaker upright. Then keep the cocktail '
+        'shaker upright over the open palm long enough to complete a '
+        'confirmed hold.',
       );
       expect(
         assessment.coaching.recommendation!.reason.toLowerCase(),

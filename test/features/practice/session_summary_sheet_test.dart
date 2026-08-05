@@ -182,6 +182,50 @@ void main() {
       );
     },
   );
+
+  testWidgets('summary renders combined focus and unconfirmed hold guidance', (
+    tester,
+  ) async {
+    const reason =
+        'Focus: Rotate your wrist into an overhand grip. Then keep the '
+        'overhand neck grip secure long enough to complete a confirmed hold.';
+    await _openSummary(
+      tester,
+      movement: 'Normal Grip',
+      assessment: _assessment(
+        score: 58,
+        heldSteady: false,
+        improvements: [
+          _improvement('Rotate your wrist into an overhand grip.'),
+        ],
+        recommendation: const SessionRecommendation(
+          movementName: 'Normal Grip',
+          reason: reason,
+          targetLabel:
+              'Maintain the overhand neck grip through one confirmed hold '
+              '(2.5 seconds)',
+          targetUsesHoldMs: true,
+          recommendedDurationSeconds: 120,
+        ),
+      ),
+      onSave: (_) async => 'session-combined-copy',
+    );
+
+    expect(find.text('Recommended Next Session'), findsOneWidget);
+    expect(find.text(reason), findsOneWidget);
+    expect(
+      find.textContaining('Focus: Rotate your wrist into an overhand grip'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'keep the overhand neck grip secure long enough to complete a '
+        'confirmed hold.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('(2.5 seconds)'), findsOneWidget);
+  });
   testWidgets('empty legacy coaching does not fabricate a recommendation', (
     tester,
   ) async {

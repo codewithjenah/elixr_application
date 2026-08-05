@@ -53,7 +53,15 @@ void main() {
       );
 
       expect(recommendation.movementName, 'Hand Stall');
-      expect(recommendation.reason, 'Focus: Keep the bottle upright');
+      expect(
+        recommendation.reason,
+        'Focus: Keep the bottle upright. Then keep the bottle upright '
+        'over the open palm long enough to complete a confirmed hold.',
+      );
+      expect(recommendation.reason, startsWith('Focus:'));
+      expect(recommendation.reason, contains('Then'));
+      expect(recommendation.reason, isNot(contains('seconds')));
+      expect(recommendation.reason, isNot(contains('..')));
       expect(recommendation.targetUsesHoldMs, isTrue);
       expect(recommendation.targetLabel, contains('2.5'));
     });
@@ -84,8 +92,15 @@ void main() {
       );
 
       expect(recommendation.movementName, 'Hand Stall');
-      expect(recommendation.reason, 'Focus: Keep the cocktail shaker upright');
+      expect(
+        recommendation.reason,
+        'Focus: Keep the cocktail shaker upright. Then '
+        'keep the cocktail shaker upright over the open palm long enough '
+        'to complete a confirmed hold.',
+      );
+      expect(recommendation.reason.toLowerCase(), contains('cocktail shaker'));
       expect(recommendation.reason.toLowerCase(), isNot(contains('bottle')));
+      expect(recommendation.reason, isNot(contains('seconds')));
     });
 
     test(
@@ -265,48 +280,66 @@ void main() {
       },
     );
 
-    test('technique improvements override unconfirmed generic coaching', () {
-      final recommendation = buildSessionRecommendation(
-        movement: 'Normal Grip',
-        prop: TrainingProp.bottle,
-        heldSteady: false,
-        finalScore: 65,
-        positiveRatio: 0.4,
-        totalApplicableSamples: 20,
-        improvements: [
-          SessionImprovement(
-            message: 'Rotate your wrist into an overhand grip.',
-            occurrenceCount: 5,
-            occurrenceRatio: 0.25,
-            feedbackType: 'warning',
-            representativeFeedback: _frame(
-              feedback: 'Rotate your wrist into an overhand grip.',
-              feedbackCode: 'overhand_grip_required',
+    test(
+      'unconfirmed Normal Grip with dominant improvement combines focus and hold guidance',
+      () {
+        final recommendation = buildSessionRecommendation(
+          movement: 'Normal Grip',
+          prop: TrainingProp.bottle,
+          heldSteady: false,
+          finalScore: 65,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 20,
+          improvements: [
+            SessionImprovement(
+              message: 'Rotate your wrist into an overhand grip.',
+              occurrenceCount: 5,
+              occurrenceRatio: 0.25,
+              feedbackType: 'warning',
+              representativeFeedback: _frame(
+                feedback: 'Rotate your wrist into an overhand grip.',
+                feedbackCode: 'overhand_grip_required',
+              ),
+              code: 'overhand_grip_required',
             ),
-            code: 'overhand_grip_required',
-          ),
-        ],
-        maxHoldDurationMs: 500,
-        maxHoldProgress: 0.2,
-        holdTargetMs: 2500,
-      );
+          ],
+          maxHoldDurationMs: 500,
+          maxHoldProgress: 0.2,
+          holdTargetMs: 2500,
+        );
 
-      expect(
-        recommendation.reason,
-        'Focus: Rotate your wrist into an overhand grip',
-      );
-      expect(
-        recommendation.reason,
-        isNot(
-          equals(
-            unconfirmedRecommendationReasonFor(
-              'Normal Grip',
-              TrainingProp.bottle,
+        expect(
+          recommendation.reason,
+          'Focus: Rotate your wrist into an overhand grip. Then keep the '
+          'overhand neck grip secure long enough to complete a confirmed hold.',
+        );
+        expect(
+          recommendation.reason,
+          contains('Focus: Rotate your wrist into an overhand grip'),
+        );
+        expect(
+          recommendation.reason,
+          contains(
+            'keep the overhand neck grip secure long enough to complete '
+            'a confirmed hold.',
+          ),
+        );
+        expect(recommendation.reason, isNot(contains('seconds')));
+        expect(recommendation.reason, isNot(contains('2.5')));
+        expect(recommendation.targetLabel, contains('2.5'));
+        expect(
+          recommendation.reason,
+          isNot(
+            equals(
+              unconfirmedRecommendationReasonFor(
+                'Normal Grip',
+                TrainingProp.bottle,
+              ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
     test('output is deterministic', () {
       SessionRecommendation build() => buildSessionRecommendation(
         movement: 'Hand Stall',
@@ -370,8 +403,9 @@ void main() {
       expect(recommendation.movementName, 'Normal Grip');
       expect(
         recommendation.reason,
-        'Focus: Rotate your wrist into an overhand grip',
+        startsWith('Focus: Rotate your wrist into an overhand grip'),
       );
+      expect(recommendation.reason, contains('Then'));
       expect(recommendation.recommendedDurationSeconds, 120);
     });
 
@@ -404,8 +438,9 @@ void main() {
       expect(recommendation.movementName, 'Bottle in a tin');
       expect(
         recommendation.reason,
-        'Focus: Hold the cocktail shaker horizontally',
+        startsWith('Focus: Hold the cocktail shaker horizontally'),
       );
+      expect(recommendation.reason, contains('Then'));
       expect(recommendation.recommendedDurationSeconds, 180);
     });
 
@@ -438,8 +473,9 @@ void main() {
       expect(recommendation.movementName, 'Double Hand Stall');
       expect(
         recommendation.reason,
-        'Focus: Position one bottle directly above each palm',
+        startsWith('Focus: Position one bottle directly above each palm'),
       );
+      expect(recommendation.reason, contains('Then'));
       expect(recommendation.movementName, isNot(equals('Hand Stall')));
     });
 
@@ -464,7 +500,7 @@ void main() {
       expect(recommendation.reason, contains('overhand neck'));
     });
 
-    test('technique improvement still beats generic success copy', () {
+    test('confirmed session with persistent improvement shows focus only', () {
       final recommendation = buildSessionRecommendation(
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
@@ -492,6 +528,11 @@ void main() {
       expect(
         recommendation.reason,
         'Focus: Rotate your wrist into an overhand grip',
+      );
+      expect(recommendation.reason, isNot(contains('Then')));
+      expect(
+        recommendation.reason,
+        isNot(contains('complete a confirmed hold')),
       );
       expect(
         recommendation.reason,
@@ -574,7 +615,9 @@ void main() {
         expect(assessment.coaching.recommendation!.movementName, 'Hand Stall');
         expect(
           assessment.coaching.recommendation!.reason,
-          'Focus: Keep the cocktail shaker upright',
+          'Focus: Keep the cocktail shaker upright. Then keep the cocktail '
+          'shaker upright over the open palm long enough to complete a '
+          'confirmed hold.',
         );
         expect(
           assessment.coaching.recommendation!.reason.toLowerCase(),
