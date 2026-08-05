@@ -48,10 +48,178 @@ final Set<String> positiveSuccessCodes = movementPositiveLockedCodes.values
 String confirmedStrengthCodeFor(String lockedCode) =>
     '${lockedCode.replaceFirst(RegExp(r'_locked$'), '')}_confirmed';
 
-String confirmedStrengthMessageFor(String movement) => '$movement confirmed';
+/// Movement-specific coaching copy for post-session strengths, clean sessions,
+/// recommendations, and hold targets. Keys match [movementCatalog] enabled names.
+class MovementCoachingProfile {
+  const MovementCoachingProfile({
+    required this.confirmedStrengthMessage,
+    required this.formStrengthMessage,
+    required this.cleanSessionMessage,
+    required this.successfulRecommendationReason,
+    required this.holdTargetInstruction,
+  });
+
+  final String confirmedStrengthMessage;
+  final String formStrengthMessage;
+  final String cleanSessionMessage;
+  final String successfulRecommendationReason;
+
+  /// May include `{prop}` for prop-aware stall movements.
+  final String holdTargetInstruction;
+}
+
+const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
+  'Normal Grip': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Secure overhand neck grip maintained',
+    formStrengthMessage: 'Correct overhand neck grip detected',
+    cleanSessionMessage:
+        'No recurring neck-grip issues — overhand finger wrap stayed consistent.',
+    successfulRecommendationReason:
+        'Repeat overhand neck grips to lock in a faster, steadier hold.',
+    holdTargetInstruction:
+        'Maintain the overhand neck grip through one confirmed hold',
+  ),
+  "Bartender's Grip": MovementCoachingProfile(
+    confirmedStrengthMessage: 'Controlled neck pinch maintained',
+    formStrengthMessage: 'Correct bartender pinch and hand position detected',
+    cleanSessionMessage:
+        'No recurring pinch issues — thumb-and-index neck control stayed steady.',
+    successfulRecommendationReason:
+        'Repeat the neck pinch until thumb-and-index control locks in cleanly.',
+    holdTargetInstruction:
+        'Maintain the thumb-and-index neck pinch through one confirmed hold',
+  ),
+  'Reverse Grip': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Stable reverse underhand grip maintained',
+    formStrengthMessage: 'Correct reverse grip orientation detected',
+    cleanSessionMessage:
+        'No recurring grip issues — reverse underhand orientation held stable.',
+    successfulRecommendationReason:
+        'Repeat reverse underhand grips to build a steadier confirmed hold.',
+    holdTargetInstruction:
+        'Maintain the reverse underhand grip through one confirmed hold',
+  ),
+  'Claw Grip': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Top-down claw grip maintained',
+    formStrengthMessage: 'Correct curled-finger claw position detected',
+    cleanSessionMessage:
+        'No recurring claw issues — top-down finger curl stayed controlled.',
+    successfulRecommendationReason:
+        'Repeat top-down claw grips until curled fingers lock around the neck.',
+    holdTargetInstruction:
+        'Keep the top-down claw grip through one confirmed hold',
+  ),
+  'Hand Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Open-palm balance confirmed',
+    formStrengthMessage: 'Upright prop balance detected over the open palm',
+    cleanSessionMessage:
+        'No recurring balance issues — open-palm stall position stayed stable.',
+    successfulRecommendationReason:
+        'Repeat open-palm balancing to extend steady hold time.',
+    holdTargetInstruction:
+        'Balance the {prop} upright on the open palm through one confirmed hold',
+  ),
+  'One Finger Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Index-fingertip balance confirmed',
+    formStrengthMessage: 'Correct one-finger balance position detected',
+    cleanSessionMessage:
+        'No recurring balance issues — index-fingertip centering stayed controlled.',
+    successfulRecommendationReason:
+        'Repeat index-fingertip balancing to build a longer confirmed hold.',
+    holdTargetInstruction:
+        'Center the {prop} over the extended index fingertip through one confirmed hold',
+  ),
+  'Forearm Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Forearm balance point held steady',
+    formStrengthMessage: 'Correct forearm stall position detected',
+    cleanSessionMessage:
+        'No recurring balance issues — forearm alignment stayed steady.',
+    successfulRecommendationReason:
+        'Repeat forearm stalls to keep the prop aligned longer through confirmation.',
+    holdTargetInstruction:
+        'Keep the {prop} aligned on the forearm through one confirmed hold',
+  ),
+  'Elbow Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Elbow-crease balance held steady',
+    formStrengthMessage: 'Correct elbow stall position detected',
+    cleanSessionMessage:
+        'No recurring balance issues — elbow-crease placement stayed steady.',
+    successfulRecommendationReason:
+        'Repeat elbow-crease balancing to hold the prop steady through confirmation.',
+    holdTargetInstruction:
+        'Maintain the {prop} over the elbow crease through one confirmed hold',
+  ),
+  'Reverse Forearm Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Reverse forearm balance held steady',
+    formStrengthMessage: 'Correct reverse forearm placement detected',
+    cleanSessionMessage:
+        'No recurring balance issues — reverse forearm placement held steady.',
+    successfulRecommendationReason:
+        'Repeat reverse forearm placement to extend a steady confirmed balance.',
+    holdTargetInstruction:
+        'Keep the bottle on the reverse forearm through one confirmed hold',
+  ),
+  'Shoulder Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Shoulder balance held steady',
+    formStrengthMessage: 'Correct shoulder stall position detected',
+    cleanSessionMessage:
+        'No recurring balance issues — shoulder stall position stayed stable.',
+    successfulRecommendationReason:
+        'Repeat shoulder balancing to keep the bottle stable through confirmation.',
+    holdTargetInstruction:
+        'Keep the bottle balanced on top of the shoulder through one confirmed hold',
+  ),
+  'Double Hand Stall': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Both bottle stalls held together',
+    formStrengthMessage: 'One upright bottle detected over each open palm',
+    cleanSessionMessage:
+        'No recurring balance issues — both palm stalls stayed coordinated.',
+    successfulRecommendationReason:
+        'Repeat dual-palm stalls until both bottles hold together through confirmation.',
+    holdTargetInstruction:
+        'Keep both bottles balanced simultaneously through one confirmed hold',
+  ),
+  'Bottle in a tin': MovementCoachingProfile(
+    confirmedStrengthMessage: 'Bottle-on-shaker balance confirmed',
+    formStrengthMessage: 'Upright bottle detected over the horizontal shaker',
+    cleanSessionMessage:
+        'No recurring balance issues — bottle stayed centered on the shaker.',
+    successfulRecommendationReason:
+        'Repeat bottle-on-shaker balancing to center the bottle through confirmation.',
+    holdTargetInstruction:
+        'Keep the bottle centered on the horizontal shaker through one confirmed hold',
+  ),
+};
+
+MovementCoachingProfile? movementCoachingProfileFor(String movement) =>
+    movementCoachingProfiles[movement];
+
+String confirmedStrengthMessageFor(String movement) =>
+    movementCoachingProfileFor(movement)?.confirmedStrengthMessage ??
+    '$movement confirmed';
 
 String formStrengthMessageFor(String movement) =>
+    movementCoachingProfileFor(movement)?.formStrengthMessage ??
     'Correct $movement form detected';
+
+String cleanSessionMessageFor(String movement) =>
+    movementCoachingProfileFor(movement)?.cleanSessionMessage ??
+    'No recurring technique issue met the session threshold.';
+
+String successfulRecommendationReasonFor(String movement) =>
+    movementCoachingProfileFor(movement)?.successfulRecommendationReason ??
+    'Practice $movement again to reinforce a confirmed hold.';
+
+/// Prop-aware hold target instruction before duration suffixing.
+String holdTargetInstructionFor(String movement, TrainingProp prop) {
+  final instruction = movementCoachingProfileFor(
+    movement,
+  )?.holdTargetInstruction;
+  if (instruction == null) {
+    return 'Complete one confirmed hold';
+  }
+  return instruction.replaceAll('{prop}', coachingPropLabel(prop));
+}
 
 String? positiveLockedCodeForMovement(String movement) =>
     movementPositiveLockedCodes[movement];
@@ -213,13 +381,18 @@ String focusCopyForCode(
       : trimmed;
 }
 
-String formatHoldTargetLabel(int holdTargetMs) {
+String formatHoldTargetLabel({
+  required String movement,
+  required TrainingProp prop,
+  required int holdTargetMs,
+}) {
+  final instruction = holdTargetInstructionFor(movement, prop);
   if (holdTargetMs <= 0) {
-    return 'Complete one confirmed hold';
+    return instruction;
   }
   final seconds = holdTargetMs / 1000.0;
   final formatted = seconds == seconds.roundToDouble()
       ? seconds.round().toString()
       : seconds.toStringAsFixed(1);
-  return 'Complete one confirmed hold ($formatted seconds)';
+  return '$instruction ($formatted seconds)';
 }

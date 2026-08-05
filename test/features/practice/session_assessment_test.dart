@@ -1,5 +1,6 @@
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -322,7 +323,7 @@ void main() {
       expect(formStrength.sampleCount, 12);
     });
 
-    test('no strength inferred from missing warning code', () {
+    test('locked positive code uses profile form strength not raw feedback', () {
       final accumulator = SessionAssessmentAccumulator();
       _recordFrames(
         accumulator,
@@ -336,12 +337,11 @@ void main() {
       );
 
       final assessment = _build(accumulator, heldSteady: false);
-      expect(
-        assessment.coaching.strengths.any(
-          (s) => s.message.toLowerCase().contains('upright'),
-        ),
-        isFalse,
+      final formStrength = assessment.coaching.strengths.singleWhere(
+        (s) => s.code == 'hand_stall_locked',
       );
+      expect(formStrength.message, formStrengthMessageFor('Hand Stall'));
+      expect(formStrength.message, isNot(contains('Hand stall locked in')));
     });
 
     test('only top 3 persistent issues are returned', () {
@@ -833,7 +833,34 @@ void main() {
       );
       expect(assessment.coaching.isEmpty, isTrue);
       expect(assessment.coaching.recommendation, isNull);
+      expect(assessment.coaching.cleanSessionMessage, isNull);
       expect(assessment.improvementMessages, isEmpty);
+    });
+
+    test('production assessment populates movement cleanSessionMessage', () {
+      final accumulator = SessionAssessmentAccumulator();
+      _recordFrames(
+        accumulator,
+        12,
+        frame: _frame(
+          feedbackType: 'positive',
+          feedbackCode: 'shoulder_stall_locked',
+          feedbackCategory: 'technique',
+        ),
+      );
+
+      final assessment = _build(
+        accumulator,
+        movement: 'Shoulder Stall',
+        heldSteady: true,
+        finalScore: 92,
+      );
+
+      expect(
+        assessment.coaching.cleanSessionMessage,
+        cleanSessionMessageFor('Shoulder Stall'),
+      );
+      expect(assessment.coaching.cleanSessionMessage, contains('shoulder'));
     });
 
     test(
@@ -880,7 +907,7 @@ void main() {
         );
         expect(
           assessment.coaching.strengths.any(
-            (s) => s.message == 'Normal Grip confirmed',
+            (s) => s.message == 'Secure overhand neck grip maintained',
           ),
           isTrue,
         );

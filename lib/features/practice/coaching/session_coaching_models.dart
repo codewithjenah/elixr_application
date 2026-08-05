@@ -73,6 +73,7 @@ class SessionCoachingSummary {
     required this.strengths,
     required this.improvements,
     this.recommendation,
+    this.cleanSessionMessage,
   });
 
   /// Empty coaching for legacy/manual [SessionAssessment] construction.
@@ -80,7 +81,8 @@ class SessionCoachingSummary {
   const SessionCoachingSummary.empty()
     : strengths = const [],
       improvements = const [],
-      recommendation = null;
+      recommendation = null,
+      cleanSessionMessage = null;
 
   final List<SessionStrength> strengths;
 
@@ -88,6 +90,10 @@ class SessionCoachingSummary {
   final List<SessionImprovement> improvements;
 
   final SessionRecommendation? recommendation;
+
+  /// Movement-specific copy when no recurring technique issues were found.
+  /// Populated by production assessment; null for legacy/manual snapshots.
+  final String? cleanSessionMessage;
 
   bool get hasRecommendation => recommendation != null;
 

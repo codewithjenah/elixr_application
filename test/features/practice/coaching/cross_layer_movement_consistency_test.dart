@@ -78,6 +78,7 @@ void main() {
         greaterThan(0),
         reason: name,
       );
+      expect(movementCoachingProfileFor(name), isNotNull, reason: name);
       expect(confirmedStrengthMessageFor(name), isNotEmpty, reason: name);
       expect(formStrengthMessageFor(name), isNotEmpty, reason: name);
       expect(
@@ -95,6 +96,10 @@ void main() {
     );
     expect(
       movementRecommendedDurationSeconds.keys.toSet(),
+      equals(enabledCatalogNames.toSet()),
+    );
+    expect(
+      movementCoachingProfiles.keys.toSet(),
       equals(enabledCatalogNames.toSet()),
     );
   });

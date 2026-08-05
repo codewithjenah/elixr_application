@@ -4,22 +4,67 @@ import 'package:elixr_application/features/practice/coaching/coaching_config.dar
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  final enabledNames = movementCatalog
+      .where((m) => m.enabled)
+      .map((m) => m.name)
+      .toList(growable: false);
+
   test('every enabled movement has a positive locked code and duration', () {
-    final enabled = movementCatalog.where((m) => m.enabled);
-    for (final movement in enabled) {
+    for (final name in enabledNames) {
+      expect(positiveLockedCodeForMovement(name), isNotNull, reason: name);
       expect(
-        positiveLockedCodeForMovement(movement.name),
-        isNotNull,
-        reason: movement.name,
-      );
-      expect(
-        positiveSuccessCodes.contains(
-          positiveLockedCodeForMovement(movement.name),
-        ),
+        positiveSuccessCodes.contains(positiveLockedCodeForMovement(name)),
         isTrue,
       );
-      expect(recommendedDurationForMovement(movement.name), greaterThan(0));
+      expect(recommendedDurationForMovement(name), greaterThan(0));
     }
+  });
+
+  test('exactly one coaching profile exists per enabled movement', () {
+    expect(movementCoachingProfiles.keys.toSet(), equals(enabledNames.toSet()));
+    for (final name in enabledNames) {
+      expect(
+        movementCoachingProfiles.keys.where((k) => k == name).length,
+        1,
+        reason: name,
+      );
+    }
+  });
+
+  test('no coaching profile exists outside enabled catalog', () {
+    expect(
+      movementCoachingProfiles.keys.toSet().difference(enabledNames.toSet()),
+      isEmpty,
+    );
+  });
+
+  test('every profile field is nonempty', () {
+    for (final entry in movementCoachingProfiles.entries) {
+      final profile = entry.value;
+      expect(profile.confirmedStrengthMessage, isNotEmpty, reason: entry.key);
+      expect(profile.formStrengthMessage, isNotEmpty, reason: entry.key);
+      expect(profile.cleanSessionMessage, isNotEmpty, reason: entry.key);
+      expect(
+        profile.successfulRecommendationReason,
+        isNotEmpty,
+        reason: entry.key,
+      );
+      expect(profile.holdTargetInstruction, isNotEmpty, reason: entry.key);
+    }
+  });
+
+  test('confirmed strength messages are distinct across enabled movements', () {
+    final messages = enabledNames
+        .map(confirmedStrengthMessageFor)
+        .toList(growable: false);
+    expect(messages.toSet().length, enabledNames.length);
+  });
+
+  test('hold target instructions are distinct across enabled movements', () {
+    final instructions = enabledNames
+        .map((name) => holdTargetInstructionFor(name, TrainingProp.bottle))
+        .toList(growable: false);
+    expect(instructions.toSet().length, enabledNames.length);
   });
 
   test('focus copy covers representative Phase B technique codes', () {
@@ -62,11 +107,71 @@ void main() {
       confirmedStrengthCodeFor('normal_grip_locked'),
       'normal_grip_confirmed',
     );
-    expect(confirmedStrengthMessageFor('Normal Grip'), 'Normal Grip confirmed');
+    expect(
+      confirmedStrengthMessageFor('Normal Grip'),
+      'Secure overhand neck grip maintained',
+    );
     expect(
       formStrengthMessageFor('Elbow Stall'),
-      'Correct Elbow Stall form detected',
+      'Correct elbow stall position detected',
     );
+  });
+
+  test('successful recommendations are movement-specific', () {
+    expect(
+      successfulRecommendationReasonFor('Normal Grip'),
+      contains('overhand neck'),
+    );
+    expect(
+      successfulRecommendationReasonFor('Hand Stall'),
+      contains('open-palm'),
+    );
+    expect(
+      successfulRecommendationReasonFor('Shoulder Stall'),
+      contains('shoulder'),
+    );
+    expect(
+      successfulRecommendationReasonFor('Double Hand Stall'),
+      contains('dual-palm'),
+    );
+    expect(
+      successfulRecommendationReasonFor('Bottle in a tin'),
+      contains('bottle-on-shaker'),
+    );
+  });
+
+  test('hold target label derives duration only from holdTargetMs', () {
+    final withTarget = formatHoldTargetLabel(
+      movement: 'Normal Grip',
+      prop: TrainingProp.bottle,
+      holdTargetMs: 2500,
+    );
+    expect(withTarget, contains('2.5 seconds'));
+    expect(withTarget, contains('overhand neck grip'));
+
+    final withoutTarget = formatHoldTargetLabel(
+      movement: 'Normal Grip',
+      prop: TrainingProp.bottle,
+      holdTargetMs: 0,
+    );
+    expect(withoutTarget, isNot(contains('seconds')));
+    expect(withoutTarget, contains('overhand neck grip'));
+  });
+
+  test('prop-aware hold target uses selected prop label', () {
+    final bottle = formatHoldTargetLabel(
+      movement: 'Hand Stall',
+      prop: TrainingProp.bottle,
+      holdTargetMs: 0,
+    );
+    final shaker = formatHoldTargetLabel(
+      movement: 'Hand Stall',
+      prop: TrainingProp.shaker,
+      holdTargetMs: 0,
+    );
+    expect(bottle.toLowerCase(), contains('bottle'));
+    expect(shaker.toLowerCase(), contains('cocktail shaker'));
+    expect(shaker.toLowerCase(), isNot(contains('bottle')));
   });
 
   test('bottle-only and bottle-or-shaker movements keep config entries', () {
@@ -82,12 +187,25 @@ void main() {
     );
   });
 
-  test('unknown movement uses duration default without positive code', () {
+  test('unknown movement uses neutral legacy fallbacks', () {
     expect(positiveLockedCodeForMovement('Coming Soon Stall'), isNull);
     expect(recommendedDurationForMovement('Coming Soon Stall'), 180);
+    expect(movementCoachingProfileFor('Coming Soon Stall'), isNull);
+    expect(
+      confirmedStrengthMessageFor('Coming Soon Stall'),
+      'Coming Soon Stall confirmed',
+    );
     expect(
       formStrengthMessageFor('Coming Soon Stall'),
       'Correct Coming Soon Stall form detected',
+    );
+    expect(
+      cleanSessionMessageFor('Coming Soon Stall'),
+      'No recurring technique issue met the session threshold.',
+    );
+    expect(
+      holdTargetInstructionFor('Coming Soon Stall', TrainingProp.bottle),
+      'Complete one confirmed hold',
     );
   });
 }

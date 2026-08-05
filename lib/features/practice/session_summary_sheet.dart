@@ -591,7 +591,8 @@ class SessionSummarySheet extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
-              _performanceMessage(_score),
+              assessment.coaching.cleanSessionMessage ??
+                  _performanceMessage(_score),
               style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textSecondary,

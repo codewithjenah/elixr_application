@@ -16,7 +16,11 @@ SessionRecommendation buildSessionRecommendation({
   required int holdTargetMs,
 }) {
   final durationSeconds = recommendedDurationForMovement(movement);
-  final targetLabel = formatHoldTargetLabel(holdTargetMs);
+  final targetLabel = formatHoldTargetLabel(
+    movement: movement,
+    prop: prop,
+    holdTargetMs: holdTargetMs,
+  );
   final targetUsesHoldMs = holdTargetMs > 0;
 
   if (totalApplicableSamples == 0) {
@@ -56,12 +60,9 @@ SessionRecommendation buildSessionRecommendation({
   }
 
   // Confirmed hold with no persistent technique issues.
-  final consistencyNote = finalScore >= 80 && positiveRatio >= 0.7
-      ? 'Build consistency on $movement.'
-      : 'Practice $movement again to reinforce a confirmed hold.';
   return SessionRecommendation(
     movementName: movement,
-    reason: consistencyNote,
+    reason: successfulRecommendationReasonFor(movement),
     targetLabel: targetLabel,
     targetUsesHoldMs: targetUsesHoldMs,
     recommendedDurationSeconds: durationSeconds,

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
 import 'package:elixr_application/features/practice/session_summary_sheet.dart';
@@ -42,6 +43,7 @@ SessionAssessment _assessment({
   bool heldSteady = false,
   PracticeFeedback? latestFeedback,
   bool includeEmptyCoaching = false,
+  String? cleanSessionMessage,
 }) {
   final coaching = includeEmptyCoaching
       ? const SessionCoachingSummary.empty()
@@ -49,6 +51,7 @@ SessionAssessment _assessment({
           strengths: strengths,
           improvements: improvements,
           recommendation: recommendation,
+          cleanSessionMessage: cleanSessionMessage,
         );
   return SessionAssessment(
     finalScore: score,
@@ -204,6 +207,7 @@ void main() {
       assessment: _assessment(
         score: 100,
         heldSteady: true,
+        cleanSessionMessage: cleanSessionMessageFor('Hand Stall'),
         latestFeedback: _practiceFeedback(
           'Great grip!',
           feedbackType: 'positive',
@@ -214,11 +218,33 @@ void main() {
     );
 
     expect(find.text('Needs Improvement'), findsOneWidget);
-    expect(
-      find.text('No recurring technique issue met the session threshold.'),
-      findsOneWidget,
-    );
+    expect(find.text(cleanSessionMessageFor('Hand Stall')), findsOneWidget);
   });
+
+  testWidgets(
+    'legacy coaching without cleanSessionMessage uses neutral fallback',
+    (tester) async {
+      await _openSummary(
+        tester,
+        assessment: _assessment(
+          score: 100,
+          heldSteady: true,
+          includeEmptyCoaching: false,
+          latestFeedback: _practiceFeedback(
+            'Great grip!',
+            feedbackType: 'positive',
+            score: 100,
+          ),
+        ),
+        onSave: (_) async => 'session-legacy-clean',
+      );
+
+      expect(
+        find.text('No recurring technique issue met the session threshold.'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets(
     'score below 80 with no improvements shows neutral needs-improvement message',

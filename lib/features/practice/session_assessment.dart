@@ -71,11 +71,12 @@ class SessionAssessmentAccumulator {
   static const handStallConfirmedCode = 'hand_stall_confirmed';
 
   /// Supportive wording for unconfirmed Hand Stall form evidence.
-  static const handStallFormStrengthMessage =
-      'Correct Hand Stall form detected';
+  static String get handStallFormStrengthMessage =>
+      formStrengthMessageFor('Hand Stall');
 
   /// Confirmed Hand Stall combined success wording.
-  static const handStallConfirmedStrengthMessage = 'Hand Stall confirmed';
+  static String get handStallConfirmedStrengthMessage =>
+      confirmedStrengthMessageFor('Hand Stall');
 
   /// Environment and detection messages excluded from technique assessment
   /// when [PracticeFeedback.feedbackCategory] is absent (legacy frames).
@@ -189,6 +190,7 @@ class SessionAssessmentAccumulator {
       strengths: strengths,
       improvements: improvements,
       recommendation: recommendation,
+      cleanSessionMessage: cleanSessionMessageFor(movement),
     );
 
     return SessionAssessment(
@@ -286,12 +288,8 @@ class SessionAssessmentAccumulator {
     final confirmedCode = lockedCode == handStallLockedCode
         ? handStallConfirmedCode
         : confirmedStrengthCodeFor(lockedCode);
-    final confirmedMessage = lockedCode == handStallLockedCode
-        ? handStallConfirmedStrengthMessage
-        : confirmedStrengthMessageFor(movement);
-    final formMessage = lockedCode == handStallLockedCode
-        ? handStallFormStrengthMessage
-        : formStrengthMessageFor(movement);
+    final confirmedMessage = confirmedStrengthMessageFor(movement);
+    final formMessage = formStrengthMessageFor(movement);
 
     if (heldSteady && hasLocked) {
       // Semantic dedupe: one combined confirmed movement strength.

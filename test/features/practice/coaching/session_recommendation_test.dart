@@ -1,5 +1,6 @@
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/coaching/session_recommendation.dart';
 import 'package:elixr_application/features/practice/practice_feedback_controller.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
@@ -87,26 +88,33 @@ void main() {
       expect(recommendation.reason.toLowerCase(), isNot(contains('bottle')));
     });
 
-    test('missing target produces nonnumeric confirmed-hold wording', () {
-      final recommendation = buildSessionRecommendation(
-        movement: 'Hand Stall',
-        prop: TrainingProp.bottle,
-        heldSteady: false,
-        finalScore: 60,
-        positiveRatio: 0.4,
-        totalApplicableSamples: 10,
-        improvements: const [],
-        maxHoldDurationMs: 0,
-        maxHoldProgress: 0,
-        holdTargetMs: 0,
-      );
+    test(
+      'missing target produces nonnumeric movement-specific hold wording',
+      () {
+        final recommendation = buildSessionRecommendation(
+          movement: 'Hand Stall',
+          prop: TrainingProp.bottle,
+          heldSteady: false,
+          finalScore: 60,
+          positiveRatio: 0.4,
+          totalApplicableSamples: 10,
+          improvements: const [],
+          maxHoldDurationMs: 0,
+          maxHoldProgress: 0,
+          holdTargetMs: 0,
+        );
 
-      expect(recommendation.targetLabel, 'Complete one confirmed hold');
-      expect(recommendation.targetUsesHoldMs, isFalse);
-      expect(recommendation.movementName, 'Hand Stall');
-    });
+        expect(
+          recommendation.targetLabel,
+          holdTargetInstructionFor('Hand Stall', TrainingProp.bottle),
+        );
+        expect(recommendation.targetLabel, isNot(contains('seconds')));
+        expect(recommendation.targetUsesHoldMs, isFalse);
+        expect(recommendation.movementName, 'Hand Stall');
+      },
+    );
 
-    test('no issue produces generic same-movement recommendation', () {
+    test('no issue produces movement-specific success recommendation', () {
       final recommendation = buildSessionRecommendation(
         movement: 'Hand Stall',
         prop: TrainingProp.bottle,
@@ -121,7 +129,11 @@ void main() {
       );
 
       expect(recommendation.movementName, 'Hand Stall');
-      expect(recommendation.reason.toLowerCase(), contains('hand stall'));
+      expect(
+        recommendation.reason,
+        successfulRecommendationReasonFor('Hand Stall'),
+      );
+      expect(recommendation.reason, contains('open-palm'));
       expect(recommendation.movementName, isNot(equals('Normal Grip')));
     });
 
@@ -279,7 +291,7 @@ void main() {
       expect(recommendation.movementName, isNot(equals('Hand Stall')));
     });
 
-    test('bottle-only Normal Grip never recommends another movement', () {
+    test('bottle-only Normal Grip uses movement-specific success reason', () {
       final recommendation = buildSessionRecommendation(
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
@@ -293,7 +305,46 @@ void main() {
         holdTargetMs: 2500,
       );
       expect(recommendation.movementName, 'Normal Grip');
-      expect(recommendation.reason.toLowerCase(), contains('normal grip'));
+      expect(
+        recommendation.reason,
+        successfulRecommendationReasonFor('Normal Grip'),
+      );
+      expect(recommendation.reason, contains('overhand neck'));
+    });
+
+    test('technique improvement still beats generic success copy', () {
+      final recommendation = buildSessionRecommendation(
+        movement: 'Normal Grip',
+        prop: TrainingProp.bottle,
+        heldSteady: true,
+        finalScore: 90,
+        positiveRatio: 0.9,
+        totalApplicableSamples: 30,
+        improvements: [
+          SessionImprovement(
+            message: 'Rotate your wrist into an overhand grip.',
+            occurrenceCount: 5,
+            occurrenceRatio: 0.25,
+            feedbackType: 'warning',
+            representativeFeedback: _frame(
+              feedback: 'Rotate your wrist into an overhand grip.',
+              feedbackCode: 'overhand_grip_required',
+            ),
+            code: 'overhand_grip_required',
+          ),
+        ],
+        maxHoldDurationMs: 2500,
+        maxHoldProgress: 1,
+        holdTargetMs: 2500,
+      );
+      expect(
+        recommendation.reason,
+        'Focus: Rotate your wrist into an overhand grip',
+      );
+      expect(
+        recommendation.reason,
+        isNot(equals(successfulRecommendationReasonFor('Normal Grip'))),
+      );
     });
 
     test('every enabled movement recommends itself only', () {
