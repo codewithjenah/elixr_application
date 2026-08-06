@@ -38,8 +38,8 @@ Offset _iconCenter(WidgetTester tester, Key key) {
   );
 }
 
-Offset _labelCenter(WidgetTester tester, String upperLabel) {
-  return tester.getCenter(find.text(upperLabel));
+Offset _labelCenter(WidgetTester tester, String label) {
+  return tester.getCenter(find.text(label));
 }
 
 void _expectCentered(double actual, double expected, {String? reason}) {
@@ -154,10 +154,7 @@ void main() {
         );
 
         final buttonCenter = _buttonCenter(tester, buttonCase.key);
-        final labelCenter = _labelCenter(
-          tester,
-          buttonCase.label.toUpperCase(),
-        );
+        final labelCenter = _labelCenter(tester, buttonCase.label);
         _expectCentered(
           labelCenter.dx,
           buttonCenter.dx,
@@ -231,7 +228,7 @@ void main() {
       );
 
       final buttonCenter = _buttonCenter(tester, const Key('disabled'));
-      final labelCenter = _labelCenter(tester, 'START PRACTICE');
+      final labelCenter = _labelCenter(tester, 'Start Practice');
       final iconCenter = _iconCenter(tester, const Key('disabled'));
 
       _expectCentered(labelCenter.dx, buttonCenter.dx);
@@ -251,7 +248,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       final buttonCenter = _buttonCenter(tester, const Key('narrow'));
-      final labelCenter = _labelCenter(tester, 'START FREE PRACTICE');
+      final labelCenter = _labelCenter(tester, 'Start Free Practice');
       _expectCentered(labelCenter.dx, buttonCenter.dx);
     });
 
@@ -270,7 +267,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       final buttonCenter = _buttonCenter(tester, const Key('ellipsis'));
-      final labelCenter = _labelCenter(tester, 'START FREE PRACTICE');
+      final labelCenter = _labelCenter(tester, 'Start Free Practice');
       _expectCentered(labelCenter.dx, buttonCenter.dx);
     });
   });

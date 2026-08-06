@@ -17,61 +17,93 @@ class TrainingConnectionBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (label, color) = switch (state) {
-      WebSocketConnectionState.connected => (
-        'Camera Connected',
-        AppColors.success,
-      ),
-      WebSocketConnectionState.connecting => ('Connecting', AppColors.warning),
-      WebSocketConnectionState.error => ('Connection Error', AppColors.error),
-      WebSocketConnectionState.disconnected => (
-        'Disconnected',
-        context.elixTextSecondary,
-      ),
-    };
-
     final showSpinner =
         connecting || state == WebSocketConnectionState.connecting;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
+    final (label, color, bgAlpha, borderAlpha) = switch (state) {
+      WebSocketConnectionState.connected => (
+        'Camera Connected',
+        AppColors.success,
+        0.12,
+        0.28,
       ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+      WebSocketConnectionState.connecting => (
+        'Connecting',
+        AppColors.warning,
+        0.1,
+        0.26,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: showSpinner
-                ? const ProgressRing(strokeWidth: 2)
-                : Center(
-                    child: Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
+      WebSocketConnectionState.error => (
+        'Connection Error',
+        AppColors.error,
+        0.1,
+        0.3,
+      ),
+      WebSocketConnectionState.disconnected => (
+        'Disconnected',
+        context.elixTextSecondary,
+        0.08,
+        0.22,
+      ),
+    };
+
+    return Semantics(
+      label: 'Connection status: $label',
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm + 2,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: bgAlpha),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: borderAlpha)),
+        ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: Row(
+            key: ValueKey<String>(label),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: showSpinner
+                    ? ProgressRing(strokeWidth: 2, activeColor: color)
+                    : Center(
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            boxShadow:
+                                state == WebSocketConnectionState.connected
+                                ? [
+                                    BoxShadow(
+                                      color: color.withValues(alpha: 0.45),
+                                      blurRadius: 6,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: AppTheme.caption.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(
-            label,
-            style: AppTheme.body.copyWith(
-              color: color,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -23,7 +23,7 @@ class TrainingActionArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return switch (kind) {
+    final button = switch (kind) {
       TrainingActionKind.finish => GameActionButton(
         label: 'Finish Session',
         icon: FluentIcons.stop_solid,
@@ -49,5 +49,10 @@ class TrainingActionArea extends StatelessWidget {
         isLoading: isLoading,
       ),
     };
+
+    return KeyedSubtree(
+      key: const ValueKey('practice-primary-action'),
+      child: button,
+    );
   }
 }

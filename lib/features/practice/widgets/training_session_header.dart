@@ -54,78 +54,175 @@ class TrainingSessionHeader extends StatelessWidget {
       connecting: connecting,
     );
 
-    final titleRow = Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        IconButton(
-          icon: const Icon(FluentIcons.chrome_back, color: AppColors.primary),
-          onPressed: onBack,
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Row(
-            children: [
-              Flexible(
-                child: Text(
-                  title,
-                  style: AppTheme.headingLarge.copyWith(
-                    fontSize: 22,
-                    color: context.elixTextPrimary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+        Row(
+          children: [
+            Flexible(
+              child: Text(
+                title,
+                style: AppTheme.headingLarge.copyWith(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextPrimary,
+                  height: 1.15,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
-              const SizedBox(width: AppSpacing.sm),
-              _StatusPill(label: statusPill, color: pillColor),
-            ],
-          ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            _DifficultyChip(label: statusPill, color: pillColor),
+          ],
         ),
-        if (trailing != null && wideLayout) ...[
-          const SizedBox(width: AppSpacing.md),
-          trailing!,
-        ],
-        if (wideLayout) ...[const SizedBox(width: AppSpacing.md), badge],
+        const SizedBox(height: 4),
+        Text(
+          instruction,
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
+            height: 1.35,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
       ],
     );
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          titleRow,
-          Padding(
-            padding: const EdgeInsets.only(left: 44),
-            child: Text(
-              instruction,
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+      key: const ValueKey('practice-training-header'),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
+      child: wideLayout
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _HeaderBackButton(onPressed: onBack),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: titleBlock),
+                if (trailing != null) ...[
+                  const SizedBox(width: AppSpacing.md),
+                  trailing!,
+                ],
+                const SizedBox(width: AppSpacing.md),
+                badge,
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _HeaderBackButton(onPressed: onBack),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(child: titleBlock),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [badge, ?trailing],
+                ),
+              ],
             ),
+    );
+  }
+}
+
+class _HeaderBackButton extends StatefulWidget {
+  const _HeaderBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_HeaderBackButton> createState() => _HeaderBackButtonState();
+}
+
+class _HeaderBackButtonState extends State<_HeaderBackButton> {
+  bool _hovering = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final surface = isDark
+        ? const Color(0xFF1E1A28)
+        : context.elixBorder.withValues(alpha: 0.12);
+
+    return Semantics(
+      button: true,
+      label: 'Back',
+      child: Tooltip(
+        message: 'Back',
+        child: Focus(
+          child: Builder(
+            builder: (context) {
+              final focused = Focus.of(context).hasFocus;
+              return MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) => setState(() => _hovering = true),
+                onExit: (_) => setState(() {
+                  _hovering = false;
+                  _pressed = false;
+                }),
+                child: GestureDetector(
+                  onTapDown: (_) => setState(() => _pressed = true),
+                  onTapUp: (_) => setState(() => _pressed = false),
+                  onTapCancel: () => setState(() => _pressed = false),
+                  onTap: widget.onPressed,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: _pressed
+                          ? surface.withValues(alpha: 0.9)
+                          : _hovering
+                          ? surface.withValues(alpha: 0.85)
+                          : surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: focused
+                            ? AppColors.primary.withValues(alpha: 0.65)
+                            : context.elixBorder.withValues(
+                                alpha: isDark ? 0.5 : 0.35,
+                              ),
+                        width: focused ? 1.5 : 1,
+                      ),
+                      boxShadow: _hovering && !_pressed
+                          ? [
+                              BoxShadow(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.12,
+                                ),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Icon(
+                      FluentIcons.chrome_back,
+                      size: 16,
+                      color: _hovering || focused
+                          ? AppColors.primary
+                          : context.elixTextPrimary,
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
-          if (!wideLayout) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Padding(
-              padding: const EdgeInsets.only(left: 44),
-              child: Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [badge, ?trailing],
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label, required this.color});
+class _DifficultyChip extends StatelessWidget {
+  const _DifficultyChip({required this.label, required this.color});
 
   final String label;
   final Color color;
@@ -134,20 +231,19 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: 6,
+        horizontal: AppSpacing.sm + 2,
+        vertical: 4,
       ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
       ),
       child: Text(
         label,
         style: AppTheme.caption.copyWith(
           color: color,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

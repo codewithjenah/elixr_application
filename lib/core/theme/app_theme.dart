@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/app_spacing.dart';
 
 extension ElixThemeContext on BuildContext {
   bool get isDarkTheme => FluentTheme.of(this).brightness == Brightness.dark;
@@ -157,4 +158,75 @@ abstract final class AppTheme {
   static TextStyle get bodySecondary => const TextStyle(fontSize: 14);
 
   static TextStyle get caption => const TextStyle(fontSize: 12);
+
+  /// Subtle ambient wash for practice training screens.
+  static BoxDecoration practicePageBackground(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    return BoxDecoration(
+      color: context.elixBackground,
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          AppColors.primary.withValues(alpha: isDark ? 0.06 : 0.04),
+          context.elixBackground,
+          AppColors.accent.withValues(alpha: isDark ? 0.05 : 0.03),
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ),
+    );
+  }
+
+  /// Premium session panel shell for guided practice.
+  static BoxDecoration practicePanelDecoration(
+    BuildContext context, {
+    Color? accent,
+  }) {
+    final isDark = context.isDarkTheme;
+    final tint = accent ?? AppColors.accent;
+    return BoxDecoration(
+      color: isDark ? AppColors.panelSurface : context.elixCardSurface,
+      borderRadius: BorderRadius.circular(AppSpacing.practiceSurfaceRadius),
+      border: Border.all(color: tint.withValues(alpha: isDark ? 0.22 : 0.18)),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(
+            0xFF000000,
+          ).withValues(alpha: isDark ? 0.32 : 0.08),
+          blurRadius: 18,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    );
+  }
+
+  /// Compact metric tile inside the session panel.
+  static BoxDecoration practiceMetricTileDecoration(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    return BoxDecoration(
+      color: isDark
+          ? const Color(0xFF1E1A28).withValues(alpha: 0.72)
+          : context.elixBorder.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(
+        color: context.elixBorder.withValues(alpha: isDark ? 0.45 : 0.35),
+      ),
+    );
+  }
+
+  /// Grouped status / setup surfaces inside the session panel.
+  static BoxDecoration practiceSectionSurface(
+    BuildContext context, {
+    Color? accent,
+  }) {
+    final isDark = context.isDarkTheme;
+    final tint = accent ?? AppColors.accent;
+    return BoxDecoration(
+      color: isDark
+          ? const Color(0xFF12101A).withValues(alpha: 0.65)
+          : context.elixBorder.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: tint.withValues(alpha: isDark ? 0.2 : 0.14)),
+    );
+  }
 }

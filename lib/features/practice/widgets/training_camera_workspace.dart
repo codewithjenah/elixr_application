@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/elix_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/practice_feedback.dart';
 import '../../../services/websocket_service.dart';
@@ -33,6 +32,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
     this.sessionError,
     this.countdownActive = false,
     this.isPreparingCamera = false,
+    this.accentBorder = false,
     this.overlayFeedback,
     this.showFeedbackMessage = true,
     this.overlays,
@@ -54,6 +54,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
   final String? sessionError;
   final bool countdownActive;
   final bool isPreparingCamera;
+  final bool accentBorder;
   final PracticeFeedback? overlayFeedback;
   final bool showFeedbackMessage;
   final Widget? overlays;
@@ -61,48 +62,89 @@ class TrainingCameraWorkspace extends StatelessWidget {
 
   static const _viewportColor = Color(0xFF0A0A0C);
   static const _frameAspectRatio = 640 / 480;
+  static const _radius = AppSpacing.practiceSurfaceRadius;
 
   bool get _hasFatalOrConnectionError =>
       sessionError != null || connectionState == WebSocketConnectionState.error;
 
+  Border? _viewportBorder() {
+    if (_hasFatalOrConnectionError) {
+      return Border.all(
+        color: AppColors.error.withValues(alpha: 0.55),
+        width: 1.5,
+      );
+    }
+    if (isSessionActive) {
+      return Border.all(
+        color: AppColors.primary.withValues(alpha: 0.5),
+        width: 1.5,
+      );
+    }
+    if (accentBorder || isPreparingCamera) {
+      return Border.all(
+        color: AppColors.accent.withValues(alpha: 0.45),
+        width: 1.5,
+      );
+    }
+    return Border.all(
+      color: const Color(0xFF2A2A32).withValues(alpha: 0.65),
+      width: 1,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ElixCard(
-      padding: EdgeInsets.zero,
-      child: DecoratedBox(
+    return Semantics(
+      label: 'Camera workspace',
+      child: Container(
+        key: const ValueKey('practice-camera-workspace'),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: isSessionActive
-              ? Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.45),
-                  width: 1.5,
-                )
-              : null,
+          borderRadius: BorderRadius.circular(_radius),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF000000).withValues(alpha: 0.35),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: ColoredBox(
-            color: _viewportColor,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _buildBody(context),
-                ?overlays,
-                if (statusItems.isNotEmpty && !_hasFatalOrConnectionError)
-                  Positioned(
-                    left: AppSpacing.md,
-                    right: AppSpacing.md,
-                    bottom: AppSpacing.md,
-                    child: _StatusStrip(items: statusItems.take(3).toList()),
-                  ),
-                if (countdownActive)
-                  Positioned.fill(
-                    child: GameCountdownOverlay(
-                      onComplete: onCountdownComplete,
-                    ),
-                  ),
-                if (_hasFatalOrConnectionError) _buildErrorSurface(context),
-              ],
+          borderRadius: BorderRadius.circular(_radius),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(_radius),
+              border: _viewportBorder(),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(_radius - 1),
+              child: ColoredBox(
+                color: _viewportColor,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _buildBody(context),
+                    const _ViewportVignette(),
+                    const _CornerGuides(),
+                    ?overlays,
+                    if (statusItems.isNotEmpty && !_hasFatalOrConnectionError)
+                      Positioned(
+                        left: AppSpacing.md,
+                        right: AppSpacing.md,
+                        bottom: AppSpacing.md,
+                        child: _StatusStrip(
+                          items: statusItems.take(3).toList(),
+                        ),
+                      ),
+                    if (countdownActive)
+                      Positioned.fill(
+                        child: GameCountdownOverlay(
+                          onComplete: onCountdownComplete,
+                        ),
+                      ),
+                    if (_hasFatalOrConnectionError) _buildErrorSurface(context),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -111,22 +153,9 @@ class TrainingCameraWorkspace extends StatelessWidget {
   }
 
   Widget _buildBody(BuildContext context) {
-    // Precedence: fatal/connection error handled as overlay; then connecting,
-    // disconnected, running/waiting, idle.
     if (connecting || connectionState == WebSocketConnectionState.connecting) {
       return _CenteredMessage(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: ProgressRing(strokeWidth: 3),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text('Connecting to camera…', style: AppTheme.bodySecondary),
-          ],
-        ),
+        child: _LoadingState(title: 'Connecting to camera'),
       );
     }
 
@@ -137,11 +166,16 @@ class TrainingCameraWorkspace extends StatelessWidget {
           children: [
             Icon(
               FluentIcons.video_solid,
-              size: 40,
+              size: 36,
               color: AppColors.textSecondary.withValues(alpha: 0.55),
             ),
-            const SizedBox(height: AppSpacing.md),
-            Text('Camera disconnected', style: AppTheme.bodySecondary),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Camera disconnected',
+              style: AppTheme.bodySecondary.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
           ],
         ),
       );
@@ -163,50 +197,23 @@ class TrainingCameraWorkspace extends StatelessWidget {
   }
 
   Widget _buildWaitingOrIdlePlaceholder() {
-    if (isPreparingCamera || isSessionActive) {
+    if (isPreparingCamera) {
+      return _CenteredMessage(child: _LoadingState(title: 'Preparing camera'));
+    }
+
+    if (isSessionActive) {
       return _CenteredMessage(
         child: Text(
-          isPreparingCamera
-              ? 'Preparing camera…'
-              : 'Waiting for camera frames…',
-          style: AppTheme.bodySecondary,
+          'Waiting for camera frames…',
+          style: AppTheme.bodySecondary.copyWith(
+            color: AppColors.textSecondary,
+          ),
         ),
       );
     }
 
     if (connectionState == WebSocketConnectionState.connected) {
-      return _CenteredMessage(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.cardSurface.withValues(alpha: 0.6),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                FluentIcons.video_solid,
-                size: 40,
-                color: AppColors.textSecondary.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'Camera preview will appear here.',
-              style: AppTheme.bodySecondary,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Keep your upper body, hands, and bottle visible.',
-              style: AppTheme.caption.copyWith(
-                color: AppColors.textSecondary.withValues(alpha: 0.8),
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
+      return _CenteredMessage(child: _IdlePreviewState());
     }
 
     return const SizedBox.shrink();
@@ -229,7 +236,7 @@ class TrainingCameraWorkspace extends StatelessWidget {
   Widget _buildErrorSurface(BuildContext context) {
     final isFatal = sessionError != null;
     return ColoredBox(
-      color: AppColors.background.withValues(alpha: 0.85),
+      color: AppColors.background.withValues(alpha: 0.88),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
@@ -270,6 +277,196 @@ class TrainingCameraWorkspace extends StatelessWidget {
   }
 }
 
+class _IdlePreviewState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primary.withValues(alpha: 0.18),
+                AppColors.accent.withValues(alpha: 0.14),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.22),
+            ),
+          ),
+          child: Icon(
+            FluentIcons.video_solid,
+            size: 28,
+            color: AppColors.primarySoft.withValues(alpha: 0.85),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Camera preview',
+          style: AppTheme.body.copyWith(
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Begin calibration to activate the live feed.',
+          style: AppTheme.bodySecondary.copyWith(
+            color: AppColors.textSecondary,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Keep your upper body, hands, and bottle visible.',
+          style: AppTheme.caption.copyWith(
+            color: AppColors.textSecondary.withValues(alpha: 0.85),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(
+          width: 32,
+          height: 32,
+          child: ProgressRing(strokeWidth: 3, activeColor: AppColors.primary),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          title,
+          style: AppTheme.body.copyWith(
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'This may take a moment…',
+          style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+        ),
+      ],
+    );
+  }
+}
+
+class _ViewportVignette extends StatelessWidget {
+  const _ViewportVignette();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.1,
+            colors: [
+              const Color(0x00000000),
+              const Color(0xFF000000).withValues(alpha: 0.18),
+            ],
+            stops: const [0.72, 1.0],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerGuides extends StatelessWidget {
+  const _CornerGuides();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Stack(
+        children: [
+          Positioned(top: 10, left: 10, child: _bracket(Alignment.topLeft)),
+          Positioned(top: 10, right: 10, child: _bracket(Alignment.topRight)),
+          Positioned(
+            bottom: 10,
+            left: 10,
+            child: _bracket(Alignment.bottomLeft),
+          ),
+          Positioned(
+            bottom: 10,
+            right: 10,
+            child: _bracket(Alignment.bottomRight),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bracket(Alignment alignment) {
+    final isTop = alignment.y < 0;
+    final isLeft = alignment.x < 0;
+    return SizedBox(
+      width: 18,
+      height: 18,
+      child: CustomPaint(
+        painter: _CornerBracketPainter(isTop: isTop, isLeft: isLeft),
+      ),
+    );
+  }
+}
+
+class _CornerBracketPainter extends CustomPainter {
+  _CornerBracketPainter({required this.isTop, required this.isLeft});
+
+  final bool isTop;
+  final bool isLeft;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.primarySoft.withValues(alpha: 0.28)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    final path = Path();
+    if (isTop && isLeft) {
+      path.moveTo(0, size.height);
+      path.lineTo(0, 0);
+      path.lineTo(size.width, 0);
+    } else if (isTop && !isLeft) {
+      path.moveTo(0, 0);
+      path.lineTo(size.width, 0);
+      path.lineTo(size.width, size.height);
+    } else if (!isTop && isLeft) {
+      path.moveTo(0, 0);
+      path.lineTo(0, size.height);
+      path.lineTo(size.width, size.height);
+    } else {
+      path.moveTo(size.width, 0);
+      path.lineTo(size.width, size.height);
+      path.lineTo(0, size.height);
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _CenteredMessage extends StatelessWidget {
   const _CenteredMessage({required this.child});
 
@@ -300,10 +497,10 @@ class _StatusStrip extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.sm + 2,
-                  vertical: 4,
+                  vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xCC101018),
+                  color: const Color(0xD9101018),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: (item.color ?? AppColors.textSecondary).withValues(
@@ -345,9 +542,6 @@ class _CameraFeedSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Keep image + HUD in one AspectRatio Stack (same as _MirroredCameraFeed).
-    // Do not wrap the HUD in its own full-frame AspectRatio — that gives the
-    // dark gradient tight max-height of the whole feed and washes it out.
     return Center(
       child: AspectRatio(
         aspectRatio: aspectRatio,
@@ -468,29 +662,25 @@ class _FrameHudOverlay extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xE6101018), Color(0xCC0A0A0F)],
-        ),
+        color: const Color(0xCC101018),
         border: Border(
           bottom: BorderSide(color: accent.withValues(alpha: 0.35)),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               width: 4,
-              height: 44,
+              height: 40,
               decoration: BoxDecoration(
                 color: accent,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -503,7 +693,7 @@ class _FrameHudOverlay extends StatelessWidget {
                         child: Text(
                           feedback.movement,
                           style: AppTheme.body.copyWith(
-                            fontSize: 15,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: AppColors.primary,
                           ),
@@ -544,7 +734,7 @@ class _FrameHudOverlay extends StatelessWidget {
                     Text(
                       feedbackText,
                       style: AppTheme.body.copyWith(
-                        fontSize: 15,
+                        fontSize: 14,
                         height: 1.3,
                         color: accent,
                         fontWeight: FontWeight.w500,

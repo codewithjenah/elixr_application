@@ -419,7 +419,7 @@ class RankBadge extends StatelessWidget {
   }
 }
 
-/// Gradient game-style call-to-action button with a glow.
+/// Gradient game-style call-to-action button with restrained elevation.
 class GameActionButton extends StatefulWidget {
   const GameActionButton({
     super.key,
@@ -445,97 +445,153 @@ class _GameActionButtonState extends State<GameActionButton> {
   static const _kIconLaneWidth = AppSpacing.md + _kIconSize + AppSpacing.sm;
 
   bool _hovering = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null && !widget.isLoading;
-    final colors = widget.danger
-        ? const [Color(0xFFFF6B6B), Color(0xFFFF8E53)]
-        : const [AppColors.primary, AppColors.accent];
-    final glowColor = widget.danger ? AppColors.error : AppColors.primary;
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
 
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        onTap: enabled ? widget.onPressed : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          height: 52,
-          transform: Matrix4.identity()
-            ..scaleByDouble(
-              _hovering && enabled ? 1.02 : 1.0,
-              _hovering && enabled ? 1.02 : 1.0,
-              1,
-              1,
-            ),
-          transformAlignment: Alignment.center,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: enabled
-                  ? colors
-                  : colors
-                        .map((c) => c.withValues(alpha: 0.4))
-                        .toList(growable: false),
-            ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: enabled
-                ? [
-                    BoxShadow(
-                      color: glowColor.withValues(
-                        alpha: _hovering ? 0.55 : 0.35,
-                      ),
-                      blurRadius: _hovering ? 26 : 18,
-                      spreadRadius: -2,
-                    ),
-                  ]
-                : null,
-          ),
-          child: widget.isLoading
-              ? const Center(
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: ProgressRing(
-                      strokeWidth: 3,
-                      activeColor: Colors.white,
-                    ),
+    final labelColor = widget.danger
+        ? (enabled ? AppColors.error : AppColors.error.withValues(alpha: 0.45))
+        : Colors.white.withValues(alpha: enabled ? 1 : 0.55);
+
+    final iconColor = widget.danger
+        ? labelColor
+        : Colors.white.withValues(alpha: enabled ? 1 : 0.55);
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.label,
+      child: Focus(
+        child: Builder(
+          builder: (context) {
+            final focused = Focus.of(context).hasFocus;
+            return MouseRegion(
+              cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+              onEnter: (_) => setState(() => _hovering = true),
+              onExit: (_) => setState(() {
+                _hovering = false;
+                _pressed = false;
+              }),
+              child: GestureDetector(
+                onTapDown: (_) => setState(() => _pressed = true),
+                onTapUp: (_) => setState(() => _pressed = false),
+                onTapCancel: () => setState(() => _pressed = false),
+                onTap: enabled ? widget.onPressed : null,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  height: 54,
+                  transform: Matrix4.translationValues(
+                    0,
+                    _hovering && enabled && !_pressed ? -1.5 : 0,
+                    0,
                   ),
-                )
-              : Row(
-                  children: [
-                    SizedBox(
-                      width: _kIconLaneWidth,
-                      child: Center(
-                        child: Icon(
-                          widget.icon,
-                          size: _kIconSize,
-                          color: Colors.white,
+                  decoration: _buildDecoration(
+                    enabled: enabled,
+                    focused: focused,
+                    isDark: isDark,
+                  ),
+                  child: widget.isLoading
+                      ? Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: ProgressRing(
+                              strokeWidth: 3,
+                              activeColor: widget.danger
+                                  ? AppColors.error
+                                  : Colors.white,
+                            ),
+                          ),
+                        )
+                      : Row(
+                          children: [
+                            SizedBox(
+                              width: _kIconLaneWidth,
+                              child: Center(
+                                child: Icon(
+                                  widget.icon,
+                                  size: _kIconSize,
+                                  color: iconColor,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                widget.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                softWrap: false,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: labelColor,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: _kIconLaneWidth),
+                          ],
                         ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        widget.label.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.2,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    // Mirror the icon lane so the label stays optically centered.
-                    const SizedBox(width: _kIconLaneWidth),
-                  ],
                 ),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  BoxDecoration _buildDecoration({
+    required bool enabled,
+    required bool focused,
+    required bool isDark,
+  }) {
+    if (widget.danger) {
+      return BoxDecoration(
+        color: enabled
+            ? AppColors.error.withValues(alpha: isDark ? 0.14 : 0.1)
+            : AppColors.error.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: focused
+              ? AppColors.error
+              : AppColors.error.withValues(alpha: enabled ? 0.45 : 0.22),
+          width: focused ? 1.5 : 1,
+        ),
+      );
+    }
+
+    return BoxDecoration(
+      gradient: LinearGradient(
+        colors: enabled
+            ? const [AppColors.primary, AppColors.accent]
+            : [
+                AppColors.primary.withValues(alpha: 0.35),
+                AppColors.accent.withValues(alpha: 0.35),
+              ],
+      ),
+      borderRadius: BorderRadius.circular(15),
+      border: Border.all(
+        color: focused
+            ? Colors.white.withValues(alpha: 0.55)
+            : Colors.white.withValues(alpha: enabled ? 0.22 : 0.1),
+        width: focused ? 1.5 : 1,
+      ),
+      boxShadow: enabled
+          ? [
+              BoxShadow(
+                color: AppColors.primary.withValues(
+                  alpha: _hovering && !_pressed ? 0.22 : 0.12,
+                ),
+                blurRadius: _hovering && !_pressed ? 14 : 10,
+                offset: Offset(0, _hovering && !_pressed ? 3 : 2),
+              ),
+            ]
+          : null,
     );
   }
 }

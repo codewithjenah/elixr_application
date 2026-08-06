@@ -78,8 +78,9 @@ class _PracticeScreenState extends State<PracticeScreen>
   late final Animation<double> _scorePulse;
   int? _lastPulsedScore;
 
-  static const _wideBreakpoint = 1100.0;
-  static const _panelWidth = 370.0;
+  static const _maxContentWidth = AppSpacing.practiceMaxContentWidth;
+  static const _desktopBreakpoint = AppSpacing.practiceDesktopBreakpoint;
+  static const _compactBreakpoint = AppSpacing.practiceCompactBreakpoint;
 
   @override
   void initState() {
@@ -767,71 +768,104 @@ class _PracticeScreenState extends State<PracticeScreen>
         _ws.connectionState == WebSocketConnectionState.error;
 
     return ScaffoldPage(
-      content: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            AppSpacing.md,
-            AppSpacing.xl,
-            AppSpacing.xl,
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= _wideBreakpoint;
-              final header = TrainingSessionHeader(
-                onBack: _onBack,
-                title: _movement,
-                statusPill: _difficulty.toUpperCase(),
-                statusPillColor: trainingDifficultyColor(_difficulty),
-                instruction: _instructionForMovement(_movement),
-                connectionState: _ws.connectionState,
-                connecting: _connecting,
-                wideLayout: wide,
-              );
-              final camera = _buildCamera(
-                isTrainingActive: isTrainingActive,
-                isCameraLive: isCameraLive,
-              );
-              final panel = _buildPanel(
-                isTrainingActive: isTrainingActive,
-                hasConnectionError: hasConnectionError,
-              );
+      content: DecoratedBox(
+        decoration: AppTheme.practicePageBackground(context),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm + 2,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = math.min(
+                  constraints.maxWidth,
+                  _maxContentWidth,
+                );
+                final isDesktop = contentWidth >= _desktopBreakpoint;
+                final isCompact =
+                    contentWidth >= _compactBreakpoint && !isDesktop;
 
-              if (wide) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    header,
-                    Expanded(
-                      child: Row(
+                final header = TrainingSessionHeader(
+                  onBack: _onBack,
+                  title: _movement,
+                  statusPill: _difficulty,
+                  statusPillColor: trainingDifficultyColor(_difficulty),
+                  instruction: _instructionForMovement(_movement),
+                  connectionState: _ws.connectionState,
+                  connecting: _connecting,
+                  wideLayout: isDesktop || isCompact,
+                );
+                final camera = _buildCamera(
+                  isTrainingActive: isTrainingActive,
+                  isCameraLive: isCameraLive,
+                );
+                final panel = _buildPanel(
+                  isTrainingActive: isTrainingActive,
+                  hasConnectionError: hasConnectionError,
+                  expandVertically: isDesktop,
+                );
+
+                final cameraWidget = isDesktop
+                    ? camera
+                    : SizedBox(
+                        height: math.max(
+                          280,
+                          math.min(420, contentWidth * 480 / 640),
+                        ),
+                        child: camera,
+                      );
+
+                final workspace = isDesktop
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(flex: 7, child: cameraWidget),
+                          SizedBox(width: AppSpacing.practiceCameraPanelGap),
+                          SizedBox(
+                            width: math.min(
+                              AppSpacing.practicePanelMaxWidth,
+                              math.max(
+                                AppSpacing.practicePanelMinWidth,
+                                contentWidth * 0.28,
+                              ),
+                            ),
+                            child: panel,
+                          ),
+                        ],
+                      )
+                    : Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: camera),
-                          const SizedBox(width: AppSpacing.lg),
-                          SizedBox(width: _panelWidth, child: panel),
+                          cameraWidget,
+                          SizedBox(height: AppSpacing.practiceCameraPanelGap),
+                          panel,
                         ],
-                      ),
-                    ),
-                  ],
-                );
-              }
+                      );
 
-              final cameraHeight = math.max(
-                280.0,
-                constraints.maxHeight * 0.42,
-              );
-              return SingleChildScrollView(
-                child: Column(
+                final body = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     header,
-                    SizedBox(height: cameraHeight, child: camera),
-                    const SizedBox(height: AppSpacing.md),
-                    SizedBox(height: 360, child: panel),
+                    if (isDesktop)
+                      Expanded(child: workspace)
+                    else
+                      Expanded(child: SingleChildScrollView(child: workspace)),
                   ],
-                ),
-              );
-            },
+                );
+
+                if (constraints.maxWidth <= _maxContentWidth) {
+                  return body;
+                }
+
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(width: _maxContentWidth, child: body),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -849,6 +883,8 @@ class _PracticeScreenState extends State<PracticeScreen>
       connecting: _connecting,
       isSessionActive: isCameraLive && !_run.isPreparingCamera,
       isPreparingCamera: _run.isPreparingCamera,
+      accentBorder:
+          _run.isPreparingCamera || _run.isReadiness || _run.isCountdown,
       errorMessage: _ws.errorMessage,
       sessionError: _sessionError ?? _run.errorMessage,
       onRetry: _connect,
@@ -906,6 +942,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   Widget _buildPanel({
     required bool isTrainingActive,
     required bool hasConnectionError,
+    required bool expandVertically,
   }) {
     final actionKind = _actionKind();
     final isReadiness = _run.isReadiness;
@@ -915,78 +952,58 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     return TrainingSessionPanel(
       phase: _panelPhase(),
+      expandVertically: expandVertically,
       rankBadge: isTrainingActive
           ? ValueListenableBuilder<int?>(
               valueListenable: _scoreNotifier,
               builder: (context, score, _) => RankBadge(score: score),
             )
           : null,
-      metrics: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (isCalibrating) _buildStageIndicator(),
-          if (!isCalibrating) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _MetricCell(
-                    label: 'Elapsed',
-                    child: Text(
-                      _formatDuration(_run.elapsedSeconds),
-                      style: AppTheme.headingMedium.copyWith(
-                        letterSpacing: 1.2,
-                        color: context.elixTextPrimary,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: _MetricCell(
-                    label: 'Score',
-                    emphasize: true,
-                    child: isTrainingActive
-                        ? ValueListenableBuilder<int?>(
-                            valueListenable: _scoreNotifier,
-                            builder: (context, score, _) {
-                              return ScaleTransition(
-                                scale: _scorePulse,
-                                child: Text(
-                                  score != null ? '$score' : '—',
-                                  style: AppTheme.headingMedium.copyWith(
-                                    fontSize: 28,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              );
-                            },
-                          )
-                        : Text(
-                            '—',
+      metrics: isCalibrating
+          ? TrainingStageIndicator(
+              cameraActive: _run.isPreparingCamera,
+              cameraDone:
+                  !_run.isPreparingCamera &&
+                  (_run.isReadiness || _run.isCountdown),
+              setupActive: _run.isReadiness,
+              setupDone: _run.isCountdown,
+              practiceActive: _run.isCountdown,
+            )
+          : SessionMetricTiles(
+              elapsedDisplay: _formatDuration(_run.elapsedSeconds),
+              scoreChild: isTrainingActive
+                  ? ValueListenableBuilder<int?>(
+                      valueListenable: _scoreNotifier,
+                      builder: (context, score, _) {
+                        return ScaleTransition(
+                          scale: _scorePulse,
+                          child: Text(
+                            score != null ? '$score' : '—',
                             style: AppTheme.headingMedium.copyWith(
-                              fontSize: 28,
+                              fontSize: 26,
                               color: AppColors.primary,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                  ),
-                ),
-              ],
+                        );
+                      },
+                    )
+                  : Text(
+                      '—',
+                      style: AppTheme.headingMedium.copyWith(
+                        fontSize: 26,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+              performanceBar: isTrainingActive
+                  ? ValueListenableBuilder<int?>(
+                      valueListenable: _scoreNotifier,
+                      builder: (context, score, _) =>
+                          TrainingPerformanceBar(score: score),
+                    )
+                  : const TrainingPerformanceBar(score: null),
             ),
-            const SizedBox(height: AppSpacing.md),
-            if (isTrainingActive)
-              ValueListenableBuilder<int?>(
-                valueListenable: _scoreNotifier,
-                builder: (context, score, _) =>
-                    TrainingPerformanceBar(score: score),
-              )
-            else
-              const TrainingPerformanceBar(score: null),
-          ],
-        ],
-      ),
       statusContent: (isReadiness || (_run.isCountdown && readiness.frozen))
           ? ReadinessChecklistPanel(
               items: readiness.displayItems,
@@ -1015,18 +1032,27 @@ class _PracticeScreenState extends State<PracticeScreen>
         builder: (context, comboState, _) {
           return Column(
             children: [
-              _InfoRow(label: 'Movement', value: _movement),
-              const SizedBox(height: AppSpacing.sm),
-              _InfoRow(label: 'Difficulty', value: _difficulty),
-              const SizedBox(height: AppSpacing.sm),
-              _InfoRow(label: 'Prop', value: _prop.displayLabel),
-              if (comboState.bestCombo > 1) ...[
-                const SizedBox(height: AppSpacing.sm),
-                _InfoRow(
-                  label: 'Best Combo',
+              SessionSetupRow(
+                icon: FluentIcons.play_solid,
+                label: 'Movement',
+                value: _movement,
+              ),
+              SessionSetupRow(
+                icon: FluentIcons.speed_high,
+                label: 'Difficulty',
+                value: _difficulty,
+              ),
+              SessionSetupRow(
+                icon: FluentIcons.diet_plan_notebook,
+                label: 'Prop',
+                value: _prop.displayLabel,
+              ),
+              if (comboState.bestCombo > 1)
+                SessionSetupRow(
+                  icon: FluentIcons.lightning_bolt,
+                  label: 'Best combo',
                   value: 'x${comboState.bestCombo}',
                 ),
-              ],
             ],
           );
         },
@@ -1058,29 +1084,6 @@ class _PracticeScreenState extends State<PracticeScreen>
               },
               isLoading: _connecting || _commandInFlight,
             ),
-    );
-  }
-
-  /// Compact stage indicator shown during preparingCamera / readiness / countdown.
-  Widget _buildStageIndicator() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _StageStep(
-          label: 'Camera',
-          active: _run.isPreparingCamera,
-          done:
-              !_run.isPreparingCamera && (_run.isReadiness || _run.isCountdown),
-        ),
-        const _StageDivider(),
-        _StageStep(
-          label: 'Setup Check',
-          active: _run.isReadiness,
-          done: _run.isCountdown,
-        ),
-        const _StageDivider(),
-        _StageStep(label: 'Practice', active: _run.isCountdown, done: false),
-      ],
     );
   }
 
@@ -1126,71 +1129,6 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 }
 
-class _MetricCell extends StatelessWidget {
-  const _MetricCell({
-    required this.label,
-    required this.child,
-    this.emphasize = false,
-  });
-
-  final String label;
-  final Widget child;
-  final bool emphasize;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: AppTheme.caption.copyWith(
-            color: emphasize
-                ? AppColors.primarySoft
-                : context.elixTextSecondary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        child,
-      ],
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
-          ),
-        ),
-        Flexible(
-          child: Text(
-            value,
-            style: AppTheme.body.copyWith(
-              fontWeight: FontWeight.w600,
-              color: context.elixTextPrimary,
-            ),
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.right,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _HoldIndicator extends StatelessWidget {
   const _HoldIndicator({required this.progress});
 
@@ -1229,49 +1167,6 @@ class _HoldIndicator extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StageStep extends StatelessWidget {
-  const _StageStep({
-    required this.label,
-    required this.active,
-    required this.done,
-  });
-
-  final String label;
-  final bool active;
-  final bool done;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = done
-        ? AppColors.success
-        : active
-        ? AppColors.primary
-        : context.elixTextSecondary;
-    return Text(
-      label,
-      style: AppTheme.caption.copyWith(
-        color: color,
-        fontWeight: (active || done) ? FontWeight.w700 : FontWeight.normal,
-      ),
-    );
-  }
-}
-
-class _StageDivider extends StatelessWidget {
-  const _StageDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(
-        '›',
-        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
       ),
     );
   }
