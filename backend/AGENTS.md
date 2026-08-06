@@ -73,7 +73,9 @@ Keep Flutter independent of these implementation details except for the document
   steadiness). Pose-required movements include `upper_body_visible` (both
   shoulders plus one complete arm chain). Stabilization uses per-item consecutive
   pass/fail frames plus a monotonic global `READINESS_STABLE_DURATION_S`.
-  `confirm_readiness` freezes the approved snapshot through countdown.
+  `confirm_readiness` freezes the approved snapshot through countdown. Stable
+  snapshots older than `READINESS_SNAPSHOT_MAX_AGE_S` are rejected with
+  `readiness_stale` (recoverable).
 - Await in-flight frame work before releasing camera and detector resources on stop, cancellation, or disconnect.
 - Return machine-readable fatal errors such as `camera_unavailable`, `selected_camera_unavailable`, `invalid_camera_device_id`, `invalid_camera_index`, `session_not_prepared`, `model_load_failed`, `pipeline_init_failed`, and `pipeline_error`.
 - Camera changes require tests for Auto-select, `identity_stable` native IDs and `opencv:N` fallback IDs, legacy migration, unavailable saved devices, slow warm-up, reconnects, stop, disconnect, and prepare/activate boundaries where relevant.

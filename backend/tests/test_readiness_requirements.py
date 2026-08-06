@@ -174,7 +174,7 @@ class TestRequirementRegistry:
     def test_all_twelve_movements_have_camera_and_codes(self):
         for movement in enabled_catalog_movements():
             specs = requirements_for(movement, "bottle")
-            codes = [c for c, _, _ in specs]
+            codes = [r.code for r in specs]
             assert codes[0] == "camera_frame"
             assert len(codes) >= 2
 
@@ -185,7 +185,7 @@ class TestRequirementRegistry:
             "Reverse Grip",
             "Claw Grip",
         ):
-            codes = [c for c, _, _ in requirements_for(movement)]
+            codes = [r.code for r in requirements_for(movement)]
             assert codes == [
                 "camera_frame",
                 "prop_detected",
@@ -193,12 +193,12 @@ class TestRequirementRegistry:
             ]
 
     def test_hand_stall_uses_palm_not_open_palm(self):
-        codes = [c for c, _, _ in requirements_for("Hand Stall", "bottle")]
+        codes = [r.code for r in requirements_for("Hand Stall", "bottle")]
         assert "palm_landmarks_visible" in codes
         assert "open_palm" not in codes
 
     def test_double_hand_uses_two_hands_not_open_palm(self):
-        codes = [c for c, _, _ in requirements_for("Double Hand Stall")]
+        codes = [r.code for r in requirements_for("Double Hand Stall")]
         assert codes == [
             "camera_frame",
             "prop_count_two",
@@ -206,7 +206,7 @@ class TestRequirementRegistry:
         ]
 
     def test_bottle_in_a_tin_supporting_hand_visibility_only(self):
-        codes = [c for c, _, _ in requirements_for("Bottle in a tin")]
+        codes = [r.code for r in requirements_for("Bottle in a tin")]
         assert codes == [
             "camera_frame",
             "bottle_detected",
@@ -216,10 +216,43 @@ class TestRequirementRegistry:
 
     def test_reverse_forearm_and_shoulder_do_not_require_hands(self):
         for movement in ("Reverse Forearm Stall", "Shoulder Stall"):
-            codes = [c for c, _, _ in requirements_for(movement)]
+            codes = [r.code for r in requirements_for(movement)]
             assert "grip_landmarks_visible" not in codes
             assert "palm_landmarks_visible" not in codes
             assert "two_hands_visible" not in codes
+
+    def test_forearm_profile_omits_redundant_pose_upper_forearm(self):
+        for movement in ("Forearm Stall", "Elbow Stall", "Reverse Forearm Stall"):
+            codes = [r.code for r in requirements_for(movement)]
+            assert "upper_body_visible" in codes
+            assert "pose_upper_forearm" not in codes
+
+    def test_legacy_aliases_resolve_to_canonical_profiles(self):
+        assert [r.code for r in requirements_for("Arm Stall")] == [
+            r.code for r in requirements_for("Forearm Stall")
+        ]
+        assert [r.code for r in requirements_for("Upper Forearm Stall")] == [
+            r.code for r in requirements_for("Reverse Forearm Stall")
+        ]
+        assert "Arm Stall" not in enabled_catalog_movements()
+        assert "Upper Forearm Stall" not in enabled_catalog_movements()
+
+
+def test_enabled_movements_have_declared_non_camera_only_profiles():
+    from assessment.readiness import assert_readiness_profiles_complete
+
+    assert_readiness_profiles_complete()
+
+
+def test_detector_requirements_derived_from_profiles():
+    from assessment.readiness import readiness_needs_hands, readiness_needs_pose
+
+    assert readiness_needs_hands("Normal Grip") is True
+    assert readiness_needs_pose("Normal Grip") is False
+    assert readiness_needs_hands("Forearm Stall") is False
+    assert readiness_needs_pose("Forearm Stall") is True
+    assert readiness_needs_hands("Bottle in a tin") is True
+    assert readiness_needs_pose("Bottle in a tin") is False
 
 
 @pytest.mark.parametrize("movement", list(enabled_catalog_movements()))

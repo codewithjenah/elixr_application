@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 import cv2
@@ -30,6 +31,7 @@ from assessment.scoring import SessionScorer
 from config import (
     FPS_LOG_INTERVAL,
     JPEG_QUALITY,
+    READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
     TARGET_FPS,
     YOLO_FRAME_SKIP,
@@ -363,6 +365,10 @@ def _human_error_message(error_code: str) -> str:
             "Readiness is not stable yet. Keep the required inputs visible "
             "and try again."
         ),
+        "readiness_stale": (
+            "Calibration data is no longer current. Keep the required inputs "
+            "visible while the camera refreshes."
+        ),
         "readiness_not_confirmed": (
             "Readiness must be confirmed before activation. Complete calibration "
             "and press Start Practice."
@@ -374,6 +380,22 @@ def _human_error_message(error_code: str) -> str:
         "model_load_failed": "Model load failed.",
         "pipeline_error": "Vision pipeline error.",
     }.get(error_code, "The WebSocket command was rejected.")
+
+
+@dataclass(frozen=True)
+class _NormalizedFrameDetections:
+    """Typed bottle/shaker split for readiness, annotation, and active rules.
+
+    ``primary`` is the selected-prop list passed into generic movement rules
+    (for ``shaker`` sessions this is the shaker detections, not bottles).
+    """
+
+    primary: tuple[PropDetection, ...]
+    bottles: tuple[PropDetection, ...]
+    shakers: tuple[PropDetection, ...]
+    annotation: tuple[PropDetection, ...]
+    selected_detected: bool
+    selected_count: int
 
 
 class VisionSession:
@@ -450,11 +472,69 @@ class VisionSession:
         self._hold_validator = HoldValidator()
         self._readiness_tracker: ReadinessTracker | None = None
         self._latest_readiness_snapshot: ReadinessSnapshot | None = None
+        # Monotonic timestamp of the latest readiness observation/snapshot.
+        self._latest_readiness_observed_at: float | None = None
         self._readiness_confirmed = False
         self._frozen_readiness_snapshot: ReadinessSnapshot | None = None
         self.timings = _PipelineTimings()
         # Wall-clock start of the latest process_* call (for end_to_end timing).
         self._pipeline_started_at: float | None = None
+
+    def _normalize_detections(
+        self,
+        *,
+        bottles: list[PropDetection],
+        shakers: list[PropDetection],
+    ) -> _NormalizedFrameDetections:
+        """Map raw detector output into typed bottle/shaker/primary lists."""
+        bottle_list = tuple(bottles)
+        shaker_list = tuple(shakers)
+        if self._is_dual_prop:
+            primary = bottle_list
+            annotation = bottle_list + shaker_list
+            selected_detected = len(bottle_list) > 0 and len(shaker_list) > 0
+            selected_count = len(bottle_list) + len(shaker_list)
+        elif self.prop_type == "shaker":
+            primary = shaker_list
+            annotation = shaker_list
+            selected_detected = len(shaker_list) > 0
+            selected_count = len(shaker_list)
+        else:
+            primary = bottle_list
+            annotation = bottle_list
+            selected_detected = len(bottle_list) > 0
+            selected_count = len(bottle_list)
+        return _NormalizedFrameDetections(
+            primary=primary,
+            bottles=bottle_list,
+            shakers=shaker_list,
+            annotation=annotation,
+            selected_detected=selected_detected,
+            selected_count=selected_count,
+        )
+
+    def _detect_normalized_props(self, frame) -> _NormalizedFrameDetections:
+        """Run YOLO and normalize bottle vs shaker lists for this prop_type."""
+        if self._is_dual_prop:
+            dual_result = self.prop_detector.detect(frame)
+            return self._normalize_detections(
+                bottles=list(dual_result.bottles),
+                shakers=list(dual_result.shakers),
+            )
+        detected = list(self.prop_detector.detect(frame))
+        if self.prop_type == "shaker":
+            return self._normalize_detections(bottles=[], shakers=detected)
+        return self._normalize_detections(bottles=detected, shakers=[])
+
+    def _cached_normalized_props(self) -> _NormalizedFrameDetections:
+        return self._normalize_detections(
+            bottles=list(self._last_bottles),
+            shakers=list(self._last_shakers),
+        )
+
+    def _store_normalized_props(self, normalized: _NormalizedFrameDetections) -> None:
+        self._last_bottles = list(normalized.bottles)
+        self._last_shakers = list(normalized.shakers)
 
     @property
     def lifecycle(self) -> str:
@@ -520,6 +600,7 @@ class VisionSession:
         self._ensure_readiness_detectors()
         self._readiness_tracker = ReadinessTracker(self.movement, self.prop_type)
         self._latest_readiness_snapshot = None
+        self._latest_readiness_observed_at = None
         self._readiness_confirmed = False
         self._frozen_readiness_snapshot = None
         self._lifecycle = SESSION_READYING
@@ -542,6 +623,13 @@ class VisionSession:
         snapshot = self._latest_readiness_snapshot
         if snapshot is None or not snapshot.readiness_stable:
             return False, "readiness_not_stable"
+
+        observed_at = self._latest_readiness_observed_at
+        if observed_at is None:
+            return False, "readiness_stale"
+        age_s = time.monotonic() - observed_at
+        if age_s > READINESS_SNAPSHOT_MAX_AGE_S:
+            return False, "readiness_stale"
 
         self._readiness_confirmed = True
         self._frozen_readiness_snapshot = snapshot
@@ -584,6 +672,7 @@ class VisionSession:
         self._frame_index = 0
         self._readiness_tracker = None
         self._latest_readiness_snapshot = None
+        self._latest_readiness_observed_at = None
         self._frozen_readiness_snapshot = None
         self._readiness_confirmed = False
         self._lifecycle = SESSION_ACTIVE
@@ -668,14 +757,11 @@ class VisionSession:
         return message
 
     def process_readiness_frame(self) -> FeedbackMessage | None:
-        """Run camera + prop detect + hand/pose (as needed) + readiness update.
-
-        Does NOT call evaluate_movement, scorer.record, or hold_validator.
-        """
+        """Run observability checklist without movement evaluation or scoring."""
         self._pipeline_started_at = time.perf_counter()
         total_start = self._pipeline_started_at
-
         model_error = self._check_model()
+
         if model_error is not None:
             return model_error
 
@@ -694,32 +780,28 @@ class VisionSession:
         self._frame_index += 1
         run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
 
-        bottles = self._last_bottles
-        shakers = self._last_shakers
-
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
-            if self._is_dual_prop:
-                dual_result = self.prop_detector.detect(frame)
-                bottles = dual_result.bottles
-                shakers = dual_result.shakers
-            else:
-                bottles = self.prop_detector.detect(frame)
+            normalized = self._detect_normalized_props(frame)
             self.timings.add("yolo", time.perf_counter() - t0)
-            self._last_bottles = bottles
-            self._last_shakers = shakers
+            self._store_normalized_props(normalized)
         elif not self.bottle_detection_enabled:
-            bottles = []
-            shakers = []
-            self._last_bottles = []
-            self._last_shakers = []
+            normalized = self._normalize_detections(bottles=[], shakers=[])
+            self._store_normalized_props(normalized)
+        else:
+            normalized = self._cached_normalized_props()
+
+        bottles = list(normalized.bottles)
+        shakers = list(normalized.shakers)
 
         needs_h = readiness_needs_hands(self.movement, self.prop_type)
         needs_p = readiness_needs_pose(self.movement, self.prop_type)
 
         hands = None
         if needs_h and self.hands_detector is not None:
-            bottle_ref = bottles[0] if bottles else (shakers[0] if shakers else None)
+            bottle_ref = (
+                normalized.primary[0] if normalized.primary else None
+            )
             t0 = time.perf_counter()
             hands = self.hands_detector.detect(frame, bottle=bottle_ref)
             self.timings.add("hands", time.perf_counter() - t0)
@@ -732,18 +814,23 @@ class VisionSession:
 
         obs = ReadinessObservation(
             has_camera_frame=True,
-            bottles=list(bottles),
-            shakers=list(shakers),
+            bottles=bottles,
+            shakers=shakers,
             hands=hands,
             pose=pose,
         )
 
         snapshot = None
+        observed_at = time.monotonic()
         if self._readiness_tracker is not None and not self._readiness_confirmed:
             snapshot = self._readiness_tracker.update(obs)
             self._latest_readiness_snapshot = snapshot
+            self._latest_readiness_observed_at = observed_at
         elif self._readiness_confirmed and self._frozen_readiness_snapshot is not None:
             snapshot = self._frozen_readiness_snapshot
+            # Keep freshness advancing so post-confirm frames stay current, but
+            # do not revoke confirmation when detections drop.
+            self._latest_readiness_observed_at = observed_at
 
         readiness_items = list(snapshot.items) if snapshot is not None else None
         readiness_complete = snapshot.readiness_complete if snapshot is not None else None
@@ -752,7 +839,7 @@ class VisionSession:
             snapshot.readiness_stable_progress if snapshot is not None else None
         )
 
-        boxes_to_draw = bottles + shakers if self._is_dual_prop else list(bottles)
+        boxes_to_draw = list(normalized.annotation)
         t0 = time.perf_counter()
         annotated = annotate_frame(
             frame,
@@ -777,16 +864,10 @@ class VisionSession:
 
         t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
-        if self._is_dual_prop:
-            detected = len(bottles) > 0 and len(shakers) > 0
-            combined_count = len(bottles) + len(shakers)
-        else:
-            detected = len(bottles) > 0
-            combined_count = len(bottles)
         message = self._stamp(
             FeedbackMessage(
-                bottle_detected=detected,
-                bottle_count=combined_count,
+                bottle_detected=normalized.selected_detected,
+                bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
                 score=self.scorer.score,
@@ -829,18 +910,19 @@ class VisionSession:
 
         self._frame_index += 1
         run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
-        bottles = self._last_bottles
 
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
-            bottles = self.prop_detector.detect(frame)
+            normalized = self._detect_normalized_props(frame)
             self.timings.add("yolo", time.perf_counter() - t0)
-            self._last_bottles = bottles
+            self._store_normalized_props(normalized)
         elif not self.bottle_detection_enabled:
-            bottles = []
-            self._last_bottles = []
+            normalized = self._normalize_detections(bottles=[], shakers=[])
+            self._store_normalized_props(normalized)
+        else:
+            normalized = self._cached_normalized_props()
 
-        detected = len(bottles) > 0
+        detected = normalized.selected_detected
         if detected:
             feedback = f"{self.prop_display_name} detected"
             feedback_type = "positive"
@@ -851,7 +933,7 @@ class VisionSession:
         t0 = time.perf_counter()
         annotated = annotate_frame(
             frame,
-            bottles,
+            list(normalized.annotation),
             None,
             feedback,
             feedback_type,
@@ -875,7 +957,7 @@ class VisionSession:
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=detected,
-                bottle_count=len(bottles),
+                bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
                 score=0,
@@ -920,29 +1002,24 @@ class VisionSession:
         # Frame index starts at 1; subtract 1 so the very first frame runs YOLO.
         run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
 
-        bottles = self._last_bottles
-        shakers = self._last_shakers
-
         if self.bottle_detection_enabled and run_yolo:
             t0 = time.perf_counter()
-            if self._is_dual_prop:
-                dual_result = self.prop_detector.detect(frame)
-                bottles = dual_result.bottles
-                shakers = dual_result.shakers
-            else:
-                bottles = self.prop_detector.detect(frame)
+            normalized = self._detect_normalized_props(frame)
             self.timings.add("yolo", time.perf_counter() - t0)
-            self._last_bottles = bottles
-            self._last_shakers = shakers
+            self._store_normalized_props(normalized)
         elif not self.bottle_detection_enabled:
-            bottles = []
-            shakers = []
-            self._last_bottles = []
-            self._last_shakers = []
+            normalized = self._normalize_detections(bottles=[], shakers=[])
+            self._store_normalized_props(normalized)
+        else:
+            normalized = self._cached_normalized_props()
 
-        # Score on the highest-confidence bottle for single-bottle movements.
+        bottles = list(normalized.bottles)
+        shakers = list(normalized.shakers)
+
+        # Score on the highest-confidence selected prop for single-prop movements.
         # Double Hand Stall also receives the full detection list via `bottles`.
-        bottle = bottles[0] if bottles else None
+        # For shaker sessions, primary holds the shaker detections (compatibility).
+        bottle = normalized.primary[0] if normalized.primary else None
         shaker = shakers[0] if shakers else None
         # The hand is holding the shaker for the dual-prop movement, so prefer
         # it as the hand-detector reference; fall back to the bottle if the
@@ -974,6 +1051,18 @@ class VisionSession:
         else:
             pose = None
 
+        # Generic rules expect the selected prop in `bottle` / `bottles`.
+        rule_bottles = (
+            bottles
+            if self._is_dual_prop
+            else list(normalized.primary)
+        )
+        rule_shakers = (
+            shakers
+            if (self._is_dual_prop and self.bottle_detection_enabled)
+            else None
+        )
+
         t0 = time.perf_counter()
         rule_result, self._prev_hip_center, self._movement_state = evaluate_movement(
             self.movement,
@@ -983,10 +1072,10 @@ class VisionSession:
             self._prev_hip_center,
             self._movement_state,
             bottle_detection_enabled=self.bottle_detection_enabled,
-            bottles=bottles if self.bottle_detection_enabled else None,
+            bottles=rule_bottles if self.bottle_detection_enabled else None,
             prop_type=self.prop_type,
             prop_label=self.prop_display_name,
-            shakers=shakers if (self._is_dual_prop and self.bottle_detection_enabled) else None,
+            shakers=rule_shakers,
         )
         self.timings.add("evaluate", time.perf_counter() - t0)
 
@@ -1001,7 +1090,7 @@ class VisionSession:
 
         # Combine both detection lists only for drawing; movement evaluation
         # above kept bottles and shakers separate.
-        boxes_to_draw = bottles + shakers if self._is_dual_prop else bottles
+        boxes_to_draw = list(normalized.annotation)
 
         t0 = time.perf_counter()
         annotated = annotate_frame(
@@ -1027,20 +1116,12 @@ class VisionSession:
 
         t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
-        if self._is_dual_prop:
-            # bottle_detected represents whether all required props are
-            # currently present; bottle_count carries the combined count.
-            detected = len(bottles) > 0 and len(shakers) > 0
-            combined_count = len(bottles) + len(shakers)
-        else:
-            detected = len(bottles) > 0
-            combined_count = len(bottles)
         feedback_code = rule_result.feedback_code
         category = category_for(feedback_code)
         message = self._stamp(
             FeedbackMessage(
-                bottle_detected=detected,
-                bottle_count=combined_count,
+                bottle_detected=normalized.selected_detected,
+                bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
                 score=self.scorer.score,
@@ -1076,6 +1157,7 @@ class VisionSession:
         self._lifecycle = SESSION_CLOSED
         self._readiness_tracker = None
         self._latest_readiness_snapshot = None
+        self._latest_readiness_observed_at = None
         self._frozen_readiness_snapshot = None
         self._readiness_confirmed = False
         self._hold_validator.reset()

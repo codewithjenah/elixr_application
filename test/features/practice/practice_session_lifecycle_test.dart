@@ -1,5 +1,6 @@
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/features/practice/practice_readiness_state.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -526,10 +527,10 @@ void main() {
       expect(feedback.readinessStableProgress, closeTo(0.4, 0.001));
       expect(feedback.readinessItems, hasLength(2));
       expect(feedback.readinessItems![0].code, 'camera_ready');
-      expect(feedback.readinessItems![0].status, 'ready');
+      expect(feedback.readinessItems![0].status, ReadinessItemStatus.ready);
       expect(feedback.readinessItems![0].message, 'Camera is ready');
       expect(feedback.readinessItems![1].code, 'bottle_visible');
-      expect(feedback.readinessItems![1].status, 'waiting');
+      expect(feedback.readinessItems![1].status, ReadinessItemStatus.waiting);
     });
 
     test('readiness_items absent returns null safely', () {
@@ -572,10 +573,10 @@ void main() {
       expect(feedback.readinessItems, hasLength(2));
       expect(feedback.readinessItems![0].code, 'good_item');
       expect(feedback.readinessItems![1].code, 'another_good');
-      expect(feedback.readinessItems![1].status, 'error');
+      expect(feedback.readinessItems![1].status, ReadinessItemStatus.error);
     });
 
-    test('unknown item codes and statuses are preserved as-is', () {
+    test('unknown item codes parse; unknown statuses map to unknown enum', () {
       final feedback = PracticeFeedback.fromJson({
         'bottle_detected': false,
         'movement': 'Hand Stall',
@@ -595,7 +596,9 @@ void main() {
 
       expect(feedback.readinessItems, hasLength(1));
       expect(feedback.readinessItems![0].code, 'future_unknown_check');
-      expect(feedback.readinessItems![0].status, 'future_status');
+      // Unknown wire value → ReadinessItemStatus.unknown (forward compatible).
+      expect(feedback.readinessItems![0].status, ReadinessItemStatus.unknown);
+      expect(feedback.readinessItems![0].status.wireValue, 'unknown');
     });
 
     test('non-list readiness_items returns null', () {
@@ -743,6 +746,414 @@ void main() {
       run.enterActive();
       expect(run.isTrainingActive, isTrue);
       run.dispose();
+    });
+  });
+
+  group('PracticeReadinessState', () {
+    test('canStartPractice requires stable and no stale stream', () {
+      const base = PracticeReadinessState(stable: true);
+      expect(base.canStartPractice, isTrue);
+
+      expect(
+        const PracticeReadinessState(stable: false).canStartPractice,
+        isFalse,
+      );
+      expect(
+        const PracticeReadinessState(
+          stable: true,
+          streamStale: true,
+        ).canStartPractice,
+        isFalse,
+      );
+      expect(
+        const PracticeReadinessState(
+          stable: true,
+          confirming: true,
+        ).canStartPractice,
+        isFalse,
+      );
+      expect(
+        const PracticeReadinessState(
+          stable: true,
+          confirmed: true,
+        ).canStartPractice,
+        isFalse,
+      );
+    });
+
+    test('frozen is true only when frozenSnapshot is non-null', () {
+      expect(const PracticeReadinessState().frozen, isFalse);
+      expect(const PracticeReadinessState(frozenSnapshot: []).frozen, isTrue);
+    });
+
+    test('displayItems returns frozenSnapshot when frozen, else items', () {
+      const item = ReadinessItemView(
+        code: 'camera_frame',
+        status: ReadinessItemStatus.ready,
+        message: 'OK',
+      );
+      const liveItem = ReadinessItemView(
+        code: 'grip_landmarks_visible',
+        status: ReadinessItemStatus.waiting,
+        message: 'Wait',
+      );
+      const state = PracticeReadinessState(
+        items: [liveItem],
+        frozenSnapshot: [item],
+      );
+      expect(state.displayItems, [item]);
+
+      const unfrozen = PracticeReadinessState(items: [liveItem]);
+      expect(unfrozen.displayItems, [liveItem]);
+    });
+
+    test('readyCount counts only ready items', () {
+      const items = [
+        ReadinessItemView(
+          code: 'camera_frame',
+          status: ReadinessItemStatus.ready,
+          message: 'OK',
+        ),
+        ReadinessItemView(
+          code: 'bottle_detected',
+          status: ReadinessItemStatus.waiting,
+          message: 'Wait',
+        ),
+        ReadinessItemView(
+          code: 'grip_landmarks_visible',
+          status: ReadinessItemStatus.error,
+          message: 'Error',
+        ),
+      ];
+      const state = PracticeReadinessState(items: items);
+      expect(state.readyCount, 1);
+      expect(state.totalCount, 3);
+    });
+
+    test('copyWith clearFrozen removes frozenSnapshot', () {
+      const frozen = PracticeReadinessState(frozenSnapshot: []);
+      final cleared = frozen.copyWith(clearFrozen: true);
+      expect(cleared.frozen, isFalse);
+    });
+
+    test('equality holds for identical instances', () {
+      const a = PracticeReadinessState(stable: true, streamStale: false);
+      const b = PracticeReadinessState(stable: true, streamStale: false);
+      expect(a, equals(b));
+    });
+  });
+
+  group('PracticeRunController readiness state (PracticeReadinessState)', () {
+    test('readiness is empty before beginPreparing', () {
+      final run = PracticeRunController();
+      expect(run.readiness, PracticeReadinessState.empty);
+      run.dispose();
+    });
+
+    test('applyReadinessFeedback updates readiness state', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+
+      const item = ReadinessItemView(
+        code: 'camera_frame',
+        status: ReadinessItemStatus.ready,
+        message: 'OK',
+      );
+      final applied = run.applyReadinessFeedback(
+        items: [item],
+        complete: true,
+        stable: true,
+        progress: 0.8,
+      );
+
+      expect(applied, isTrue);
+      expect(run.readiness.stable, isTrue);
+      expect(run.readiness.complete, isTrue);
+      expect(run.readiness.stableProgress, closeTo(0.8, 0.001));
+      expect(run.readiness.items, [item]);
+      expect(run.readiness.streamStale, isFalse);
+      run.dispose();
+    });
+
+    test('applyReadinessFeedback ignored when frozen', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.applyReadinessFeedback(
+        items: const [],
+        complete: true,
+        stable: true,
+        progress: 1.0,
+      );
+      run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
+      expect(run.readiness.frozen, isTrue);
+
+      final applied = run.applyReadinessFeedback(
+        items: const [],
+        complete: false,
+        stable: false,
+        progress: 0.0,
+      );
+      expect(applied, isFalse);
+      expect(run.readiness.frozen, isTrue);
+      run.dispose();
+    });
+
+    test('watchdog fires and sets streamStale after no fresh frames', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      // Trigger watchdog explicitly (no real Timer needed in tests).
+      run.debugFireReadinessWatchdog();
+
+      expect(run.readiness.streamStale, isTrue);
+      expect(run.readiness.recoverableMessage, isNotEmpty);
+      run.dispose();
+    });
+
+    test('fresh readiness frame resets streamStale', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.debugFireReadinessWatchdog();
+      expect(run.readiness.streamStale, isTrue);
+
+      run.applyReadinessFeedback(
+        items: const [],
+        complete: false,
+        stable: false,
+        progress: 0.0,
+      );
+      expect(run.readiness.streamStale, isFalse);
+      run.dispose();
+    });
+
+    test(
+      'onConfirmReadinessRejected with readiness_stale sets recoverableMessage',
+      () {
+        final run = PracticeRunController();
+        run.beginPreparing(onTimeout: () {});
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterReadiness();
+        run.applyReadinessFeedback(
+          items: const [],
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        run.requestStartPractice(readinessStable: true);
+
+        run.onConfirmReadinessRejected(
+          errorCode: 'readiness_stale',
+          message: 'Snapshot expired.',
+        );
+        expect(run.readiness.confirming, isFalse);
+        expect(run.readiness.recoverableMessage, 'Snapshot expired.');
+        expect(run.phase, PracticeRunPhase.readiness);
+        run.dispose();
+      },
+    );
+
+    test(
+      'onConfirmReadinessRejected with readiness_not_stable sets recoverableMessage',
+      () {
+        final run = PracticeRunController();
+        run.beginPreparing(onTimeout: () {});
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterReadiness();
+        run.applyReadinessFeedback(
+          items: const [],
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        run.requestStartPractice(readinessStable: true);
+
+        run.onConfirmReadinessRejected(errorCode: 'readiness_not_stable');
+        expect(run.readiness.confirming, isFalse);
+        expect(run.readiness.recoverableMessage, isNotEmpty);
+        run.dispose();
+      },
+    );
+
+    test('onConfirmReadinessAccepted captures frozenSnapshot', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+
+      const item = ReadinessItemView(
+        code: 'camera_frame',
+        status: ReadinessItemStatus.ready,
+        message: 'OK',
+      );
+      run.applyReadinessFeedback(
+        items: [item],
+        complete: true,
+        stable: true,
+        progress: 1.0,
+      );
+      run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
+
+      expect(run.readiness.frozen, isTrue);
+      expect(run.readiness.frozenSnapshot, [item]);
+      expect(run.phase, PracticeRunPhase.countdown);
+      run.dispose();
+    });
+
+    test(
+      'onActivationRejected clears frozenSnapshot and returns to readiness',
+      () {
+        final run = PracticeRunController();
+        run.beginPreparing(onTimeout: () {});
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterReadiness();
+        run.applyReadinessFeedback(
+          items: const [],
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        run.requestStartPractice(readinessStable: true);
+        run.onConfirmReadinessAccepted();
+        expect(run.phase, PracticeRunPhase.countdown);
+        expect(run.readiness.frozen, isTrue);
+
+        run.onActivationRejected();
+        expect(run.phase, PracticeRunPhase.readiness);
+        expect(run.readiness.frozen, isFalse);
+        run.dispose();
+      },
+    );
+
+    test('cancelToIdle resets readiness to empty', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.applyReadinessFeedback(
+        items: const [],
+        complete: true,
+        stable: true,
+        progress: 1.0,
+      );
+      run.cancelToIdle();
+      expect(run.readiness, PracticeReadinessState.empty);
+      run.dispose();
+    });
+
+    test('late applyReadinessFeedback during active phase is ignored', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.applyReadinessFeedback(
+        items: const [],
+        complete: true,
+        stable: true,
+        progress: 1.0,
+      );
+      run.requestStartPractice(readinessStable: true);
+      run.onConfirmReadinessAccepted();
+      run.enterActive();
+      expect(run.phase, PracticeRunPhase.active);
+
+      final applied = run.applyReadinessFeedback(
+        items: const [],
+        complete: false,
+        stable: false,
+        progress: 0.0,
+      );
+      expect(applied, isFalse);
+      expect(run.phase, PracticeRunPhase.active);
+      run.dispose();
+    });
+
+    test(
+      'canStartPractice false when streamStale blocks requestStartPractice',
+      () {
+        final run = PracticeRunController();
+        run.beginPreparing(onTimeout: () {});
+        run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+        run.enterReadiness();
+        run.applyReadinessFeedback(
+          items: const [],
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        // Force stale stream.
+        run.debugFireReadinessWatchdog();
+        expect(run.readiness.streamStale, isTrue);
+
+        final result = run.requestStartPractice(readinessStable: true);
+        expect(result, isFalse);
+        run.dispose();
+      },
+    );
+
+    test('dispose cancels watchdog timer', () {
+      final run = PracticeRunController();
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+      run.applyReadinessFeedback(
+        items: const [],
+        complete: false,
+        stable: false,
+        progress: 0.0,
+      );
+      expect(run.hasWatchdogTimer, isTrue);
+      run.dispose();
+      expect(run.hasWatchdogTimer, isFalse);
+    });
+  });
+
+  group('PracticeFeedback readiness progress clamping', () {
+    test('readiness_stable_progress > 1 is clamped to 1', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Check',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_stable_progress': 1.5,
+      });
+      expect(feedback.readinessStableProgress, closeTo(1.0, 0.001));
+    });
+
+    test('readiness_stable_progress < 0 is clamped to 0', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Check',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'readiness_stable_progress': -0.3,
+      });
+      expect(feedback.readinessStableProgress, closeTo(0.0, 0.001));
+    });
+  });
+
+  group('WebSocketService session flags reset', () {
+    test('beginPracticeAttempt resets sessionReadying to false', () {
+      final ws = WebSocketService();
+      // There is no direct setter, but we can verify via getter after a
+      // fresh attempt.
+      ws.beginPracticeAttempt();
+      expect(ws.sessionReadying, isFalse);
+      ws.dispose();
     });
   });
 }

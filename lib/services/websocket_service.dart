@@ -130,6 +130,7 @@ class WebSocketService extends ChangeNotifier {
     _currentSessionId = sessionId;
     _sessionPrepared = false;
     _sessionActive = false;
+    _sessionReadying = false;
     if (!_disposing) notifyListeners();
     return sessionId;
   }
@@ -319,6 +320,7 @@ class WebSocketService extends ChangeNotifier {
     _currentSessionId = null;
     _sessionPrepared = false;
     _sessionActive = false;
+    _sessionReadying = false;
     if (!_disposing) notifyListeners();
   }
 

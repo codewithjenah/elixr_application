@@ -13,19 +13,19 @@ Widget _wrap(Widget child) {
 
 const _waiting = ReadinessItemView(
   code: 'camera_frame',
-  status: 'waiting',
+  status: ReadinessItemStatus.waiting,
   message: 'Waiting for camera frame',
 );
 
 const _ready = ReadinessItemView(
   code: 'bottle_detected',
-  status: 'ready',
+  status: ReadinessItemStatus.ready,
   message: 'Bottle detected',
 );
 
 const _error = ReadinessItemView(
   code: 'grip_landmarks_visible',
-  status: 'error',
+  status: ReadinessItemStatus.error,
   message: 'Grip landmarks not visible',
 );
 
@@ -38,10 +38,12 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('Readiness Check'), findsOneWidget);
+      expect(find.text('Setup Check'), findsOneWidget);
     });
 
-    testWidgets('shows resolved title for known code', (tester) async {
+    testWidgets('shows resolved title for camera_frame (Camera)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const ReadinessChecklistPanel(
@@ -52,8 +54,8 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      // 'Camera Frame' is the resolved title for 'camera_frame'.
-      expect(find.text('Camera Frame'), findsOneWidget);
+      // 'Camera' is the resolved title for 'camera_frame'.
+      expect(find.text('Camera'), findsOneWidget);
     });
 
     testWidgets('shows three items with mixed statuses', (tester) async {
@@ -67,9 +69,9 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('Camera Frame'), findsOneWidget);
-      expect(find.text('Bottle Detected'), findsOneWidget);
-      expect(find.text('Grip Landmarks'), findsOneWidget);
+      expect(find.text('Camera'), findsOneWidget);
+      expect(find.text('Bottle'), findsOneWidget);
+      expect(find.text('Grip Hand'), findsOneWidget);
     });
 
     testWidgets('stable=true shows Ready badge', (tester) async {
@@ -79,6 +81,7 @@ void main() {
             items: [_ready],
             progress: 1.0,
             stable: true,
+            complete: true,
           ),
         ),
       );
@@ -86,7 +89,7 @@ void main() {
       expect(find.text('Ready'), findsOneWidget);
     });
 
-    testWidgets('frozen=true dims content and shows starting message', (
+    testWidgets('frozen=true shows locked header, no overlay dim', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -95,20 +98,86 @@ void main() {
             items: [_ready],
             progress: 1.0,
             stable: true,
+            complete: true,
             frozen: true,
           ),
         ),
       );
       expect(tester.takeException(), isNull);
-      expect(find.text('Ready — starting…'), findsOneWidget);
+      expect(find.text('Setup Check — Ready'), findsOneWidget);
+      // The item list should still be visible (no full-panel dim).
+      expect(find.text('Bottle'), findsOneWidget);
     });
 
-    testWidgets('unknown code falls back to backend message as title', (
+    testWidgets('streamStale=true shows stale warning', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const ReadinessChecklistPanel(
+            items: [_waiting],
+            progress: 0,
+            stable: false,
+            streamStale: true,
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('fresh camera reading'), findsOneWidget);
+    });
+
+    testWidgets('recoverableMessage is shown when not stale', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const ReadinessChecklistPanel(
+            items: [_waiting],
+            progress: 0,
+            stable: false,
+            recoverableMessage: 'Readiness lost. Keep inputs visible.',
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.text('Readiness lost. Keep inputs visible.'), findsOneWidget);
+    });
+
+    testWidgets('stability bar hidden when not complete', (tester) async {
+      // Not complete, progress > 0: bar should NOT appear.
+      await tester.pumpWidget(
+        _wrap(
+          const ReadinessChecklistPanel(
+            items: [_waiting],
+            progress: 0.5,
+            stable: false,
+            complete: false,
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      // The _StabilityBar is absent; N of M label appears instead.
+      expect(find.text('0 of 1 ready'), findsOneWidget);
+    });
+
+    testWidgets('stability bar shown when complete and progress > 0', (
       tester,
     ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const ReadinessChecklistPanel(
+            items: [_ready],
+            progress: 0.6,
+            stable: false,
+            complete: true,
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      // No "N of M ready" line when complete.
+      expect(find.text('1 of 1 ready'), findsNothing);
+    });
+
+    testWidgets('unknown code falls back to humanized title', (tester) async {
       const unknownItem = ReadinessItemView(
         code: 'custom_xyz_check',
-        status: 'waiting',
+        status: ReadinessItemStatus.waiting,
         message: 'Custom check in progress',
       );
       await tester.pumpWidget(
@@ -121,8 +190,10 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      // Unknown code: title and instruction fall back to the backend message.
-      expect(find.text('Custom check in progress'), findsWidgets);
+      // Humanized title: 'Custom Xyz Check'
+      expect(find.text('Custom Xyz Check'), findsOneWidget);
+      // Instruction is the backend message (different from title).
+      expect(find.text('Custom check in progress'), findsOneWidget);
     });
   });
 }

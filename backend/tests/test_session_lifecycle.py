@@ -131,7 +131,10 @@ def _stable_readiness_snapshot() -> ReadinessSnapshot:
 
 
 def _confirm_session_readiness(session: websocket_api.VisionSession) -> None:
+    import time
+
     session._latest_readiness_snapshot = _stable_readiness_snapshot()
+    session._latest_readiness_observed_at = time.monotonic()
     ok, error = session.confirm_readiness()
     assert ok, error
 

@@ -463,7 +463,7 @@ Confirm readiness (guided practice, after stable checklist — before countdown)
 }
 ```
 
-`confirm_readiness` succeeds only when `session_state` is `readying`, a latest readiness snapshot exists, and `readiness_stable` is true. Duplicate accepted confirmations are idempotent. Early confirmation is rejected with `readiness_not_stable`. Once accepted, the approved readiness result is frozen through countdown; ordinary landmark loss does not revoke it.
+`confirm_readiness` succeeds only when `session_state` is `readying`, a latest readiness snapshot exists, `readiness_stable` is true, and the snapshot is not older than `READINESS_SNAPSHOT_MAX_AGE_S` (monotonic age; default 1.5s). Duplicate accepted confirmations are idempotent. Early confirmation is rejected with `readiness_not_stable`. A stable but stalled snapshot is rejected with `readiness_stale` (recoverable — remain in readiness). Once accepted, the approved readiness result is frozen through countdown; ordinary landmark loss does not revoke it.
 
 Activate after countdown:
 
@@ -554,6 +554,7 @@ Common `error_code` values:
 - `session_not_prepared` — `activate` / `begin_readiness` / `confirm_readiness` with no prepared session
 - `session_already_active` — `begin_readiness` or `confirm_readiness` after the session is already active
 - `readiness_not_stable` — `confirm_readiness` before stable readiness
+- `readiness_stale` — `confirm_readiness` when the latest stable snapshot is older than `READINESS_SNAPSHOT_MAX_AGE_S` (recoverable; stay in readiness)
 - `readiness_not_confirmed` — `activate` from `readying` without accepted `confirm_readiness`
 - `session_id_mismatch` — command targeted a stale practice attempt
 - `invalid_movement` / `difficulty_mismatch` / `invalid_boolean` — strict v1 validation

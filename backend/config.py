@@ -177,6 +177,8 @@ HOLD_MIN_POSITIVE_RATIO = float(os.getenv("HOLD_MIN_POSITIVE_RATIO", "0.85"))
 READINESS_ITEM_PASS_FRAMES = int(os.getenv("READINESS_ITEM_PASS_FRAMES", "3"))
 READINESS_ITEM_FAIL_FRAMES = int(os.getenv("READINESS_ITEM_FAIL_FRAMES", "3"))
 READINESS_STABLE_DURATION_S = float(os.getenv("READINESS_STABLE_DURATION_S", "1.0"))
+# confirm_readiness rejects a stable snapshot older than this (monotonic age).
+READINESS_SNAPSHOT_MAX_AGE_S = float(os.getenv("READINESS_SNAPSHOT_MAX_AGE_S", "1.5"))
 
 MOVEMENT_CONFIG: dict[str, dict] = {
     "Normal Grip": {"difficulty": "Easy", "requires_hands": True},

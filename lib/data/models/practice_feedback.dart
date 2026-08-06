@@ -3,6 +3,35 @@ import 'dart:typed_data';
 
 import 'training_prop.dart';
 
+/// Typed status for a single readiness checklist item.
+///
+/// Values beyond the known set (ready / waiting / error) parse as [unknown]
+/// for forward compatibility with future backend extensions.
+enum ReadinessItemStatus {
+  ready,
+  waiting,
+  error,
+
+  /// Fallback for any unrecognized wire value.
+  unknown;
+
+  /// Wire-protocol string sent by the backend.
+  String get wireValue => switch (this) {
+    ReadinessItemStatus.ready => 'ready',
+    ReadinessItemStatus.waiting => 'waiting',
+    ReadinessItemStatus.error => 'error',
+    ReadinessItemStatus.unknown => 'unknown',
+  };
+
+  /// Parse a wire string; unrecognized values map to [unknown].
+  static ReadinessItemStatus fromWire(String value) => switch (value) {
+    'ready' => ReadinessItemStatus.ready,
+    'waiting' => ReadinessItemStatus.waiting,
+    'error' => ReadinessItemStatus.error,
+    _ => ReadinessItemStatus.unknown,
+  };
+}
+
 /// A single checklist item from the pre-practice readiness gate.
 class ReadinessItemView {
   const ReadinessItemView({
@@ -11,13 +40,25 @@ class ReadinessItemView {
     required this.message,
   });
 
-  /// Backend-defined identifier for the check (e.g. 'camera_ready', 'bottle_visible').
+  /// Backend-defined identifier for the check (e.g. 'camera_frame', 'bottle_detected').
   final String code;
 
-  /// One of: ready | waiting | error
-  final String status;
+  /// Parsed readiness status. Unknown wire values map to [ReadinessItemStatus.unknown].
+  final ReadinessItemStatus status;
 
   final String message;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! ReadinessItemView) return false;
+    return code == other.code &&
+        status == other.status &&
+        message == other.message;
+  }
+
+  @override
+  int get hashCode => Object.hash(code, status, message);
 }
 
 class PracticeFeedback {
@@ -63,7 +104,7 @@ class PracticeFeedback {
   /// Optional: true when a usable preview/active JPEG is present.
   final bool? cameraReady;
 
-  /// Optional: preparing | active | recovering | unavailable
+  /// Optional: preparing | readying | active | recovering | unavailable
   final String? sessionState;
 
   /// Backend-authoritative hold confirmation (active sessions only).
@@ -190,7 +231,7 @@ class PracticeFeedback {
 
     final rawProgress = json['readiness_stable_progress'];
     double? readinessStableProgress = rawProgress is num
-        ? rawProgress.toDouble()
+        ? rawProgress.toDouble().clamp(0.0, 1.0)
         : null;
 
     return PracticeFeedback(
@@ -231,11 +272,17 @@ class PracticeFeedback {
     for (final entry in raw) {
       if (entry is! Map) continue;
       final code = entry['code'];
-      final status = entry['status'];
+      final statusRaw = entry['status'];
       final message = entry['message'];
-      if (code is! String || status is! String || message is! String) continue;
+      if (code is! String || statusRaw is! String || message is! String) {
+        continue;
+      }
       result.add(
-        ReadinessItemView(code: code, status: status, message: message),
+        ReadinessItemView(
+          code: code,
+          status: ReadinessItemStatus.fromWire(statusRaw),
+          message: message,
+        ),
       );
     }
     return result;
@@ -249,11 +296,7 @@ class PracticeFeedback {
     if (a == null || b == null) return false;
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (a[i].code != b[i].code ||
-          a[i].status != b[i].status ||
-          a[i].message != b[i].message) {
-        return false;
-      }
+      if (a[i] != b[i]) return false;
     }
     return true;
   }

@@ -28,7 +28,7 @@ Treat these files as one public contract:
 
 - `prepare` — open the selected camera and stream preview only (no detectors/scoring).
 - `begin_readiness` — guided practice only; load detectors on the prepared session and stream observability checklist frames (`session_state: readying`). Idempotent when already readying; rejected before prepare or after activate. Does not score, hold-validate, or evaluate technique. Resets readiness confirmation when entering readying from prepared.
-- `confirm_readiness` — guided practice only; lock stable readiness before countdown. Accepted only when latest snapshot is `readiness_stable`. Idempotent after success. Rejects early with `readiness_not_stable`. Freezes approved readiness through countdown.
+- `confirm_readiness` — guided practice only; lock stable readiness before countdown. Accepted only when latest snapshot is `readiness_stable` and not older than `READINESS_SNAPSHOT_MAX_AGE_S` (monotonic). Idempotent after success. Rejects early with `readiness_not_stable`; rejects stalled evidence with `readiness_stale` (recoverable). Freezes approved readiness through countdown.
 - `activate` — transition a prepared **or** confirmed-readying session to active inference/scoring without reopening the camera; reuse detectors when already loaded. `prepared→active` remains for Free Practice; `readying→active` requires prior `confirm_readiness`.
 - `start` — legacy compatibility: prepare and activate immediately.
 - `stop` — cancel the session loop and release the shared camera (with debounce).

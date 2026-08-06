@@ -1120,12 +1120,15 @@ def test_activate_accepted_after_begin_readiness_and_confirm(monkeypatch):
 
     class _ConfirmingSession(websocket_api.VisionSession):
         def confirm_readiness(self):
+            import time
+
             self._latest_readiness_snapshot = ReadinessSnapshot(
                 items=(),
                 readiness_complete=True,
                 readiness_stable=True,
                 readiness_stable_progress=1.0,
             )
+            self._latest_readiness_observed_at = time.monotonic()
             return super().confirm_readiness()
 
     monkeypatch.setattr(websocket_api, "VisionSession", _ConfirmingSession)

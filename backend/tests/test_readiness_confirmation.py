@@ -110,28 +110,65 @@ class TestVisionSessionConfirmation:
         session = websocket_api.VisionSession("Hand Stall")
         session.start()
         session.begin_readiness()
+        import time
+
         session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = time.monotonic()
         ok, err = session.confirm_readiness()
         assert (ok, err) == (True, None)
         assert session.readiness_confirmed is True
         session.close()
 
-    def test_confirm_before_stable_rejected(self, monkeypatch):
+    def test_stale_stable_snapshot_rejected(self, monkeypatch):
+        import time
+
         _patch_vision(monkeypatch)
+        monkeypatch.setattr(websocket_api, "READINESS_SNAPSHOT_MAX_AGE_S", 0.05)
         session = websocket_api.VisionSession("Hand Stall")
         session.start()
         session.begin_readiness()
+        session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = time.monotonic() - 1.0
         ok, err = session.confirm_readiness()
         assert ok is False
-        assert err == "readiness_not_stable"
+        assert err == "readiness_stale"
+        assert session.readiness_confirmed is False
+        assert session.is_readying
         session.close()
 
-    def test_duplicate_confirm_is_idempotent(self, monkeypatch):
+    def test_fresh_stable_snapshot_accepted(self, monkeypatch):
+        import time
+
         _patch_vision(monkeypatch)
         session = websocket_api.VisionSession("Hand Stall")
         session.start()
         session.begin_readiness()
         session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = time.monotonic()
+        assert session.confirm_readiness() == (True, None)
+        session.close()
+
+    def test_missing_observation_timestamp_rejected_as_stale(self, monkeypatch):
+        _patch_vision(monkeypatch)
+        session = websocket_api.VisionSession("Hand Stall")
+        session.start()
+        session.begin_readiness()
+        session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = None
+        ok, err = session.confirm_readiness()
+        assert ok is False
+        assert err == "readiness_stale"
+        session.close()
+
+    def test_duplicate_confirm_is_idempotent(self, monkeypatch):
+        import time
+
+        _patch_vision(monkeypatch)
+        session = websocket_api.VisionSession("Hand Stall")
+        session.start()
+        session.begin_readiness()
+        session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = time.monotonic()
         assert session.confirm_readiness() == (True, None)
         assert session.confirm_readiness() == (True, None)
         session.close()
@@ -160,7 +197,10 @@ class TestVisionSessionConfirmation:
         session = websocket_api.VisionSession("Hand Stall")
         session.start()
         session.begin_readiness()
+        import time
+
         session._latest_readiness_snapshot = _stable_readiness_snapshot()
+        session._latest_readiness_observed_at = time.monotonic()
         session.confirm_readiness()
         msg = session.process_readiness_frame()
         assert msg is not None
@@ -210,7 +250,7 @@ class TestUpperBodyReadiness:
 
     @pytest.mark.parametrize("movement", POSE_MOVEMENTS)
     def test_pose_movements_include_upper_body_visible(self, movement: str):
-        codes = [c for c, _, _ in requirements_for(movement)]
+        codes = [r.code for r in requirements_for(movement)]
         assert "upper_body_visible" in codes
 
     def test_one_shoulder_alone_fails(self):

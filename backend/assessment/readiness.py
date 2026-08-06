@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Callable, Optional
 
 from config import (
+    MOVEMENT_CONFIG,
     READINESS_ITEM_FAIL_FRAMES,
     READINESS_ITEM_PASS_FRAMES,
     READINESS_STABLE_DURATION_S,
@@ -40,7 +42,18 @@ _POSE_ARM_CHAINS = (
 _POSE_ELBOW_INDICES = (13, 14)
 _POSE_SHOULDER_INDICES = (11, 12)
 
-Status = str  # "ready" | "waiting" | "error"
+
+class ReadinessItemStatus(str, Enum):
+    """Per-item readiness status (matches schemas.readiness.ReadinessStatus)."""
+
+    READY = "ready"
+    WAITING = "waiting"
+    ERROR = "error"
+
+
+class DetectorModality(str, Enum):
+    HANDS = "hands"
+    POSE = "pose"
 
 
 @dataclass(frozen=True)
@@ -62,6 +75,35 @@ class ReadinessSnapshot:
     readiness_complete: bool
     readiness_stable: bool
     readiness_stable_progress: float
+
+
+PassFn = Callable[[ReadinessObservation], bool]
+
+
+@dataclass(frozen=True)
+class ReadinessRequirement:
+    """One observability check declared on a readiness profile."""
+
+    code: str
+    waiting_message: str
+    predicate: PassFn
+    modalities: frozenset[DetectorModality] = frozenset()
+
+
+@dataclass(frozen=True)
+class ReadinessProfile:
+    """Authoritative readiness checklist for one public (or legacy) movement."""
+
+    requirements: tuple[ReadinessRequirement, ...]
+
+    def codes(self) -> tuple[str, ...]:
+        return tuple(r.code for r in self.requirements)
+
+    def needs_hands(self) -> bool:
+        return any(DetectorModality.HANDS in r.modalities for r in self.requirements)
+
+    def needs_pose(self) -> bool:
+        return any(DetectorModality.POSE in r.modalities for r in self.requirements)
 
 
 def _hand_has_landmarks(hand: HandLandmarks, indices: tuple[int, ...]) -> bool:
@@ -191,10 +233,6 @@ def _pass_pose_shoulder(obs: ReadinessObservation) -> bool:
     return _pose_has_any_shoulder(obs.pose)
 
 
-# (code, default_waiting_message, pass_fn factory keyed by prop_type)
-RequirementSpec = tuple[str, str, Callable[[ReadinessObservation], bool]]
-
-
 def _prop_label(prop_type: str) -> str:
     if prop_type == "shaker":
         return "shaker"
@@ -203,203 +241,265 @@ def _prop_label(prop_type: str) -> str:
     return "bottle"
 
 
-def requirements_for(movement: str, prop_type: str = "bottle") -> list[RequirementSpec]:
-    """Return ordered observability requirements for a catalog movement."""
-    prop_type = prop_type or "bottle"
-    label = _prop_label(prop_type)
+def _req(
+    code: str,
+    waiting_message: str,
+    predicate: PassFn,
+    *modalities: DetectorModality,
+) -> ReadinessRequirement:
+    return ReadinessRequirement(
+        code=code,
+        waiting_message=waiting_message,
+        predicate=predicate,
+        modalities=frozenset(modalities),
+    )
 
-    camera: RequirementSpec = (
+
+def _camera_req() -> ReadinessRequirement:
+    return _req(
         "camera_frame",
-        "Waiting for a usable camera frame.",
+        "Live camera frame received.",
         _pass_camera,
     )
 
-    grip_hands: list[RequirementSpec] = [
-        (
-            "grip_landmarks_visible",
-            "Show your gripping hand with fingers visible.",
-            _pass_grip_landmarks,
-        ),
-    ]
 
-    single_prop: RequirementSpec = (
+def _single_prop_req(prop_type: str) -> ReadinessRequirement:
+    label = _prop_label(prop_type)
+    return _req(
         "prop_detected",
-        f"Show the {label} in frame.",
+        f"Keep the selected {label} fully inside the frame.",
         lambda obs, pt=prop_type: _pass_prop_detected(obs, pt),
     )
 
-    if movement in (
+
+def _grip_req() -> ReadinessRequirement:
+    return _req(
+        "grip_landmarks_visible",
+        "Keep the full gripping hand visible.",
+        _pass_grip_landmarks,
+        DetectorModality.HANDS,
+    )
+
+
+def _palm_req() -> ReadinessRequirement:
+    return _req(
+        "palm_landmarks_visible",
+        "Keep the center of your hand visible.",
+        _pass_palm_landmarks,
+        DetectorModality.HANDS,
+    )
+
+
+def _index_req() -> ReadinessRequirement:
+    return _req(
+        "index_landmarks_visible",
+        "Keep the index-finger tracking points visible.",
+        _pass_index_landmarks,
+        DetectorModality.HANDS,
+    )
+
+
+def _upper_body_req() -> ReadinessRequirement:
+    return _req(
+        "upper_body_visible",
+        "Keep both shoulders and at least one complete arm visible.",
+        _pass_upper_body_visible,
+        DetectorModality.POSE,
+    )
+
+
+def _bottle_req() -> ReadinessRequirement:
+    return _req(
+        "bottle_detected",
+        "Keep the bottle fully inside the frame.",
+        _pass_bottle_detected,
+    )
+
+
+def _shaker_req() -> ReadinessRequirement:
+    return _req(
+        "shaker_detected",
+        "Keep the cocktail shaker fully inside the frame.",
+        _pass_shaker_detected,
+    )
+
+
+def _two_props_req() -> ReadinessRequirement:
+    return _req(
+        "prop_count_two",
+        "Keep two bottles fully inside the frame.",
+        _pass_prop_count_two,
+    )
+
+
+def _two_hands_req() -> ReadinessRequirement:
+    return _req(
+        "two_hands_visible",
+        "Keep both hands fully inside the frame.",
+        _pass_two_hands,
+        DetectorModality.HANDS,
+    )
+
+
+def _supporting_hand_req() -> ReadinessRequirement:
+    return _req(
+        "supporting_hand_visible",
+        "Keep a supporting hand visible in the frame.",
+        _pass_supporting_hand,
+        DetectorModality.HANDS,
+    )
+
+
+def _profile(*requirements: ReadinessRequirement) -> ReadinessProfile:
+    codes = [r.code for r in requirements]
+    if len(codes) != len(set(codes)):
+        raise ValueError(f"duplicate readiness requirement codes: {codes}")
+    return ReadinessProfile(requirements=requirements)
+
+
+def _grip_profile(prop_type: str) -> ReadinessProfile:
+    return _profile(_camera_req(), _single_prop_req(prop_type), _grip_req())
+
+
+def _hand_stall_profile(prop_type: str) -> ReadinessProfile:
+    return _profile(_camera_req(), _single_prop_req(prop_type), _palm_req())
+
+
+def _one_finger_profile(prop_type: str) -> ReadinessProfile:
+    return _profile(_camera_req(), _single_prop_req(prop_type), _index_req())
+
+
+def _forearm_elbow_profile(prop_type: str) -> ReadinessProfile:
+    # upper_body_visible already requires a complete shoulder→elbow→wrist chain;
+    # do not also list a redundant pose_upper_forearm row.
+    return _profile(_camera_req(), _single_prop_req(prop_type), _upper_body_req())
+
+
+def _reverse_forearm_profile() -> ReadinessProfile:
+    return _profile(_camera_req(), _bottle_req(), _upper_body_req())
+
+
+def _shoulder_profile() -> ReadinessProfile:
+    return _profile(_camera_req(), _bottle_req(), _upper_body_req())
+
+
+def _double_hand_profile() -> ReadinessProfile:
+    return _profile(_camera_req(), _two_props_req(), _two_hands_req())
+
+
+def _bottle_in_tin_profile() -> ReadinessProfile:
+    return _profile(
+        _camera_req(),
+        _bottle_req(),
+        _shaker_req(),
+        _supporting_hand_req(),
+    )
+
+
+def _camera_only_profile() -> ReadinessProfile:
+    return _profile(_camera_req())
+
+
+# Legacy movement names resolve to canonical profiles but are not public catalog
+# entries (see enabled_catalog_movements).
+_LEGACY_MOVEMENT_ALIASES: dict[str, str] = {
+    "Arm Stall": "Forearm Stall",
+    "Upper Forearm Stall": "Reverse Forearm Stall",
+}
+
+
+def _canonical_movement_name(movement: str) -> str:
+    return _LEGACY_MOVEMENT_ALIASES.get(movement, movement)
+
+
+def _build_profile(movement: str, prop_type: str) -> ReadinessProfile:
+    prop_type = prop_type or "bottle"
+    canonical = _canonical_movement_name(movement)
+
+    if canonical in (
         "Normal Grip",
         "Bartender's Grip",
         "Reverse Grip",
         "Claw Grip",
     ):
-        return [camera, single_prop, *grip_hands]
-
-    if movement == "Hand Stall":
-        return [
-            camera,
-            single_prop,
-            (
-                "palm_landmarks_visible",
-                "Show your hand palm landmarks in frame.",
-                _pass_palm_landmarks,
-            ),
-        ]
-
-    if movement == "One Finger Stall":
-        return [
-            camera,
-            single_prop,
-            (
-                "index_landmarks_visible",
-                "Show your index finger landmarks in frame.",
-                _pass_index_landmarks,
-            ),
-        ]
-
-    upper_body: RequirementSpec = (
-        "upper_body_visible",
-        "Keep your shoulders, elbows, and wrists visible in the camera.",
-        _pass_upper_body_visible,
-    )
-
-    if movement in ("Forearm Stall", "Arm Stall"):
-        return [
-            camera,
-            single_prop,
-            upper_body,
-            (
-                "pose_upper_forearm",
-                "Show your upper-arm pose landmarks in frame.",
-                _pass_pose_upper_forearm,
-            ),
-        ]
-
-    if movement == "Elbow Stall":
-        return [
-            camera,
-            single_prop,
-            upper_body,
-        ]
-
-    if movement in ("Reverse Forearm Stall", "Upper Forearm Stall"):
-        return [
-            camera,
-            (
-                "bottle_detected",
-                "Show the bottle in frame.",
-                _pass_bottle_detected,
-            ),
-            upper_body,
-            (
-                "pose_upper_forearm",
-                "Show your upper-arm pose landmarks in frame.",
-                _pass_pose_upper_forearm,
-            ),
-        ]
-
-    if movement == "Shoulder Stall":
-        return [
-            camera,
-            (
-                "bottle_detected",
-                "Show the bottle in frame.",
-                _pass_bottle_detected,
-            ),
-            upper_body,
-        ]
-
-    if movement == "Double Hand Stall":
-        return [
-            camera,
-            (
-                "prop_count_two",
-                "Show two bottles in frame.",
-                _pass_prop_count_two,
-            ),
-            (
-                "two_hands_visible",
-                "Show both hands with landmarks visible.",
-                _pass_two_hands,
-            ),
-        ]
-
-    if movement == "Bottle in a tin":
-        return [
-            camera,
-            (
-                "bottle_detected",
-                "Show the bottle in frame.",
-                _pass_bottle_detected,
-            ),
-            (
-                "shaker_detected",
-                "Show the cocktail shaker in frame.",
-                _pass_shaker_detected,
-            ),
-            (
-                "supporting_hand_visible",
-                "Show your supporting hand in frame.",
-                _pass_supporting_hand,
-            ),
-        ]
-
+        return _grip_profile(prop_type)
+    if canonical == "Hand Stall":
+        return _hand_stall_profile(prop_type)
+    if canonical == "One Finger Stall":
+        return _one_finger_profile(prop_type)
+    if canonical in ("Forearm Stall", "Elbow Stall"):
+        return _forearm_elbow_profile(prop_type)
+    if canonical == "Reverse Forearm Stall":
+        return _reverse_forearm_profile()
+    if canonical == "Shoulder Stall":
+        return _shoulder_profile()
+    if canonical == "Double Hand Stall":
+        return _double_hand_profile()
+    if canonical == "Bottle in a tin":
+        return _bottle_in_tin_profile()
     # Unknown / Free Practice: camera only (Free Practice skips readiness).
-    return [camera]
+    return _camera_only_profile()
 
 
-_HANDS_REQUIREMENT_CODES: frozenset[str] = frozenset({
-    "grip_landmarks_visible",
-    "palm_landmarks_visible",
-    "index_landmarks_visible",
-    "two_hands_visible",
-    "supporting_hand_visible",
-    # pose_forearm_or_hand accepts either pose OR hand; open both detectors.
-    "pose_forearm_or_hand",
-})
+def readiness_profile_for(
+    movement: str, prop_type: str = "bottle"
+) -> ReadinessProfile:
+    """Return the authoritative readiness profile for a movement."""
+    return _build_profile(movement, prop_type)
 
-_POSE_REQUIREMENT_CODES: frozenset[str] = frozenset({
-    "pose_forearm_or_hand",
-    "pose_upper_forearm",
-    "pose_shoulder",
-    "upper_body_visible",
-})
+
+def requirements_for(
+    movement: str, prop_type: str = "bottle"
+) -> list[ReadinessRequirement]:
+    """Return ordered observability requirements for a catalog movement."""
+    return list(readiness_profile_for(movement, prop_type).requirements)
 
 
 def readiness_needs_hands(movement: str, prop_type: str = "bottle") -> bool:
     """Whether the readiness check for *movement* requires a hands detector."""
-    specs = requirements_for(movement, prop_type)
-    return any(code in _HANDS_REQUIREMENT_CODES for code, _, _ in specs)
+    return readiness_profile_for(movement, prop_type).needs_hands()
 
 
 def readiness_needs_pose(movement: str, prop_type: str = "bottle") -> bool:
     """Whether the readiness check for *movement* requires a pose detector."""
-    specs = requirements_for(movement, prop_type)
-    return any(code in _POSE_REQUIREMENT_CODES for code, _, _ in specs)
+    return readiness_profile_for(movement, prop_type).needs_pose()
 
 
 def enabled_catalog_movements() -> tuple[str, ...]:
-    """The twelve user-selectable scored movements."""
-    return (
-        "Normal Grip",
-        "Bartender's Grip",
-        "Reverse Grip",
-        "Claw Grip",
-        "Hand Stall",
-        "One Finger Stall",
-        "Forearm Stall",
-        "Elbow Stall",
-        "Reverse Forearm Stall",
-        "Shoulder Stall",
-        "Double Hand Stall",
-        "Bottle in a tin",
-    )
+    """Public scored movements derived from MOVEMENT_CONFIG (no internals/legacy)."""
+    names: list[str] = []
+    for name, cfg in MOVEMENT_CONFIG.items():
+        if cfg.get("internal"):
+            continue
+        if name in _LEGACY_MOVEMENT_ALIASES:
+            continue
+        names.append(name)
+    return tuple(names)
+
+
+def assert_readiness_profiles_complete() -> None:
+    """Fail loudly when an enabled scored movement lacks a declared profile.
+
+    Camera-only profiles are reserved for Free Practice / unknown names. Every
+    public catalog movement must declare a richer observability checklist.
+    """
+    for movement in enabled_catalog_movements():
+        profile = readiness_profile_for(movement, "bottle")
+        codes = profile.codes()
+        if codes == ("camera_frame",):
+            raise AssertionError(
+                f"enabled movement {movement!r} has camera-only readiness; "
+                "declare an explicit profile"
+            )
+        if len(codes) != len(set(codes)):
+            raise AssertionError(
+                f"enabled movement {movement!r} has duplicate requirement codes: {codes}"
+            )
 
 
 @dataclass
 class _ItemCounter:
-    status: Status = "waiting"
+    status: ReadinessItemStatus = ReadinessItemStatus.WAITING
     pass_streak: int = 0
     fail_streak: int = 0
 
@@ -434,56 +534,61 @@ class ReadinessTracker:
             else stable_duration_s
         )
         self._monotonic = monotonic or time.monotonic
-        self._specs = requirements_for(self.movement, self.prop_type)
+        self._profile = readiness_profile_for(self.movement, self.prop_type)
+        self._specs = self._profile.requirements
         self._counters: dict[str, _ItemCounter] = {
-            code: _ItemCounter() for code, _, _ in self._specs
+            req.code: _ItemCounter() for req in self._specs
         }
         self._stable_started_at: float | None = None
 
     def reset(self) -> None:
-        self._counters = {code: _ItemCounter() for code, _, _ in self._specs}
+        self._counters = {req.code: _ItemCounter() for req in self._specs}
         self._stable_started_at = None
 
     def update(self, observation: ReadinessObservation) -> ReadinessSnapshot:
         items: list[ReadinessItem] = []
-        for code, waiting_message, pass_fn in self._specs:
-            error_message = observation.item_errors.get(code)
-            counter = self._counters[code]
+        for req in self._specs:
+            error_message = observation.item_errors.get(req.code)
+            counter = self._counters[req.code]
 
             if error_message:
-                counter.status = "error"
+                counter.status = ReadinessItemStatus.ERROR
                 counter.pass_streak = 0
                 counter.fail_streak = 0
                 items.append(
                     ReadinessItem(
-                        code=code, status="error", message=error_message
+                        code=req.code, status="error", message=error_message
                     )
                 )
                 continue
 
-            passed = bool(pass_fn(observation))
+            passed = bool(req.predicate(observation))
             if passed:
                 counter.pass_streak += 1
                 counter.fail_streak = 0
-                if counter.status != "ready":
+                if counter.status != ReadinessItemStatus.READY:
                     if counter.pass_streak >= self.pass_frames:
-                        counter.status = "ready"
+                        counter.status = ReadinessItemStatus.READY
             else:
                 counter.fail_streak += 1
                 counter.pass_streak = 0
-                if counter.status == "ready":
+                if counter.status == ReadinessItemStatus.READY:
                     if counter.fail_streak >= self.fail_frames:
-                        counter.status = "waiting"
-                elif counter.status == "error":
-                    counter.status = "waiting"
+                        counter.status = ReadinessItemStatus.WAITING
+                elif counter.status == ReadinessItemStatus.ERROR:
+                    counter.status = ReadinessItemStatus.WAITING
 
             message = (
                 "Ready."
-                if counter.status == "ready"
-                else waiting_message
+                if counter.status == ReadinessItemStatus.READY
+                else req.waiting_message
             )
             items.append(
-                ReadinessItem(code=code, status=counter.status, message=message)
+                ReadinessItem(
+                    code=req.code,
+                    status=counter.status.value,
+                    message=message,
+                )
             )
 
         all_ready = bool(items) and all(i.status == "ready" for i in items)

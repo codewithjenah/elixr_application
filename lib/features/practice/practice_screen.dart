@@ -74,12 +74,6 @@ class _PracticeScreenState extends State<PracticeScreen>
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
 
-  // Readiness gate state.
-  List<ReadinessItemView>? _readinessItems;
-  double _readinessProgress = 0;
-  bool _readinessStable = false;
-  List<ReadinessItemView>? _frozenReadinessItems;
-
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
   int? _lastPulsedScore;
@@ -135,8 +129,26 @@ class _PracticeScreenState extends State<PracticeScreen>
       _scoreNotifier.value = null;
       _holdProgressNotifier.value = 0;
       if (mounted) {
+        final wasCalibrating =
+            _run.isPreparingCamera ||
+            _run.isReadiness ||
+            _run.isCountdown;
+        if (wasCalibrating || _run.isTrainingActive) {
+          _run.onPreviewFeedback(
+            hasJpegFrame: false,
+            isFatal: true,
+            fatalMessage:
+                _ws.errorMessage ??
+                'Connection lost. Reconnect and begin calibration again.',
+          );
+        }
         setState(() {
           _feedback.latestFeedback = null;
+          if (wasCalibrating) {
+            _sessionError =
+                _ws.errorMessage ??
+                'Connection lost. Reconnect and begin calibration again.';
+          }
         });
       }
       return;
@@ -217,15 +229,16 @@ class _PracticeScreenState extends State<PracticeScreen>
         setState(() => _sessionError = null);
       }
       if (!_run.readinessFrozen) {
-        final items = feedback.readinessItems;
+        final items = feedback.readinessItems ?? const [];
         final progress = feedback.readinessStableProgress ?? 0.0;
         final stable = feedback.readinessStable ?? false;
-        _run.applyReadinessUpdate(readinessStable: feedback.readinessStable);
-        setState(() {
-          if (items != null) _readinessItems = items;
-          _readinessProgress = progress;
-          _readinessStable = stable;
-        });
+        final complete = feedback.readinessComplete ?? false;
+        _run.applyReadinessFeedback(
+          items: items,
+          complete: complete,
+          stable: stable,
+          progress: progress,
+        );
       }
       return;
     }
@@ -317,8 +330,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   /// Handle the "Start Practice" button press during the readiness gate.
   void _onStartPractice() {
     if (_commandInFlight) return;
-    final stable = _readinessStable || (_run.readinessStable == true);
-    if (!stable) return;
+    final stable = _run.readiness.stable || (_run.readinessStable == true);
     if (!_run.requestStartPractice(readinessStable: stable)) return;
     setState(() {});
     unawaited(_confirmReadinessAndCountdown());
@@ -334,15 +346,18 @@ class _PracticeScreenState extends State<PracticeScreen>
       if (_run.lifecycleGeneration != gen) return;
 
       if (!ack.accepted) {
-        _run.onConfirmReadinessRejected();
-        if (ack.errorCode == 'readiness_not_stable') {
-          setState(() {
-            _sessionError =
-                ack.message ??
-                'Readiness is no longer stable. Keep required inputs visible.';
-          });
+        final code = ack.errorCode;
+        // readiness_not_stable and readiness_stale are recoverable: stay in
+        // readiness and let the user try again once stable.
+        if (code == 'readiness_not_stable' || code == 'readiness_stale') {
+          _run.onConfirmReadinessRejected(
+            errorCode: code,
+            message: ack.message,
+          );
+          setState(() {});
           return;
         }
+        _run.onConfirmReadinessRejected(errorCode: code, message: ack.message);
         final message =
             ack.message ??
             ack.errorCode ??
@@ -360,7 +375,6 @@ class _PracticeScreenState extends State<PracticeScreen>
         return;
       }
 
-      _frozenReadinessItems = List.of(_readinessItems ?? []);
       if (!_run.onConfirmReadinessAccepted()) return;
       setState(() {});
       unawaited(_startGuidedCountdownOverlay());
@@ -573,10 +587,6 @@ class _PracticeScreenState extends State<PracticeScreen>
     _scorePopupNotifier.value = const ScorePopupState();
     _lastPulsedScore = null;
     _movementConfirmedShowing = false;
-    _readinessItems = null;
-    _readinessProgress = 0;
-    _readinessStable = false;
-    _frozenReadinessItems = null;
   }
 
   Future<void> _cancelPreActive() async {
@@ -901,7 +911,9 @@ class _PracticeScreenState extends State<PracticeScreen>
   }) {
     final actionKind = _actionKind();
     final isReadiness = _run.isReadiness;
-    final readinessFrozen = _run.readinessFrozen;
+    final readiness = _run.readiness;
+    final isCalibrating =
+        _run.isPreparingCamera || _run.isReadiness || _run.isCountdown;
 
     return TrainingSessionPanel(
       phase: _panelPhase(),
@@ -914,74 +926,79 @@ class _PracticeScreenState extends State<PracticeScreen>
       metrics: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _MetricCell(
-                  label: 'Elapsed',
-                  child: Text(
-                    _formatDuration(_run.elapsedSeconds),
-                    style: AppTheme.headingMedium.copyWith(
-                      letterSpacing: 1.2,
-                      color: context.elixTextPrimary,
+          if (isCalibrating) _buildStageIndicator(),
+          if (!isCalibrating) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _MetricCell(
+                    label: 'Elapsed',
+                    child: Text(
+                      _formatDuration(_run.elapsedSeconds),
+                      style: AppTheme.headingMedium.copyWith(
+                        letterSpacing: 1.2,
+                        color: context.elixTextPrimary,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: _MetricCell(
-                  label: 'Score',
-                  emphasize: true,
-                  child: isTrainingActive
-                      ? ValueListenableBuilder<int?>(
-                          valueListenable: _scoreNotifier,
-                          builder: (context, score, _) {
-                            return ScaleTransition(
-                              scale: _scorePulse,
-                              child: Text(
-                                score != null ? '$score' : '—',
-                                style: AppTheme.headingMedium.copyWith(
-                                  fontSize: 28,
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w800,
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: _MetricCell(
+                    label: 'Score',
+                    emphasize: true,
+                    child: isTrainingActive
+                        ? ValueListenableBuilder<int?>(
+                            valueListenable: _scoreNotifier,
+                            builder: (context, score, _) {
+                              return ScaleTransition(
+                                scale: _scorePulse,
+                                child: Text(
+                                  score != null ? '$score' : '—',
+                                  style: AppTheme.headingMedium.copyWith(
+                                    fontSize: 28,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        )
-                      : Text(
-                          '—',
-                          style: AppTheme.headingMedium.copyWith(
-                            fontSize: 28,
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w800,
+                              );
+                            },
+                          )
+                        : Text(
+                            '—',
+                            style: AppTheme.headingMedium.copyWith(
+                              fontSize: 28,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          if (isTrainingActive)
-            ValueListenableBuilder<int?>(
-              valueListenable: _scoreNotifier,
-              builder: (context, score, _) =>
-                  TrainingPerformanceBar(score: score),
-            )
-          else
-            const TrainingPerformanceBar(score: null),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            if (isTrainingActive)
+              ValueListenableBuilder<int?>(
+                valueListenable: _scoreNotifier,
+                builder: (context, score, _) =>
+                    TrainingPerformanceBar(score: score),
+              )
+            else
+              const TrainingPerformanceBar(score: null),
+          ],
         ],
       ),
-      statusContent: (isReadiness || (_run.isCountdown && readinessFrozen))
+      statusContent: (isReadiness || (_run.isCountdown && readiness.frozen))
           ? ReadinessChecklistPanel(
-              items:
-                  (readinessFrozen ? _frozenReadinessItems : _readinessItems) ??
-                  const [],
-              progress: _readinessProgress,
-              stable: _readinessStable,
-              frozen: readinessFrozen,
+              items: readiness.displayItems,
+              progress: readiness.stableProgress,
+              stable: readiness.stable,
+              complete: readiness.complete,
+              frozen: readiness.frozen,
+              streamStale: readiness.streamStale,
+              recoverableMessage: readiness.recoverableMessage,
+              readyCount: readiness.readyCount,
             )
           : TrainingStatusRow(
               detection: resolveDetectionStatus(
@@ -1046,15 +1063,35 @@ class _PracticeScreenState extends State<PracticeScreen>
     );
   }
 
+  /// Compact stage indicator shown during preparingCamera / readiness / countdown.
+  Widget _buildStageIndicator() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _StageStep(
+          label: 'Camera',
+          active: _run.isPreparingCamera,
+          done:
+              !_run.isPreparingCamera && (_run.isReadiness || _run.isCountdown),
+        ),
+        const _StageDivider(),
+        _StageStep(
+          label: 'Setup Check',
+          active: _run.isReadiness,
+          done: _run.isCountdown,
+        ),
+        const _StageDivider(),
+        _StageStep(label: 'Practice', active: _run.isCountdown, done: false),
+      ],
+    );
+  }
+
   /// Action area shown during the readiness gate: Start Practice + Cancel.
   Widget _buildReadinessActionArea() {
+    final readiness = _run.readiness;
     final canStart =
-        (_readinessStable || _run.readinessStable == true) &&
-        !_commandInFlight &&
-        !_run.readinessConfirming &&
-        !_run.readinessConfirmed &&
-        _run.isReadiness;
-    final confirming = _run.readinessConfirming;
+        readiness.canStartPractice && !_commandInFlight && _run.isReadiness;
+    final confirming = readiness.confirming;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1063,7 +1100,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: Text(
-              'Confirming readiness…',
+              'Confirming readiness\u2026',
               style: AppTheme.bodySecondary.copyWith(
                 color: context.elixTextSecondary,
               ),
@@ -1077,10 +1114,14 @@ class _PracticeScreenState extends State<PracticeScreen>
           isLoading: _commandInFlight,
         ),
         const SizedBox(height: AppSpacing.sm),
-        TrainingActionArea(
-          kind: TrainingActionKind.cancel,
-          startLabel: 'Cancel',
+        HyperlinkButton(
           onPressed: _cancelPreActive,
+          child: Text(
+            'Cancel',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
         ),
       ],
     );
@@ -1190,6 +1231,49 @@ class _HoldIndicator extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StageStep extends StatelessWidget {
+  const _StageStep({
+    required this.label,
+    required this.active,
+    required this.done,
+  });
+
+  final String label;
+  final bool active;
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = done
+        ? AppColors.success
+        : active
+        ? AppColors.primary
+        : context.elixTextSecondary;
+    return Text(
+      label,
+      style: AppTheme.caption.copyWith(
+        color: color,
+        fontWeight: (active || done) ? FontWeight.w700 : FontWeight.normal,
+      ),
+    );
+  }
+}
+
+class _StageDivider extends StatelessWidget {
+  const _StageDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Text(
+        '›',
+        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
       ),
     );
   }

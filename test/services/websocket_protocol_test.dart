@@ -1807,27 +1807,30 @@ void main() {
       expect(service.sessionActive, isFalse);
     });
 
-    test('duplicate sendConfirmReadiness is rejected while in flight', () async {
-      service.beginPracticeAttempt();
-      final sessionId = service.currentSessionId!;
+    test(
+      'duplicate sendConfirmReadiness is rejected while in flight',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionId = service.currentSessionId!;
 
-      final first = service.sendConfirmReadiness(sessionId: sessionId);
-      await Future<void>.delayed(Duration.zero);
-      expect(
-        () => service.sendConfirmReadiness(sessionId: sessionId),
-        throwsA(isA<StateError>()),
-      );
-      await push({
-        'protocol_version': 1,
-        'message_type': 'command_ack',
-        'request_id': sent.last['request_id'],
-        'session_id': sessionId,
-        'action': 'confirm_readiness',
-        'accepted': true,
-        'session_state': 'readying',
-      });
-      await first;
-    });
+        final first = service.sendConfirmReadiness(sessionId: sessionId);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          () => service.sendConfirmReadiness(sessionId: sessionId),
+          throwsA(isA<StateError>()),
+        );
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': sent.last['request_id'],
+          'session_id': sessionId,
+          'action': 'confirm_readiness',
+          'accepted': true,
+          'session_state': 'readying',
+        });
+        await first;
+      },
+    );
 
     test('readiness_not_stable rejection keeps readying state', () async {
       service.beginPracticeAttempt();
@@ -1901,5 +1904,122 @@ void main() {
       expect(run.isTrainingActive, isTrue);
       run.dispose();
     });
+  });
+
+  group('WebSocketService sessionReadying reset invariants', () {
+    late StreamController<dynamic> inbound;
+    late StreamController<dynamic> outbound;
+    late WebSocketService service;
+    late List<Map<String, dynamic>> sent;
+
+    setUp(() {
+      inbound = StreamController<dynamic>.broadcast();
+      outbound = StreamController<dynamic>.broadcast();
+      sent = <Map<String, dynamic>>[];
+      outbound.stream.listen((event) {
+        if (event is String) {
+          sent.add(jsonDecode(event) as Map<String, dynamic>);
+        }
+      });
+      service = WebSocketService(
+        commandTimeout: const Duration(milliseconds: 80),
+        prepareTimeout: const Duration(milliseconds: 80),
+      );
+      service.debugAttachTransport(
+        inbound: inbound.stream,
+        outbound: outbound.sink,
+      );
+    });
+
+    tearDown(() async {
+      service.dispose();
+      await inbound.close();
+      await outbound.close();
+    });
+
+    Future<void> push(Map<String, dynamic> payload) async {
+      inbound.add(jsonEncode(payload));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('beginPracticeAttempt resets sessionReadying to false', () async {
+      service.beginPracticeAttempt();
+      final sessionId = service.currentSessionId!;
+
+      // Advance to readying via feedback.
+      service.debugHandleRawMessage(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'feedback',
+          'session_id': sessionId,
+          'bottle_detected': false,
+          'movement': 'Hand Stall',
+          'score': 0,
+          'feedback': 'Checking',
+          'feedback_type': 'positive',
+          'posture_status': 'unknown',
+          'session_state': 'readying',
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(service.sessionReadying, isTrue);
+
+      // New attempt must clear readying.
+      service.beginPracticeAttempt();
+      expect(service.sessionReadying, isFalse);
+      expect(service.sessionPrepared, isFalse);
+      expect(service.sessionActive, isFalse);
+    });
+
+    test(
+      'stopPracticeSession clears sessionReadying for the stopped session',
+      () async {
+        service.beginPracticeAttempt();
+        final sessionId = service.currentSessionId!;
+
+        // Seed readying state.
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'feedback',
+            'session_id': sessionId,
+            'bottle_detected': false,
+            'movement': 'Hand Stall',
+            'score': 0,
+            'feedback': 'Checking',
+            'feedback_type': 'positive',
+            'posture_status': 'unknown',
+            'session_state': 'readying',
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(service.sessionReadying, isTrue);
+
+        // Stop clears identity and flags immediately.
+        final stopFuture = service.stopPracticeSession(sessionId: sessionId);
+        expect(service.currentSessionId, isNull);
+        expect(service.sessionReadying, isFalse);
+        expect(service.sessionPrepared, isFalse);
+
+        // Allow stop wire command to be sent.
+        await Future<void>.delayed(Duration.zero);
+
+        final stopPayloads = sent.where((p) => p['action'] == 'stop').toList();
+        expect(stopPayloads, isNotEmpty);
+
+        // Resolve stop.
+        await push({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': stopPayloads.last['request_id'],
+          'session_id': sessionId,
+          'action': 'stop',
+          'accepted': true,
+          'session_state': 'idle',
+        });
+        await stopFuture;
+        expect(service.sessionReadying, isFalse);
+      },
+    );
   });
 }

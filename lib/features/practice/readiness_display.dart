@@ -1,6 +1,7 @@
-/// Maps backend readiness check codes to human-readable UI strings.
+/// Observability-only display copy for guided-practice calibration checks.
 ///
-/// Unknown codes fall back to [backendMessage] for both title and instruction.
+/// Titles and instructions must describe visibility conditions the backend
+/// actually evaluates — never technique (upright bottle, open palm, etc.).
 library;
 
 /// Resolved display strings for a single readiness check item.
@@ -16,77 +17,94 @@ class ReadinessDisplayInfo {
 
 /// Resolve display strings for a readiness check [code].
 ///
-/// Returns a hard-coded mapping for every known code. For unknown codes,
-/// [backendMessage] is used as both [ReadinessDisplayInfo.title] and
-/// [ReadinessDisplayInfo.instruction] (or a generic fallback when null).
+/// Known codes use hard-coded observability copy. Unknown codes use a safe
+/// fallback that does not repeat the same [backendMessage] as both title and
+/// instruction.
 ReadinessDisplayInfo resolveReadinessDisplay(
   String code, {
   String? backendMessage,
 }) {
-  return switch (code) {
+  final known = switch (code) {
     'camera_frame' => const ReadinessDisplayInfo(
-      title: 'Camera Frame',
-      instruction: 'Make sure your camera is on and facing you.',
+      title: 'Camera',
+      instruction: 'Live camera frame received.',
     ),
     'prop_detected' => const ReadinessDisplayInfo(
-      title: 'Prop Detected',
-      instruction: 'Hold your prop clearly in front of the camera.',
+      title: 'Selected Prop',
+      instruction: 'Keep the selected prop fully inside the frame.',
     ),
     'bottle_detected' => const ReadinessDisplayInfo(
-      title: 'Bottle Detected',
-      instruction: 'Ensure the bottle is visible and upright.',
+      title: 'Bottle',
+      instruction: 'Keep the bottle fully inside the frame.',
     ),
     'shaker_detected' => const ReadinessDisplayInfo(
-      title: 'Shaker Detected',
-      instruction: 'Ensure the shaker is clearly visible to the camera.',
+      title: 'Cocktail Shaker',
+      instruction: 'Keep the cocktail shaker fully inside the frame.',
     ),
     'prop_count_two' => const ReadinessDisplayInfo(
-      title: 'Two Props Visible',
-      instruction: 'Hold both props so the camera can see them at once.',
+      title: 'Two Bottles',
+      instruction: 'Keep two bottles fully inside the frame.',
     ),
     'grip_landmarks_visible' => const ReadinessDisplayInfo(
-      title: 'Grip Landmarks',
-      instruction:
-          'Show your gripping hand clearly — fingers facing the camera.',
+      title: 'Grip Hand',
+      instruction: 'Keep the full gripping hand visible.',
     ),
     'palm_landmarks_visible' => const ReadinessDisplayInfo(
-      title: 'Palm Landmarks',
-      instruction:
-          'Open your palm toward the camera so all landmarks are visible.',
+      title: 'Hand Center',
+      instruction: 'Keep the center of your hand visible.',
     ),
     'index_landmarks_visible' => const ReadinessDisplayInfo(
-      title: 'Index Finger Visible',
-      instruction: 'Extend your index finger toward the camera.',
+      title: 'Index Finger',
+      instruction: 'Keep the index-finger tracking points visible.',
     ),
     'two_hands_visible' => const ReadinessDisplayInfo(
-      title: 'Both Hands Visible',
-      instruction: 'Keep both hands in the camera frame.',
+      title: 'Both Hands',
+      instruction: 'Keep both hands fully inside the frame.',
     ),
     'supporting_hand_visible' => const ReadinessDisplayInfo(
       title: 'Supporting Hand',
-      instruction: 'Make sure your non-dominant hand is visible.',
+      instruction: 'Keep a supporting hand visible in the frame.',
     ),
     'pose_forearm_or_hand' => const ReadinessDisplayInfo(
-      title: 'Forearm or Hand Pose',
-      instruction: 'Position your forearm or hand so the camera can track it.',
+      title: 'Arm or Hand',
+      instruction: 'Keep a forearm or hand tracking points visible.',
     ),
     'pose_upper_forearm' => const ReadinessDisplayInfo(
-      title: 'Upper Forearm Pose',
-      instruction:
-          'Raise your forearm until the upper section is clearly visible.',
+      title: 'Upper Arm',
+      instruction: 'Keep upper-arm pose landmarks visible in the frame.',
     ),
     'pose_shoulder' => const ReadinessDisplayInfo(
-      title: 'Shoulder Visible',
-      instruction: 'Step back or tilt the camera so your shoulder is in frame.',
+      title: 'Shoulder',
+      instruction: 'Keep a shoulder landmark visible in the frame.',
     ),
     'upper_body_visible' => const ReadinessDisplayInfo(
-      title: 'Upper Body Visible',
-      instruction:
-          'Keep your shoulders, elbows, and wrists visible in the camera.',
+      title: 'Upper Body',
+      instruction: 'Keep both shoulders and at least one complete arm visible.',
     ),
-    _ => ReadinessDisplayInfo(
-      title: backendMessage ?? code,
-      instruction: backendMessage ?? 'Follow the on-screen guidance.',
-    ),
+    _ => null,
   };
+  if (known != null) return known;
+
+  final trimmed = backendMessage?.trim();
+  final hasMessage = trimmed != null && trimmed.isNotEmpty;
+  final title = _humanizeCode(code);
+  if (!hasMessage || trimmed == title) {
+    return ReadinessDisplayInfo(
+      title: title,
+      instruction: 'Follow the on-screen guidance.',
+    );
+  }
+  return ReadinessDisplayInfo(title: title, instruction: trimmed);
+}
+
+String _humanizeCode(String code) {
+  if (code.isEmpty) return 'Setup check';
+  final words = code.split(RegExp(r'[_\s]+')).where((w) => w.isNotEmpty);
+  if (words.isEmpty) return 'Setup check';
+  return words
+      .map(
+        (w) =>
+            '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}',
+      )
+      .join(' ');
 }
