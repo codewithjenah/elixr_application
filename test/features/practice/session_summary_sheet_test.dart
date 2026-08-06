@@ -65,6 +65,89 @@ SessionAssessment _assessment({
   );
 }
 
+SessionAssessment _standardSummaryAssessment() {
+  return _assessment(
+    score: 78,
+    heldSteady: true,
+    improvements: [_improvement('Keep the bottle upright on your palm.')],
+    strengths: const [
+      SessionStrength(
+        code: 'hold_confirmed',
+        message: 'Hold confirmed',
+        sampleCount: 1,
+        sampleRatio: 1,
+        evidenceKind: 'holdConfirmed',
+      ),
+    ],
+    recommendation: const SessionRecommendation(
+      movementName: 'Hand Stall',
+      reason: 'Focus: Keep the bottle upright',
+      targetLabel: 'Complete one confirmed hold (2.5 seconds)',
+      targetUsesHoldMs: true,
+      recommendedDurationSeconds: 180,
+    ),
+  );
+}
+
+SessionAssessment denseCoachingAssessment({
+  required bool heldSteady,
+  required String movementName,
+  String focus =
+      'Focus: Keep refining an especially long recommendation focus '
+      'sentence that remains readable without overlapping pinned actions',
+}) {
+  return _assessment(
+    score: heldSteady ? 92 : 58,
+    heldSteady: heldSteady,
+    strengths: const [
+      SessionStrength(
+        code: 'hold_confirmed',
+        message: 'Hold confirmed — best hold lasted longer than expected',
+        sampleCount: 1,
+        sampleRatio: 1,
+        evidenceKind: 'holdConfirmed',
+      ),
+      SessionStrength(
+        code: 'hand_stall_locked',
+        message:
+            'Correct Hand Stall form detected across a long supportive '
+            'strength sentence for layout stress testing',
+        sampleCount: 12,
+        sampleRatio: 0.4,
+        evidenceKind: 'positiveCode',
+      ),
+      SessionStrength(
+        code: 'extra_strength',
+        message: 'Additional form evidence remained consistent',
+        sampleCount: 8,
+        sampleRatio: 0.25,
+        evidenceKind: 'positiveCode',
+      ),
+    ],
+    improvements: [
+      _improvement(
+        'Keep the bottle upright on your palm while maintaining open '
+        'fingers and centering carefully over a long feedback message.',
+      ),
+      _improvement(
+        'Hold the bottle steady without horizontal drift or sudden bounce '
+        'during the confirmation window on a longer improvement line.',
+      ),
+      _improvement(
+        'Place the bottle base directly on your open palm and avoid '
+        'letting the bottom drop below the tracked palm landmark.',
+      ),
+    ],
+    recommendation: SessionRecommendation(
+      movementName: movementName,
+      reason: focus,
+      targetLabel: 'Complete one confirmed hold (2.5 seconds)',
+      targetUsesHoldMs: true,
+      recommendedDurationSeconds: 180,
+    ),
+  );
+}
+
 Future<void> _openSummary(
   WidgetTester tester, {
   required SessionAssessment assessment,
@@ -100,41 +183,39 @@ Future<void> _openSummary(
   await tester.tap(find.text('Open'));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 900));
-  // Leave exceptions for callers to assert; do not swallow overflows.
 }
 
 Finder get _saveButton => find.byType(GameActionButton);
+
+Finder get _scrollView => find.byKey(const Key('session-summary-scroll'));
+
+Finder get _actions => find.byKey(const Key('session-summary-actions'));
+
+Finder get _recommendation =>
+    find.byKey(const Key('session-summary-recommendation'));
+
+double _maxScrollExtent(WidgetTester tester) {
+  final scrollable = tester.state<ScrollableState>(
+    find.descendant(of: _scrollView, matching: find.byType(Scrollable)),
+  );
+  return scrollable.position.maxScrollExtent;
+}
+
+bool _isFullyVisible(WidgetTester tester, Finder finder, Size viewport) {
+  final rect = tester.getRect(finder);
+  return rect.top >= -0.5 &&
+      rect.left >= -0.5 &&
+      rect.bottom <= viewport.height + 0.5 &&
+      rect.right <= viewport.width + 0.5;
+}
 
 void main() {
   testWidgets('populated coaching summary renders all three sections', (
     tester,
   ) async {
-    final improvements = [
-      _improvement('Keep the bottle upright on your palm.'),
-    ];
     await _openSummary(
       tester,
-      assessment: _assessment(
-        score: 78,
-        heldSteady: true,
-        improvements: improvements,
-        strengths: const [
-          SessionStrength(
-            code: 'hold_confirmed',
-            message: 'Hold confirmed',
-            sampleCount: 1,
-            sampleRatio: 1,
-            evidenceKind: 'holdConfirmed',
-          ),
-        ],
-        recommendation: const SessionRecommendation(
-          movementName: 'Hand Stall',
-          reason: 'Focus: Keep the bottle upright',
-          targetLabel: 'Complete one confirmed hold (2.5 seconds)',
-          targetUsesHoldMs: true,
-          recommendedDurationSeconds: 180,
-        ),
-      ),
+      assessment: _standardSummaryAssessment(),
       onSave: (_) async => 'session-coaching',
     );
 
@@ -226,6 +307,7 @@ void main() {
     );
     expect(find.textContaining('(2.5 seconds)'), findsOneWidget);
   });
+
   testWidgets('empty legacy coaching does not fabricate a recommendation', (
     tester,
   ) async {
@@ -356,130 +438,165 @@ void main() {
     expect(find.byIcon(FluentIcons.trophy2_solid), findsOneWidget);
   });
 
-  testWidgets('long coaching content keeps actions reachable at 1366x768', (
-    tester,
-  ) async {
-    final improvements = [
-      _improvement(
-        'Keep the bottle upright on your palm while maintaining open fingers '
-        'and centering the base carefully over the palm center.',
-      ),
-      _improvement(
-        'Hold the bottle steady on your open palm without horizontal drift '
-        'or sudden vertical bounce during the confirmation window.',
-      ),
-      _improvement(
-        'Place the bottle base directly on your open palm and avoid letting '
-        'the bottom drop clearly below the tracked palm landmark.',
-      ),
-    ];
-    await _openSummary(
+  group('responsive no-scroll-first layout', () {
+    testWidgets('751x911 standard summary fits without scrolling', (
       tester,
-      size: const Size(1366, 768),
-      assessment: _assessment(
-        score: 64,
-        improvements: improvements,
-        strengths: const [
-          SessionStrength(
-            code: 'hold_partial_progress',
-            message: 'Best hold reached 82% of the target',
-            sampleCount: 1,
-            sampleRatio: 0.82,
-            evidenceKind: 'holdPartialProgress',
+    ) async {
+      const size = Size(751, 911);
+      await _openSummary(
+        tester,
+        size: size,
+        assessment: _standardSummaryAssessment(),
+        onSave: (_) async => 'session-751',
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(_maxScrollExtent(tester), 0);
+
+      expect(find.text('Session Complete'), findsOneWidget);
+      expect(find.text('What Went Well'), findsOneWidget);
+      expect(find.text('Needs Improvement'), findsOneWidget);
+      expect(find.text('Hold confirmed'), findsOneWidget);
+      expect(
+        find.text('Keep the bottle upright on your palm.'),
+        findsOneWidget,
+      );
+      expect(_recommendation, findsOneWidget);
+      expect(find.text('Try Again'), findsOneWidget);
+      expect(find.text('Discard without saving'), findsOneWidget);
+      expect(_saveButton, findsOneWidget);
+
+      expect(_isFullyVisible(tester, _recommendation, size), isTrue);
+      expect(_isFullyVisible(tester, _actions, size), isTrue);
+      expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
+      expect(_isFullyVisible(tester, _saveButton, size), isTrue);
+    });
+
+    testWidgets('1366x768 uses regular layout with zero scroll extent', (
+      tester,
+    ) async {
+      const size = Size(1366, 768);
+      await _openSummary(
+        tester,
+        size: size,
+        assessment: _standardSummaryAssessment(),
+        onSave: (_) async => 'session-1366',
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(_maxScrollExtent(tester), 0);
+
+      final dialog = tester.getRect(
+        find.byKey(const Key('session-summary-dialog')),
+      );
+      expect(dialog.width, greaterThanOrEqualTo(700));
+
+      expect(
+        _isFullyVisible(tester, find.text('What Went Well'), size),
+        isTrue,
+      );
+      expect(
+        _isFullyVisible(tester, find.text('Needs Improvement'), size),
+        isTrue,
+      );
+      expect(_isFullyVisible(tester, _recommendation, size), isTrue);
+      expect(_isFullyVisible(tester, _actions, size), isTrue);
+      expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
+      expect(
+        _isFullyVisible(tester, find.text('Discard without saving'), size),
+        isTrue,
+      );
+      expect(_isFullyVisible(tester, _saveButton, size), isTrue);
+    });
+
+    testWidgets('1280x720 standard summary is fully visible without overflow', (
+      tester,
+    ) async {
+      const size = Size(1280, 720);
+      await _openSummary(
+        tester,
+        size: size,
+        assessment: _standardSummaryAssessment(),
+        onSave: (_) async => 'session-1280',
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(_maxScrollExtent(tester), 0);
+      expect(_isFullyVisible(tester, _recommendation, size), isTrue);
+      expect(_isFullyVisible(tester, _actions, size), isTrue);
+    });
+
+    testWidgets(
+      'dense coaching at 900x600 allows fallback scroll with pinned actions',
+      (tester) async {
+        const size = Size(900, 600);
+        await _openSummary(
+          tester,
+          size: size,
+          assessment: denseCoachingAssessment(
+            heldSteady: false,
+            movementName: 'Double Hand Stall',
           ),
-          SessionStrength(
-            code: 'hand_stall_locked',
-            message: 'Correct Hand Stall form detected',
-            sampleCount: 12,
-            sampleRatio: 0.4,
-            evidenceKind: 'positiveCode',
-          ),
-        ],
-        recommendation: const SessionRecommendation(
-          movementName: 'Hand Stall',
-          reason:
-              'Focus: Keep the bottle upright on your palm while refining '
-              'steady balance through the full confirmation window',
-          targetLabel: 'Complete one confirmed hold (2.5 seconds)',
-          targetUsesHoldMs: true,
-          recommendedDurationSeconds: 180,
-        ),
-      ),
-      onSave: (_) async => 'session-long',
+          onSave: (_) async => 'session-dense-900',
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(_maxScrollExtent(tester), greaterThan(0));
+        expect(_isFullyVisible(tester, _actions, size), isTrue);
+        expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
+        expect(_isFullyVisible(tester, _saveButton, size), isTrue);
+
+        await tester.drag(_scrollView, const Offset(0, -400));
+        await tester.pumpAndSettle();
+        expect(find.text('Recommended Next Session'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
     );
 
-    expect(find.text('Try Again'), findsOneWidget);
-    expect(find.text('Discard without saving'), findsOneWidget);
-    await tester.ensureVisible(_saveButton);
-    expect(_saveButton, findsOneWidget);
-    expect(tester.takeException(), isNull);
+    testWidgets(
+      'long movement name keeps header and rank badge inside dialog',
+      (tester) async {
+        const movement =
+            'Reverse Forearm Stall With An Unusually Long Movement Label';
+        await _openSummary(
+          tester,
+          size: const Size(751, 911),
+          movement: movement,
+          assessment: _assessment(
+            score: 82,
+            heldSteady: true,
+            strengths: const [
+              SessionStrength(
+                code: 'hold_confirmed',
+                message: 'Hold confirmed',
+                sampleCount: 1,
+                sampleRatio: 1,
+                evidenceKind: 'holdConfirmed',
+              ),
+            ],
+          ),
+          onSave: (_) async => 'session-long-name',
+        );
+
+        expect(tester.takeException(), isNull);
+        final dialogRect = tester.getRect(
+          find.byKey(const Key('session-summary-dialog')),
+        );
+        final badgeRect = tester.getRect(find.byType(RankBadge));
+        expect(badgeRect.right, lessThanOrEqualTo(dialogRect.right + 0.5));
+        expect(badgeRect.left, greaterThanOrEqualTo(dialogRect.left - 0.5));
+        expect(find.textContaining(movement), findsOneWidget);
+      },
+    );
   });
 
   group('Phase C layout hardening', () {
-    SessionAssessment denseCoachingAssessment({
-      required bool heldSteady,
-      required String movementName,
-      String focus =
-          'Focus: Keep refining an especially long recommendation focus '
-          'sentence that remains readable without overlapping pinned actions',
-    }) {
-      return _assessment(
-        score: heldSteady ? 92 : 58,
-        heldSteady: heldSteady,
-        strengths: const [
-          SessionStrength(
-            code: 'hold_confirmed',
-            message: 'Hold confirmed — best hold lasted longer than expected',
-            sampleCount: 1,
-            sampleRatio: 1,
-            evidenceKind: 'holdConfirmed',
-          ),
-          SessionStrength(
-            code: 'hand_stall_locked',
-            message:
-                'Correct Hand Stall form detected across a long supportive '
-                'strength sentence for layout stress testing',
-            sampleCount: 12,
-            sampleRatio: 0.4,
-            evidenceKind: 'positiveCode',
-          ),
-          SessionStrength(
-            code: 'extra_strength',
-            message: 'Additional form evidence remained consistent',
-            sampleCount: 8,
-            sampleRatio: 0.25,
-            evidenceKind: 'positiveCode',
-          ),
-        ],
-        improvements: [
-          _improvement(
-            'Keep the bottle upright on your palm while maintaining open '
-            'fingers and centering carefully over a long feedback message.',
-          ),
-          _improvement(
-            'Hold the bottle steady without horizontal drift or sudden bounce '
-            'during the confirmation window on a longer improvement line.',
-          ),
-          _improvement(
-            'Place the bottle base directly on your open palm and avoid '
-            'letting the bottom drop below the tracked palm landmark.',
-          ),
-        ],
-        recommendation: SessionRecommendation(
-          movementName: movementName,
-          reason: focus,
-          targetLabel: 'Complete one confirmed hold (2.5 seconds)',
-          targetUsesHoldMs: true,
-          recommendedDurationSeconds: 180,
-        ),
-      );
-    }
-
     Future<void> assertLayoutHealthy(
       WidgetTester tester, {
       required Size size,
       required SessionAssessment assessment,
       String movement = 'Hand Stall',
+      bool expectRecommendation = true,
     }) async {
       await _openSummary(
         tester,
@@ -490,13 +607,17 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      expect(_scrollView, findsOneWidget);
+      expect(_actions, findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
       expect(find.text('Discard without saving'), findsOneWidget);
-      await tester.ensureVisible(_saveButton);
+      expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_saveButton, findsOneWidget);
       expect(find.text('What Went Well'), findsOneWidget);
       expect(find.text('Needs Improvement'), findsOneWidget);
+      if (expectRecommendation) {
+        expect(find.text('Recommended Next Session'), findsOneWidget);
+      }
     }
 
     testWidgets('dense coaching remains usable at 1366x768', (tester) async {
@@ -510,7 +631,6 @@ void main() {
         ),
         movement: 'Reverse Forearm Stall With An Unusually Long Movement Label',
       );
-      expect(find.text('Recommended Next Session'), findsOneWidget);
     });
 
     testWidgets('dense coaching remains usable at 1280x720', (tester) async {
@@ -546,6 +666,7 @@ void main() {
           movementName: 'Double Hand Stall',
         ),
       );
+      expect(_maxScrollExtent(tester), greaterThan(0));
     });
 
     testWidgets('unconfirmed low-data coaching keeps actions pinned', (
@@ -559,6 +680,7 @@ void main() {
           heldSteady: false,
           includeEmptyCoaching: false,
         ),
+        expectRecommendation: false,
       );
       expect(find.text('Recommended Next Session'), findsNothing);
     });
@@ -581,9 +703,10 @@ void main() {
     testWidgets('save failure message remains visible with pinned actions', (
       tester,
     ) async {
+      const size = Size(900, 600);
       await _openSummary(
         tester,
-        size: const Size(900, 600),
+        size: size,
         assessment: denseCoachingAssessment(
           heldSteady: true,
           movementName: 'Shoulder Stall',
@@ -596,7 +719,6 @@ void main() {
         },
       );
 
-      await tester.ensureVisible(_saveButton);
       await tester.tap(_saveButton, warnIfMissed: false);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -608,6 +730,7 @@ void main() {
       );
       expect(find.text('Try Again'), findsOneWidget);
       expect(find.text('Discard without saving'), findsOneWidget);
+      expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(tester.takeException(), isNull);
     });
   });
@@ -630,10 +753,8 @@ void main() {
       },
     );
 
-    await tester.ensureVisible(_saveButton);
     await tester.tap(_saveButton, warnIfMissed: false);
     await tester.pump();
-    await tester.ensureVisible(_saveButton);
     await tester.tap(_saveButton, warnIfMissed: false);
     await tester.pump(const Duration(milliseconds: 60));
     expect(saveCalls, 1);
@@ -655,7 +776,6 @@ void main() {
       },
     );
 
-    await tester.ensureVisible(_saveButton);
     await tester.tap(_saveButton, warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -714,14 +834,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 900));
     tester.takeException();
 
-    await tester.ensureVisible(_saveButton);
     await tester.tap(_saveButton, warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     tester.takeException();
     expect(find.textContaining('Could not save your session'), findsOneWidget);
 
-    await tester.ensureVisible(_saveButton);
     await tester.tap(_saveButton, warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -729,5 +847,83 @@ void main() {
 
     expect(saveCalls, 2);
     expect(result, SessionSummaryResult.saved);
+  });
+
+  testWidgets('discard without saving returns discarded result', (
+    tester,
+  ) async {
+    SessionSummaryResult? result;
+
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      FluentApp(
+        home: Builder(
+          builder: (context) {
+            return Center(
+              child: FilledButton(
+                onPressed: () async {
+                  result = await SessionSummarySheet.show(
+                    context,
+                    movement: 'Hand Stall',
+                    durationSeconds: 45,
+                    assessment: _standardSummaryAssessment(),
+                    onSave: (_) async => 'unused',
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+
+    await tester.tap(find.text('Discard without saving'));
+    await tester.pumpAndSettle();
+    expect(result, SessionSummaryResult.discarded);
+  });
+
+  testWidgets('try again returns tryAgain result', (tester) async {
+    SessionSummaryResult? result;
+
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      FluentApp(
+        home: Builder(
+          builder: (context) {
+            return Center(
+              child: FilledButton(
+                onPressed: () async {
+                  result = await SessionSummarySheet.show(
+                    context,
+                    movement: 'Hand Stall',
+                    durationSeconds: 45,
+                    assessment: _standardSummaryAssessment(),
+                    onSave: (_) async => 'unused',
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+
+    await tester.tap(find.text('Try Again'));
+    await tester.pumpAndSettle();
+    expect(result, SessionSummaryResult.tryAgain);
   });
 }

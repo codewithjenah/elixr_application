@@ -503,29 +503,9 @@ class _GameActionButtonState extends State<GameActionButton> {
                     ),
                   ),
                 )
-              : Stack(
-                  fit: StackFit.expand,
+              : Row(
                   children: [
-                    Align(
-                      alignment: Alignment.center,
-                      child: Text(
-                        widget.label.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
+                    SizedBox(
                       width: _kIconLaneWidth,
                       child: Center(
                         child: Icon(
@@ -535,6 +515,23 @@ class _GameActionButtonState extends State<GameActionButton> {
                         ),
                       ),
                     ),
+                    Expanded(
+                      child: Text(
+                        widget.label.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    // Mirror the icon lane so the label stays optically centered.
+                    const SizedBox(width: _kIconLaneWidth),
                   ],
                 ),
         ),

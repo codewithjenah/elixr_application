@@ -12,6 +12,25 @@ import 'session_assessment.dart';
 
 enum SessionSummaryResult { saved, discarded, tryAgain }
 
+/// Centralized sizing for the session-complete dashboard.
+abstract final class _SummaryLayout {
+  static const dialogMaxWidth = 960.0;
+  static const dialogMinWidth = 320.0;
+  static const viewportMargin = 24.0;
+  static const twoColumnBreakpoint = 720.0;
+  static const actionsRegularBreakpoint = 780.0;
+  static const insightSideBySideBreakpoint = 440.0;
+  static const performanceColumnWidth = 220.0;
+  static const scoreRingSize = 92.0;
+  static const cardPadding = 16.0;
+  static const sectionGap = 16.0;
+  static const bodyPadding = 20.0;
+  static const headerPaddingH = 20.0;
+  static const headerPaddingV = 14.0;
+  static const actionsPadding = 16.0;
+  static const saveButtonWidth = 300.0;
+}
+
 class SessionSummarySheet extends StatelessWidget {
   const SessionSummarySheet({
     super.key,
@@ -60,50 +79,52 @@ class SessionSummarySheet extends StatelessWidget {
               children: [
                 if (assessment.finalScore >= 60)
                   const Positioned.fill(child: ConfettiOverlay()),
-                Center(
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: _AnimatedEntrance(
-                      child: SessionSummarySheet(
-                        movement: movement,
-                        durationSeconds: durationSeconds,
-                        assessment: assessment,
-                        saving: saving,
-                        saveError: saveError,
-                        onDiscard: () => Navigator.of(
-                          ctx,
-                          rootNavigator: true,
-                        ).pop(SessionSummaryResult.discarded),
-                        onTryAgain: () => Navigator.of(
-                          ctx,
-                          rootNavigator: true,
-                        ).pop(SessionSummaryResult.tryAgain),
-                        onSave: () async {
-                          if (saving) return;
-                          setState(() {
-                            saving = true;
-                            saveError = null;
-                          });
-                          try {
-                            pendingSessionId = await onSave(pendingSessionId);
-                            if (ctx.mounted) {
-                              Navigator.of(
-                                ctx,
-                                rootNavigator: true,
-                              ).pop(SessionSummaryResult.saved);
+                SafeArea(
+                  child: Center(
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: _AnimatedEntrance(
+                        child: SessionSummarySheet(
+                          movement: movement,
+                          durationSeconds: durationSeconds,
+                          assessment: assessment,
+                          saving: saving,
+                          saveError: saveError,
+                          onDiscard: () => Navigator.of(
+                            ctx,
+                            rootNavigator: true,
+                          ).pop(SessionSummaryResult.discarded),
+                          onTryAgain: () => Navigator.of(
+                            ctx,
+                            rootNavigator: true,
+                          ).pop(SessionSummaryResult.tryAgain),
+                          onSave: () async {
+                            if (saving) return;
+                            setState(() {
+                              saving = true;
+                              saveError = null;
+                            });
+                            try {
+                              pendingSessionId = await onSave(pendingSessionId);
+                              if (ctx.mounted) {
+                                Navigator.of(
+                                  ctx,
+                                  rootNavigator: true,
+                                ).pop(SessionSummaryResult.saved);
+                              }
+                            } catch (error) {
+                              if (ctx.mounted) {
+                                setState(() {
+                                  saveError = _formatSaveError(error);
+                                });
+                              }
+                            } finally {
+                              if (ctx.mounted) {
+                                setState(() => saving = false);
+                              }
                             }
-                          } catch (error) {
-                            if (ctx.mounted) {
-                              setState(() {
-                                saveError = _formatSaveError(error);
-                              });
-                            }
-                          } finally {
-                            if (ctx.mounted) {
-                              setState(() => saving = false);
-                            }
-                          }
-                        },
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -175,56 +196,114 @@ class SessionSummarySheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final scoreClr = _scoreColor(_score);
     final tier = _tier(_score);
 
-    return Container(
-      width: (size.width * 0.9).clamp(320.0, 480.0),
-      constraints: BoxConstraints(maxHeight: size.height * 0.9),
-      decoration: BoxDecoration(
-        color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.08),
-            blurRadius: 48,
-            spreadRadius: 4,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = math
+            .min(
+              _SummaryLayout.dialogMaxWidth,
+              constraints.maxWidth - (_SummaryLayout.viewportMargin * 2),
+            )
+            .clamp(
+              _SummaryLayout.dialogMinWidth,
+              _SummaryLayout.dialogMaxWidth,
+            );
+        final maxHeight = constraints.maxHeight;
+
+        return ConstrainedBox(
+          key: const Key('session-summary-dialog'),
+          constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
+          child: Container(
+            width: maxWidth,
+            decoration: BoxDecoration(
+              color: context.elixCardSurface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.15),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  blurRadius: 48,
+                  spreadRadius: 4,
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 40,
+                  offset: const Offset(0, 20),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SummaryHeader(
+                    movement: movement,
+                    heldSteady: _heldSteady,
+                    score: _score,
+                  ),
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: _SummaryBody(
+                      score: _score,
+                      scoreColor: scoreClr,
+                      tier: tier,
+                      durationSeconds: durationSeconds,
+                      assessment: assessment,
+                      performanceMessage: _tierMessage(
+                        _score,
+                        hasImprovements: assessment.hasImprovements,
+                      ),
+                      emptyImprovementsMessage:
+                          assessment.coaching.cleanSessionMessage ??
+                          _performanceMessage(_score),
+                      emptyStrengthsMessage: _heldSteady
+                          ? 'Hold confirmed — keep reinforcing clean technique.'
+                          : 'No standout technique strength met the session '
+                                'threshold.',
+                    ),
+                  ),
+                  _SummaryActions(
+                    saving: saving,
+                    saveError: saveError,
+                    onSave: onSave,
+                    onDiscard: onDiscard,
+                    onTryAgain: onTryAgain,
+                    regularLayout:
+                        maxWidth >= _SummaryLayout.actionsRegularBreakpoint,
+                  ),
+                ],
+              ),
+            ),
           ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.6),
-            blurRadius: 40,
-            offset: const Offset(0, 20),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Column(
-          // Expand to the constrained max height so Expanded can shrink the
-          // coaching body instead of overflowing pinned header/actions.
-          mainAxisSize: MainAxisSize.max,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(),
-            _buildScoreSection(scoreClr, tier, assessment.hasImprovements),
-            _buildDurationRow(context),
-            Expanded(child: _buildCoachingScroll(context)),
-            _buildActions(context),
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
+}
 
-  Widget _buildHeader() {
+class _SummaryHeader extends StatelessWidget {
+  const _SummaryHeader({
+    required this.movement,
+    required this.heldSteady,
+    required this.score,
+  });
+
+  final String movement;
+  final bool heldSteady;
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.lg,
-        AppSpacing.xl,
-        AppSpacing.lg,
+      padding: const EdgeInsets.symmetric(
+        horizontal: _SummaryLayout.headerPaddingH,
+        vertical: _SummaryLayout.headerPaddingV,
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -249,14 +328,14 @@ class SessionSummarySheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              _heldSteady
+              heldSteady
                   ? FluentIcons.trophy2_solid
                   : FluentIcons.completed_solid,
               color: AppColors.success,
-              size: 20,
+              size: 18,
             ),
           ),
-          const SizedBox(width: AppSpacing.md),
+          const SizedBox(width: AppSpacing.sm + 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,14 +343,14 @@ class SessionSummarySheet extends StatelessWidget {
                 const Text(
                   'Session Complete',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 17,
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _heldSteady
+                  heldSteady
                       ? 'You held "$movement" steady. Well done!'
                       : movement,
                   style: const TextStyle(
@@ -286,317 +365,674 @@ class SessionSummarySheet extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          RankBadge(score: _score),
+          RankBadge(score: score),
         ],
       ),
     );
   }
+}
 
-  Widget _buildScoreSection(
-    Color scoreClr,
-    ({String label, Color color}) tier,
-    bool hasImprovements,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.md,
-      ),
-      child: Row(
+class _SummaryBody extends StatelessWidget {
+  const _SummaryBody({
+    required this.score,
+    required this.scoreColor,
+    required this.tier,
+    required this.durationSeconds,
+    required this.assessment,
+    required this.performanceMessage,
+    required this.emptyImprovementsMessage,
+    required this.emptyStrengthsMessage,
+  });
+
+  final int score;
+  final Color scoreColor;
+  final ({String label, Color color}) tier;
+  final int durationSeconds;
+  final SessionAssessment assessment;
+  final String performanceMessage;
+  final String emptyImprovementsMessage;
+  final String emptyStrengthsMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useTwoColumn =
+            constraints.maxWidth >= _SummaryLayout.twoColumnBreakpoint;
+
+        return SingleChildScrollView(
+          key: const Key('session-summary-scroll'),
+          padding: const EdgeInsets.fromLTRB(
+            _SummaryLayout.bodyPadding,
+            AppSpacing.sm + 4,
+            _SummaryLayout.bodyPadding,
+            AppSpacing.sm,
+          ),
+          child: useTwoColumn
+              ? _RegularBody(
+                  score: score,
+                  scoreColor: scoreColor,
+                  tier: tier,
+                  durationSeconds: durationSeconds,
+                  assessment: assessment,
+                  performanceMessage: performanceMessage,
+                  emptyImprovementsMessage: emptyImprovementsMessage,
+                  emptyStrengthsMessage: emptyStrengthsMessage,
+                )
+              : _CompactBody(
+                  score: score,
+                  scoreColor: scoreColor,
+                  tier: tier,
+                  durationSeconds: durationSeconds,
+                  assessment: assessment,
+                  performanceMessage: performanceMessage,
+                  emptyImprovementsMessage: emptyImprovementsMessage,
+                  emptyStrengthsMessage: emptyStrengthsMessage,
+                ),
+        );
+      },
+    );
+  }
+}
+
+class _RegularBody extends StatelessWidget {
+  const _RegularBody({
+    required this.score,
+    required this.scoreColor,
+    required this.tier,
+    required this.durationSeconds,
+    required this.assessment,
+    required this.performanceMessage,
+    required this.emptyImprovementsMessage,
+    required this.emptyStrengthsMessage,
+  });
+
+  final int score;
+  final Color scoreColor;
+  final ({String label, Color color}) tier;
+  final int durationSeconds;
+  final SessionAssessment assessment;
+  final String performanceMessage;
+  final String emptyImprovementsMessage;
+  final String emptyStrengthsMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: _SummaryLayout.performanceColumnWidth,
+          child: _PerformanceColumn(
+            score: score,
+            scoreColor: scoreColor,
+            tier: tier,
+            durationSeconds: durationSeconds,
+            performanceMessage: performanceMessage,
+            compact: false,
+          ),
+        ),
+        const SizedBox(width: _SummaryLayout.sectionGap + 4),
+        Expanded(
+          child: _CoachingColumn(
+            assessment: assessment,
+            emptyImprovementsMessage: emptyImprovementsMessage,
+            emptyStrengthsMessage: emptyStrengthsMessage,
+            preferSideBySideInsights: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CompactBody extends StatelessWidget {
+  const _CompactBody({
+    required this.score,
+    required this.scoreColor,
+    required this.tier,
+    required this.durationSeconds,
+    required this.assessment,
+    required this.performanceMessage,
+    required this.emptyImprovementsMessage,
+    required this.emptyStrengthsMessage,
+  });
+
+  final int score;
+  final Color scoreColor;
+  final ({String label, Color color}) tier;
+  final int durationSeconds;
+  final SessionAssessment assessment;
+  final String performanceMessage;
+  final String emptyImprovementsMessage;
+  final String emptyStrengthsMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PerformanceColumn(
+          score: score,
+          scoreColor: scoreColor,
+          tier: tier,
+          durationSeconds: durationSeconds,
+          performanceMessage: performanceMessage,
+          compact: true,
+        ),
+        const SizedBox(height: _SummaryLayout.sectionGap),
+        _CoachingColumn(
+          assessment: assessment,
+          emptyImprovementsMessage: emptyImprovementsMessage,
+          emptyStrengthsMessage: emptyStrengthsMessage,
+          preferSideBySideInsights: false,
+        ),
+      ],
+    );
+  }
+}
+
+class _PerformanceColumn extends StatelessWidget {
+  const _PerformanceColumn({
+    required this.score,
+    required this.scoreColor,
+    required this.tier,
+    required this.durationSeconds,
+    required this.performanceMessage,
+    required this.compact,
+  });
+
+  final int score;
+  final Color scoreColor;
+  final ({String label, Color color}) tier;
+  final int durationSeconds;
+  final String performanceMessage;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final ring = _ScoreRing(score: score, color: scoreColor);
+    final tierBadge = _TierBadge(label: tier.label, color: tier.color);
+    final durationPill = _DurationPill(
+      label: SessionSummarySheet._formatDuration(durationSeconds),
+    );
+
+    if (compact) {
+      return Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          TweenAnimationBuilder<double>(
-            duration: const Duration(milliseconds: 1200),
-            curve: Curves.easeOutCubic,
-            tween: Tween(begin: 0, end: _score.toDouble()),
-            builder: (context, animatedScore, _) => SizedBox(
-              width: 104,
-              height: 104,
-              child: CustomPaint(
-                painter: _ScoreRingPainter(
-                  progress: (animatedScore / 100).clamp(0.0, 1.0),
-                  color: scoreClr,
-                ),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${animatedScore.round()}',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w800,
-                          color: scoreClr,
-                          height: 1,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      const Text(
-                        'Score',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.xl),
+          ring,
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: tier.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: tier.color.withValues(alpha: 0.35),
-                    ),
-                  ),
-                  child: Text(
-                    tier.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: tier.color,
-                    ),
-                  ),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [tierBadge, durationPill],
                 ),
-                const SizedBox(height: AppSpacing.sm),
+                const SizedBox(height: AppSpacing.xs + 2),
                 Text(
-                  _tierMessage(_score, hasImprovements: hasImprovements),
+                  performanceMessage,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 12.5,
                     color: AppColors.textSecondary,
-                    height: 1.45,
+                    height: 1.35,
                   ),
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
+      );
+    }
 
-  Widget _buildDurationRow(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        0,
-        AppSpacing.xl,
-        AppSpacing.lg,
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
-        decoration: BoxDecoration(
-          color: context.elixBackground,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.12)),
-        ),
-        child: Row(
-          children: [
-            const Icon(FluentIcons.clock, size: 15, color: AppColors.primary),
-            const SizedBox(width: AppSpacing.sm),
-            const Text(
-              'Duration',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-            const Spacer(),
-            Text(
-              _formatDuration(durationSeconds),
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: AppColors.primary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCoachingScroll(BuildContext context) {
-    final coaching = assessment.coaching;
-    final strengths = coaching.strengths;
-    final improvements = assessment.improvements;
-    final recommendation = coaching.recommendation;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(AppSpacing.xl, 0, AppSpacing.xl, 0),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildCoachingSectionHeader(
-              title: 'What Went Well',
-              accent: AppColors.success,
-              count: strengths.length,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            if (strengths.isEmpty)
-              _buildEmptyCoachingCard(
-                context,
-                message: _heldSteady
-                    ? 'Hold confirmed — keep reinforcing clean technique.'
-                    : 'No standout technique strength met the session threshold.',
-                accent: AppColors.success,
-                icon: FluentIcons.emoji2,
-              )
-            else
-              _BulletCard(
-                accent: AppColors.success,
-                items: strengths.map((s) => s.message).toList(growable: false),
-              ),
-            const SizedBox(height: AppSpacing.lg),
-            _buildCoachingSectionHeader(
-              title: 'Needs Improvement',
-              accent: AppColors.warning,
-              count: improvements.length,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            if (improvements.isEmpty)
-              _buildPerformanceCard()
-            else
-              _BulletCard(
-                accent: AppColors.warning,
-                items: improvements
-                    .map((i) => i.message)
-                    .toList(growable: false),
-              ),
-            if (recommendation != null) ...[
-              const SizedBox(height: AppSpacing.lg),
-              _buildCoachingSectionHeader(
-                title: 'Recommended Next Session',
-                accent: AppColors.primary,
-                count: null,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              _RecommendationCard(recommendation: recommendation),
-            ],
-            const SizedBox(height: AppSpacing.sm),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCoachingSectionHeader({
-    required String title,
-    required Color accent,
-    required int? count,
-  }) {
-    return Row(
+    // Keep ring, tier, message, and duration on one centered axis so the
+    // performance column reads as a single aligned stack (not mixed axes).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(title, style: AppTheme.headingMedium.copyWith(fontSize: 15)),
-        if (count != null && count > 0) ...[
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: accent,
-              ),
-            ),
+        ring,
+        const SizedBox(height: AppSpacing.sm + 2),
+        tierBadge,
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          performanceMessage,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.textSecondary,
+            height: 1.35,
           ),
-        ],
+        ),
+        const SizedBox(height: AppSpacing.sm + 2),
+        durationPill,
       ],
     );
   }
+}
 
-  Widget _buildEmptyCoachingCard(
-    BuildContext context, {
-    required String message,
-    required Color accent,
-    required IconData icon,
-  }) {
+class _ScoreRing extends StatelessWidget {
+  const _ScoreRing({required this.score, required this.color});
+
+  final int score;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = _SummaryLayout.scoreRingSize;
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 1200),
+      curve: Curves.easeOutCubic,
+      tween: Tween(begin: 0, end: score.toDouble()),
+      builder: (context, animatedScore, _) => SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          painter: _ScoreRingPainter(
+            progress: (animatedScore / 100).clamp(0.0, 1.0),
+            color: color,
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${animatedScore.round()}',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Score',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TierBadge extends StatelessWidget {
+  const _TierBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _DurationPill extends StatelessWidget {
+  const _DurationPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: context.elixBackground,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(FluentIcons.clock, size: 13, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CoachingColumn extends StatelessWidget {
+  const _CoachingColumn({
+    required this.assessment,
+    required this.emptyImprovementsMessage,
+    required this.emptyStrengthsMessage,
+    required this.preferSideBySideInsights,
+  });
+
+  final SessionAssessment assessment;
+  final String emptyImprovementsMessage;
+  final String emptyStrengthsMessage;
+  final bool preferSideBySideInsights;
+
+  @override
+  Widget build(BuildContext context) {
+    final strengths = assessment.coaching.strengths;
+    final improvements = assessment.improvements;
+    final recommendation = assessment.coaching.recommendation;
+
+    final strengthsCard = _InsightCard(
+      title: 'What Went Well',
+      accent: AppColors.success,
+      icon: FluentIcons.emoji2,
+      count: strengths.length,
+      items: strengths.map((s) => s.message).toList(growable: false),
+      emptyMessage: emptyStrengthsMessage,
+    );
+    final improvementsCard = _InsightCard(
+      title: 'Needs Improvement',
+      accent: AppColors.warning,
+      icon: FluentIcons.lightbulb,
+      count: improvements.length,
+      items: improvements.map((i) => i.message).toList(growable: false),
+      emptyMessage: emptyImprovementsMessage,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sideBySide =
+            preferSideBySideInsights &&
+            constraints.maxWidth >= _SummaryLayout.insightSideBySideBreakpoint;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (sideBySide)
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: strengthsCard),
+                    const SizedBox(width: _SummaryLayout.sectionGap),
+                    Expanded(child: improvementsCard),
+                  ],
+                ),
+              )
+            else ...[
+              strengthsCard,
+              const SizedBox(height: _SummaryLayout.sectionGap),
+              improvementsCard,
+            ],
+            if (recommendation != null) ...[
+              const SizedBox(height: _SummaryLayout.sectionGap),
+              _RecommendationCard(recommendation: recommendation),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _InsightCard extends StatelessWidget {
+  const _InsightCard({
+    required this.title,
+    required this.accent,
+    required this.icon,
+    required this.count,
+    required this.items,
+    required this.emptyMessage,
+  });
+
+  final String title;
+  final Color accent;
+  final IconData icon;
+  final int count;
+  final List<String> items;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(_SummaryLayout.cardPadding),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.2)),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 18, color: accent),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 14, color: accent),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTheme.headingMedium.copyWith(fontSize: 13.5),
+                ),
+              ),
+              if (count > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Text(
-              message,
+          const SizedBox(height: AppSpacing.sm + 2),
+          if (items.isEmpty)
+            Text(
+              emptyMessage,
               style: TextStyle(
                 fontSize: 13,
                 color: context.elixTextSecondary,
                 height: 1.4,
               ),
+            )
+          else
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(height: AppSpacing.sm),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: accent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      items[i],
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.elixTextPrimary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RecommendationCard extends StatelessWidget {
+  const _RecommendationCard({required this.recommendation});
+
+  final SessionRecommendation recommendation;
+
+  static String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return s > 0 ? '${m}m ${s}s' : '${m}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('session-summary-recommendation'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(_SummaryLayout.cardPadding),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  FluentIcons.completed,
+                  size: 14,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Recommended Next Session',
+                  style: AppTheme.headingMedium.copyWith(fontSize: 13.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Practice ${recommendation.movementName} again',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: context.elixTextPrimary,
             ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            recommendation.reason,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.elixTextSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _MetaChip(
+                icon: FluentIcons.checkbox_composite,
+                label: 'Target: ${recommendation.targetLabel}',
+              ),
+              _DurationPill(
+                label:
+                    'Duration: ${_formatDuration(recommendation.recommendedDurationSeconds)}',
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildPerformanceCard() {
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
+        color: context.elixBackground,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              FluentIcons.emoji2,
-              size: 18,
-              color: AppColors.success,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
+          Icon(icon, size: 13, color: AppColors.primary),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
             child: Text(
-              assessment.coaching.cleanSessionMessage ??
-                  _performanceMessage(_score),
-              style: const TextStyle(
+              label,
+              style: TextStyle(
                 fontSize: 13,
-                color: AppColors.textSecondary,
-                height: 1.4,
+                fontWeight: FontWeight.w700,
+                color: context.elixTextPrimary,
+                height: 1.3,
               ),
             ),
           ),
@@ -604,16 +1040,47 @@ class SessionSummarySheet extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildActions(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.xl),
+class _SummaryActions extends StatelessWidget {
+  const _SummaryActions({
+    required this.saving,
+    required this.saveError,
+    required this.onSave,
+    required this.onDiscard,
+    required this.onTryAgain,
+    required this.regularLayout,
+  });
+
+  final bool saving;
+  final String? saveError;
+  final VoidCallback onSave;
+  final VoidCallback onDiscard;
+  final VoidCallback onTryAgain;
+  final bool regularLayout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('session-summary-actions'),
+      padding: const EdgeInsets.fromLTRB(
+        _SummaryLayout.actionsPadding,
+        AppSpacing.sm,
+        _SummaryLayout.actionsPadding,
+        _SummaryLayout.actionsPadding,
+      ),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: AppColors.primary.withValues(alpha: 0.1)),
+        ),
+      ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (saveError != null) ...[
             Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
+              padding: const EdgeInsets.all(AppSpacing.sm + 4),
               decoration: BoxDecoration(
                 color: AppColors.error.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
@@ -636,22 +1103,40 @@ class SessionSummarySheet extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textPrimary,
-                        height: 1.4,
+                        height: 1.35,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.sm),
           ],
-          Row(
-            children: [
-              Expanded(
-                child: Button(
+          if (regularLayout)
+            Row(
+              children: [
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: HyperlinkButton(
+                      onPressed: saving ? null : onDiscard,
+                      child: Text(
+                        'Discard without saving',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Button(
                   style: ButtonStyle(
                     padding: WidgetStateProperty.all(
-                      const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                      const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm + 4,
+                      ),
                     ),
                     backgroundColor: WidgetStateProperty.resolveWith(
                       (_) => context.elixBackground,
@@ -660,34 +1145,78 @@ class SessionSummarySheet extends StatelessWidget {
                   onPressed: saving ? null : onTryAgain,
                   child: Text(
                     'Try Again',
-                    style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                    style: AppTheme.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                flex: 2,
-                child: GameActionButton(
-                  label: 'Save & Continue',
-                  icon: FluentIcons.save,
-                  onPressed: saving ? null : onSave,
-                  isLoading: saving,
+                const SizedBox(width: AppSpacing.sm),
+                SizedBox(
+                  width: _SummaryLayout.saveButtonWidth,
+                  child: GameActionButton(
+                    label: 'Save & Continue',
+                    icon: FluentIcons.save,
+                    onPressed: saving ? null : onSave,
+                    isLoading: saving,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Center(
-            child: HyperlinkButton(
-              onPressed: saving ? null : onDiscard,
-              child: Text(
-                'Discard without saving',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Button(
+                        style: ButtonStyle(
+                          padding: WidgetStateProperty.all(
+                            const EdgeInsets.symmetric(
+                              vertical: AppSpacing.sm + 4,
+                            ),
+                          ),
+                          backgroundColor: WidgetStateProperty.resolveWith(
+                            (_) => context.elixBackground,
+                          ),
+                        ),
+                        onPressed: saving ? null : onTryAgain,
+                        child: Text(
+                          'Try Again',
+                          style: AppTheme.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      flex: 2,
+                      child: GameActionButton(
+                        label: 'Save & Continue',
+                        icon: FluentIcons.save,
+                        onPressed: saving ? null : onSave,
+                        isLoading: saving,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: AppSpacing.xs),
+                Center(
+                  child: HyperlinkButton(
+                    onPressed: saving ? null : onDiscard,
+                    child: Text(
+                      'Discard without saving',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
         ],
       ),
     );
@@ -742,132 +1271,6 @@ class _AnimatedEntranceState extends State<_AnimatedEntrance>
   }
 }
 
-/// Compact bullet list for strengths or improvements (no nested scroll).
-class _BulletCard extends StatelessWidget {
-  const _BulletCard({required this.accent, required this.items});
-
-  final Color accent;
-  final List<String> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: context.elixBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accent.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(height: AppSpacing.sm),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: accent,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    items[i],
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: context.elixTextPrimary,
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _RecommendationCard extends StatelessWidget {
-  const _RecommendationCard({required this.recommendation});
-
-  final SessionRecommendation recommendation;
-
-  static String _formatDuration(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return s > 0 ? '${m}m ${s}s' : '${m}m';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.elixBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Practice ${recommendation.movementName} again',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            recommendation.reason,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.elixTextSecondary,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Target: ${recommendation.targetLabel}',
-            style: TextStyle(
-              fontSize: 13,
-              color: context.elixTextPrimary,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Recommended duration: '
-            '${_formatDuration(recommendation.recommendedDurationSeconds)}',
-            style: TextStyle(
-              fontSize: 13,
-              color: context.elixTextPrimary,
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ScoreRingPainter extends CustomPainter {
   const _ScoreRingPainter({required this.progress, required this.color});
   final double progress;
@@ -876,8 +1279,8 @@ class _ScoreRingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 7;
-    const strokeWidth = 7.0;
+    final radius = size.width / 2 - 6;
+    const strokeWidth = 6.0;
 
     canvas.drawCircle(
       center,
