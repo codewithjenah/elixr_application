@@ -90,77 +90,79 @@ class AchievementRepository {
     final claimRef = _claimRef(claimId);
     final cosmeticsRef = _cosmeticsRef(userId);
 
-    return _firestore.runTransaction<AchievementClaimResult>((tx) async {
-      final claimSnap = await tx.get(claimRef);
-      if (claimSnap.exists) {
-        return const AchievementClaimResult.alreadyClaimed();
-      }
+    return _firestore
+        .runTransaction<AchievementClaimResult>((tx) async {
+          final claimSnap = await tx.get(claimRef);
+          if (claimSnap.exists) {
+            return const AchievementClaimResult.alreadyClaimed();
+          }
 
-      final cosmeticsSnap = await tx.get(cosmeticsRef);
-      final existing = cosmeticsSnap.data();
-      if (cosmeticsSnap.exists && existing != null) {
-        final parsed = UserCosmetics.tryFromMap(existing, id: userId);
-        if (parsed == null) {
-          return const AchievementClaimResult.cosmeticsCorrupt();
-        }
-      }
+          final cosmeticsSnap = await tx.get(cosmeticsRef);
+          final existing = cosmeticsSnap.data();
+          if (cosmeticsSnap.exists && existing != null) {
+            final parsed = UserCosmetics.tryFromMap(existing, id: userId);
+            if (parsed == null) {
+              return const AchievementClaimResult.cosmeticsCorrupt();
+            }
+          }
 
-      final AchievementUnlockPlan plan;
-      try {
-        plan = AchievementUnlockPlan.fromExisting(
-          claimExists: false,
-          existingCosmetics: existing,
-          achievementId: achievementId,
-          claimDocumentId: claimId,
-        );
-      } on ArgumentError {
-        return const AchievementClaimResult.invalidAchievement();
-      }
+          final AchievementUnlockPlan plan;
+          try {
+            plan = AchievementUnlockPlan.fromExisting(
+              claimExists: false,
+              existingCosmetics: existing,
+              achievementId: achievementId,
+              claimDocumentId: claimId,
+            );
+          } on ArgumentError {
+            return const AchievementClaimResult.invalidAchievement();
+          }
 
-      final claim = AchievementClaim(
-        userId: userId,
-        achievementId: achievementId,
-        rewardBorderId: plan.rewardBorderId,
-      );
+          final claim = AchievementClaim(
+            userId: userId,
+            achievementId: achievementId,
+            rewardBorderId: plan.rewardBorderId,
+          );
 
-      tx.set(claimRef, {
-        ...claim.toMap(),
-        'claimed_at': FieldValue.serverTimestamp(),
-      });
+          tx.set(claimRef, {
+            ...claim.toMap(),
+            'claimed_at': FieldValue.serverTimestamp(),
+          });
 
-      final cosmeticsPayload = <String, dynamic>{
-        'user_id': userId,
-        'unlocked_border_ids': plan.unlockedBorderIds,
-        'last_achievement_claim_id': plan.lastAchievementClaimId,
-        'updated_at': FieldValue.serverTimestamp(),
-      };
-      if (!cosmeticsSnap.exists) {
-        cosmeticsPayload['created_at'] = FieldValue.serverTimestamp();
-        tx.set(cosmeticsRef, cosmeticsPayload);
-      } else {
-        tx.update(cosmeticsRef, cosmeticsPayload);
-      }
+          final cosmeticsPayload = <String, dynamic>{
+            'user_id': userId,
+            'unlocked_border_ids': plan.unlockedBorderIds,
+            'last_achievement_claim_id': plan.lastAchievementClaimId,
+            'updated_at': FieldValue.serverTimestamp(),
+          };
+          if (!cosmeticsSnap.exists) {
+            cosmeticsPayload['created_at'] = FieldValue.serverTimestamp();
+            tx.set(cosmeticsRef, cosmeticsPayload);
+          } else {
+            tx.update(cosmeticsRef, cosmeticsPayload);
+          }
 
-      return AchievementClaimResult.claimed(plan.rewardBorderId);
-    }).then((result) async {
-      if (result.status == AchievementClaimStatus.claimed) {
-        try {
-          await _publicProfileRepository?.projectAchievement(
+          return AchievementClaimResult.claimed(plan.rewardBorderId);
+        })
+        .then((result) async {
+          if (result.status == AchievementClaimStatus.claimed) {
+            try {
+              await _publicProfileRepository?.projectAchievement(
                 userId: userId,
                 achievementId: achievementId,
               );
-        } catch (error, stackTrace) {
-          if (kDebugMode) {
-            debugPrint(
-              'Public achievement projection failed: '
-              'userId=$userId achievementId=$achievementId error=$error',
-            );
-            debugPrint('$stackTrace');
+            } catch (error, stackTrace) {
+              if (kDebugMode) {
+                debugPrint(
+                  'Public achievement projection failed: '
+                  'userId=$userId achievementId=$achievementId error=$error',
+                );
+                debugPrint('$stackTrace');
+              }
+            }
           }
-        }
-      }
-      return result;
-    });
+          return result;
+        });
   }
 
   /// Equips [borderId] on `leaderboard/{userId}.equipped_border_id`.

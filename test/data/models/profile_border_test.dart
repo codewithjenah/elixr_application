@@ -42,4 +42,14 @@ void main() {
     expect(isKnownProfileBorderId('nope'), isFalse);
     expect(rewardBorderForAchievement('nope'), isNull);
   });
+
+  test('every catalog border has presentation configuration', () {
+    for (final border in profileBorderCatalog) {
+      expect(border.visualStyle, isNotNull);
+      expect(border.motionStyle, isNotNull);
+      expect(border.ornamentExtent, greaterThan(0));
+      expect(border.animationDurationMs, inInclusiveRange(3000, 6000));
+      expect(border.rarityLabel, isNotEmpty);
+    }
+  });
 }

@@ -33,6 +33,7 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
     this.profilePictureUrl,
     this.equippedBorderId,
     this.highlightRing = false,
+    this.animateBorder = false,
   });
 
   final String initials;
@@ -47,6 +48,9 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
 
   /// Current-user ring when no equipped cosmetic border is active.
   final bool highlightRing;
+
+  /// When true, animates the cosmetic frame (large profile headers only).
+  final bool animateBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +80,7 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
       equippedBorderId: equippedBorderId,
       showBorder: true,
       fallbackNeutral: false,
+      animate: animateBorder,
       highlightAccent: hasEquippedCosmetic
           ? null
           : (highlightRing ? AppColors.primary : accent),

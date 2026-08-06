@@ -101,114 +101,113 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
             onTap: widget.onTap,
             behavior: HitTestBehavior.opaque,
             child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: widget.isCurrentUser
-                  ? AppColors.primary.withValues(
-                      alpha: context.isDarkTheme ? 0.08 : 0.06,
-                    )
-                  : _hovered
-                  ? context.elixCardSurface.withValues(
-                      alpha: context.isDarkTheme ? 0.55 : 0.7,
-                    )
-                  : Colors.transparent,
-            ),
-            child: Stack(
-              children: [
-                // Fixed gutter so the YOU accent never shifts columns.
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: LeaderboardRankColumns.accentGutter,
-                  child: ColoredBox(
-                    color: widget.isCurrentUser
-                        ? AppColors.primary.withValues(alpha: 0.85)
-                        : Colors.transparent,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: widget.isCurrentUser
+                    ? AppColors.primary.withValues(
+                        alpha: context.isDarkTheme ? 0.08 : 0.06,
+                      )
+                    : _hovered
+                    ? context.elixCardSurface.withValues(
+                        alpha: context.isDarkTheme ? 0.55 : 0.7,
+                      )
+                    : Colors.transparent,
+              ),
+              child: Stack(
+                children: [
+                  // Fixed gutter so the YOU accent never shifts columns.
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: LeaderboardRankColumns.accentGutter,
+                    child: ColoredBox(
+                      color: widget.isCurrentUser
+                          ? AppColors.primary.withValues(alpha: 0.85)
+                          : Colors.transparent,
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: LeaderboardRankColumns.rowPadding.copyWith(
-                    left:
-                        LeaderboardRankColumns.rowPadding.left +
-                        LeaderboardRankColumns.accentGutter,
-                  ),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = constraints.maxWidth;
-                      final wide = LeaderboardRankRowLayout.showBestScore(
-                        width,
-                      );
-                      final medium = LeaderboardRankRowLayout.showMetricColumns(
-                        width,
-                      );
-
-                      if (!medium) {
-                        return _CompactRankRow(
-                          rank: widget.rank,
-                          entry: widget.entry,
-                          isCurrentUser: widget.isCurrentUser,
-                          profilePictureUrl: widget.profilePictureUrl,
-                          avgScore: avgScore,
+                  Padding(
+                    padding: LeaderboardRankColumns.rowPadding.copyWith(
+                      left:
+                          LeaderboardRankColumns.rowPadding.left +
+                          LeaderboardRankColumns.accentGutter,
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = constraints.maxWidth;
+                        final wide = LeaderboardRankRowLayout.showBestScore(
+                          width,
                         );
-                      }
+                        final medium =
+                            LeaderboardRankRowLayout.showMetricColumns(width);
 
-                      return LeaderboardRankColumns.row(
-                        showBestScore: wide,
-                        rank: Text(
-                          '#${widget.rank}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: context.elixTextSecondary,
+                        if (!medium) {
+                          return _CompactRankRow(
+                            rank: widget.rank,
+                            entry: widget.entry,
+                            isCurrentUser: widget.isCurrentUser,
+                            profilePictureUrl: widget.profilePictureUrl,
+                            avgScore: avgScore,
+                          );
+                        }
+
+                        return LeaderboardRankColumns.row(
+                          showBestScore: wide,
+                          rank: Text(
+                            '#${widget.rank}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: context.elixTextSecondary,
+                            ),
                           ),
-                        ),
-                        player: _PlayerCell(
-                          entry: widget.entry,
-                          isCurrentUser: widget.isCurrentUser,
-                          profilePictureUrl: widget.profilePictureUrl,
-                        ),
-                        level: Text(
-                          'Lv. ${widget.entry.level}',
-                          textAlign: TextAlign.end,
-                          style: _metricStyle(context),
-                        ),
-                        sessions: Text(
-                          '${widget.entry.sessionsCompleted}',
-                          textAlign: TextAlign.end,
-                          style: _metricStyle(context),
-                        ),
-                        avgScore: Text(
-                          avgScore,
-                          textAlign: TextAlign.end,
-                          style: _metricStyle(context),
-                        ),
-                        bestScore: Text(
-                          '${widget.entry.bestScore}',
-                          textAlign: TextAlign.end,
-                          style: _metricStyle(context),
-                        ),
-                        totalXp: Text(
-                          '${widget.entry.totalXp} XP',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.end,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primary,
+                          player: _PlayerCell(
+                            entry: widget.entry,
+                            isCurrentUser: widget.isCurrentUser,
+                            profilePictureUrl: widget.profilePictureUrl,
                           ),
-                        ),
-                      );
-                    },
+                          level: Text(
+                            'Lv. ${widget.entry.level}',
+                            textAlign: TextAlign.end,
+                            style: _metricStyle(context),
+                          ),
+                          sessions: Text(
+                            '${widget.entry.sessionsCompleted}',
+                            textAlign: TextAlign.end,
+                            style: _metricStyle(context),
+                          ),
+                          avgScore: Text(
+                            avgScore,
+                            textAlign: TextAlign.end,
+                            style: _metricStyle(context),
+                          ),
+                          bestScore: Text(
+                            '${widget.entry.bestScore}',
+                            textAlign: TextAlign.end,
+                            style: _metricStyle(context),
+                          ),
+                          totalXp: Text(
+                            '${widget.entry.totalXp} XP',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
         ),
       ],
     );

@@ -5,8 +5,10 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
+import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
 import 'package:elixr_application/features/settings/models/pending_profile_crop.dart';
@@ -377,6 +379,9 @@ void main() {
           SettingsScreen(
             initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
           ),
         ),
       );
@@ -412,6 +417,9 @@ void main() {
           SettingsScreen(
             initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
           ),
         ),
       );
@@ -447,6 +455,9 @@ void main() {
           SettingsScreen(
             initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
           ),
         ),
       );
@@ -504,6 +515,9 @@ void main() {
         wrap(
           AccountProfileSection(
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
             pickProfileImage: pickProfileImage,
             cropProfileImage: cropProfileImage,
             onDirtyChanged: onDirtyChanged,
@@ -854,6 +868,9 @@ void main() {
             SettingsScreen(
               initialSection: SettingsSection.accountProfile,
               watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+              watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+              equipBorder: ({required userId, required borderId}) async =>
+                  const EquipBorderResult.alreadyEquipped(),
               pickProfileImage: () async => memoryPickFile(),
               cropProfileImage: (context, bytes) async {
                 return PendingProfileCrop(bytes: croppedBytes);
@@ -880,7 +897,12 @@ void main() {
           await _pumpFrames(tester);
         }
 
-        await tester.tap(find.byIcon(FluentIcons.cancel));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SettingsScreen),
+            matching: find.byIcon(FluentIcons.cancel),
+          ).first,
+        );
         await _pumpFrames(tester);
 
         expect(find.text('Discard unsaved changes?'), findsNothing);
@@ -896,6 +918,9 @@ void main() {
           SettingsScreen(
             initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
           ),
         ),
       );
@@ -920,6 +945,9 @@ void main() {
           SettingsScreen(
             initialSection: SettingsSection.accountProfile,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
           ),
         ),
       );
@@ -950,6 +978,9 @@ void main() {
           SettingsScreen(
             initialSection: SettingsSection.practice,
             watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
           ),
         ),
       );

@@ -13,14 +13,12 @@ import '../../data/models/achievement_claim.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/profile_border.dart';
 import '../../data/models/session.dart';
-import '../../data/models/user_cosmetics.dart';
 import '../../data/repositories/achievement_repository.dart';
 import '../../data/repositories/leaderboard_repository.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import 'widgets/achievement_card.dart';
-import 'widgets/profile_border_picker.dart';
 
 enum _AchievementFilter { all, claimable, inProgress, claimed, locked }
 
@@ -54,19 +52,15 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
 
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
   StreamSubscription<Set<String>>? _claimsSub;
-  StreamSubscription<UserCosmetics?>? _cosmeticsSub;
 
   String? _userId;
   List<Session> _sessions = const [];
   LeaderboardEntry? _leaderboardEntry;
   Set<String> _claimedIds = const {};
-  UserCosmetics? _cosmetics;
   bool _loadingSessions = true;
   bool _leaderboardMissing = false;
   String? _actionError;
   String? _claimingId;
-  String? _equippingId;
-  bool _unequipping = false;
   _AchievementFilter _filter = _AchievementFilter.all;
 
   @override
@@ -77,7 +71,9 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       final publicProfileRepository = context.read<PublicProfileRepository>();
       _achievementRepo =
           widget._achievementRepository ??
-          AchievementRepository(publicProfileRepository: publicProfileRepository);
+          AchievementRepository(
+            publicProfileRepository: publicProfileRepository,
+          );
       _leaderboardRepo =
           widget._leaderboardRepository ?? LeaderboardRepository();
       _sessionRepo = widget._sessionRepository ?? SessionRepository();
@@ -94,23 +90,19 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   void dispose() {
     _leaderboardSub?.cancel();
     _claimsSub?.cancel();
-    _cosmeticsSub?.cancel();
     super.dispose();
   }
 
   void _bindStreams(String? userId) {
     _leaderboardSub?.cancel();
     _claimsSub?.cancel();
-    _cosmeticsSub?.cancel();
     _leaderboardSub = null;
     _claimsSub = null;
-    _cosmeticsSub = null;
 
     if (userId == null) {
       setState(() {
         _leaderboardEntry = null;
         _claimedIds = const {};
-        _cosmetics = null;
         _leaderboardMissing = true;
         _sessions = const [];
         _loadingSessions = false;
@@ -130,12 +122,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     ) {
       if (!mounted) return;
       setState(() => _claimedIds = ids);
-    });
-    _cosmeticsSub = _achievementRepo.watchUserCosmetics(userId).listen((
-      cosmetics,
-    ) {
-      if (!mounted) return;
-      setState(() => _cosmetics = cosmetics);
     });
   }
 
@@ -167,6 +153,14 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       leaderboardEntry: _leaderboardEntry,
       claimedAchievementIds: _claimedIds,
     );
+  }
+
+  int get _unlockedBorderCount {
+    var count = 0;
+    for (final id in _claimedIds) {
+      if (rewardBorderForAchievement(id) != null) count++;
+    }
+    return count;
   }
 
   Map<_AchievementFilter, int> get _filterCounts {
@@ -241,66 +235,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     }
   }
 
-  Future<void> _equip(String borderId) async {
-    final userId = _userId;
-    if (userId == null || _equippingId != null || _unequipping) return;
-    setState(() {
-      _equippingId = borderId;
-      _actionError = null;
-    });
-    try {
-      final result = await _achievementRepo.equipBorder(
-        userId: userId,
-        borderId: borderId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _actionError = switch (result.status) {
-          EquipBorderStatus.equipped ||
-          EquipBorderStatus.alreadyEquipped => null,
-          EquipBorderStatus.invalidBorder => 'Unknown border.',
-          EquipBorderStatus.borderLocked => 'Unlock this border first.',
-          EquipBorderStatus.cosmeticsMissing =>
-            'Claim an achievement to unlock cosmetics.',
-          EquipBorderStatus.leaderboardMissing =>
-            'Complete a session to create your leaderboard profile first.',
-        };
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _actionError = 'Equip failed. Please retry.');
-    } finally {
-      if (mounted) setState(() => _equippingId = null);
-    }
-  }
-
-  Future<void> _unequip() async {
-    final userId = _userId;
-    if (userId == null || _unequipping || _equippingId != null) return;
-    setState(() {
-      _unequipping = true;
-      _actionError = null;
-    });
-    try {
-      final result = await _achievementRepo.equipBorder(
-        userId: userId,
-        borderId: '',
-      );
-      if (!mounted) return;
-      if (result.status == EquipBorderStatus.leaderboardMissing) {
-        setState(
-          () => _actionError =
-              'Complete a session to create your leaderboard profile first.',
-        );
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _actionError = 'Unequip failed. Please retry.');
-    } finally {
-      if (mounted) setState(() => _unequipping = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
@@ -308,7 +242,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     final claimedCount = views
         .where((v) => v.state == AchievementState.claimed)
         .length;
-    final unlockedBorders = _cosmetics?.unlockedBorderIds.toSet() ?? {};
     final initials = userInitials(user?.fullName ?? 'User');
     final filterCounts = _filterCounts;
 
@@ -359,7 +292,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                     _HeaderSummary(
                       claimedCount: claimedCount,
                       totalCount: achievementCatalog.length,
-                      unlockedBorderCount: unlockedBorders.length,
+                      unlockedBorderCount: _unlockedBorderCount,
                       totalBorders: profileBorderCatalog.length,
                       overallProgress: _overallProgress,
                       initials: initials,
@@ -390,6 +323,14 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                       icon: FluentIcons.trophy2,
                       title: 'Achievements',
                       accent: AppColors.primary,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Claimed profile frames can be equipped in Settings → Account & Profile.',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                        height: 1.35,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Wrap(
@@ -432,41 +373,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                           },
                         );
                       },
-                    ),
-                    const SizedBox(height: AppSpacing.xl),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Profile Borders',
-                            style: AppTheme.headingMedium.copyWith(
-                              color: context.elixTextPrimary,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ),
-                        UnequipBorderButton(
-                          enabled: (_leaderboardEntry?.equippedBorderId ?? '')
-                              .isNotEmpty,
-                          busy: _unequipping,
-                          onPressed: _unequip,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'Achievements unlock cosmetic borders only — no XP.',
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    ProfileBorderPicker(
-                      unlockedBorderIds: unlockedBorders,
-                      equippedBorderId: _leaderboardEntry?.equippedBorderId,
-                      busyBorderId: _equippingId,
-                      onEquip: _equip,
-                      onUnequip: _unequip,
                     ),
                   ],
                 ),
@@ -688,6 +594,7 @@ class _HeaderSummary extends StatelessWidget {
                 initials: initials,
                 radius: 32,
                 equippedBorderId: equippedBorderId,
+                animateBorder: true,
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
@@ -702,7 +609,7 @@ class _HeaderSummary extends StatelessWidget {
                       color: AppColors.primary,
                     ),
                     _StatBlock(
-                      label: 'Borders',
+                      label: 'Frames',
                       value: '$unlockedBorderCount / $totalBorders',
                       icon: FluentIcons.contact,
                       color: AppColors.accent,
@@ -767,7 +674,8 @@ class _HeaderSummary extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'No leaderboard profile yet — complete a session to equip borders publicly.',
+                    'No leaderboard profile yet — complete a session to show '
+                    'your equipped frame publicly.',
                     style: AppTheme.caption.copyWith(
                       color: AppColors.warning,
                       height: 1.3,

@@ -271,6 +271,7 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
                 initials: widget.initials,
                 radius: 22,
                 equippedBorderId: widget.equippedBorderId,
+                animateBorder: true,
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(

@@ -738,6 +738,7 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
                         initials: widget.initials,
                         radius: 18,
                         equippedBorderId: widget.equippedBorderId,
+                        animateBorder: true,
                       ),
                     )
                   : Column(
@@ -751,6 +752,7 @@ class _ProfileSectionWidgetState extends State<_ProfileSectionWidget> {
                               initials: widget.initials,
                               radius: 18,
                               equippedBorderId: widget.equippedBorderId,
+                              animateBorder: true,
                             ),
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(

@@ -17,9 +17,7 @@ class PrivateProfileState extends StatelessWidget {
             ? AppColors.panelSurface
             : context.elixCardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.accent.withValues(alpha: 0.28),
-        ),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
       ),
       child: Column(
         children: [
@@ -50,9 +48,7 @@ class PrivateProfileState extends StatelessWidget {
           Text(
             'Profile owners can see recent profile visitors.',
             textAlign: TextAlign.center,
-            style: AppTheme.caption.copyWith(
-              color: context.elixTextSecondary,
-            ),
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
         ],
       ),

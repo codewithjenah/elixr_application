@@ -70,21 +70,26 @@ class _ClaimedBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.elixBackground,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.success.withValues(alpha: 0.35),
-        ),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
-          ProfileBorderFrame(
-            size: 36,
-            equippedBorderId: achievement.rewardBorderId,
-            child: ColoredBox(
-              color: AppColors.success.withValues(alpha: 0.12),
-              child: const Icon(
-                FluentIcons.trophy2,
-                size: 18,
-                color: AppColors.success,
+          SizedBox(
+            width: 44,
+            height: 44,
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: ProfileBorderFrame(
+                size: 36,
+                equippedBorderId: achievement.rewardBorderId,
+                child: ColoredBox(
+                  color: AppColors.success.withValues(alpha: 0.12),
+                  child: const Icon(
+                    FluentIcons.trophy2,
+                    size: 18,
+                    color: AppColors.success,
+                  ),
+                ),
               ),
             ),
           ),

@@ -130,9 +130,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       _holdProgressNotifier.value = 0;
       if (mounted) {
         final wasCalibrating =
-            _run.isPreparingCamera ||
-            _run.isReadiness ||
-            _run.isCountdown;
+            _run.isPreparingCamera || _run.isReadiness || _run.isCountdown;
         if (wasCalibrating || _run.isTrainingActive) {
           _run.onPreviewFeedback(
             hasJpegFrame: false,

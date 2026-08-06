@@ -7,7 +7,6 @@ import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/models/profile_border.dart';
 import 'package:elixr_application/features/achievements/widgets/achievement_card.dart';
-import 'package:elixr_application/features/achievements/widgets/profile_border_picker.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_identity.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
@@ -370,190 +369,25 @@ void main() {
     expect(find.text('Claim'), findsNothing);
   });
 
-  testWidgets('locked border cannot equip; unlocked can', (tester) async {
-    await setSurface(tester, const Size(1000, 800));
-
-    await tester.pumpWidget(
-      wrap(
-        SizedBox(
-          width: 900,
-          height: 600,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: null,
-            busyBorderId: null,
-            onEquip: (_) {},
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-
-    await expectNoOverflow(tester);
-    expect(find.text('Equip'), findsOneWidget);
-    expect(find.text('Locked'), findsWidgets);
-  });
-
-  testWidgets('unlocked border card can be equipped by clicking the card', (
+  testWidgets('achievement cards still show reward frame information', (
     tester,
   ) async {
-    String? equippedId;
+    final view = _claimableView();
 
     await tester.pumpWidget(
       wrap(
         SizedBox(
-          width: 360,
-          height: 220,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: null,
-            busyBorderId: null,
-            onEquip: (id) => equippedId = id,
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final starterCard = find.ancestor(
-      of: find.text('Starter Glow'),
-      matching: find.byType(FocusableActionDetector),
-    );
-    expect(starterCard, findsOneWidget);
-
-    await tester.tap(starterCard);
-    await tester.pumpAndSettle();
-
-    expect(equippedId, 'starter_glow');
-  });
-
-  testWidgets('clicking Equip button invokes onEquip exactly once', (
-    tester,
-  ) async {
-    var equipCount = 0;
-
-    await tester.pumpWidget(
-      wrap(
-        SizedBox(
-          width: 360,
-          height: 220,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: null,
-            busyBorderId: null,
-            onEquip: (_) => equipCount++,
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Equip'));
-    await tester.pumpAndSettle();
-
-    expect(equipCount, 1);
-  });
-
-  testWidgets('locked border cards never invoke onEquip', (tester) async {
-    var equipCount = 0;
-
-    await tester.pumpWidget(
-      wrap(
-        SizedBox(
-          width: 900,
-          height: 600,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: null,
-            busyBorderId: null,
-            onEquip: (_) => equipCount++,
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final lockedCards = find.text('Locked');
-    expect(lockedCards, findsWidgets);
-
-    for (var i = 0; i < tester.widgetList(lockedCards).length; i++) {
-      await tester.tap(lockedCards.at(i));
-    }
-    await tester.pumpAndSettle();
-
-    expect(equipCount, 0);
-  });
-
-  testWidgets('equipped borders display the Equipped state', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        SizedBox(
-          width: 360,
-          height: 220,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: 'starter_glow',
-            busyBorderId: null,
-            onEquip: (_) {},
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Equipped'), findsOneWidget);
-    expect(find.text('Equip'), findsNothing);
-  });
-
-  testWidgets('ProfileBorderPicker renders without overflow at narrow size', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      wrap(
-        SizedBox(
-          width: 340,
-          height: 800,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: null,
-            busyBorderId: null,
-            onEquip: (_) {},
-            onUnequip: () {},
-          ),
+          width: 420,
+          height: 168,
+          child: AchievementCard(view: view, claiming: false, onClaim: () {}),
         ),
       ),
     );
 
-    await expectNoOverflow(tester);
-  });
-
-  testWidgets('ProfileBorderPicker renders without overflow at wide size', (
-    tester,
-  ) async {
-    await setSurface(tester, const Size(1200, 900));
-
-    await tester.pumpWidget(
-      wrap(
-        SizedBox(
-          width: 1100,
-          height: 500,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow', 'cyan_orbit'},
-            equippedBorderId: 'starter_glow',
-            busyBorderId: null,
-            onEquip: (_) {},
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-
-    await expectNoOverflow(tester);
-    expect(find.byType(FocusableActionDetector), findsWidgets);
+    expect(find.text('Claim'), findsOneWidget);
+    expect(find.byType(AchievementCard), findsOneWidget);
+    // Reward border preview remains on the card.
+    expect(find.textContaining('Starter'), findsWidgets);
   });
 
   testWidgets('ProfileAvatarWidget with and without cosmetic border', (
@@ -656,103 +490,24 @@ void main() {
     expect(trophy.color, isNot(equals(borderAccent)));
   });
 
-  testWidgets(
-    'dark theme unlocked border contact icon avoids border accent foreground',
-    (tester) async {
-      final borderAccent = Color(
-        profileBorderById('cyan_orbit')!.primaryColorValue,
-      );
-
-      await tester.pumpWidget(
-        wrap(
-          SizedBox(
-            width: 360,
-            height: 220,
-            child: ProfileBorderPicker(
-              unlockedBorderIds: const {'cyan_orbit'},
-              equippedBorderId: null,
-              busyBorderId: null,
-              onEquip: (_) {},
-              onUnequip: () {},
-            ),
-          ),
-        ),
-      );
-
-      final contacts = tester.widgetList<Icon>(
-        find.byIcon(FluentIcons.contact),
-      );
-      expect(contacts, isNotEmpty);
-      final contact = contacts.first;
-      expect(contact.color, AppColors.textPrimary);
-      expect(contact.color, isNot(equals(borderAccent)));
-      expect(contact.size, 22);
-    },
-  );
-
-  testWidgets('light theme border contact icon uses primary text foreground', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      wrap(
-        brightness: Brightness.light,
-        SizedBox(
-          width: 360,
-          height: 220,
-          child: ProfileBorderPicker(
-            unlockedBorderIds: const {'starter_glow'},
-            equippedBorderId: null,
-            busyBorderId: null,
-            onEquip: (_) {},
-            onUnequip: () {},
-          ),
-        ),
-      ),
-    );
-
-    final contact = _previewIcon(tester, FluentIcons.contact);
-    expect(contact.color, AppColors.textPrimaryLight);
-  });
-
   testWidgets('locked preview icons use muted secondary foreground', (
     tester,
   ) async {
     await tester.pumpWidget(
       wrap(
-        Column(
-          children: [
-            SizedBox(
-              width: 420,
-              height: 168,
-              child: AchievementCard(
-                view: _lockedView(),
-                claiming: false,
-                onClaim: () {},
-              ),
-            ),
-            SizedBox(
-              width: 360,
-              height: 220,
-              child: ProfileBorderPicker(
-                unlockedBorderIds: const {'starter_glow'},
-                equippedBorderId: null,
-                busyBorderId: null,
-                onEquip: (_) {},
-                onUnequip: () {},
-              ),
-            ),
-          ],
+        SizedBox(
+          width: 420,
+          height: 168,
+          child: AchievementCard(
+            view: _lockedView(),
+            claiming: false,
+            onClaim: () {},
+          ),
         ),
       ),
     );
 
     final lockedTrophy = _previewIcon(tester, FluentIcons.trophy2);
     expect(lockedTrophy.color, AppColors.textSecondary);
-
-    final locks = tester.widgetList<Icon>(find.byIcon(FluentIcons.lock));
-    expect(locks, isNotEmpty);
-    for (final lock in locks) {
-      expect(lock.color, AppColors.textSecondary);
-    }
   });
 }

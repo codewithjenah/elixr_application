@@ -36,6 +36,7 @@ class ProfileAvatarWidget extends StatelessWidget {
     this.radius = 20,
     this.equippedBorderId,
     this.showBorder = true,
+    this.animateBorder = false,
   });
 
   /// In-memory cropped (or otherwise staged) avatar bytes. Takes priority
@@ -53,6 +54,10 @@ class ProfileAvatarWidget extends StatelessWidget {
   final String? equippedBorderId;
   final bool showBorder;
 
+  /// When true, animates the equipped cosmetic frame (Settings preview,
+  /// large profile headers). Defaults to false for dense lists.
+  final bool animateBorder;
+
   @override
   Widget build(BuildContext context) {
     final size = radius * 2;
@@ -61,6 +66,7 @@ class ProfileAvatarWidget extends StatelessWidget {
       size: size,
       equippedBorderId: equippedBorderId,
       showBorder: showBorder,
+      animate: animateBorder,
       child: ClipOval(child: _resolveContent()),
     );
   }

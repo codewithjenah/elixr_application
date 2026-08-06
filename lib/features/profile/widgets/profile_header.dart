@@ -38,9 +38,7 @@ class ProfileHeader extends StatelessWidget {
             ? AppColors.panelSurface
             : context.elixCardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.22),
-        ),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.22)),
       ),
       child: Row(
         children: [
@@ -51,6 +49,7 @@ class ProfileHeader extends StatelessWidget {
             profilePictureUrl: profilePictureUrl,
             equippedBorderId: equippedBorderId,
             highlightRing: isSelf,
+            animateBorder: true,
           ),
           const SizedBox(width: AppSpacing.lg),
           Expanded(

@@ -54,25 +54,35 @@ class _AchievementCardState extends State<AchievementCard> {
 
   Widget _buildTrophyPreview(BuildContext context, Color accentTint) {
     final glyphColor = _previewGlyphColor(context);
-    return ProfileBorderFrame(
-      size: 36,
-      equippedBorderId: widget.view.definition.rewardBorderId,
-      child: ColoredBox(
-        color: _previewPlateColor(context, accentTint),
-        child: Center(
-          child: Icon(
-            FluentIcons.trophy2,
-            size: 20,
-            color: glyphColor,
-            shadows: [
-              Shadow(
-                color: Colors.black.withValues(
-                  alpha: context.isDarkTheme ? 0.32 : 0.1,
-                ),
-                blurRadius: 1.5,
-                offset: const Offset(0, 0.5),
+    // Keep a fixed layout slot; ornamental frames scale down so the
+    // fixed-height achievement grid never overflows.
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: FittedBox(
+        fit: BoxFit.contain,
+        child: ProfileBorderFrame(
+          size: 36,
+          equippedBorderId: widget.view.definition.rewardBorderId,
+          animate: true,
+          child: ColoredBox(
+            color: _previewPlateColor(context, accentTint),
+            child: Center(
+              child: Icon(
+                FluentIcons.trophy2,
+                size: 20,
+                color: glyphColor,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(
+                      alpha: context.isDarkTheme ? 0.32 : 0.1,
+                    ),
+                    blurRadius: 1.5,
+                    offset: const Offset(0, 0.5),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

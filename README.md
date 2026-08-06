@@ -358,7 +358,7 @@ Initial catalog (`lib/data/models/achievement.dart` / `profile_border.dart`):
 | `week_warrior`             | 7 consecutive days                    | `week_warrior`   |
 | `bottle_in_tin_specialist` | 5× Bottle in a Tin with bottle+shaker | `tin_specialist` |
 
-Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Equipping writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). The equipped border is shown around avatars in the sidebar, profile menu, profile settings, dashboard podium, and full leaderboard.
+Claims (`AchievementRepository.claimAchievement`) create `achievement_claims/{userId}_{achievementId}` and update `user_cosmetics/{userId}` atomically; they never write XP or leaderboard aggregates. Equipping is done in **Settings → Account & Profile** and writes only `leaderboard/{userId}.equipped_border_id` (empty string to unequip). The equipped border is shown around avatars in the sidebar, profile menu, profile settings, dashboard podium, and full leaderboard.
 
 Security rules enforce ownership, fixed achievement→border rewards, append-only unlock lists, atomic claim↔cosmetics linkage, and equip-only-if-unlocked. They do **not** verify achievement completion. Because rewards grant no XP, modified-client impact is limited to the attacker's own cosmetics. Trusted callable-function evaluation remains the future hostile-client hardening path.
 

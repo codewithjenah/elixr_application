@@ -56,11 +56,12 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _settingsService),
         ChangeNotifierProvider.value(value: _cameraDeviceService),
         ChangeNotifierProvider(
-          create: (_) => SessionService(
-            publicProfileRepository: _publicProfileRepository,
-          ),
+          create: (_) =>
+              SessionService(publicProfileRepository: _publicProfileRepository),
         ),
-        Provider<PublicProfileRepository>.value(value: _publicProfileRepository),
+        Provider<PublicProfileRepository>.value(
+          value: _publicProfileRepository,
+        ),
       ],
       child: Consumer<SettingsService>(
         builder: (context, settings, _) {

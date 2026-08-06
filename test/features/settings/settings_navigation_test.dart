@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/user.dart';
+import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
 import 'package:elixr_application/features/settings/settings_screen.dart';
@@ -184,6 +186,9 @@ void main() {
         SettingsScreen(
           initialSection: SettingsSection.appearance,
           watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+          watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+          equipBorder: ({required userId, required borderId}) async =>
+              const EquipBorderResult.alreadyEquipped(),
         ),
       ),
     );
@@ -205,6 +210,9 @@ void main() {
         SettingsScreen(
           initialSection: SettingsSection.appearance,
           watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+          watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+          equipBorder: ({required userId, required borderId}) async =>
+              const EquipBorderResult.alreadyEquipped(),
         ),
       ),
     );
@@ -223,6 +231,9 @@ void main() {
         SettingsScreen(
           initialSection: SettingsSection.appearance,
           watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+          watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+          equipBorder: ({required userId, required borderId}) async =>
+              const EquipBorderResult.alreadyEquipped(),
         ),
       ),
     );

@@ -12,12 +12,19 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_name.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/profile_avatar.dart';
+import '../../../core/widgets/profile_border_frame.dart';
+import '../../../data/models/achievement_claim.dart';
 import '../../../data/models/leaderboard_entry.dart';
+import '../../../data/models/profile_border.dart';
+import '../../../data/models/user_cosmetics.dart';
+import '../../../data/repositories/achievement_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../data/repositories/profile_image_repository.dart';
+import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import '../models/pending_profile_crop.dart';
+import '../widgets/profile_frame_selector.dart';
 import '../widgets/profile_image_crop_dialog.dart';
 import '../widgets/settings_components.dart';
 
@@ -31,18 +38,46 @@ typedef AccountProfileImageCropper =
       Uint8List sourceBytes,
     );
 
+/// Watches the authenticated user's public leaderboard row.
+typedef AccountProfileWatchPlayer =
+    Stream<LeaderboardEntry?> Function(String userId);
+
+/// Watches unlocked cosmetics for the authenticated user.
+typedef AccountProfileWatchCosmetics =
+    Stream<UserCosmetics?> Function(String userId);
+
+/// Equips or clears a cosmetic border (`borderId` empty = unequip).
+typedef AccountProfileEquipBorder =
+    Future<EquipBorderResult> Function({
+      required String userId,
+      required String borderId,
+    });
+
+/// Wider body so the avatar customization column and form can sit side by side.
+const double _accountProfileMaxBodyWidth = 960;
+const double _avatarCustomizationColumnWidth = 300;
+const double _avatarPreviewRadius = 56;
+
 /// Merged Account & Profile Settings section.
 class AccountProfileSection extends StatefulWidget {
   const AccountProfileSection({
     super.key,
     this.watchPlayer,
+    this.watchUserCosmetics,
+    this.equipBorder,
     this.onDirtyChanged,
     this.pickProfileImage,
     this.cropProfileImage,
   });
 
   /// Optional override for tests (avoids constructing Firestore).
-  final Stream<LeaderboardEntry?> Function(String userId)? watchPlayer;
+  final AccountProfileWatchPlayer? watchPlayer;
+
+  /// Optional cosmetics stream override for tests.
+  final AccountProfileWatchCosmetics? watchUserCosmetics;
+
+  /// Optional equip/unequip override for tests.
+  final AccountProfileEquipBorder? equipBorder;
 
   /// Notified whenever [AccountProfileSectionState.isDirty] changes.
   final ValueChanged<bool>? onDirtyChanged;
@@ -68,7 +103,13 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   PendingProfileCrop? _pendingCrop;
   late final AuthService _authService;
   StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
+  StreamSubscription<UserCosmetics?>? _cosmeticsSub;
+  String? _boundUserId;
   String? _equippedBorderId;
+  Set<String> _unlockedBorderIds = const {};
+  bool _leaderboardMissing = false;
+  String? _frameError;
+  String? _busyBorderId;
 
   bool _savingProfile = false;
   bool _uploadingProfilePicture = false;
@@ -81,6 +122,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   String _originalEmail = '';
 
   bool _lastReportedDirty = false;
+
+  AchievementRepository? _achievementRepo;
 
   @override
   void initState() {
@@ -100,22 +143,24 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     _emailController.addListener(_onFormChanged);
     _authService.addListener(_onAuthServiceChanged);
 
-    final userId = user?.id;
-    if (userId != null) {
-      final watch = widget.watchPlayer ?? LeaderboardRepository().watchPlayer;
-      _leaderboardSub = watch(userId).listen((entry) {
-        if (!mounted) return;
-        setState(() => _equippedBorderId = entry?.equippedBorderId);
-      });
-    }
-
     WidgetsBinding.instance.addPostFrameCallback((_) => _notifyDirtyChanged());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final userId = _authService.currentUser?.id;
+    if (userId != _boundUserId) {
+      _boundUserId = userId;
+      _bindCosmeticStreams(userId);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _leaderboardSub?.cancel();
+    _cosmeticsSub?.cancel();
     _authService.removeListener(_onAuthServiceChanged);
     _firstNameController.removeListener(_onFormChanged);
     _middleNameController.removeListener(_onFormChanged);
@@ -126,6 +171,95 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     _lastNameController.dispose();
     _emailController.dispose();
     super.dispose();
+  }
+
+  void _bindCosmeticStreams(String? userId) {
+    _leaderboardSub?.cancel();
+    _cosmeticsSub?.cancel();
+    _leaderboardSub = null;
+    _cosmeticsSub = null;
+
+    if (userId == null) {
+      setState(() {
+        _equippedBorderId = null;
+        _unlockedBorderIds = const {};
+        _leaderboardMissing = true;
+        _frameError = null;
+        _busyBorderId = null;
+      });
+      return;
+    }
+
+    final watchPlayer =
+        widget.watchPlayer ?? LeaderboardRepository().watchPlayer;
+    _leaderboardSub = watchPlayer(userId).listen((entry) {
+      if (!mounted) return;
+      setState(() {
+        _equippedBorderId = entry?.equippedBorderId;
+        _leaderboardMissing = entry == null;
+      });
+    });
+
+    final watchCosmetics =
+        widget.watchUserCosmetics ??
+        ((id) {
+          _achievementRepo ??= AchievementRepository(
+            publicProfileRepository: context.read<PublicProfileRepository>(),
+          );
+          return _achievementRepo!.watchUserCosmetics(id);
+        });
+    _cosmeticsSub = watchCosmetics(userId).listen((cosmetics) {
+      if (!mounted) return;
+      setState(() {
+        _unlockedBorderIds = cosmetics?.unlockedBorderIds.toSet() ?? const {};
+      });
+    });
+  }
+
+  Future<void> _equipOrClearBorder(String borderId) async {
+    final userId = _boundUserId;
+    if (userId == null || _busyBorderId != null) return;
+
+    final trimmed = borderId.trim();
+    final current = _equippedBorderId?.trim() ?? '';
+    if (trimmed == current) return;
+
+    setState(() {
+      _busyBorderId = trimmed;
+      _frameError = null;
+    });
+
+    try {
+      final equip =
+          widget.equipBorder ??
+          (({required String userId, required String borderId}) {
+            _achievementRepo ??= AchievementRepository(
+              publicProfileRepository: context.read<PublicProfileRepository>(),
+            );
+            return _achievementRepo!.equipBorder(
+              userId: userId,
+              borderId: borderId,
+            );
+          });
+      final result = await equip(userId: userId, borderId: trimmed);
+      if (!mounted) return;
+
+      final error = switch (result.status) {
+        EquipBorderStatus.equipped || EquipBorderStatus.alreadyEquipped => null,
+        EquipBorderStatus.invalidBorder => 'Unknown avatar frame.',
+        EquipBorderStatus.borderLocked => 'Unlock this frame first.',
+        EquipBorderStatus.cosmeticsMissing =>
+          'Claim an achievement to unlock frames.',
+        EquipBorderStatus.leaderboardMissing =>
+          'Complete a session to create your leaderboard profile first.',
+      };
+      setState(() => _frameError = error);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _frameError = 'Could not update avatar frame.');
+    } finally {
+      if (mounted) setState(() => _busyBorderId = null);
+    }
   }
 
   @override
@@ -615,73 +749,192 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     );
   }
 
-  Widget _buildAvatar() {
+  Widget _buildAvatarPreview() {
     final user = context.watch<AuthService>().currentUser;
     final avatarBusy = _uploadingProfilePicture;
     final avatarDisabled = _savingProfile || avatarBusy;
+    final avatarDiameter = _avatarPreviewRadius * 2;
+    final ornament = ProfileBorderFrame.ornamentPaddingFor(_equippedBorderId);
+    final outer = avatarDiameter + ornament * 2;
 
-    return GestureDetector(
-      key: const Key('account_profile_avatar_tap'),
-      onTap: avatarDisabled ? null : _pickImage,
-      child: MouseRegion(
-        cursor: avatarDisabled
-            ? SystemMouseCursors.basic
-            : SystemMouseCursors.click,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            ProfileAvatarWidget(
-              memoryPreviewBytes: _pendingCrop?.bytes,
-              networkImageUrl: user?.profilePictureUrl,
-              legacyLocalPath: user?.profilePicturePath,
-              radius: 48,
-              initials: userInitials(_composedDisplayName()),
-              equippedBorderId: _equippedBorderId,
-            ),
-            if (avatarBusy)
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(child: ProgressRing(strokeWidth: 2.5)),
-              ),
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFF1A1A1F),
-                    width: 2,
-                  ),
-                ),
-                child: const Icon(
-                  FluentIcons.camera,
-                  size: 14,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-          ],
+    return Column(
+      key: const Key('account_avatar_customization'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Avatar customization',
+          style: AppTheme.headingMedium.copyWith(
+            color: context.elixTextPrimary,
+            fontSize: 16,
+          ),
         ),
-      ),
+        const SizedBox(height: AppSpacing.md),
+        Center(
+          child: GestureDetector(
+            key: const Key('account_profile_avatar_tap'),
+            onTap: avatarDisabled ? null : _pickImage,
+            child: MouseRegion(
+              cursor: avatarDisabled
+                  ? SystemMouseCursors.basic
+                  : SystemMouseCursors.click,
+              child: SizedBox(
+                width: outer,
+                height: outer,
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
+                  children: [
+                    ProfileAvatarWidget(
+                      memoryPreviewBytes: _pendingCrop?.bytes,
+                      networkImageUrl: user?.profilePictureUrl,
+                      legacyLocalPath: user?.profilePicturePath,
+                      radius: _avatarPreviewRadius,
+                      initials: userInitials(_composedDisplayName()),
+                      equippedBorderId: _equippedBorderId,
+                      animateBorder: true,
+                    ),
+                    if (avatarBusy)
+                      Container(
+                        width: avatarDiameter,
+                        height: avatarDiameter,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: ProgressRing(strokeWidth: 2.5),
+                        ),
+                      ),
+                    // Camera sits on the avatar circle edge, not ornament bounds.
+                    Transform.translate(
+                      offset: Offset(
+                        avatarDiameter * 0.34,
+                        avatarDiameter * 0.34,
+                      ),
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(0xFF1A1A1F),
+                            width: 2,
+                          ),
+                        ),
+                        child: const Icon(
+                          FluentIcons.camera,
+                          size: 14,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Avatar Frame',
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        _buildSelectedFrameMeta(),
+        const SizedBox(height: AppSpacing.sm),
+        if (_leaderboardMissing)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              'Complete a practice session to create your leaderboard profile '
+              'before equipping frames.',
+              style: AppTheme.caption.copyWith(color: AppColors.warning),
+            ),
+          ),
+        if (_frameError != null && !_leaderboardMissing)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              _frameError!,
+              style: AppTheme.caption.copyWith(color: AppColors.error),
+            ),
+          ),
+        ProfileFrameSelector(
+          unlockedBorderIds: _unlockedBorderIds,
+          equippedBorderId: _equippedBorderId,
+          busyBorderId: _busyBorderId,
+          actionsDisabled: _busyBorderId != null || _leaderboardMissing,
+          onSelectBorder: _equipOrClearBorder,
+          onClearBorder: () => _equipOrClearBorder(''),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Frames are unlocked by claiming achievements.',
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectedFrameMeta() {
+    final id = _equippedBorderId?.trim();
+    if (id == null || id.isEmpty) {
+      return Text(
+        'No Frame · Default',
+        style: AppTheme.body.copyWith(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: context.elixTextPrimary,
+        ),
+      );
+    }
+    final border = profileBorderById(id);
+    if (border == null) {
+      return Text(
+        'Unknown frame',
+        style: AppTheme.body.copyWith(
+          fontSize: 13,
+          color: context.elixTextSecondary,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${border.displayName} · ${border.rarityLabel}',
+          style: AppTheme.body.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: context.elixTextPrimary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          border.description,
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            height: 1.3,
+          ),
+        ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
-    final stackAvatar =
+    final stackLayout =
         MediaQuery.sizeOf(context).width < settingsWideBreakpoint;
 
-    final avatar = _buildAvatar();
+    final customization = _buildAvatarPreview();
 
     final formFields = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -719,21 +972,24 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     );
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: settingsMaxBodyWidth),
+      constraints: const BoxConstraints(maxWidth: _accountProfileMaxBodyWidth),
       child: SettingsGroup(
-        child: stackAvatar
+        child: stackLayout
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  avatar,
-                  const SizedBox(height: AppSpacing.lg),
+                  customization,
+                  const SizedBox(height: AppSpacing.xl),
                   formFields,
                 ],
               )
             : Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  avatar,
+                  SizedBox(
+                    width: _avatarCustomizationColumnWidth,
+                    child: customization,
+                  ),
                   const SizedBox(width: AppSpacing.xl),
                   Expanded(child: formFields),
                 ],

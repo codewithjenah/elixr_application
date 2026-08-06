@@ -46,7 +46,9 @@ class LeaderboardPodiumCard extends StatelessWidget {
     final rankLabel = rank >= 1 && rank <= 3 ? 'Top $rank' : '#$rank';
 
     return MouseRegion(
-      cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor: onTap != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
@@ -89,12 +91,15 @@ class LeaderboardPodiumCard extends StatelessWidget {
               ),
               SizedBox(height: compact ? 6 : 8),
               LeaderboardInitialsAvatar(
-                initials: LeaderboardPresentation.initialsFor(entry.displayName),
+                initials: LeaderboardPresentation.initialsFor(
+                  entry.displayName,
+                ),
                 accent: accent,
                 size: avatarSize,
                 profilePictureUrl: profilePictureUrl,
                 equippedBorderId: entry.equippedBorderId,
                 highlightRing: isCurrentUser,
+                animateBorder: true,
               ),
               SizedBox(height: compact ? 8 : 10),
               Text(

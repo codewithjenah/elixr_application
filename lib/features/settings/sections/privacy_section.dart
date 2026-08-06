@@ -69,7 +69,9 @@ class PrivacySectionState extends State<PrivacySection> {
     final repository = _repository;
     if (userId == null || repository == null || _saving) return;
 
-    final next = isPublic ? ProfileVisibility.public : ProfileVisibility.private;
+    final next = isPublic
+        ? ProfileVisibility.public
+        : ProfileVisibility.private;
     final previous = _visibility;
     setState(() {
       _visibility = next;
