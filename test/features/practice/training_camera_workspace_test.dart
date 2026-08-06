@@ -289,5 +289,48 @@ void main() {
       );
       expect(transform.transform.storage[0], -1);
     });
+
+    testWidgets('camera feed fills workspace without inner AspectRatio', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: _workspace(
+            prop: TrainingProp.bottle,
+            mirrored: false,
+            width: 800,
+            height: 600,
+            frameBytes: _tinyPng,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AspectRatio), findsNothing);
+
+      final workspaceBox = tester.renderObject<RenderBox>(
+        find.byKey(const ValueKey('practice-camera-workspace')),
+      );
+      final imageBox = tester.renderObject<RenderBox>(find.byType(Image));
+      expect(imageBox.size.width, closeTo(workspaceBox.size.width, 1));
+      expect(imageBox.size.height, closeTo(workspaceBox.size.height, 1));
+    });
+
+    testWidgets('live frame uses BoxFit.fill inside the workspace', (
+      tester,
+    ) async {
+      await _pumpWorkspace(
+        tester,
+        prop: TrainingProp.bottle,
+        mirrored: true,
+        width: 640,
+        height: 480,
+      );
+
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.fit, BoxFit.fill);
+      expect(find.byKey(_frameTransformKey), findsOneWidget);
+    });
   });
 }

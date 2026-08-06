@@ -44,6 +44,40 @@ class PracticeScreen extends StatefulWidget {
   final String difficulty;
   final TrainingProp prop;
 
+  static const cameraAspectWidth = 640.0;
+  static const cameraAspectHeight = 480.0;
+
+  static double panelWidthForContent(double contentWidth) {
+    return math.min(
+      AppSpacing.practicePanelMaxWidth,
+      math.max(AppSpacing.practicePanelMinWidth, contentWidth * 0.28),
+    );
+  }
+
+  @visibleForTesting
+  static Size desktopCameraSize({
+    required double contentWidth,
+    required double workspaceHeight,
+  }) {
+    final panelWidth = panelWidthForContent(contentWidth);
+    final availableCameraWidth =
+        contentWidth - panelWidth - AppSpacing.practiceCameraPanelGap;
+    final cameraWidth = math.min(
+      availableCameraWidth,
+      workspaceHeight * cameraAspectWidth / cameraAspectHeight,
+    );
+    final cameraHeight = cameraWidth * cameraAspectHeight / cameraAspectWidth;
+    return Size(cameraWidth, cameraHeight);
+  }
+
+  @visibleForTesting
+  static Size stackedCameraSize(double contentWidth) {
+    return Size(
+      contentWidth,
+      contentWidth * cameraAspectHeight / cameraAspectWidth,
+    );
+  }
+
   @override
   State<PracticeScreen> createState() => _PracticeScreenState();
 }
@@ -768,103 +802,90 @@ class _PracticeScreenState extends State<PracticeScreen>
         _ws.connectionState == WebSocketConnectionState.error;
 
     return ScaffoldPage(
-      content: DecoratedBox(
-        decoration: AppTheme.practicePageBackground(context),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.sm + 2,
-              AppSpacing.lg,
-              AppSpacing.lg,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final contentWidth = math.min(
-                  constraints.maxWidth,
-                  _maxContentWidth,
-                );
-                final isDesktop = contentWidth >= _desktopBreakpoint;
-                final isCompact =
-                    contentWidth >= _compactBreakpoint && !isDesktop;
+      padding: EdgeInsets.zero,
+      content: SizedBox.expand(
+        child: DecoratedBox(
+          decoration: AppTheme.practicePageBackground(context),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm + 2,
+                AppSpacing.lg,
+                AppSpacing.lg,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final contentWidth = math.min(
+                    constraints.maxWidth,
+                    _maxContentWidth,
+                  );
+                  final isDesktop = contentWidth >= _desktopBreakpoint;
+                  final isCompact =
+                      contentWidth >= _compactBreakpoint && !isDesktop;
 
-                final header = TrainingSessionHeader(
-                  onBack: _onBack,
-                  title: _movement,
-                  statusPill: _difficulty,
-                  statusPillColor: trainingDifficultyColor(_difficulty),
-                  instruction: _instructionForMovement(_movement),
-                  connectionState: _ws.connectionState,
-                  connecting: _connecting,
-                  wideLayout: isDesktop || isCompact,
-                );
-                final camera = _buildCamera(
-                  isTrainingActive: isTrainingActive,
-                  isCameraLive: isCameraLive,
-                );
-                final panel = _buildPanel(
-                  isTrainingActive: isTrainingActive,
-                  hasConnectionError: hasConnectionError,
-                  expandVertically: isDesktop,
-                );
+                  final header = TrainingSessionHeader(
+                    onBack: _onBack,
+                    title: _movement,
+                    statusPill: _difficulty,
+                    statusPillColor: trainingDifficultyColor(_difficulty),
+                    instruction: _instructionForMovement(_movement),
+                    connectionState: _ws.connectionState,
+                    connecting: _connecting,
+                    wideLayout: isDesktop || isCompact,
+                  );
+                  final camera = _buildCamera(
+                    isTrainingActive: isTrainingActive,
+                    isCameraLive: isCameraLive,
+                  );
+                  final panel = _buildPanel(
+                    isTrainingActive: isTrainingActive,
+                    hasConnectionError: hasConnectionError,
+                    expandVertically: isDesktop,
+                  );
 
-                final cameraWidget = isDesktop
-                    ? camera
-                    : SizedBox(
-                        height: math.max(
-                          280,
-                          math.min(420, contentWidth * 480 / 640),
+                  final body = Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      header,
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, workspaceConstraints) {
+                            final workspace = isDesktop
+                                ? _buildDesktopWorkspace(
+                                    contentWidth: contentWidth,
+                                    workspaceHeight:
+                                        workspaceConstraints.maxHeight,
+                                    camera: camera,
+                                    panel: panel,
+                                  )
+                                : _buildStackedWorkspace(
+                                    contentWidth: contentWidth,
+                                    camera: camera,
+                                    panel: panel,
+                                  );
+
+                            if (isDesktop) {
+                              return workspace;
+                            }
+
+                            return SingleChildScrollView(child: workspace);
+                          },
                         ),
-                        child: camera,
-                      );
+                      ),
+                    ],
+                  );
 
-                final workspace = isDesktop
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(flex: 7, child: cameraWidget),
-                          SizedBox(width: AppSpacing.practiceCameraPanelGap),
-                          SizedBox(
-                            width: math.min(
-                              AppSpacing.practicePanelMaxWidth,
-                              math.max(
-                                AppSpacing.practicePanelMinWidth,
-                                contentWidth * 0.28,
-                              ),
-                            ),
-                            child: panel,
-                          ),
-                        ],
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          cameraWidget,
-                          SizedBox(height: AppSpacing.practiceCameraPanelGap),
-                          panel,
-                        ],
-                      );
+                  if (constraints.maxWidth <= _maxContentWidth) {
+                    return body;
+                  }
 
-                final body = Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    header,
-                    if (isDesktop)
-                      Expanded(child: workspace)
-                    else
-                      Expanded(child: SingleChildScrollView(child: workspace)),
-                  ],
-                );
-
-                if (constraints.maxWidth <= _maxContentWidth) {
-                  return body;
-                }
-
-                return Align(
-                  alignment: Alignment.topCenter,
-                  child: SizedBox(width: _maxContentWidth, child: body),
-                );
-              },
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(width: _maxContentWidth, child: body),
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -1084,6 +1105,57 @@ class _PracticeScreenState extends State<PracticeScreen>
               },
               isLoading: _connecting || _commandInFlight,
             ),
+    );
+  }
+
+  Widget _buildDesktopWorkspace({
+    required double contentWidth,
+    required double workspaceHeight,
+    required Widget camera,
+    required Widget panel,
+  }) {
+    final panelWidth = PracticeScreen.panelWidthForContent(contentWidth);
+    final cameraSize = PracticeScreen.desktopCameraSize(
+      contentWidth: contentWidth,
+      workspaceHeight: workspaceHeight,
+    );
+
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: cameraSize.width,
+            height: cameraSize.height,
+            child: camera,
+          ),
+          SizedBox(width: AppSpacing.practiceCameraPanelGap),
+          SizedBox(width: panelWidth, height: cameraSize.height, child: panel),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStackedWorkspace({
+    required double contentWidth,
+    required Widget camera,
+    required Widget panel,
+  }) {
+    final cameraSize = PracticeScreen.stackedCameraSize(contentWidth);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: cameraSize.width,
+          height: cameraSize.height,
+          child: camera,
+        ),
+        SizedBox(height: AppSpacing.practiceCameraPanelGap),
+        panel,
+      ],
     );
   }
 

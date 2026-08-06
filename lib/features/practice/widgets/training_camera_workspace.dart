@@ -61,7 +61,6 @@ class TrainingCameraWorkspace extends StatelessWidget {
   final List<TrainingCameraStatusItem> statusItems;
 
   static const _viewportColor = Color(0xFF0A0A0C);
-  static const _frameAspectRatio = 640 / 480;
   static const _radius = AppSpacing.practiceSurfaceRadius;
 
   bool get _hasFatalOrConnectionError =>
@@ -188,7 +187,6 @@ class TrainingCameraWorkspace extends StatelessWidget {
         mirrored: mirrored,
         overlayFeedback: isSessionActive ? overlayFeedback : null,
         showFeedbackMessage: showFeedbackMessage,
-        aspectRatio: _frameAspectRatio,
         placeholder: _buildWaitingOrIdlePlaceholder(),
       );
     }
@@ -226,7 +224,6 @@ class TrainingCameraWorkspace extends StatelessWidget {
         mirrored: mirrored,
         overlayFeedback: isSessionActive ? overlayFeedback : null,
         showFeedbackMessage: showFeedbackMessage,
-        aspectRatio: _frameAspectRatio,
       );
     }
 
@@ -527,7 +524,6 @@ class _CameraFeedSurface extends StatelessWidget {
   const _CameraFeedSurface({
     required this.frameListenable,
     required this.mirrored,
-    required this.aspectRatio,
     required this.placeholder,
     this.overlayFeedback,
     this.showFeedbackMessage = true,
@@ -535,49 +531,44 @@ class _CameraFeedSurface extends StatelessWidget {
 
   final ValueListenable<Uint8List?> frameListenable;
   final bool mirrored;
-  final double aspectRatio;
   final Widget placeholder;
   final PracticeFeedback? overlayFeedback;
   final bool showFeedbackMessage;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ValueListenableBuilder<Uint8List?>(
-              valueListenable: frameListenable,
-              builder: (context, bytes, _) {
-                if (bytes == null) {
-                  return placeholder;
-                }
-                return Transform.flip(
-                  key: const ValueKey('camera-frame-transform'),
-                  flipX: mirrored,
-                  child: Image.memory(
-                    bytes,
-                    fit: BoxFit.fill,
-                    gaplessPlayback: true,
-                  ),
-                );
-              },
-            ),
-            if (overlayFeedback != null)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _FrameHudOverlay(
-                  feedback: overlayFeedback!,
-                  showFeedbackMessage: showFeedbackMessage,
-                ),
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        ValueListenableBuilder<Uint8List?>(
+          valueListenable: frameListenable,
+          builder: (context, bytes, _) {
+            if (bytes == null) {
+              return placeholder;
+            }
+            return Transform.flip(
+              key: const ValueKey('camera-frame-transform'),
+              flipX: mirrored,
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.fill,
+                gaplessPlayback: true,
               ),
-          ],
+            );
+          },
         ),
-      ),
+        if (overlayFeedback != null)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _FrameHudOverlay(
+              feedback: overlayFeedback!,
+              showFeedbackMessage: showFeedbackMessage,
+            ),
+          ),
+      ],
     );
   }
 }
@@ -586,47 +577,41 @@ class _MirroredCameraFeed extends StatelessWidget {
   const _MirroredCameraFeed({
     required this.frameBytes,
     required this.mirrored,
-    required this.aspectRatio,
     this.overlayFeedback,
     this.showFeedbackMessage = true,
   });
 
   final Uint8List frameBytes;
   final bool mirrored;
-  final double aspectRatio;
   final PracticeFeedback? overlayFeedback;
   final bool showFeedbackMessage;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Transform.flip(
-              key: const ValueKey('camera-frame-transform'),
-              flipX: mirrored,
-              child: Image.memory(
-                frameBytes,
-                fit: BoxFit.fill,
-                gaplessPlayback: true,
-              ),
-            ),
-            if (overlayFeedback != null)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _FrameHudOverlay(
-                  feedback: overlayFeedback!,
-                  showFeedbackMessage: showFeedbackMessage,
-                ),
-              ),
-          ],
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        Transform.flip(
+          key: const ValueKey('camera-frame-transform'),
+          flipX: mirrored,
+          child: Image.memory(
+            frameBytes,
+            fit: BoxFit.fill,
+            gaplessPlayback: true,
+          ),
         ),
-      ),
+        if (overlayFeedback != null)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _FrameHudOverlay(
+              feedback: overlayFeedback!,
+              showFeedbackMessage: showFeedbackMessage,
+            ),
+          ),
+      ],
     );
   }
 }
