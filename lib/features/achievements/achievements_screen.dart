@@ -23,6 +23,27 @@ import 'widgets/achievement_card.dart';
 enum _AchievementFilter { all, claimable, inProgress, claimed, locked }
 
 const _kMaxContentWidth = 1120.0;
+const _kAchievementToolbarBreakpoint = 660.0;
+const _kAchievementFilterDropdownHeight = 42.0;
+const _kAchievementFilterDropdownWidth = 280.0;
+
+String _achievementFilterDisplayLabel(_AchievementFilter filter) {
+  return switch (filter) {
+    _AchievementFilter.all => 'All achievements',
+    _AchievementFilter.claimable => 'Claimable',
+    _AchievementFilter.inProgress => 'In progress',
+    _AchievementFilter.claimed => 'Claimed',
+    _AchievementFilter.locked => 'Locked',
+  };
+}
+
+int _achievementFilterCount(
+  _AchievementFilter filter,
+  Map<_AchievementFilter, int> counts,
+) {
+  return counts[filter] ?? 0;
+}
+
 const _kAchievementCardExtent = 168.0;
 const _kAchievementMaxCrossExtent = 380.0;
 
@@ -319,31 +340,11 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                       ),
                     ],
                     const SizedBox(height: AppSpacing.lg),
-                    _SectionHeader(
-                      icon: FluentIcons.trophy2,
-                      title: 'Achievements',
-                      accent: AppColors.primary,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'Claimed profile frames can be equipped in Settings → Account & Profile.',
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
-                      children: [
-                        for (final filter in _AchievementFilter.values)
-                          _FilterChip(
-                            label: _filterLabel(filter, filterCounts[filter]!),
-                            selected: _filter == filter,
-                            onTap: () => setState(() => _filter = filter),
-                          ),
-                      ],
+                    _AchievementsSectionToolbar(
+                      filter: _filter,
+                      filterCounts: filterCounts,
+                      onFilterChanged: (filter) =>
+                          setState(() => _filter = filter),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     Builder(
@@ -380,50 +381,104 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
             ),
     );
   }
+}
 
-  static String _filterLabel(_AchievementFilter filter, int count) {
-    final name = switch (filter) {
-      _AchievementFilter.all => 'All',
-      _AchievementFilter.claimable => 'Claimable',
-      _AchievementFilter.inProgress => 'In Progress',
-      _AchievementFilter.claimed => 'Claimed',
-      _AchievementFilter.locked => 'Locked',
-    };
-    return '$name $count';
+class _AchievementsSectionToolbar extends StatelessWidget {
+  const _AchievementsSectionToolbar({
+    required this.filter,
+    required this.filterCounts,
+    required this.onFilterChanged,
+  });
+
+  final _AchievementFilter filter;
+  final Map<_AchievementFilter, int> filterCounts;
+  final ValueChanged<_AchievementFilter> onFilterChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= _kAchievementToolbarBreakpoint;
+        final titleGroup = const _AchievementsToolbarTitleGroup();
+        final dropdown = _AchievementFilterDropdown(
+          filter: filter,
+          filterCounts: filterCounts,
+          onFilterChanged: onFilterChanged,
+          isExpanded: !isWide,
+        );
+
+        if (isWide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: titleGroup),
+              const SizedBox(width: AppSpacing.md),
+              SizedBox(
+                width: _kAchievementFilterDropdownWidth,
+                child: dropdown,
+              ),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            titleGroup,
+            const SizedBox(height: AppSpacing.sm),
+            dropdown,
+          ],
+        );
+      },
+    );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.accent,
-  });
-
-  final IconData icon;
-  final String title;
-  final Color accent;
+class _AchievementsToolbarTitleGroup extends StatelessWidget {
+  const _AchievementsToolbarTitleGroup();
 
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 3,
-          height: 20,
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: accent,
-            borderRadius: BorderRadius.circular(2),
+            color: AppColors.primary.withValues(
+              alpha: context.isDarkTheme ? 0.16 : 0.10,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(
+            FluentIcons.trophy2,
+            size: 15,
+            color: AppColors.primary,
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
-        Icon(icon, size: 16, color: accent),
-        const SizedBox(width: AppSpacing.sm),
-        Text(
-          title,
-          style: AppTheme.headingMedium.copyWith(
-            color: context.elixTextPrimary,
-            fontSize: 18,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Achievements',
+                style: AppTheme.headingMedium.copyWith(
+                  color: context.elixTextPrimary,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Track your progress and equip claimed profile frames in Settings.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -431,67 +486,110 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _FilterChip extends StatefulWidget {
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
+class _AchievementFilterDropdown extends StatelessWidget {
+  const _AchievementFilterDropdown({
+    required this.filter,
+    required this.filterCounts,
+    required this.onFilterChanged,
+    required this.isExpanded,
   });
 
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  State<_FilterChip> createState() => _FilterChipState();
-}
-
-class _FilterChipState extends State<_FilterChip> {
-  bool _hovered = false;
+  final _AchievementFilter filter;
+  final Map<_AchievementFilter, int> filterCounts;
+  final ValueChanged<_AchievementFilter> onFilterChanged;
+  final bool isExpanded;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkTheme;
-    final active = widget.selected || _hovered;
+    final items = [
+      for (final option in _AchievementFilter.values)
+        ComboBoxItem<_AchievementFilter>(
+          value: option,
+          child: _AchievementFilterOptionRow(
+            label: _achievementFilterDisplayLabel(option),
+            count: _achievementFilterCount(option, filterCounts),
+          ),
+        ),
+    ];
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm + 2,
-            vertical: 6,
-          ),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? AppColors.primary.withValues(alpha: isDark ? 0.2 : 0.12)
-                : _hovered
-                ? context.elixBorder.withValues(alpha: 0.35)
-                : context.elixCardSurface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: widget.selected
-                  ? AppColors.primary.withValues(alpha: 0.55)
-                  : active
-                  ? context.elixBorder
-                  : context.elixBorder.withValues(alpha: 0.65),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.75)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          height: _kAchievementFilterDropdownHeight,
+          child: ComboBox<_AchievementFilter>(
+            value: filter,
+            isExpanded: true,
+            items: items,
+            icon: Icon(
+              FluentIcons.chevron_down,
+              size: 10,
+              color: context.elixTextSecondary,
             ),
-          ),
-          child: Text(
-            widget.label,
-            style: AppTheme.caption.copyWith(
-              fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w600,
-              color: widget.selected
-                  ? AppColors.primary
-                  : context.elixTextSecondary,
-            ),
+            selectedItemBuilder: (context) {
+              return [
+                for (final option in _AchievementFilter.values)
+                  _AchievementFilterOptionRow(
+                    label: _achievementFilterDisplayLabel(option),
+                    count: _achievementFilterCount(option, filterCounts),
+                  ),
+              ];
+            },
+            onChanged: (value) {
+              if (value != null) onFilterChanged(value);
+            },
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AchievementFilterOptionRow extends StatelessWidget {
+  const _AchievementFilterOptionRow({required this.label, required this.count});
+
+  final String label;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: AppTheme.bodySecondary.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: context.elixTextPrimary,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Container(
+          constraints: const BoxConstraints(minWidth: 22),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: context.elixBorder.withValues(alpha: 0.28),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '$count',
+            style: AppTheme.caption.copyWith(
+              fontWeight: FontWeight.w600,
+              color: context.elixTextSecondary,
+              fontSize: 11,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
