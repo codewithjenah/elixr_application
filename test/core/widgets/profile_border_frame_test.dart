@@ -253,4 +253,348 @@ void main() {
         .first;
     expect(painter.highlightAccent, const Color(0xFFFFC107));
   });
+
+  testWidgets('animate true creates and runs a single controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final state = tester.state<ProfileBorderFrameState>(
+      find.byType(ProfileBorderFrame),
+    );
+    expect(state.debugAnimationController, isNotNull);
+    expect(state.debugIsAnimating, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('animate true→false→true reuses the same controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final state = tester.state<ProfileBorderFrameState>(
+      find.byType(ProfileBorderFrame),
+    );
+    final first = state.debugAnimationController;
+    expect(first, isNotNull);
+    expect(state.debugIsAnimating, isTrue);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: false,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isFalse);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('equippedBorderId known→null→known reuses one controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final state = tester.state<ProfileBorderFrameState>(
+      find.byType(ProfileBorderFrame),
+    );
+    final first = state.debugAnimationController;
+    expect(first, isNotNull);
+    expect(state.debugIsAnimating, isTrue);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: null,
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isFalse);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'gold_mastery',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('showBorder true→false→true reuses the same controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'starter_glow',
+          animate: true,
+          showBorder: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final state = tester.state<ProfileBorderFrameState>(
+      find.byType(ProfileBorderFrame),
+    );
+    final first = state.debugAnimationController;
+    expect(first, isNotNull);
+    expect(state.debugIsAnimating, isTrue);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'starter_glow',
+          animate: true,
+          showBorder: false,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isFalse);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'starter_glow',
+          animate: true,
+          showBorder: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TickerMode enabled→disabled→enabled reuses one controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        tickerEnabled: true,
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final state = tester.state<ProfileBorderFrameState>(
+      find.byType(ProfileBorderFrame),
+    );
+    final first = state.debugAnimationController;
+    expect(first, isNotNull);
+    expect(state.debugIsAnimating, isTrue);
+
+    await tester.pumpWidget(
+      wrap(
+        tickerEnabled: false,
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isFalse);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      wrap(
+        tickerEnabled: true,
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugIsAnimating, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'MediaQuery.disableAnimations false→true→false reuses one controller',
+    (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          disableAnimations: false,
+          const ProfileBorderFrame(
+            size: 64,
+            equippedBorderId: 'gold_mastery',
+            animate: true,
+            child: ColoredBox(color: Color(0xFF222222)),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final state = tester.state<ProfileBorderFrameState>(
+        find.byType(ProfileBorderFrame),
+      );
+      final first = state.debugAnimationController;
+      expect(first, isNotNull);
+      expect(state.debugIsAnimating, isTrue);
+
+      await tester.pumpWidget(
+        wrap(
+          disableAnimations: true,
+          const ProfileBorderFrame(
+            size: 64,
+            equippedBorderId: 'gold_mastery',
+            animate: true,
+            child: ColoredBox(color: Color(0xFF222222)),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(identical(state.debugAnimationController, first), isTrue);
+      expect(state.debugIsAnimating, isFalse);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(
+        wrap(
+          disableAnimations: false,
+          const ProfileBorderFrame(
+            size: 64,
+            equippedBorderId: 'gold_mastery',
+            animate: true,
+            child: ColoredBox(color: Color(0xFF222222)),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(identical(state.debugAnimationController, first), isTrue);
+      expect(state.debugIsAnimating, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('switching known borders updates duration on same controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'cyan_orbit',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final state = tester.state<ProfileBorderFrameState>(
+      find.byType(ProfileBorderFrame),
+    );
+    final first = state.debugAnimationController!;
+    final cyanDuration = Duration(
+      milliseconds: profileBorderById('cyan_orbit')!.animationDurationMs,
+    );
+    final goldDuration = Duration(
+      milliseconds: profileBorderById('gold_mastery')!.animationDurationMs,
+    );
+    expect(cyanDuration, isNot(equals(goldDuration)));
+    expect(first.duration, cyanDuration);
+
+    await tester.pumpWidget(
+      wrap(
+        const ProfileBorderFrame(
+          size: 64,
+          equippedBorderId: 'gold_mastery',
+          animate: true,
+          child: ColoredBox(color: Color(0xFF222222)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(identical(state.debugAnimationController, first), isTrue);
+    expect(state.debugAnimationController!.duration, goldDuration);
+    expect(state.debugIsAnimating, isTrue);
+    expect(tester.takeException(), isNull);
+  });
 }

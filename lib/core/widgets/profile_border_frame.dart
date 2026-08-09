@@ -9,8 +9,9 @@ import 'profile_border_painter.dart';
 /// [fallbackNeutral] is true, or no chrome when false.
 ///
 /// When [animate] is true and platform animations are allowed, ornamental
-/// highlights and particles loop slowly. Static mode paints a fixed pose and
-/// never creates an [AnimationController].
+/// highlights and particles loop slowly. When animation is not allowed, the
+/// border paints a static pose; an [AnimationController] may already exist
+/// from a prior animated period but remains stopped until [State.dispose].
 class ProfileBorderFrame extends StatefulWidget {
   const ProfileBorderFrame({
     super.key,
@@ -111,10 +112,8 @@ class ProfileBorderFrameState extends State<ProfileBorderFrame>
     if (!mounted) return;
     final shouldRun = _shouldRunController(context);
     if (!shouldRun) {
-      if (_controller != null) {
-        _controller!.dispose();
-        _controller = null;
-      }
+      // Keep the single ticker for this State lifetime; only stop ticking.
+      _controller?.stop();
       return;
     }
 
@@ -122,11 +121,14 @@ class ProfileBorderFrameState extends State<ProfileBorderFrame>
     if (_controller == null) {
       _controller = AnimationController(vsync: this, duration: duration)
         ..repeat();
-    } else {
+      return;
+    }
+
+    if (_controller!.duration != duration) {
       _controller!.duration = duration;
-      if (!_controller!.isAnimating) {
-        _controller!.repeat();
-      }
+    }
+    if (!_controller!.isAnimating) {
+      _controller!.repeat();
     }
   }
 
@@ -156,7 +158,10 @@ class ProfileBorderFrameState extends State<ProfileBorderFrame>
     }
 
     final outer = widget.size + padding * 2;
-    final animatePaint = _controller != null && definition != null;
+    final hasController = _controller != null && definition != null;
+    // Drive animated paint only while the controller is allowed to run; a
+    // stopped controller may remain allocated for reuse without ticking.
+    final animatePaint = hasController && _shouldRunController(context);
     final isDark = context.isDarkTheme;
 
     return SizedBox(
@@ -170,11 +175,12 @@ class ProfileBorderFrameState extends State<ProfileBorderFrame>
             Positioned.fill(
               child: RepaintBoundary(
                 child: AnimatedBuilder(
-                  animation: animatePaint
+                  animation: hasController
                       ? _controller!
                       : const AlwaysStoppedAnimation<double>(0.18),
                   builder: (context, _) {
-                    final progress = animatePaint ? _controller!.value : 0.18;
+                    // Preserve frozen progress when stopped to avoid a pose jump.
+                    final progress = hasController ? _controller!.value : 0.18;
                     return CustomPaint(
                       painter: ProfileBorderPainter(
                         definition: definition,
