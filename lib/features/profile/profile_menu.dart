@@ -7,17 +7,19 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/user.dart';
 import '../../data/repositories/leaderboard_repository.dart';
-import '../../core/utils/user_name.dart';
 import '../../services/auth_service.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_section.dart';
 
 class ProfileMenu {
   ProfileMenu._();
+
+  static const double menuWidth = 312;
 
   static void show(
     BuildContext anchorContext, {
@@ -47,9 +49,9 @@ class ProfileMenu {
             ),
           ),
           Positioned(
-            left: offset.dx.clamp(8.0, screenSize.width - 300),
+            left: offset.dx.clamp(8.0, screenSize.width - menuWidth),
             bottom: screenSize.height - offset.dy + AppSpacing.sm,
-            width: 300,
+            width: menuWidth,
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: 1),
               duration: const Duration(milliseconds: 200),
@@ -117,9 +119,9 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     super.dispose();
   }
 
-  void _openSettings(BuildContext context, SettingsSection section) {
+  void _openSettings(BuildContext context) {
     widget.onDismiss();
-    SettingsScreen.show(context, initialSection: section);
+    SettingsScreen.show(context, initialSection: SettingsSection.appearance);
   }
 
   void _openMyProfile(BuildContext context) {
@@ -127,11 +129,6 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     if (userId == null || userId.isEmpty) return;
     widget.onDismiss();
     context.go('/profile/$userId');
-  }
-
-  void _openAchievements(BuildContext context) {
-    widget.onDismiss();
-    context.go('/achievements');
   }
 
   @override
@@ -145,15 +142,15 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     return Container(
       decoration: BoxDecoration(
         color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: context.elixBorder.withValues(alpha: isDark ? 0.6 : 1),
+          color: context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.12),
-            blurRadius: 32,
-            offset: const Offset(0, 12),
+            color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -169,39 +166,28 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
             equippedBorderId: _equippedBorderId,
             onTap: () => _openMyProfile(context),
           ),
+          const _MenuDivider(),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            child: _ProfileMenuItem(
-              icon: FluentIcons.contact,
-              label: 'View My Profile',
-              description: 'See your public player profile',
-              onTap: () => _openMyProfile(context),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.sm,
+              AppSpacing.sm,
+              AppSpacing.xs,
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            child: _ProfileMenuItem(
-              icon: FluentIcons.medal,
-              label: 'Achievements & Borders',
-              description: 'Claim rewards and equip borders',
-              onTap: () => _openAchievements(context),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
             child: _ProfileMenuItem(
               icon: FluentIcons.settings,
               label: 'Settings',
-              description: 'Preferences & appearance',
-              onTap: () => _openSettings(context, SettingsSection.appearance),
+              description: 'Account, privacy & preferences',
+              onTap: () => _openSettings(context),
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
           const _MenuDivider(),
           Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.xs,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+              AppSpacing.sm,
             ),
             child: _ProfileMenuItem(
               icon: FluentIcons.sign_out,
@@ -210,7 +196,6 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
               isDestructive: true,
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
         ],
       ),
     );
@@ -243,6 +228,8 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -251,17 +238,14 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.all(AppSpacing.md + 2),
+          duration: const Duration(milliseconds: 140),
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.primary.withValues(alpha: _hovered ? 0.18 : 0.12),
-                AppColors.primarySoft.withValues(alpha: _hovered ? 0.1 : 0.06),
-              ],
-            ),
+            color: _hovered
+                ? (isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : AppColors.primary.withValues(alpha: 0.06))
+                : Colors.transparent,
           ),
           child: Row(
             children: [
@@ -287,14 +271,14 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.15),
+                        color: AppColors.primary.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -308,6 +292,14 @@ class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
                       ),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Icon(
+                FluentIcons.chevron_right,
+                size: 12,
+                color: context.elixTextSecondary.withValues(
+                  alpha: _hovered ? 0.9 : 0.55,
                 ),
               ),
             ],
@@ -342,12 +334,13 @@ class _ProfileMenuItemState extends State<_ProfileMenuItem> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
     final color = widget.isDestructive
         ? AppColors.error
         : context.elixTextPrimary;
     final iconBg = widget.isDestructive
-        ? AppColors.error.withValues(alpha: 0.12)
-        : context.elixBorder.withValues(alpha: 0.35);
+        ? AppColors.error.withValues(alpha: _hovered ? 0.14 : 0.08)
+        : context.elixBorder.withValues(alpha: isDark ? 0.4 : 0.3);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -357,43 +350,47 @@ class _ProfileMenuItemState extends State<_ProfileMenuItem> {
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.symmetric(vertical: 2),
+          duration: const Duration(milliseconds: 140),
+          constraints: const BoxConstraints(minHeight: 42),
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm + 4,
-            vertical: AppSpacing.sm + 2,
+            horizontal: AppSpacing.sm + 2,
+            vertical: 8,
           ),
           decoration: BoxDecoration(
             color: _hovered
                 ? (widget.isDestructive
-                      ? AppColors.error.withValues(alpha: 0.08)
-                      : context.elixBorder.withValues(alpha: 0.25))
+                      ? AppColors.error.withValues(alpha: isDark ? 0.1 : 0.07)
+                      : (isDark
+                            ? Colors.white.withValues(alpha: 0.05)
+                            : context.elixBorder.withValues(alpha: 0.28)))
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
             children: [
               Container(
-                width: 34,
-                height: 34,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                   color: iconBg,
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(widget.icon, size: 17, color: color),
+                child: Icon(widget.icon, size: 15, color: color),
               ),
-              const SizedBox(width: AppSpacing.sm + 4),
+              const SizedBox(width: AppSpacing.sm + 2),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
                       widget.label,
                       style: AppTheme.body.copyWith(
                         fontSize: 14,
                         color: color,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w600,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     if (widget.description != null) ...[
                       const SizedBox(height: 1),
@@ -403,6 +400,7 @@ class _ProfileMenuItemState extends State<_ProfileMenuItem> {
                           fontSize: 11,
                           color: context.elixTextSecondary,
                         ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ],
@@ -424,7 +422,7 @@ class _MenuDivider extends StatelessWidget {
     return Container(
       height: 1,
       margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      color: context.elixBorder.withValues(alpha: 0.5),
+      color: context.elixBorder.withValues(alpha: 0.45),
     );
   }
 }
