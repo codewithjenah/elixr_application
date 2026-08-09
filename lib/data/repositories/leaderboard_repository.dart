@@ -326,12 +326,11 @@ class LeaderboardRepository {
 
       var publicProfileSynced = false;
       try {
-        await syncPublicProfile(
+        publicProfileSynced = await syncPublicProfile(
           userId: userId,
           displayName: displayName,
           profilePictureUrl: profilePictureUrl,
         );
-        publicProfileSynced = true;
       } catch (error, stackTrace) {
         _logError('syncPublicProfile', error, stackTrace, userId: userId);
       }
@@ -357,13 +356,15 @@ class LeaderboardRepository {
   /// Updates public display metadata on an existing leaderboard document.
   ///
   /// Does not create a zero-session entry. Preserves XP and session aggregates.
-  Future<void> syncPublicProfile({
+  /// Returns true only when leaderboard-visible profile fields actually changed
+  /// and a write was performed. Identical metadata skips the write.
+  Future<bool> syncPublicProfile({
     required String userId,
     required String displayName,
     String? profilePictureUrl,
   }) async {
     final trimmed = displayName.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty) return false;
 
     final ref = _firestore
         .collection(FirestoreCollections.leaderboard)
@@ -371,7 +372,16 @@ class LeaderboardRepository {
 
     try {
       final snap = await ref.get();
-      if (!snap.exists) return;
+      if (!snap.exists || snap.data() == null) return false;
+
+      final existing = snap.data()!;
+      if (!publicProfileNeedsUpdate(
+        existing: existing,
+        displayName: trimmed,
+        profilePictureUrl: profilePictureUrl,
+      )) {
+        return false;
+      }
 
       await ref.set({
         ...buildPublicProfileFields(
@@ -380,6 +390,7 @@ class LeaderboardRepository {
         ),
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      return true;
     } catch (error, stackTrace) {
       _logError('syncPublicProfile', error, stackTrace, userId: userId);
       rethrow;
@@ -435,7 +446,7 @@ class LeaderboardRepository {
   }
 
   /// Compatibility delegate for callers that only synchronize display_name.
-  Future<void> syncDisplayName({
+  Future<bool> syncDisplayName({
     required String userId,
     required String displayName,
   }) {
@@ -458,6 +469,30 @@ class LeaderboardRepository {
       fields['profile_picture_url'] = trimmedUrl;
     }
     return fields;
+  }
+
+  /// Whether [existing] leaderboard doc needs a public-profile write for the
+  /// normalized [displayName] / [profilePictureUrl]. Empty incoming picture
+  /// values are omitted (same as [buildPublicProfileFields]) and do not clear
+  /// an existing URL.
+  @visibleForTesting
+  static bool publicProfileNeedsUpdate({
+    required Map<String, dynamic> existing,
+    required String displayName,
+    String? profilePictureUrl,
+  }) {
+    final desired = buildPublicProfileFields(
+      displayName: displayName,
+      profilePictureUrl: profilePictureUrl,
+    );
+    if (desired.isEmpty) return false;
+
+    for (final entry in desired.entries) {
+      final raw = existing[entry.key];
+      final current = raw is String ? raw.trim() : raw;
+      if (current != entry.value) return true;
+    }
+    return false;
   }
 
   static int _readScore(dynamic value) {

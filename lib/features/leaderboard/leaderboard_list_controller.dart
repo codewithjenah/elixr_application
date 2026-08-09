@@ -34,13 +34,16 @@ class LeaderboardListController extends ChangeNotifier {
 
   Future<void> refresh() {
     _generation++;
-    entries = const [];
+    final preserveEntries = entries.isNotEmpty;
+    if (!preserveEntries) {
+      entries = const [];
+    }
     _nextCursor = null;
     hasMore = false;
     loadMoreError = null;
     initialError = null;
     _hasLoadedAdditionalPage = false;
-    return _loadFirstPage();
+    return _loadFirstPage(preserveEntries: preserveEntries);
   }
 
   Future<void> loadMore() async {
@@ -107,11 +110,14 @@ class LeaderboardListController extends ChangeNotifier {
     super.dispose();
   }
 
-  Future<void> _loadFirstPage() async {
+  Future<void> _loadFirstPage({bool preserveEntries = false}) async {
     if (_disposed) return;
 
     final generation = _generation;
-    isInitialLoading = true;
+    final blockingLoad = !preserveEntries || entries.isEmpty;
+    if (blockingLoad) {
+      isInitialLoading = true;
+    }
     initialError = null;
     _notifyIfActive();
 
@@ -128,13 +134,24 @@ class LeaderboardListController extends ChangeNotifier {
       initialError = error;
     } finally {
       if (!_disposed && generation == _generation) {
-        isInitialLoading = false;
+        if (blockingLoad) {
+          isInitialLoading = false;
+        }
         _notifyIfActive();
         if (initialError == null && _pendingPostSyncRefresh) {
           _maybeTriggerAutoRefreshAfterSync();
         }
       }
     }
+  }
+
+  /// Reloads page 1 without clearing visible [entries] (stale-while-revalidate).
+  Future<void> _reloadFirstPageKeepingEntries() {
+    _generation++;
+    _nextCursor = null;
+    hasMore = false;
+    loadMoreError = null;
+    return _loadFirstPage(preserveEntries: true);
   }
 
   void _handleSyncResult(LeaderboardSyncResult result) {
@@ -158,7 +175,7 @@ class LeaderboardListController extends ChangeNotifier {
 
     _didAutoRefreshAfterSync = true;
     _pendingPostSyncRefresh = false;
-    refresh();
+    _reloadFirstPageKeepingEntries();
   }
 
   List<LeaderboardEntry> _appendDeduped(

@@ -184,7 +184,7 @@ void main() {
     });
 
     test(
-      'refresh clears and restarts; stale loadMore result ignored',
+      'refresh keeps existing entries visible; stale loadMore result ignored',
       () async {
         final cursor = FakeLeaderboardPageCursor('p1');
         fake = FakePages([
@@ -199,12 +199,15 @@ void main() {
         fake.pendingGates[1] = gate;
         final loadMoreFuture = controller.loadMore();
 
+        final refreshGate = Completer<void>();
+        fake.pendingGates[2] = refreshGate;
         final refreshFuture = controller.refresh();
-        expect(controller.entries, isEmpty);
-        expect(controller.isInitialLoading, isTrue);
+        expect(controller.entries.map((entry) => entry.userId), ['a']);
+        expect(controller.isInitialLoading, isFalse);
 
         gate.complete();
         await loadMoreFuture;
+        refreshGate.complete();
         await refreshFuture;
 
         await pumpEventQueue();
@@ -386,7 +389,10 @@ void main() {
 
       await controller.loadInitial();
 
-      await controller.startBackgroundSync(
+      final refreshGate = Completer<void>();
+      fake.pendingGates[1] = refreshGate;
+
+      final sync = controller.startBackgroundSync(
         userId: 'me',
         syncUser: () async => const LeaderboardSyncResult(
           totalSessionsChecked: 1,
@@ -396,10 +402,149 @@ void main() {
           publicProfileSynced: true,
         ),
       );
+      await sync;
       await pumpEventQueue();
 
       expect(fake.calls, 2);
+      expect(controller.entries, isNotEmpty);
+      expect(controller.isInitialLoading, isFalse);
+
+      refreshGate.complete();
+      await pumpEventQueue();
+
+      expect(
+        controller.entries.single.profilePictureUrl,
+        'https://example.com/a.jpg',
+      );
+      expect(fake.calls, 2);
     });
+
+    test(
+      'unchanged public profile sync does not trigger a second fetch',
+      () async {
+        fake = FakePages([
+          page([e('a', 100)]),
+          page([e('a', 100)]),
+        ]);
+        controller = LeaderboardListController(fetchPage: fake.fetch);
+
+        await controller.loadInitial();
+        expect(fake.calls, 1);
+
+        await controller.startBackgroundSync(
+          userId: 'me',
+          syncUser: () async => const LeaderboardSyncResult(
+            totalSessionsChecked: 1,
+            alreadyProcessed: 1,
+            newlyProcessed: 0,
+            failures: 0,
+            publicProfileSynced: false,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(fake.calls, 1);
+        expect(controller.entries.map((entry) => entry.userId), ['a']);
+      },
+    );
+
+    test(
+      'newly processed sync refreshes without blanking visible entries',
+      () async {
+        fake = FakePages([
+          page([e('a', 100)]),
+          page([e('a', 150)]),
+        ]);
+        controller = LeaderboardListController(fetchPage: fake.fetch);
+
+        await controller.loadInitial();
+
+        final refreshGate = Completer<void>();
+        fake.pendingGates[1] = refreshGate;
+
+        final sync = controller.startBackgroundSync(
+          userId: 'me',
+          syncUser: () async => const LeaderboardSyncResult(
+            totalSessionsChecked: 1,
+            alreadyProcessed: 0,
+            newlyProcessed: 1,
+            failures: 0,
+          ),
+        );
+        await sync;
+        await pumpEventQueue();
+
+        expect(fake.calls, 2);
+        expect(controller.entries.map((entry) => entry.userId), ['a']);
+        expect(controller.entries.single.totalXp, 100);
+        expect(controller.isInitialLoading, isFalse);
+
+        refreshGate.complete();
+        await pumpEventQueue();
+
+        expect(controller.entries.single.totalXp, 150);
+        expect(controller.isInitialLoading, isFalse);
+      },
+    );
+
+    test(
+      'manual refresh with existing data never blanks the leaderboard',
+      () async {
+        fake = FakePages([
+          page([e('a', 100), e('b', 90)]),
+          page([e('a', 120), e('b', 90)]),
+        ]);
+        controller = LeaderboardListController(fetchPage: fake.fetch);
+
+        await controller.loadInitial();
+
+        final refreshGate = Completer<void>();
+        fake.pendingGates[1] = refreshGate;
+
+        final refresh = controller.refresh();
+        expect(controller.entries.map((entry) => entry.userId), ['a', 'b']);
+        expect(controller.isInitialLoading, isFalse);
+
+        refreshGate.complete();
+        await refresh;
+
+        expect(controller.entries.first.totalXp, 120);
+        expect(controller.isInitialLoading, isFalse);
+      },
+    );
+
+    test(
+      'post-sync first-page reload preserves pagination cursor for loadMore',
+      () async {
+        final cursor = FakeLeaderboardPageCursor('p1');
+        final refreshedCursor = FakeLeaderboardPageCursor('p1-refreshed');
+        fake = FakePages([
+          page([e('a', 100)], hasMore: true, cursor: cursor),
+          page([e('a', 150)], hasMore: true, cursor: refreshedCursor),
+          page([e('b', 90)]),
+        ]);
+        controller = LeaderboardListController(fetchPage: fake.fetch);
+
+        await controller.loadInitial();
+        await controller.startBackgroundSync(
+          userId: 'me',
+          syncUser: () async => const LeaderboardSyncResult(
+            totalSessionsChecked: 1,
+            alreadyProcessed: 0,
+            newlyProcessed: 1,
+            failures: 0,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(controller.entries.map((entry) => entry.userId), ['a']);
+        expect(controller.hasMore, isTrue);
+
+        await controller.loadMore();
+        expect(controller.entries.map((entry) => entry.userId), ['a', 'b']);
+        expect(fake.calls, 3);
+      },
+    );
 
     test('refresh resets pagination state but not sync guards', () async {
       fake = FakePages([
