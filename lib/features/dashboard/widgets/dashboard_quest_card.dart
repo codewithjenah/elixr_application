@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/manila_day.dart';
 import '../../../data/models/daily_quest_board.dart';
 import '../../../data/models/quest_claim.dart';
@@ -13,11 +14,7 @@ import '../../../data/repositories/gamification_repository.dart';
 import '../dashboard_quests.dart';
 import 'dashboard_panel_card.dart';
 
-const _pink = AppColors.primary;
-const _purple = AppColors.accent;
-const _amber = AppColors.warning;
-
-/// Dashboard "Today's Quest" panel: fetches/creates today's persisted daily
+/// Dashboard "Today's Quests" panel: fetches/creates today's persisted daily
 /// quest board, shows the (at most 3) active quests with live progress, and
 /// lets the user claim completed ones. Owns its own Firestore subscription
 /// (same pattern as `DashboardLeaderboard`) so the rest of the dashboard can
@@ -156,11 +153,9 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       switch (result.status) {
         case QuestClaimStatus.claimed:
         case QuestClaimStatus.alreadyClaimed:
-          // The live claims stream will update _claimedIds; nothing else to do.
           break;
         case QuestClaimStatus.boardExpired:
         case QuestClaimStatus.boardMissing:
-          // The Manila day rolled over mid-claim; transparently refetch.
           unawaited(_loadBoard());
           break;
         case QuestClaimStatus.leaderboardMissing:
@@ -198,31 +193,32 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
   @override
   Widget build(BuildContext context) {
     return DashboardPanelCard(
-      accent: _pink,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
-                children: [
-                  Icon(FluentIcons.lightning_bolt, size: 14, color: _amber),
-                  SizedBox(width: 6),
-                  Text(
-                    "Today's Quest",
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
+              Icon(
+                FluentIcons.lightning_bolt,
+                size: 14,
+                color: AppColors.warning.withValues(alpha: 0.95),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  "Today's Quests",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: context.elixTextPrimary,
                   ),
-                ],
+                ),
               ),
               if (widget.streakDays > 0)
                 DashboardPill(
-                  text: '🔥 ${widget.streakDays} Day Streak',
-                  color: _amber,
+                  text: '${widget.streakDays}-day streak',
+                  color: AppColors.warning,
+                  compact: true,
                 ),
             ],
           ),
@@ -248,7 +244,7 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       return [
         Text(
           'Could not load today\'s quests.',
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.sm),
         Button(onPressed: _loadBoard, child: const Text('Retry')),
@@ -258,9 +254,9 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
     if (_retryableLeaderboardMissingQuestId != null) {
       final questId = _retryableLeaderboardMissingQuestId!;
       return [
-        const Text(
+        Text(
           'Your profile is still loading. Try claiming again in a moment.',
-          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
         ),
         const SizedBox(height: AppSpacing.sm),
         Button(
@@ -298,24 +294,24 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
           child: SizeTransition(sizeFactor: animation, child: child),
         ),
         child: complete
-            ? _CompleteBanner(key: const ValueKey('complete'))
+            ? const _CompleteBanner(key: ValueKey('complete'))
             : Column(
                 key: ValueKey(quests.map((q) => q.id).join(',')),
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final quest in quests) ...[
+                  for (var i = 0; i < quests.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 2),
                     _QuestTile(
-                      quest: quest,
-                      claiming: _claimingQuestId == quest.id,
+                      quest: quests[i],
+                      claiming: _claimingQuestId == quests[i].id,
                       claimDisabled: _claimingQuestId != null,
-                      onClaim: () => _claim(quest.id),
+                      onClaim: () => _claim(quests[i].id),
                     ),
-                    const SizedBox(height: 8),
                   ],
                 ],
               ),
       ),
-      const SizedBox(height: 4),
+      const SizedBox(height: 10),
       _BoardGauge(
         claimedCount: _claimedIds.length,
         total: board.questIds.length,
@@ -335,21 +331,20 @@ class _CompleteBanner extends StatelessWidget {
         horizontal: 10,
       ),
       decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.1),
+        color: AppColors.success.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(FluentIcons.trophy2_solid, size: 16, color: AppColors.success),
-          SizedBox(width: 8),
+          const Icon(FluentIcons.trophy2, size: 16, color: AppColors.success),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Daily board complete. See you tomorrow!',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+                color: context.elixTextPrimary,
               ),
             ),
           ),
@@ -368,53 +363,50 @@ class _BoardGauge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = total == 0 ? 0.0 : claimedCount / total;
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
+        Row(
+          children: [
+            Expanded(
+              child: Text(
                 claimedCount >= total
-                    ? 'All quests claimed. Amazing work!'
+                    ? 'All quests claimed'
                     : claimedCount > 0
-                    ? 'Keep going — claim more XP!'
-                    : 'Complete and claim quests to earn XP.',
-                style: const TextStyle(
+                    ? 'Keep going — claim more XP'
+                    : 'Complete and claim quests for XP',
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textSecondary,
+                  color: context.elixTextSecondary,
                 ),
               ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: SizedBox(
-                  height: 5,
-                  child: Stack(
-                    children: [
-                      Container(color: AppColors.border),
-                      FractionallySizedBox(
-                        widthFactor: progress.clamp(0.0, 1.0),
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(colors: [_pink, _purple]),
-                          ),
-                        ),
-                      ),
-                    ],
+            ),
+            Text(
+              '$claimedCount/$total',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: context.elixTextPrimary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            height: 4,
+            child: Stack(
+              children: [
+                Container(color: context.elixBorder.withValues(alpha: 0.5)),
+                FractionallySizedBox(
+                  widthFactor: progress.clamp(0.0, 1.0),
+                  child: Container(
+                    color: AppColors.primary.withValues(alpha: 0.85),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          '$claimedCount/$total claimed',
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
+              ],
+            ),
           ),
         ),
       ],
@@ -438,52 +430,51 @@ class _QuestTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final claimable = quest.completed;
+    final progress = quest.target <= 0
+        ? 0.0
+        : (quest.current / quest.target).clamp(0.0, 1.0);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
         color: claimable
-            ? AppColors.success.withValues(alpha: 0.08)
-            : Colors.white.withValues(alpha: 0.03),
+            ? AppColors.success.withValues(alpha: 0.07)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: claimable
-              ? AppColors.success.withValues(alpha: 0.3)
-              : AppColors.border,
-        ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        quest.title,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '+${quest.xp} XP',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: _amber,
-                      ),
-                    ),
-                  ],
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  quest.title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: context.elixTextPrimary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                Text(
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '+${quest.xp} XP',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.warning,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
                   claimable
                       ? 'Ready to claim'
                       : '${quest.current}/${quest.target}',
@@ -491,27 +482,48 @@ class _QuestTile extends StatelessWidget {
                     fontSize: 10,
                     color: claimable
                         ? AppColors.success
-                        : AppColors.textSecondary,
+                        : context.elixTextSecondary,
                   ),
                 ),
-              ],
-            ),
+              ),
+              if (claimable)
+                SizedBox(
+                  height: 28,
+                  child: Button(
+                    onPressed: claimDisabled ? null : onClaim,
+                    child: claiming
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: ProgressRing(strokeWidth: 2),
+                          )
+                        : const Text('Claim', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(width: 8),
-          if (claimable)
-            SizedBox(
-              height: 28,
-              child: Button(
-                onPressed: claimDisabled ? null : onClaim,
-                child: claiming
-                    ? const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: ProgressRing(strokeWidth: 2),
-                      )
-                    : const Text('Claim', style: TextStyle(fontSize: 11)),
+          if (!claimable) ...[
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                height: 3,
+                child: Stack(
+                  children: [
+                    Container(
+                      color: context.elixBorder.withValues(alpha: 0.45),
+                    ),
+                    FractionallySizedBox(
+                      widthFactor: progress,
+                      child: Container(
+                        color: AppColors.accent.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+          ],
         ],
       ),
     );

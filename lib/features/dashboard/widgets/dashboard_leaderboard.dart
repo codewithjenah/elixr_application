@@ -11,16 +11,14 @@ import '../../../data/models/leaderboard_award_plan.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
-import '../../leaderboard/widgets/leaderboard_podium.dart';
+import '../../leaderboard/widgets/leaderboard_identity.dart';
 import '../../profile/profile_route_args.dart';
+import 'dashboard_panel_card.dart';
 
-const _purple = AppColors.accent;
-const _violet = AppColors.accentSoft;
-const _pink = AppColors.primary;
-const _amber = AppColors.warning;
-
-/// Dashboard Top 3 XP leaderboard preview. Owns its Firestore subscription so
+/// Dashboard Top 3 competition snapshot. Owns its Firestore subscription so
 /// the rest of the Dashboard can load independently.
+///
+/// Intentionally not a podium — the full Leaderboard page owns that experience.
 class DashboardLeaderboard extends StatefulWidget {
   const DashboardLeaderboard({
     super.key,
@@ -76,7 +74,6 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
     if (!force && _syncStartedForUserId == userId) return;
     _syncStartedForUserId = userId;
 
-    // Non-blocking: streams already render; sync repairs missing awards.
     unawaited(
       _repository
           .syncCurrentUserLeaderboard(
@@ -124,126 +121,441 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
     super.dispose();
   }
 
+  void _openProfile(LeaderboardEntry entry, int rank) {
+    context.push(
+      '/profile/${entry.userId}',
+      extra: ProfileRouteArgs(entry: entry, rank: rank),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(FluentIcons.trophy2_solid, size: 16, color: _violet),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Leaderboard',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: _amber.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: _amber.withValues(alpha: 0.4)),
-              ),
-              child: const Text(
-                'All Time',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: _amber,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final header = Row(
+              children: [
+                Icon(
+                  FluentIcons.trophy2,
+                  size: 16,
+                  color: AppColors.accentSoft.withValues(alpha: 0.95),
                 ),
-              ),
-            ),
-          ],
+                const SizedBox(width: AppSpacing.sm),
+                Flexible(
+                  child: Text(
+                    'Top Players',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: context.elixTextPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const DashboardPill(
+                  text: 'All Time',
+                  color: AppColors.warning,
+                  compact: true,
+                ),
+                if (constraints.maxWidth >= 420) ...[
+                  const Spacer(),
+                  HyperlinkButton(
+                    onPressed: () => context.go('/leaderboard'),
+                    child: const Text('View leaderboard'),
+                  ),
+                ],
+              ],
+            );
+
+            if (constraints.maxWidth >= 420) return header;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                header,
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: HyperlinkButton(
+                    onPressed: () => context.go('/leaderboard'),
+                    child: const Text('View leaderboard'),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: AppSpacing.sm),
         if (_loading)
-          _LeaderboardPanel(
+          const DashboardPanelCard(
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-              child: Center(
-                child: ProgressRing(activeColor: _pink.withValues(alpha: 0.85)),
-              ),
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+              child: Center(child: ProgressRing()),
             ),
           )
         else if (_error != null)
-          const _LeaderboardPanel(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: Text(
-                'Leaderboard is temporarily unavailable.',
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-              ),
+          DashboardPanelCard(
+            child: Text(
+              'Leaderboard is temporarily unavailable.',
+              style: TextStyle(fontSize: 13, color: context.elixTextSecondary),
             ),
           )
         else if (_topPlayers.isEmpty)
-          const _LeaderboardPanel(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: Text(
-                'No rankings yet. Complete a practice session to get started.',
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-              ),
+          DashboardPanelCard(
+            child: Text(
+              'No rankings yet. Complete a practice session to get started.',
+              style: TextStyle(fontSize: 13, color: context.elixTextSecondary),
             ),
           )
         else
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              LeaderboardPodium(
-                podium: LeaderboardPresentation.podiumOf(_topPlayers),
-                currentUserId: widget.currentUserId,
-                currentUserProfilePictureUrl: widget.profilePictureUrl,
-                variant: LeaderboardPodiumVariant.compact,
-                onTapPlayer: (entry, rank) {
-                  context.push(
-                    '/profile/${entry.userId}',
-                    extra: ProfileRouteArgs(entry: entry, rank: rank),
+          DashboardPanelCard(
+            padding: const EdgeInsets.all(12),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final wide = constraints.maxWidth >= 560;
+                final first = _topPlayers.first;
+                final rest = _topPlayers.skip(1).toList(growable: false);
+
+                if (!wide) {
+                  return Column(
+                    children: [
+                      for (var i = 0; i < _topPlayers.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 6),
+                        _PlayerRow(
+                          rank: i + 1,
+                          entry: _topPlayers[i],
+                          currentUserId: widget.currentUserId,
+                          currentUserProfilePictureUrl:
+                              widget.profilePictureUrl,
+                          spotlight: i == 0,
+                          onTap: () => _openProfile(_topPlayers[i], i + 1),
+                        ),
+                      ],
+                    ],
                   );
-                },
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              HyperlinkButton(
-                onPressed: () => context.go('/leaderboard'),
-                child: const Text('View Full Leaderboard'),
-              ),
-            ],
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: _PlayerSpotlight(
+                        rank: 1,
+                        entry: first,
+                        currentUserId: widget.currentUserId,
+                        currentUserProfilePictureUrl: widget.profilePictureUrl,
+                        onTap: () => _openProfile(first, 1),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 6,
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < rest.length; i++) ...[
+                            if (i > 0) const SizedBox(height: 8),
+                            _PlayerRow(
+                              rank: i + 2,
+                              entry: rest[i],
+                              currentUserId: widget.currentUserId,
+                              currentUserProfilePictureUrl:
+                                  widget.profilePictureUrl,
+                              onTap: () => _openProfile(rest[i], i + 2),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
       ],
     );
   }
 }
 
-class _LeaderboardPanel extends StatelessWidget {
-  const _LeaderboardPanel({required this.child});
+class _PlayerSpotlight extends StatelessWidget {
+  const _PlayerSpotlight({
+    required this.rank,
+    required this.entry,
+    required this.currentUserId,
+    required this.currentUserProfilePictureUrl,
+    required this.onTap,
+  });
 
-  final Widget child;
+  final int rank;
+  final LeaderboardEntry entry;
+  final String? currentUserId;
+  final String? currentUserProfilePictureUrl;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final panel = context.isDarkTheme
-        ? AppColors.panelSurface
-        : context.elixCardSurface;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: panel,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _purple.withValues(alpha: 0.22)),
-        boxShadow: [
-          BoxShadow(
-            color: _purple.withValues(alpha: 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
+    final isYou = currentUserId != null && entry.userId == currentUserId;
+    final medal = LeaderboardRankStyle.medalForRank(rank);
+    final pictureUrl = isYou
+        ? (currentUserProfilePictureUrl ?? entry.profilePictureUrl)
+        : entry.profilePictureUrl;
+
+    return DashboardHoverSurface(
+      onTap: onTap,
+      borderRadius: 14,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isYou
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : (context.isDarkTheme
+                    ? Colors.white.withValues(alpha: 0.03)
+                    : Colors.black.withValues(alpha: 0.02)),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isYou
+                ? AppColors.primary.withValues(alpha: 0.28)
+                : context.elixBorder.withValues(
+                    alpha: context.isDarkTheme ? 0.4 : 0.7,
+                  ),
           ),
-        ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _RankMedal(rank: rank, color: medal, size: 28),
+                const SizedBox(width: 8),
+                Text(
+                  'Rank #$rank',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: medal,
+                  ),
+                ),
+                if (isYou) ...[
+                  const SizedBox(width: 8),
+                  const LeaderboardYouBadge(compact: true),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                LeaderboardInitialsAvatar(
+                  initials: LeaderboardPresentation.initialsFor(
+                    entry.displayName,
+                  ),
+                  accent: medal,
+                  size: 52,
+                  profilePictureUrl: pictureUrl,
+                  equippedBorderId: entry.equippedBorderId,
+                  highlightRing: isYou,
+                  animateBorder: true,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: context.elixTextPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Level ${entry.level}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${entry.totalXp} XP · Best ${entry.bestScore}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  FluentIcons.chevron_right,
+                  size: 12,
+                  color: context.elixTextSecondary,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-      child: child,
+    );
+  }
+}
+
+class _PlayerRow extends StatelessWidget {
+  const _PlayerRow({
+    required this.rank,
+    required this.entry,
+    required this.currentUserId,
+    required this.currentUserProfilePictureUrl,
+    required this.onTap,
+    this.spotlight = false,
+  });
+
+  final int rank;
+  final LeaderboardEntry entry;
+  final String? currentUserId;
+  final String? currentUserProfilePictureUrl;
+  final VoidCallback onTap;
+  final bool spotlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final isYou = currentUserId != null && entry.userId == currentUserId;
+    final medal = LeaderboardRankStyle.medalForRank(rank);
+    final pictureUrl = isYou
+        ? (currentUserProfilePictureUrl ?? entry.profilePictureUrl)
+        : entry.profilePictureUrl;
+    final avatarSize = spotlight ? 40.0 : 34.0;
+
+    return DashboardHoverSurface(
+      onTap: onTap,
+      borderRadius: 12,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: spotlight ? 12 : 10,
+        ),
+        decoration: BoxDecoration(
+          color: isYou
+              ? AppColors.primary.withValues(alpha: 0.06)
+              : (spotlight
+                    ? (context.isDarkTheme
+                          ? Colors.white.withValues(alpha: 0.03)
+                          : Colors.black.withValues(alpha: 0.02))
+                    : Colors.transparent),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isYou
+                ? AppColors.primary.withValues(alpha: 0.28)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          children: [
+            _RankMedal(rank: rank, color: medal, size: spotlight ? 24 : 22),
+            const SizedBox(width: 10),
+            LeaderboardInitialsAvatar(
+              initials: LeaderboardPresentation.initialsFor(entry.displayName),
+              accent: medal,
+              size: avatarSize,
+              profilePictureUrl: pictureUrl,
+              equippedBorderId: entry.equippedBorderId,
+              highlightRing: isYou,
+              animateBorder: true,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          entry.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: spotlight ? 14 : 13,
+                            fontWeight: FontWeight.w700,
+                            color: context.elixTextPrimary,
+                          ),
+                        ),
+                      ),
+                      if (isYou) ...[
+                        const SizedBox(width: 6),
+                        const LeaderboardYouBadge(compact: true),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Lv. ${entry.level} · ${entry.totalXp} XP'
+                    '${entry.bestScore > 0 ? ' · Best ${entry.bestScore}' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              FluentIcons.chevron_right,
+              size: 12,
+              color: context.elixTextSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RankMedal extends StatelessWidget {
+  const _RankMedal({
+    required this.rank,
+    required this.color,
+    required this.size,
+  });
+
+  final int rank;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withValues(alpha: 0.14),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Text(
+        '$rank',
+        style: TextStyle(
+          fontSize: size * 0.42,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/features/dashboard/widgets/dashboard_hero.dart';
 import 'package:elixr_application/features/dashboard/widgets/recommended_practice_card.dart';
 import 'package:elixr_application/features/progress/training_recommendation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -58,7 +59,7 @@ void main() {
       await tester.pump();
 
       expect(find.byType(ProgressRing), findsOneWidget);
-      expect(find.text('Recommended Next Practice'), findsNothing);
+      expect(find.text("COACH'S FOCUS"), findsNothing);
     });
 
     testWidgets('new user state recommends first Easy movement', (
@@ -80,13 +81,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.text("COACH'S FOCUS"), findsOneWidget);
       expect(find.text('Normal Grip'), findsOneWidget);
       expect(find.text('Not practiced'), findsOneWidget);
       expect(
         find.text('You have not practiced this movement yet.'),
         findsOneWidget,
       );
-      expect(find.text('Practice Now'), findsOneWidget);
+      expect(find.text('Practice this'), findsOneWidget);
     });
 
     testWidgets('recommended practiced movement shows recent average', (
@@ -143,7 +145,7 @@ void main() {
       expect(find.textContaining('Recent: 64'), findsOneWidget);
     });
 
-    testWidgets('Practice Now navigates with encoded query parameters', (
+    testWidgets('Practice this navigates with encoded query parameters', (
       tester,
     ) async {
       await _setSurface(tester, const Size(900, 600));
@@ -184,7 +186,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Practice Now'));
+      await tester.tap(find.text('Practice this'));
       await tester.pumpAndSettle();
 
       expect(navigated, hasLength(1));
@@ -217,7 +219,85 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Practice Now'), findsOneWidget);
+      expect(find.text('Practice this'), findsOneWidget);
+    });
+  });
+
+  group('DashboardHero CTAs', () {
+    testWidgets('primary and secondary actions navigate to different routes', (
+      tester,
+    ) async {
+      await _setSurface(tester, const Size(1100, 800));
+      final navigated = <String>[];
+      final recommendation = _recommendationFor(const []);
+
+      final router = GoRouter(
+        initialLocation: '/dashboard',
+        routes: [
+          GoRoute(
+            path: '/dashboard',
+            builder: (context, state) => ScaffoldPage(
+              content: DashboardHero(
+                firstName: 'Ada',
+                greeting: 'Good Morning',
+                sessionCount: 3,
+                recommendation: recommendation,
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/practice',
+            builder: (context, state) {
+              navigated.add(state.uri.toString());
+              return const ScaffoldPage(content: Text('Practice'));
+            },
+          ),
+          GoRoute(
+            path: '/movements',
+            builder: (context, state) {
+              navigated.add(state.uri.toString());
+              return const ScaffoldPage(content: Text('Movements'));
+            },
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        FluentApp.router(
+          theme: AppTheme.dark,
+          routeInformationParser: router.routeInformationParser,
+          routerDelegate: router.routerDelegate,
+          routeInformationProvider: router.routeInformationProvider,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Practice Normal Grip'), findsOneWidget);
+      expect(find.text('Explore Movements'), findsOneWidget);
+
+      await tester.tap(find.text('Practice Normal Grip'));
+      await tester.pumpAndSettle();
+      expect(
+        navigated.single,
+        '/practice?movement=Normal%20Grip&difficulty=Easy',
+      );
+
+      router.go('/dashboard');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Explore Movements'));
+      await tester.pumpAndSettle();
+      expect(navigated.last, '/movements');
+      expect(navigated.first, isNot(equals(navigated.last)));
+    });
+
+    test('practiceRouteFor encodes movement and falls back', () {
+      final recommendation = _recommendationFor(const []);
+      expect(
+        DashboardHero.practiceRouteFor(recommendation),
+        '/practice?movement=Normal%20Grip&difficulty=Easy',
+      );
+      expect(DashboardHero.practiceRouteFor(null), '/movements');
     });
   });
 }

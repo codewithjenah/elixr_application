@@ -407,9 +407,7 @@ void main() {
       expect(receivedArgs?.rank, 1);
     });
 
-    testWidgets('View Full Leaderboard still uses go replacement', (
-      tester,
-    ) async {
+    testWidgets('View leaderboard still uses go replacement', (tester) async {
       await _setSurface(tester);
       final auth = _testAuth();
       final entries = [
@@ -451,7 +449,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('View Full Leaderboard'));
+      await tester.tap(find.text('View leaderboard'));
       await tester.pumpAndSettle();
 
       expect(router.state.uri.path, '/leaderboard');
@@ -1067,10 +1065,8 @@ void main() {
         routes: [
           GoRoute(
             path: '/profile/:userId',
-            builder: (context, state) => UserProfileScreen(
-              userId: 'viewer',
-              controller: controller,
-            ),
+            builder: (context, state) =>
+                UserProfileScreen(userId: 'viewer', controller: controller),
           ),
           GoRoute(
             path: '/achievements',

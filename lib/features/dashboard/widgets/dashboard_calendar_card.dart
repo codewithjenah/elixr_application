@@ -3,12 +3,9 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../calendar/utils/calendar_metrics.dart';
-
-const _purple = AppColors.accent;
-const _violet = AppColors.accentSoft;
-const _pink = AppColors.primary;
-const _panelColor = AppColors.panelSurface;
+import 'dashboard_panel_card.dart';
 
 /// Compact Monday-first practice calendar used on the Dashboard.
 class DashboardCalendarCard extends StatelessWidget {
@@ -30,50 +27,45 @@ class DashboardCalendarCard extends StatelessWidget {
     final today = normalizeDate(now);
     final dates = monthGridDates(visibleMonth.year, visibleMonth.month);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: _panelColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _purple.withValues(alpha: 0.22)),
-        boxShadow: [
-          BoxShadow(
-            color: _purple.withValues(alpha: 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return DashboardPanelCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(FluentIcons.calendar, size: 14, color: _violet),
+              Icon(
+                FluentIcons.calendar,
+                size: 14,
+                color: AppColors.accentSoft.withValues(alpha: 0.95),
+              ),
               const SizedBox(width: 6),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Practice Calendar',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: context.elixTextPrimary,
                   ),
                 ),
               ),
               HyperlinkButton(
                 onPressed: onViewCalendar,
-                child: const Text('View Calendar'),
+                style: ButtonStyle(
+                  padding: WidgetStateProperty.all(
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  ),
+                ),
+                child: const Text(
+                  'View Calendar',
+                  style: TextStyle(fontSize: 11),
+                ),
               ),
             ],
           ),
           Text(
             DateFormat.yMMMM().format(now),
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.textSecondary,
-            ),
+            style: TextStyle(fontSize: 11, color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           Row(
@@ -91,17 +83,18 @@ class DashboardCalendarCard extends StatelessWidget {
                   child: Text(
                     d,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+                      color: context.elixTextSecondary,
                     ),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           for (var week = 0; week < dates.length ~/ 7; week++) ...[
+            if (week > 0) const SizedBox(height: 2),
             Row(
               children: [
                 for (var dow = 0; dow < 7; dow++)
@@ -153,15 +146,17 @@ class _CompactDayCell extends StatelessWidget {
           height: 24,
           alignment: Alignment.center,
           decoration: isToday
-              ? const BoxDecoration(
+              ? BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [_pink, _purple]),
+                  color: AppColors.primary.withValues(alpha: 0.92),
                 )
               : practiced
               ? BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _purple.withValues(alpha: 0.28),
-                  border: Border.all(color: _purple.withValues(alpha: 0.55)),
+                  color: AppColors.accent.withValues(alpha: 0.18),
+                  border: Border.all(
+                    color: AppColors.accent.withValues(alpha: 0.45),
+                  ),
                 )
               : null,
           child: Text(
@@ -174,15 +169,14 @@ class _CompactDayCell extends StatelessWidget {
               color: isToday
                   ? Colors.white
                   : practiced
-                  ? AppColors.textPrimary
-                  : AppColors.textSecondary,
+                  ? context.elixTextPrimary
+                  : context.elixTextSecondary,
             ),
           ),
         ),
       ),
     );
 
-    // Active practiced dates (and today) are navigable into the full calendar.
     if (!practiced && !isToday) return content;
 
     return MouseRegion(
