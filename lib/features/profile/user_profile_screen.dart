@@ -155,20 +155,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _ProfilePageHeader(
-                        title: pageTitle,
-                        onBack: _handleBack,
-                      ),
+                      _ProfilePageHeader(title: pageTitle, onBack: _handleBack),
                       if (controller.isSelf && _previewAsVisitor) ...[
                         const SizedBox(height: AppSpacing.md),
                         _PreviewBanner(onExit: _exitPreviewAsVisitor),
                       ],
                       const SizedBox(height: AppSpacing.lg),
                       Expanded(
-                        child: _buildBody(
-                          context,
-                          authUser?.profilePictureUrl,
-                        ),
+                        child: _buildBody(context, authUser?.profilePictureUrl),
                       ),
                     ],
                   ),

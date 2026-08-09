@@ -898,10 +898,12 @@ void main() {
         }
 
         await tester.tap(
-          find.descendant(
-            of: find.byType(SettingsScreen),
-            matching: find.byIcon(FluentIcons.cancel),
-          ).first,
+          find
+              .descendant(
+                of: find.byType(SettingsScreen),
+                matching: find.byIcon(FluentIcons.cancel),
+              )
+              .first,
         );
         await _pumpFrames(tester);
 

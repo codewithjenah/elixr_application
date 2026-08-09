@@ -224,6 +224,36 @@ void main() {
   });
 
   group('DashboardHero CTAs', () {
+    Future<void> pumpHero(
+      WidgetTester tester, {
+      required Size surface,
+      required double heroWidth,
+      required TrainingRecommendation? recommendation,
+      int sessionCount = 3,
+    }) async {
+      await _setSurface(tester, surface);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: ScaffoldPage(
+            content: SingleChildScrollView(
+              child: SizedBox(
+                width: heroWidth,
+                child: DashboardHero(
+                  firstName: 'Ada',
+                  greeting: 'Good Morning',
+                  sessionCount: sessionCount,
+                  recommendation: recommendation,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('primary and secondary actions navigate to different routes', (
       tester,
     ) async {
@@ -237,11 +267,14 @@ void main() {
           GoRoute(
             path: '/dashboard',
             builder: (context, state) => ScaffoldPage(
-              content: DashboardHero(
-                firstName: 'Ada',
-                greeting: 'Good Morning',
-                sessionCount: 3,
-                recommendation: recommendation,
+              content: SizedBox(
+                width: 1100,
+                child: DashboardHero(
+                  firstName: 'Ada',
+                  greeting: 'Good Morning',
+                  sessionCount: 3,
+                  recommendation: recommendation,
+                ),
               ),
             ),
           ),
@@ -274,6 +307,10 @@ void main() {
 
       expect(find.text('Practice Normal Grip'), findsOneWidget);
       expect(find.text('Explore Movements'), findsOneWidget);
+      expect(
+        find.text('“Great flair starts with great practice.”'),
+        findsNothing,
+      );
 
       await tester.tap(find.text('Practice Normal Grip'));
       await tester.pumpAndSettle();
@@ -289,6 +326,81 @@ void main() {
       await tester.pumpAndSettle();
       expect(navigated.last, '/movements');
       expect(navigated.first, isNot(equals(navigated.last)));
+    });
+
+    testWidgets('desktop and mid widths render without overflow', (
+      tester,
+    ) async {
+      final recommendation = _recommendationFor(const []);
+
+      for (final width in [1100.0, 800.0, 600.0]) {
+        await pumpHero(
+          tester,
+          surface: Size(width, 800),
+          heroWidth: width,
+          recommendation: recommendation,
+        );
+
+        expect(tester.takeException(), isNull, reason: 'width $width');
+        expect(find.text('Explore Movements'), findsOneWidget);
+        expect(
+          find.textContaining('Practice'),
+          findsWidgets,
+          reason: 'primary CTA present at $width',
+        );
+        expect(
+          find.text('“Great flair starts with great practice.”'),
+          findsNothing,
+        );
+      }
+    });
+
+    testWidgets('narrow width renders without overflow', (tester) async {
+      final recommendation = _recommendationFor(const []);
+
+      await pumpHero(
+        tester,
+        surface: const Size(420, 700),
+        heroWidth: 420,
+        recommendation: recommendation,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Explore Movements'), findsOneWidget);
+      expect(find.text('Start Recommended Practice'), findsOneWidget);
+    });
+
+    testWidgets('session count uses singular and plural labels', (
+      tester,
+    ) async {
+      final recommendation = _recommendationFor(const []);
+
+      await pumpHero(
+        tester,
+        surface: const Size(900, 700),
+        heroWidth: 900,
+        recommendation: recommendation,
+        sessionCount: 0,
+      );
+      expect(find.text('0 sessions completed'), findsOneWidget);
+
+      await pumpHero(
+        tester,
+        surface: const Size(900, 700),
+        heroWidth: 900,
+        recommendation: recommendation,
+        sessionCount: 1,
+      );
+      expect(find.text('1 session completed'), findsOneWidget);
+
+      await pumpHero(
+        tester,
+        surface: const Size(900, 700),
+        heroWidth: 900,
+        recommendation: recommendation,
+        sessionCount: 2,
+      );
+      expect(find.text('2 sessions completed'), findsOneWidget);
     });
 
     test('practiceRouteFor encodes movement and falls back', () {
