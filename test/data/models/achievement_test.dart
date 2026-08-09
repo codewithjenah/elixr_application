@@ -244,4 +244,47 @@ void main() {
       expect(view.state, AchievementState.locked);
     });
   });
+
+  group('achievement progression', () {
+    test('every achievement has a unique positive progressionOrder', () {
+      final orders = achievementCatalog.map((a) => a.progressionOrder).toList();
+      expect(orders.every((o) => o > 0), isTrue);
+      expect(orders.toSet(), hasLength(achievementCatalog.length));
+    });
+
+    test('progressionOrder matches agreed easy-to-hard sequence', () {
+      final byOrder = [...achievementCatalog]
+        ..sort(compareAchievementsByProgression);
+      expect(byOrder.map((a) => a.id).toList(), [
+        'first_steps',
+        'getting_started',
+        'movement_explorer',
+        'sharp_pour',
+        'week_warrior',
+        'flair_regular',
+        'versatility_master',
+        'bottle_in_tin_specialist',
+        'perfect_serve',
+        'century_club',
+      ]);
+    });
+
+    test('filtered subsets preserve progression order', () {
+      final views = buildAllAchievementViewData(
+        sessions: const [],
+        leaderboardEntry: null,
+        claimedAchievementIds: {'first_steps', 'century_club'},
+      );
+      final claimed =
+          views.where((v) => v.state == AchievementState.claimed).toList()
+            ..sort(
+              (a, b) =>
+                  compareAchievementsByProgression(a.definition, b.definition),
+            );
+      expect(claimed.map((v) => v.definition.id).toList(), [
+        'first_steps',
+        'century_club',
+      ]);
+    });
+  });
 }

@@ -36,7 +36,7 @@ class _AchievementCardState extends State<AchievementCard> {
     return switch (widget.view.state) {
       AchievementState.claimable => AppColors.primary,
       AchievementState.claimed => AppColors.success,
-      AchievementState.inProgress => AppColors.warning,
+      AchievementState.inProgress => AppColors.accent,
       AchievementState.locked => context.elixTextSecondary,
     };
   }
@@ -54,17 +54,15 @@ class _AchievementCardState extends State<AchievementCard> {
 
   Widget _buildTrophyPreview(BuildContext context, Color accentTint) {
     final glyphColor = _previewGlyphColor(context);
-    // Keep a fixed layout slot; ornamental frames scale down so the
-    // fixed-height achievement grid never overflows.
     return SizedBox(
-      width: 44,
-      height: 44,
+      width: 48,
+      height: 48,
       child: FittedBox(
         fit: BoxFit.contain,
         child: ProfileBorderFrame(
-          size: 36,
+          size: 40,
           equippedBorderId: widget.view.definition.rewardBorderId,
-          animate: true,
+          animate: !_locked,
           child: ColoredBox(
             color: _previewPlateColor(context, accentTint),
             child: Center(
@@ -112,6 +110,10 @@ class _AchievementCardState extends State<AchievementCard> {
     final active = _interactive && (_hovered || _focused);
     final isDark = context.isDarkTheme;
 
+    final cardBorderColor = _claimable
+        ? accent.withValues(alpha: active ? 0.65 : 0.42)
+        : context.elixBorder.withValues(alpha: isDark ? 0.7 : 1);
+
     return Semantics(
       button: _interactive,
       enabled: !_locked,
@@ -142,7 +144,9 @@ class _AchievementCardState extends State<AchievementCard> {
           onEnter: (_) {
             if (_interactive) setState(() => _hovered = true);
           },
-          onExit: (_) => setState(() => _hovered = false),
+          onExit: (_) {
+            if (_hovered) setState(() => _hovered = false);
+          },
           cursor: _interactive
               ? SystemMouseCursors.click
               : SystemMouseCursors.basic,
@@ -155,16 +159,12 @@ class _AchievementCardState extends State<AchievementCard> {
               decoration: BoxDecoration(
                 color: active
                     ? accent.withValues(alpha: isDark ? 0.08 : 0.05)
-                    : context.elixCardSurface,
+                    : context.elixCardSurface.withValues(
+                        alpha: _locked ? 0.72 : 1,
+                      ),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: _claimable
-                      ? accent.withValues(alpha: active ? 0.65 : 0.45)
-                      : _claimed
-                      ? accent.withValues(alpha: active ? 0.5 : 0.35)
-                      : active
-                      ? accent.withValues(alpha: 0.4)
-                      : context.elixBorder.withValues(alpha: isDark ? 0.7 : 1),
+                  color: cardBorderColor,
                   width: _focused ? 1.6 : 1,
                 ),
                 boxShadow: [
@@ -187,10 +187,19 @@ class _AchievementCardState extends State<AchievementCard> {
                       left: 0,
                       top: 0,
                       bottom: 0,
-                      child: Container(width: 3, color: accent),
+                      child: Container(
+                        width: 3,
+                        color: accent.withValues(
+                          alpha: _locked
+                              ? 0.35
+                              : _claimed
+                              ? 0.55
+                              : 0.9,
+                        ),
+                      ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -198,7 +207,7 @@ class _AchievementCardState extends State<AchievementCard> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _buildTrophyPreview(context, borderAccent),
-                              const SizedBox(width: AppSpacing.sm),
+                              const SizedBox(width: AppSpacing.sm + 2),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,45 +215,80 @@ class _AchievementCardState extends State<AchievementCard> {
                                     Text(
                                       widget.view.definition.title,
                                       style: AppTheme.body.copyWith(
-                                        fontSize: 14,
+                                        fontSize: 15,
                                         fontWeight: FontWeight.w700,
-                                        color: context.elixTextPrimary,
+                                        color: context.elixTextPrimary
+                                            .withValues(
+                                              alpha: _locked ? 0.82 : 1,
+                                            ),
                                       ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
+                                    const SizedBox(height: 2),
                                     Text(
                                       _categoryLabel(
                                         widget.view.definition.category,
                                       ),
                                       style: AppTheme.caption.copyWith(
-                                        fontSize: 10,
-                                        color: AppColors.accent,
+                                        fontSize: 11,
+                                        color: AppColors.accent.withValues(
+                                          alpha: _locked ? 0.7 : 1,
+                                        ),
                                         fontWeight: FontWeight.w600,
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
                                 ),
                               ),
+                              const SizedBox(width: 8),
                               _StateChip(state: state),
                             ],
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 10),
                           Text(
                             widget.view.definition.description,
                             style: AppTheme.bodySecondary.copyWith(
-                              color: context.elixTextSecondary,
-                              fontSize: 12,
-                              height: 1.3,
+                              color: context.elixTextSecondary.withValues(
+                                alpha: _locked ? 0.78 : 1,
+                              ),
+                              fontSize: 12.5,
+                              height: 1.35,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const Spacer(),
+                          Row(
+                            children: [
+                              Text(
+                                'Progress',
+                                style: AppTheme.caption.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: context.elixTextSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${widget.view.progress.current} / ${widget.view.progress.target}',
+                                style: AppTheme.caption.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: context.elixTextPrimary.withValues(
+                                    alpha: _locked ? 0.8 : 1,
+                                  ),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(3),
                             child: SizedBox(
-                              height: 4,
+                              height: 5,
                               child: Stack(
                                 children: [
                                   Container(
@@ -255,41 +299,62 @@ class _AchievementCardState extends State<AchievementCard> {
                                   FractionallySizedBox(
                                     widthFactor:
                                         widget.view.progress.normalizedProgress,
-                                    child: Container(color: accent),
+                                    child: Container(
+                                      color: accent.withValues(
+                                        alpha: _locked ? 0.55 : 1,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
-                              Text(
-                                '${widget.view.progress.current} / ${widget.view.progress.target}',
-                                style: AppTheme.caption.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: context.elixTextSecondary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              if (border != null) ...[
-                                const SizedBox(width: AppSpacing.sm),
+                              if (border != null)
                                 Expanded(
                                   child: Text(
-                                    border.displayName,
-                                    textAlign: TextAlign.end,
+                                    'Reward · ${border.displayName}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: AppTheme.caption.copyWith(
-                                      color: Color(border.primaryColorValue),
+                                      color: Color(
+                                        border.primaryColorValue,
+                                      ).withValues(alpha: _locked ? 0.7 : 1),
                                       fontWeight: FontWeight.w600,
-                                      fontSize: 10,
+                                      fontSize: 11,
                                     ),
                                   ),
+                                )
+                              else
+                                const Spacer(),
+                              if (_claimable) ...[
+                                const SizedBox(width: AppSpacing.sm),
+                                FilledButton(
+                                  onPressed: widget.claiming
+                                      ? null
+                                      : _handleClaim,
+                                  style: ButtonStyle(
+                                    padding: WidgetStateProperty.all(
+                                      const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 5,
+                                      ),
+                                    ),
+                                  ),
+                                  child: widget.claiming
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: ProgressRing(strokeWidth: 2),
+                                        )
+                                      : const Text(
+                                          'Claim',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
                                 ),
                               ],
-                              const SizedBox(width: AppSpacing.sm),
-                              _buildFooterAction(context, accent),
                             ],
                           ),
                         ],
@@ -300,50 +365,6 @@ class _AchievementCardState extends State<AchievementCard> {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFooterAction(BuildContext context, Color accent) {
-    if (_claimable) {
-      return FilledButton(
-        onPressed: widget.claiming ? null : _handleClaim,
-        style: ButtonStyle(
-          padding: WidgetStateProperty.all(
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          ),
-        ),
-        child: widget.claiming
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: ProgressRing(strokeWidth: 2),
-              )
-            : const Text('Claim', style: TextStyle(fontSize: 11)),
-      );
-    }
-
-    final (label, color) = switch (widget.view.state) {
-      AchievementState.claimed => ('Claimed', AppColors.success),
-      AchievementState.locked => ('Locked', context.elixTextSecondary),
-      AchievementState.inProgress => ('In progress', AppColors.warning),
-      AchievementState.claimable => ('Claimable', AppColors.primary),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color,
         ),
       ),
     );
@@ -378,24 +399,36 @@ class _StateChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final (label, color) = switch (state) {
       AchievementState.locked => ('Locked', context.elixTextSecondary),
-      AchievementState.inProgress => ('In Progress', AppColors.warning),
+      AchievementState.inProgress => ('In Progress', AppColors.accent),
       AchievementState.claimable => ('Claimable', AppColors.primary),
       AchievementState.claimed => ('Claimed', AppColors.success),
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: color.withValues(
+          alpha: state == AchievementState.inProgress ? 0.10 : 0.14,
+        ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
+        border: Border.all(
+          color: color.withValues(
+            alpha: state == AchievementState.claimed
+                ? 0.28
+                : state == AchievementState.inProgress
+                ? 0.28
+                : 0.45,
+          ),
+        ),
       ),
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 9,
+          fontSize: 10,
           fontWeight: FontWeight.w700,
-          color: color,
+          color: color.withValues(
+            alpha: state == AchievementState.inProgress ? 0.9 : 1,
+          ),
         ),
       ),
     );

@@ -5,6 +5,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/profile_border.dart';
+import '../../../data/models/profile_frame_presentation.dart';
 
 /// Compact cosmetics loadout for equipping avatar frames in Settings.
 class ProfileFrameSelector extends StatelessWidget {
@@ -30,36 +31,98 @@ class ProfileFrameSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
+    final order = buildProfileFramePresentationOrder(
+      unlockedBorderIds: unlockedBorderIds,
+      equippedBorderId: equippedBorderId,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _NoFrameTile(
-          key: const Key('frame_tile_none'),
-          selected: _noneSelected,
-          busy: busyBorderId == '' && actionsDisabled,
-          disabled: actionsDisabled,
-          onTap: () {
-            if (actionsDisabled || _noneSelected) return;
-            onClearBorder();
-          },
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            _NoFrameTile(
+              key: const Key('frame_tile_none'),
+              selected: _noneSelected,
+              busy: busyBorderId == '' && actionsDisabled,
+              disabled: actionsDisabled,
+              onTap: () {
+                if (actionsDisabled || _noneSelected) return;
+                onClearBorder();
+              },
+            ),
+          ],
         ),
-        for (final border in profileBorderCatalog)
-          _FrameTile(
-            key: Key('frame_tile_${border.id}'),
-            border: border,
-            unlocked: unlockedBorderIds.contains(border.id),
-            selected: equippedBorderId == border.id,
-            busy: busyBorderId == border.id,
-            actionsDisabled: actionsDisabled,
-            onSelect: () {
-              if (actionsDisabled) return;
-              if (!unlockedBorderIds.contains(border.id)) return;
-              if (equippedBorderId == border.id) return;
-              onSelectBorder(border.id);
-            },
+        if (order.unlockedBorders.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const _FrameGroupLabel(label: 'Unlocked'),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final border in order.unlockedBorders)
+                _FrameTile(
+                  key: Key('frame_tile_${border.id}'),
+                  border: border,
+                  unlocked: true,
+                  selected: equippedBorderId == border.id,
+                  busy: busyBorderId == border.id,
+                  actionsDisabled: actionsDisabled,
+                  onSelect: () {
+                    if (actionsDisabled) return;
+                    // Persist only when actually unlocked in caller state.
+                    if (!unlockedBorderIds.contains(border.id)) return;
+                    if (equippedBorderId == border.id) return;
+                    onSelectBorder(border.id);
+                  },
+                ),
+            ],
           ),
+        ],
+        if (order.lockedBorders.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const _FrameGroupLabel(label: 'Locked'),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final border in order.lockedBorders)
+                _FrameTile(
+                  key: Key('frame_tile_${border.id}'),
+                  border: border,
+                  unlocked: false,
+                  selected: false,
+                  busy: false,
+                  actionsDisabled: actionsDisabled,
+                  onSelect: () {},
+                ),
+            ],
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _FrameGroupLabel extends StatelessWidget {
+  const _FrameGroupLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: AppTheme.caption.copyWith(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: context.elixTextSecondary.withValues(alpha: 0.85),
+        letterSpacing: 0.2,
+      ),
     );
   }
 }
@@ -344,9 +407,9 @@ Widget _tileShell({
   Color? accent,
 }) {
   final borderColor = selected
-      ? AppColors.primary.withValues(alpha: 0.85)
+      ? AppColors.primary.withValues(alpha: 0.9)
       : hovered && !locked
-      ? (accent ?? AppColors.accent).withValues(alpha: 0.55)
+      ? (accent ?? AppColors.accent).withValues(alpha: 0.6)
       : context.elixBorder.withValues(alpha: 0.75);
 
   return AnimatedContainer(
@@ -357,19 +420,19 @@ Widget _tileShell({
     decoration: BoxDecoration(
       color: selected
           ? AppColors.primary.withValues(
-              alpha: context.isDarkTheme ? 0.14 : 0.08,
+              alpha: context.isDarkTheme ? 0.16 : 0.09,
             )
           : context.elixCardSurface,
       borderRadius: BorderRadius.circular(12),
       border: Border.all(
         color: borderColor,
-        width: selected || hovered ? 1.6 : 1,
+        width: selected ? 1.8 : (hovered ? 1.5 : 1),
       ),
       boxShadow: [
         if (selected)
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.18),
-            blurRadius: 8,
+            color: AppColors.primary.withValues(alpha: 0.22),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
       ],

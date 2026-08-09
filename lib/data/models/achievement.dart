@@ -47,6 +47,7 @@ class AchievementDefinition {
     required this.category,
     required this.rewardBorderId,
     required this.target,
+    required this.progressionOrder,
     required this.evaluator,
   });
 
@@ -56,7 +57,21 @@ class AchievementDefinition {
   final AchievementCategory category;
   final String rewardBorderId;
   final int target;
+
+  /// Presentation progression: lower values are easier / earlier.
+  /// Independent of catalog list order and of movement Easy/Medium/Hard.
+  final int progressionOrder;
   final AchievementEvaluator evaluator;
+}
+
+/// Deterministic easiest-to-hardest ordering for achievement presentation.
+int compareAchievementsByProgression(
+  AchievementDefinition a,
+  AchievementDefinition b,
+) {
+  final byOrder = a.progressionOrder.compareTo(b.progressionOrder);
+  if (byOrder != 0) return byOrder;
+  return a.id.compareTo(b.id);
 }
 
 class AchievementViewData {
@@ -195,6 +210,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['first_steps']!,
       target: 1,
+      progressionOrder: 1,
       evaluator: (sessions, entry) => _sessionsMilestone(sessions, entry, 1),
     ),
     AchievementDefinition(
@@ -204,6 +220,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['getting_started']!,
       target: 10,
+      progressionOrder: 2,
       evaluator: (sessions, entry) => _sessionsMilestone(sessions, entry, 10),
     ),
     AchievementDefinition(
@@ -213,6 +230,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['flair_regular']!,
       target: 50,
+      progressionOrder: 6,
       evaluator: (sessions, entry) => _sessionsMilestone(sessions, entry, 50),
     ),
     AchievementDefinition(
@@ -222,6 +240,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['century_club']!,
       target: 100,
+      progressionOrder: 10,
       evaluator: (sessions, entry) => _sessionsMilestone(sessions, entry, 100),
     ),
     AchievementDefinition(
@@ -231,6 +250,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.score,
       rewardBorderId: achievementRewardBorderIds['sharp_pour']!,
       target: 90,
+      progressionOrder: 4,
       evaluator: (sessions, entry) => _bestScoreAtLeast(sessions, entry, 90),
     ),
     AchievementDefinition(
@@ -240,6 +260,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.score,
       rewardBorderId: achievementRewardBorderIds['perfect_serve']!,
       target: 100,
+      progressionOrder: 9,
       evaluator: (sessions, entry) => _bestScoreAtLeast(sessions, entry, 100),
     ),
     AchievementDefinition(
@@ -249,6 +270,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.exploration,
       rewardBorderId: achievementRewardBorderIds['movement_explorer']!,
       target: 5,
+      progressionOrder: 3,
       evaluator: (sessions, entry) => _distinctMovements(sessions, 5),
     ),
     AchievementDefinition(
@@ -259,6 +281,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.exploration,
       rewardBorderId: achievementRewardBorderIds['versatility_master']!,
       target: 3,
+      progressionOrder: 7,
       evaluator: (sessions, entry) => _allDifficulties(sessions),
     ),
     AchievementDefinition(
@@ -268,6 +291,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.consistency,
       rewardBorderId: achievementRewardBorderIds['week_warrior']!,
       target: 7,
+      progressionOrder: 5,
       evaluator: (sessions, entry) => _weekStreak(sessions),
     ),
     AchievementDefinition(
@@ -278,6 +302,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
       category: AchievementCategory.specialization,
       rewardBorderId: achievementRewardBorderIds['bottle_in_tin_specialist']!,
       target: 5,
+      progressionOrder: 8,
       evaluator: (sessions, entry) => _bottleInTinSpecialist(sessions),
     ),
   ],

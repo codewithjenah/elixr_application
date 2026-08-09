@@ -22,10 +22,13 @@ import 'widgets/achievement_card.dart';
 
 enum _AchievementFilter { all, claimable, inProgress, claimed, locked }
 
-const _kMaxContentWidth = 1120.0;
+const _kMaxContentWidth = 1400.0;
 const _kAchievementToolbarBreakpoint = 660.0;
 const _kAchievementFilterDropdownHeight = 42.0;
 const _kAchievementFilterDropdownWidth = 280.0;
+const _kAchievementMinCardWidth = 420.0;
+const _kAchievementGridGap = 16.0;
+const _kAchievementCardExtent = 200.0;
 
 String _achievementFilterDisplayLabel(_AchievementFilter filter) {
   return switch (filter) {
@@ -44,8 +47,20 @@ int _achievementFilterCount(
   return counts[filter] ?? 0;
 }
 
-const _kAchievementCardExtent = 168.0;
-const _kAchievementMaxCrossExtent = 380.0;
+int _achievementColumnCount(double availableWidth) {
+  if (availableWidth <= 0) return 1;
+  const minCard = _kAchievementMinCardWidth;
+  const gap = _kAchievementGridGap;
+  var columns = ((availableWidth + gap) / (minCard + gap)).floor().clamp(1, 3);
+  // Reject borderline 3-column layouts where cards would fall under min width
+  // after gaps (padding/constraints can make the raw floor optimistic).
+  while (columns > 1) {
+    final cardWidth = (availableWidth - gap * (columns - 1)) / columns;
+    if (cardWidth >= minCard - 0.5) break;
+    columns -= 1;
+  }
+  return columns;
+}
 
 class AchievementsScreen extends StatefulWidget {
   const AchievementsScreen({
@@ -205,8 +220,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
 
   List<AchievementViewData> get _filteredViews {
     final views = _views;
-    return switch (_filter) {
-      _AchievementFilter.all => views,
+    final filtered = switch (_filter) {
+      _AchievementFilter.all => List<AchievementViewData>.of(views),
       _AchievementFilter.claimable =>
         views.where((v) => v.state == AchievementState.claimable).toList(),
       _AchievementFilter.inProgress =>
@@ -216,6 +231,10 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       _AchievementFilter.locked =>
         views.where((v) => v.state == AchievementState.locked).toList(),
     };
+    filtered.sort(
+      (a, b) => compareAchievementsByProgression(a.definition, b.definition),
+    );
+    return filtered;
   }
 
   double get _overallProgress {
@@ -347,22 +366,25 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                           setState(() => _filter = filter),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    Builder(
-                      builder: (context) {
+                    LayoutBuilder(
+                      builder: (context, constraints) {
                         final filtered = _filteredViews;
                         if (filtered.isEmpty) {
                           return _EmptyFilterState(filter: _filter);
                         }
+                        final columns = _achievementColumnCount(
+                          constraints.maxWidth,
+                        );
                         return GridView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: filtered.length,
                           gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: _kAchievementMaxCrossExtent,
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
                                 mainAxisExtent: _kAchievementCardExtent,
-                                mainAxisSpacing: AppSpacing.sm,
-                                crossAxisSpacing: AppSpacing.sm,
+                                mainAxisSpacing: _kAchievementGridGap,
+                                crossAxisSpacing: _kAchievementGridGap,
                               ),
                           itemBuilder: (context, index) {
                             final view = filtered[index];
@@ -468,6 +490,15 @@ class _AchievementsToolbarTitleGroup extends StatelessWidget {
                 style: AppTheme.headingMedium.copyWith(
                   color: context.elixTextPrimary,
                   fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Progression · Easy → Advanced',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary.withValues(alpha: 0.85),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 2),

@@ -559,7 +559,7 @@ void main() {
             children: [
               for (final view in views.take(3))
                 SizedBox(
-                  height: 168,
+                  height: 200,
                   child: AchievementCard(
                     view: view,
                     claiming: false,
@@ -587,7 +587,7 @@ void main() {
       wrap(
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(view: view, claiming: false, onClaim: () {}),
         ),
       ),
@@ -605,7 +605,7 @@ void main() {
       wrap(
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(view: view, claiming: false, onClaim: () {}),
         ),
       ),
@@ -632,7 +632,7 @@ void main() {
       wrap(
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(
             view: view,
             claiming: false,
@@ -659,7 +659,7 @@ void main() {
       wrap(
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(
             view: view,
             claiming: false,
@@ -684,7 +684,7 @@ void main() {
         Column(
           children: [
             SizedBox(
-              height: 168,
+              height: 200,
               width: 420,
               child: AchievementCard(
                 view: _lockedView(),
@@ -693,7 +693,7 @@ void main() {
               ),
             ),
             SizedBox(
-              height: 168,
+              height: 200,
               width: 420,
               child: AchievementCard(
                 view: _claimedView(),
@@ -741,11 +741,11 @@ void main() {
           child: GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 380,
-              mainAxisExtent: 168,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisExtent: 200,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
             ),
             itemCount: 4,
             itemBuilder: (context, index) {
@@ -771,7 +771,7 @@ void main() {
     await tester.pumpWidget(
       wrap(
         SizedBox(
-          height: 168,
+          height: 200,
           width: 420,
           child: AchievementCard(
             view: claimed,
@@ -795,7 +795,7 @@ void main() {
       wrap(
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(view: view, claiming: false, onClaim: () {}),
         ),
       ),
@@ -870,7 +870,7 @@ void main() {
         wrap(
           SizedBox(
             width: 420,
-            height: 168,
+            height: 200,
             child: AchievementCard(view: view, claiming: false, onClaim: () {}),
           ),
         ),
@@ -896,7 +896,7 @@ void main() {
         brightness: Brightness.light,
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(view: view, claiming: false, onClaim: () {}),
         ),
       ),
@@ -914,7 +914,7 @@ void main() {
       wrap(
         SizedBox(
           width: 420,
-          height: 168,
+          height: 200,
           child: AchievementCard(
             view: _lockedView(),
             claiming: false,
