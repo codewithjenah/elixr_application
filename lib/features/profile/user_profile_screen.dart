@@ -7,6 +7,8 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/profile_visit.dart';
 import '../../services/auth_service.dart';
+import '../settings/settings_screen.dart';
+import '../settings/settings_section.dart';
 import 'profile_route_args.dart';
 import 'user_profile_controller.dart';
 import 'widgets/completed_movements_section.dart';
@@ -16,7 +18,14 @@ import 'widgets/profile_header.dart';
 import 'widgets/profile_stats_section.dart';
 import 'widgets/profile_visitors_section.dart';
 
-const _kProfileContentMaxWidth = 960.0;
+/// Content max width for large Windows workspaces (sidebar visible).
+const _kProfileContentMaxWidth = 1360.0;
+
+/// Prefer two-column owner layout / side-by-side public sections.
+const _kProfileWideBreakpoint = 1180.0;
+
+/// Horizontal page padding on desktop.
+const _kProfilePagePadding = 36.0;
 
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({
@@ -37,6 +46,7 @@ class UserProfileScreen extends StatefulWidget {
 class _UserProfileScreenState extends State<UserProfileScreen> {
   UserProfileController? _controller;
   bool _initialized = false;
+  bool _previewAsVisitor = false;
 
   @override
   void didChangeDependencies() {
@@ -85,14 +95,48 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     context.push('/profile/$visitorId');
   }
 
+  void _openAccountProfileSettings() {
+    SettingsScreen.show(
+      context,
+      initialSection: SettingsSection.accountProfile,
+    );
+  }
+
+  void _openPrivacySettings() {
+    SettingsScreen.show(context, initialSection: SettingsSection.privacy);
+  }
+
+  void _enterPreviewAsVisitor() {
+    setState(() => _previewAsVisitor = true);
+  }
+
+  void _exitPreviewAsVisitor() {
+    setState(() => _previewAsVisitor = false);
+  }
+
+  /// Owner chrome is hidden while previewing as another player would see it.
+  bool _showOwnerUi(UserProfileController controller) {
+    return controller.isSelf && !_previewAsVisitor;
+  }
+
+  /// Preview mode applies public/private visibility as a visitor would.
+  bool _effectiveCanViewDetails(UserProfileController controller) {
+    if (controller.isSelf && _previewAsVisitor) {
+      return controller.profileRoot?.isPublic ?? false;
+    }
+    return controller.canViewDetails;
+  }
+
   @override
   Widget build(BuildContext context) {
     final authUser = context.watch<AuthService>().currentUser;
+    final controller = _controller!;
+    final pageTitle = controller.isSelf ? 'My Profile' : 'Player Profile';
 
     return ScaffoldPage(
       content: SafeArea(
         child: ListenableBuilder(
-          listenable: _controller!,
+          listenable: controller,
           builder: (context, _) {
             return Align(
               alignment: Alignment.topCenter,
@@ -101,14 +145,27 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   maxWidth: _kProfileContentMaxWidth,
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.xl),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _kProfilePagePadding,
+                    vertical: AppSpacing.xl,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _ProfilePageHeader(onBack: _handleBack),
+                      _ProfilePageHeader(
+                        title: pageTitle,
+                        onBack: _handleBack,
+                      ),
+                      if (controller.isSelf && _previewAsVisitor) ...[
+                        const SizedBox(height: AppSpacing.md),
+                        _PreviewBanner(onExit: _exitPreviewAsVisitor),
+                      ],
                       const SizedBox(height: AppSpacing.lg),
                       Expanded(
-                        child: _buildBody(context, authUser?.profilePictureUrl),
+                        child: _buildBody(
+                          context,
+                          authUser?.profilePictureUrl,
+                        ),
                       ),
                     ],
                   ),
@@ -144,51 +201,171 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         controller.isSelf && (pictureUrl == null || pictureUrl.isEmpty)
         ? currentUserPictureUrl
         : pictureUrl;
+    final showOwnerUi = _showOwnerUi(controller);
+    final canViewDetails = _effectiveCanViewDetails(controller);
 
-    return SingleChildScrollView(
-      child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= _kProfileWideBreakpoint;
+
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ProfileHeader(
+                displayName: displayName,
+                profilePictureUrl: resolvedPicture,
+                equippedBorderId: entry?.equippedBorderId,
+                level: entry?.level,
+                totalXp: entry?.totalXp,
+                rank: controller.rank,
+                showUnrankedLabel: entry != null && controller.rank == null,
+                visibility: showOwnerUi ? root?.visibility : null,
+                showOwnerActions: showOwnerUi,
+                onEditProfile: showOwnerUi ? _openAccountProfileSettings : null,
+                onPreviewProfile: showOwnerUi ? _enterPreviewAsVisitor : null,
+                onPrivacy: showOwnerUi ? _openPrivacySettings : null,
+                onEditAvatar: showOwnerUi ? _openAccountProfileSettings : null,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              if (canViewDetails && entry != null)
+                ProfileStatsSection(
+                  leaderboardEntry: entry,
+                  rank: controller.rank,
+                  summary: controller.summary,
+                ),
+              if (canViewDetails && entry != null)
+                const SizedBox(height: AppSpacing.lg),
+              if (!canViewDetails)
+                const PrivateProfileState()
+              else
+                _ProfileContentLayout(
+                  wide: wide,
+                  showVisitorsColumn: showOwnerUi,
+                  achievements: ProfileAchievementsSection(
+                    achievements: controller.claimedAchievements,
+                  ),
+                  movements: CompletedMovementsSection(
+                    movementNames:
+                        controller.summary?.completedMovementNames ?? const [],
+                  ),
+                  visitors: showOwnerUi
+                      ? ProfileVisitorsSection(
+                          state: controller.visitorsState,
+                          visitors: controller.visitors,
+                          onVisitorTap: _openVisitorProfile,
+                        )
+                      : null,
+                ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ProfileContentLayout extends StatelessWidget {
+  const _ProfileContentLayout({
+    required this.wide,
+    required this.showVisitorsColumn,
+    required this.achievements,
+    required this.movements,
+    this.visitors,
+  });
+
+  final bool wide;
+  final bool showVisitorsColumn;
+  final Widget achievements;
+  final Widget movements;
+  final Widget? visitors;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!wide) {
+      return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ProfileHeader(
-            displayName: displayName,
-            isSelf: controller.isSelf,
-            profilePictureUrl: resolvedPicture,
-            equippedBorderId: entry?.equippedBorderId,
-            level: entry?.level,
-            totalXp: entry?.totalXp,
-            rank: controller.rank,
-            showUnrankedLabel: entry != null && controller.rank == null,
-          ),
+          achievements,
           const SizedBox(height: AppSpacing.lg),
-          if (controller.canViewDetails && entry != null)
-            ProfileStatsSection(
-              leaderboardEntry: entry,
-              rank: controller.rank,
-              summary: controller.summary,
-            ),
-          if (controller.canViewDetails && entry != null)
+          movements,
+          if (showVisitorsColumn && visitors != null) ...[
             const SizedBox(height: AppSpacing.lg),
-          if (!controller.canViewDetails) ...[
-            const PrivateProfileState(),
-          ] else ...[
-            ProfileAchievementsSection(
-              achievements: controller.claimedAchievements,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            CompletedMovementsSection(
-              movementNames:
-                  controller.summary?.completedMovementNames ?? const [],
-            ),
+            visitors!,
           ],
-          if (controller.isSelf) ...[
-            const SizedBox(height: AppSpacing.lg),
-            ProfileVisitorsSection(
-              state: controller.visitorsState,
-              visitors: controller.visitors,
-              onVisitorTap: _openVisitorProfile,
+        ],
+      );
+    }
+
+    if (showVisitorsColumn && visitors != null) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 68,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                achievements,
+                const SizedBox(height: AppSpacing.lg),
+                movements,
+              ],
             ),
-          ],
-          const SizedBox(height: AppSpacing.xl),
+          ),
+          const SizedBox(width: 22),
+          Expanded(flex: 32, child: visitors!),
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: achievements),
+        const SizedBox(width: 22),
+        Expanded(child: movements),
+      ],
+    );
+  }
+}
+
+class _PreviewBanner extends StatelessWidget {
+  const _PreviewBanner({required this.onExit});
+
+  final VoidCallback onExit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 2,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            FluentIcons.view,
+            size: 14,
+            color: AppColors.accentSoft.withValues(alpha: 0.95),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              'Previewing your profile as other players',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          HyperlinkButton(onPressed: onExit, child: const Text('Exit Preview')),
         ],
       ),
     );
@@ -196,8 +373,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 }
 
 class _ProfilePageHeader extends StatelessWidget {
-  const _ProfilePageHeader({required this.onBack});
+  const _ProfilePageHeader({required this.title, required this.onBack});
 
+  final String title;
   final VoidCallback onBack;
 
   @override
@@ -222,7 +400,7 @@ class _ProfilePageHeader extends StatelessWidget {
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
-            'Player Profile',
+            title,
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w800,

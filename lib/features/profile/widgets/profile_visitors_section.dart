@@ -8,81 +8,82 @@ import '../../../data/models/profile_visit.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
 import '../../leaderboard/widgets/leaderboard_identity.dart';
 import '../user_profile_controller.dart';
+import 'profile_section_card.dart';
 
-class ProfileVisitorsSection extends StatelessWidget {
+class ProfileVisitorsSection extends StatefulWidget {
   const ProfileVisitorsSection({
     super.key,
     required this.state,
     required this.visitors,
     required this.onVisitorTap,
+    this.initialVisibleCount = 5,
   });
 
   final ProfileVisitorsState state;
   final List<ProfileVisitDisplay> visitors;
   final ValueChanged<ProfileVisitDisplay> onVisitorTap;
+  final int initialVisibleCount;
+
+  @override
+  State<ProfileVisitorsSection> createState() => _ProfileVisitorsSectionState();
+}
+
+class _ProfileVisitorsSectionState extends State<ProfileVisitorsSection> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? AppColors.panelSurface
-            : context.elixCardSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Profile Visitors',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
+    final canCollapse =
+        widget.state == ProfileVisitorsState.loaded &&
+        widget.visitors.length > widget.initialVisibleCount;
+    final visibleVisitors = !canCollapse || _expanded
+        ? widget.visitors
+        : widget.visitors.take(widget.initialVisibleCount).toList();
+
+    return ProfileSectionCard(
+      title: 'Profile Visitors',
+      subtitle: 'Players who recently viewed your profile.',
+      child: switch (widget.state) {
+        ProfileVisitorsState.loading => const Center(
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.md),
+            child: ProgressRing(activeColor: AppColors.primary),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Players who recently viewed your profile.',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        ProfileVisitorsState.empty => Text(
+          'No profile visitors yet.',
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
           ),
-          const SizedBox(height: AppSpacing.md),
-          switch (state) {
-            ProfileVisitorsState.loading => const Center(
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.md),
-                child: ProgressRing(activeColor: AppColors.primary),
+        ),
+        ProfileVisitorsState.error => Text(
+          'Could not load profile visitors.',
+          style: AppTheme.bodySecondary.copyWith(
+            color: context.elixTextSecondary,
+          ),
+        ),
+        ProfileVisitorsState.loaded => Column(
+          children: [
+            for (var i = 0; i < visibleVisitors.length; i++) ...[
+              if (i > 0) const SizedBox(height: AppSpacing.sm),
+              _VisitorRow(
+                visitor: visibleVisitors[i],
+                onTap: () => widget.onVisitorTap(visibleVisitors[i]),
               ),
-            ),
-            ProfileVisitorsState.empty => Text(
-              'No profile visitors yet.',
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
+            ],
+            if (canCollapse) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: HyperlinkButton(
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  child: Text(_expanded ? 'Show Less' : 'Show More'),
+                ),
               ),
-            ),
-            ProfileVisitorsState.error => Text(
-              'Could not load profile visitors.',
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-            ProfileVisitorsState.loaded => Column(
-              children: [
-                for (var i = 0; i < visitors.length; i++) ...[
-                  if (i > 0) const SizedBox(height: AppSpacing.sm),
-                  _VisitorRow(
-                    visitor: visitors[i],
-                    onTap: () => onVisitorTap(visitors[i]),
-                  ),
-                ],
-              ],
-            ),
-          },
-        ],
-      ),
+            ],
+          ],
+        ),
+      },
     );
   }
 }

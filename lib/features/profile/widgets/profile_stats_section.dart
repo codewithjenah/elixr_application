@@ -1,11 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/models/public_profile_summary.dart';
 import '../../history/history_format.dart';
+import 'profile_section_card.dart';
 
 class ProfileStatsSection extends StatelessWidget {
   const ProfileStatsSection({
@@ -19,6 +19,9 @@ class ProfileStatsSection extends StatelessWidget {
   final int? rank;
   final PublicProfileSummary? summary;
 
+  static const _fiveColumnMinWidth = 1050.0;
+  static const _threeColumnMinWidth = 700.0;
+
   @override
   Widget build(BuildContext context) {
     final entry = leaderboardEntry;
@@ -29,61 +32,52 @@ class ProfileStatsSection extends StatelessWidget {
       summary?.totalDurationSeconds ?? 0,
     );
 
-    return _Panel(
+    final tiles = [
+      _StatData(label: 'Rank', value: rankLabel),
+      _StatData(label: 'Sessions', value: '${entry.sessionsCompleted}'),
+      _StatData(
+        label: 'Average Score',
+        value: entry.averageScore.toStringAsFixed(0),
+      ),
+      _StatData(label: 'Best Score', value: '${entry.bestScore}'),
+      _StatData(label: 'Practice Time', value: practiceTime),
+    ];
+
+    return ProfileSectionCard(
       title: 'Player Stats',
-      child: Wrap(
-        spacing: AppSpacing.md,
-        runSpacing: AppSpacing.md,
-        children: [
-          _StatTile(label: 'Rank', value: rankLabel),
-          _StatTile(label: 'Sessions', value: '${entry.sessionsCompleted}'),
-          _StatTile(
-            label: 'Average Score',
-            value: entry.averageScore.toStringAsFixed(0),
-          ),
-          _StatTile(label: 'Best Score', value: '${entry.bestScore}'),
-          _StatTile(label: 'Practice Time', value: practiceTime),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final columns = width >= _fiveColumnMinWidth
+              ? 5
+              : width >= _threeColumnMinWidth
+              ? 3
+              : 2;
+          const gap = AppSpacing.md;
+          final tileWidth = (width - gap * (columns - 1)) / columns;
+
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (final tile in tiles)
+                SizedBox(
+                  width: tileWidth,
+                  child: _StatTile(label: tile.label, value: tile.value),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _Panel extends StatelessWidget {
-  const _Panel({required this.title, required this.child});
+class _StatData {
+  const _StatData({required this.label, required this.value});
 
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? AppColors.panelSurface
-            : context.elixCardSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          child,
-        ],
-      ),
-    );
-  }
+  final String label;
+  final String value;
 }
 
 class _StatTile extends StatelessWidget {
@@ -95,8 +89,11 @@ class _StatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 160,
-      padding: const EdgeInsets.all(AppSpacing.md),
+      height: 88,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 2,
+      ),
       decoration: BoxDecoration(
         color: context.elixBackground,
         borderRadius: BorderRadius.circular(12),
@@ -104,17 +101,23 @@ class _StatTile extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 20,
               fontWeight: FontWeight.w800,
+              height: 1.1,
               color: context.elixTextPrimary,
             ),
           ),

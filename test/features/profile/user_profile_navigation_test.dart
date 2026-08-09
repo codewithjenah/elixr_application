@@ -786,6 +786,7 @@ void main() {
         currentUserId: 'viewer',
       );
       expect(find.text('Practice History'), findsNothing);
+      expect(find.text('My Profile'), findsOneWidget);
       expect(find.text('Achievements'), findsOneWidget);
       expect(find.text('Completed Movements'), findsOneWidget);
       expect(find.text('Profile Visitors'), findsOneWidget);
@@ -998,6 +999,224 @@ void main() {
 
       expect(find.text('Could not load profile visitors.'), findsOneWidget);
       expect(find.byIcon(FluentIcons.chevron_right), findsNothing);
+    });
+
+    testWidgets('show more reveals additional visitors', (tester) async {
+      final visitors = [
+        for (var i = 0; i < 7; i++)
+          _visitor(viewerId: 'v$i', displayName: 'Visitor $i'),
+      ];
+      await pumpOwnerProfile(tester, visitors: visitors);
+
+      expect(find.text('Visitor 0'), findsOneWidget);
+      expect(find.text('Visitor 4'), findsOneWidget);
+      expect(find.text('Visitor 5'), findsNothing);
+      expect(find.text('Show More'), findsOneWidget);
+
+      final showMore = find.text('Show More');
+      await tester.ensureVisible(showMore);
+      await tester.pumpAndSettle();
+      await tester.tap(showMore);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Visitor 5'), findsOneWidget);
+      expect(find.text('Visitor 6'), findsOneWidget);
+      expect(find.text('Show Less'), findsOneWidget);
+    });
+  });
+
+  group('owner profile actions and visitor preview', () {
+    Future<({GoRouter router, _SeededProfileController controller})>
+    pumpSelfProfile(
+      WidgetTester tester, {
+      ProfileVisibility visibility = ProfileVisibility.public,
+      Size surfaceSize = const Size(1400, 900),
+    }) async {
+      await tester.binding.setSurfaceSize(surfaceSize);
+      addTearDown(() async {
+        await tester.binding.setSurfaceSize(null);
+      });
+
+      final auth = _testAuth();
+      final controller = _SeededProfileController(
+        userId: 'viewer',
+        currentUserId: 'viewer',
+        seedState: ProfileLoadState.loaded,
+        entry: _entry('viewer', 'Viewer User', 100),
+        root: PublicProfile(
+          userId: 'viewer',
+          displayName: 'Viewer User',
+          visibility: visibility,
+        ),
+        summary: const PublicProfileSummary(
+          totalDurationSeconds: 30,
+          completedMovementNames: ['Hand Stall'],
+        ),
+        claimedAchievements: achievementCatalog
+            .where((a) => a.id == 'first_steps')
+            .toList(),
+        visitorsState: ProfileVisitorsState.loaded,
+        visitors: [
+          _visitor(viewerId: 'alice-id', displayName: 'Alice Visitor'),
+        ],
+        rank: 2,
+      );
+
+      final router = GoRouter(
+        initialLocation: '/profile/viewer',
+        routes: [
+          GoRoute(
+            path: '/profile/:userId',
+            builder: (context, state) => UserProfileScreen(
+              userId: 'viewer',
+              controller: controller,
+            ),
+          ),
+          GoRoute(
+            path: '/achievements',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Achievements page')),
+          ),
+          GoRoute(
+            path: '/leaderboard',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Leaderboard')),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthService>.value(
+          value: auth,
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return (router: router, controller: controller);
+    }
+
+    testWidgets('self profile shows My Profile and owner actions', (
+      tester,
+    ) async {
+      await pumpSelfProfile(tester);
+
+      expect(find.text('My Profile'), findsOneWidget);
+      expect(find.text('Player Profile'), findsNothing);
+      expect(find.text('Edit Profile'), findsOneWidget);
+      expect(find.text('Preview as Visitor'), findsOneWidget);
+      expect(find.text('Privacy'), findsOneWidget);
+      expect(find.text('Profile Visitors'), findsOneWidget);
+      expect(find.text('Public'), findsOneWidget);
+    });
+
+    testWidgets('other profile hides owner controls', (tester) async {
+      await _setSurface(tester);
+      final auth = _testAuth();
+      final controller = _SeededProfileController(
+        userId: 'p1',
+        currentUserId: 'viewer',
+        seedState: ProfileLoadState.loaded,
+        entry: _entry('p1', 'Alice', 300),
+        root: PublicProfile(
+          userId: 'p1',
+          displayName: 'Alice',
+          visibility: ProfileVisibility.public,
+        ),
+        summary: const PublicProfileSummary(
+          totalDurationSeconds: 30,
+          completedMovementNames: ['Hand Stall'],
+        ),
+        rank: 1,
+      );
+
+      final router = GoRouter(
+        initialLocation: '/profile/p1',
+        routes: [
+          GoRoute(
+            path: '/profile/:userId',
+            builder: (context, state) =>
+                UserProfileScreen(userId: 'p1', controller: controller),
+          ),
+          GoRoute(
+            path: '/leaderboard',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Leaderboard')),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthService>.value(
+          value: auth,
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Player Profile'), findsOneWidget);
+      expect(find.text('My Profile'), findsNothing);
+      expect(find.text('Edit Profile'), findsNothing);
+      expect(find.text('Preview as Visitor'), findsNothing);
+      expect(find.text('Privacy'), findsNothing);
+      expect(find.text('Profile Visitors'), findsNothing);
+    });
+
+    testWidgets('preview mode hides owner chrome and visitors', (tester) async {
+      await pumpSelfProfile(tester);
+
+      await tester.tap(find.text('Preview as Visitor'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Previewing your profile as other players'),
+        findsOneWidget,
+      );
+      expect(find.text('Exit Preview'), findsOneWidget);
+      expect(find.text('Edit Profile'), findsNothing);
+      expect(find.text('Preview as Visitor'), findsNothing);
+      expect(find.text('Privacy'), findsNothing);
+      expect(find.text('Profile Visitors'), findsNothing);
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.text('Completed Movements'), findsOneWidget);
+
+      await tester.tap(find.text('Exit Preview'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit Profile'), findsOneWidget);
+      expect(find.text('Profile Visitors'), findsOneWidget);
+      expect(
+        find.text('Previewing your profile as other players'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('private owner preview shows private profile state', (
+      tester,
+    ) async {
+      await pumpSelfProfile(tester, visibility: ProfileVisibility.private);
+
+      expect(find.text('Private'), findsOneWidget);
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.text('Profile Visitors'), findsOneWidget);
+
+      await tester.tap(find.text('Preview as Visitor'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This profile is private'), findsOneWidget);
+      expect(find.text('Achievements'), findsNothing);
+      expect(find.text('Profile Visitors'), findsNothing);
+      expect(find.text('Edit Profile'), findsNothing);
+    });
+
+    testWidgets('View All achievements pushes /achievements', (tester) async {
+      final env = await pumpSelfProfile(tester);
+
+      await tester.tap(find.text('View All'));
+      await tester.pumpAndSettle();
+
+      expect(env.router.state.uri.path, '/achievements');
+      expect(env.router.canPop(), isTrue);
+      expect(find.text('Achievements page'), findsOneWidget);
     });
   });
 }
