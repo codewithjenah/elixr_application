@@ -27,6 +27,9 @@ const _kProfileWideBreakpoint = 1180.0;
 /// Horizontal page padding on desktop.
 const _kProfilePagePadding = 36.0;
 
+/// Gap between profile cards and the vertical scrollbar (scroll body only).
+const _kProfileScrollbarGutter = 12.0;
+
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({
     super.key,
@@ -209,6 +212,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         final wide = constraints.maxWidth >= _kProfileWideBreakpoint;
 
         return SingleChildScrollView(
+          padding: const EdgeInsets.only(right: _kProfileScrollbarGutter),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
