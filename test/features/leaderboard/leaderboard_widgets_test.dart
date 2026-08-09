@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/profile_border_frame.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_presentation.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_identity.dart';
@@ -17,6 +18,7 @@ LeaderboardEntry entry({
   double average = 86,
   int best = 95,
   String? profilePictureUrl,
+  String? equippedBorderId,
 }) {
   return LeaderboardEntry(
     userId: id,
@@ -27,6 +29,7 @@ LeaderboardEntry entry({
     averageScore: average,
     bestScore: best,
     profilePictureUrl: profilePictureUrl,
+    equippedBorderId: equippedBorderId,
   );
 }
 
@@ -100,6 +103,31 @@ void main() {
 
       expect(find.text('AB'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('defaults animateBorder to false for dense-list consumers', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const LeaderboardInitialsAvatar(
+            initials: 'AB',
+            accent: Color(0xFFB8C0CC),
+            size: 40,
+            equippedBorderId: 'starter_glow',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final avatar = tester.widget<LeaderboardInitialsAvatar>(
+        find.byType(LeaderboardInitialsAvatar),
+      );
+      expect(avatar.animateBorder, isFalse);
+      final frameState = tester.state<ProfileBorderFrameState>(
+        find.byType(ProfileBorderFrame),
+      );
+      expect(frameState.debugIsAnimating, isFalse);
     });
   });
 
@@ -429,6 +457,119 @@ void main() {
 
       expect(find.text('Sessions'), findsOneWidget);
       expect(find.text('Best Score'), findsNothing);
+    });
+
+    testWidgets('enables cosmetic border animation for podium and rank rows', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1200, 800));
+      final bordered = entry(
+        id: '4',
+        name: 'Fourth',
+        xp: 180,
+        equippedBorderId: 'starter_glow',
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          Column(
+            children: [
+              LeaderboardPodiumCard(
+                rank: 1,
+                entry: entry(
+                  id: '1',
+                  name: 'Gold',
+                  xp: 300,
+                  equippedBorderId: 'starter_glow',
+                ),
+                isCurrentUser: false,
+              ),
+              LeaderboardRankRow(
+                rank: 4,
+                entry: bordered,
+                isCurrentUser: false,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final avatars = tester
+          .widgetList<LeaderboardInitialsAvatar>(
+            find.byType(LeaderboardInitialsAvatar),
+          )
+          .toList();
+      expect(avatars, hasLength(2));
+      expect(avatars[0].animateBorder, isTrue);
+      expect(avatars[1].animateBorder, isTrue);
+
+      final frames = tester
+          .stateList<ProfileBorderFrameState>(find.byType(ProfileBorderFrame))
+          .toList();
+      expect(frames, hasLength(2));
+      expect(frames.every((state) => state.debugIsAnimating), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('compact rank row enables cosmetic border animation', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(400, 300));
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardRankRow(
+            rank: 4,
+            entry: entry(
+              id: '4',
+              name: 'Fourth',
+              xp: 180,
+              equippedBorderId: 'starter_glow',
+            ),
+            isCurrentUser: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final avatar = tester.widget<LeaderboardInitialsAvatar>(
+        find.byType(LeaderboardInitialsAvatar),
+      );
+      expect(avatar.animateBorder, isTrue);
+      final frameState = tester.state<ProfileBorderFrameState>(
+        find.byType(ProfileBorderFrame),
+      );
+      expect(frameState.debugIsAnimating, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('rank row without equipped border still renders safely', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1200, 800));
+      await tester.pumpWidget(
+        wrap(
+          LeaderboardRankRow(
+            rank: 4,
+            entry: entry(id: '4', name: 'Fourth', xp: 180),
+            isCurrentUser: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final avatar = tester.widget<LeaderboardInitialsAvatar>(
+        find.byType(LeaderboardInitialsAvatar),
+      );
+      expect(avatar.animateBorder, isTrue);
+      expect(avatar.equippedBorderId, isNull);
+
+      final frameState = tester.state<ProfileBorderFrameState>(
+        find.byType(ProfileBorderFrame),
+      );
+      expect(frameState.debugIsAnimating, isFalse);
+      expect(find.text('FO'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 

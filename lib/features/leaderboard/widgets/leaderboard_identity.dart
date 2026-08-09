@@ -49,7 +49,8 @@ class LeaderboardInitialsAvatar extends StatelessWidget {
   /// Current-user ring when no equipped cosmetic border is active.
   final bool highlightRing;
 
-  /// When true, animates the cosmetic frame (large profile headers only).
+  /// When true, animates a known equipped cosmetic frame via ProfileBorderFrame.
+  /// Defaults to false so dense-list consumers can keep static borders.
   final bool animateBorder;
 
   @override

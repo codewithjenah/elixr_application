@@ -306,6 +306,7 @@ class _PlayerCell extends StatelessWidget {
           profilePictureUrl: profilePictureUrl,
           equippedBorderId: entry.equippedBorderId,
           highlightRing: isCurrentUser,
+          animateBorder: true,
         ),
         const SizedBox(width: 10),
         Flexible(
@@ -378,6 +379,7 @@ class _CompactRankRow extends StatelessWidget {
                     profilePictureUrl: profilePictureUrl,
                     equippedBorderId: entry.equippedBorderId,
                     highlightRing: isCurrentUser,
+                    animateBorder: true,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
