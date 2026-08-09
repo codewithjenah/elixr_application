@@ -223,7 +223,15 @@ class _ElixSidebarState extends State<ElixSidebar> {
                 ),
                 child: Container(
                   height: 1,
-                  color: context.elixBorder.withValues(alpha: 0.4),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        _pink.withValues(alpha: 0.55),
+                        _purple.withValues(alpha: 0.35),
+                        context.elixBorder.withValues(alpha: 0.15),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               Expanded(
@@ -305,30 +313,98 @@ class _ElixSidebarState extends State<ElixSidebar> {
   }
 
   Widget _logoMark(double size) {
+    final radius = BorderRadius.circular(size * 0.3);
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [_pink, _purple],
-        ),
-        borderRadius: BorderRadius.circular(size * 0.3),
+        borderRadius: radius,
         boxShadow: [
-          BoxShadow(color: _pink.withValues(alpha: 0.45), blurRadius: 14),
+          BoxShadow(
+            color: _pink.withValues(alpha: 0.28),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
-      child: Center(
-        child: Text(
-          'E',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: size * 0.5,
-            fontWeight: FontWeight.bold,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [_pink, _purple],
+          ),
+          borderRadius: radius,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.22),
+            width: 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            'E',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.48,
+              fontWeight: FontWeight.w800,
+              height: 1,
+              letterSpacing: -0.5,
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _brandWordmark(BuildContext context) {
+    final titleStyle = AppTheme.headingMedium.copyWith(
+      fontSize: 17,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 1.1,
+      height: 1.1,
+      color: Colors.white,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (bounds) => const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [_pink, _purple],
+          ).createShader(bounds),
+          child: Text(
+            AppConstants.appName,
+            style: titleStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          width: 28,
+          height: 1.5,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(1),
+            gradient: const LinearGradient(colors: [_pink, _purple]),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Flair Training',
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontSize: 10.5,
+            letterSpacing: 0.4,
+            height: 1.1,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
     );
   }
 
@@ -363,35 +439,9 @@ class _ElixSidebarState extends State<ElixSidebar> {
       ),
       child: Row(
         children: [
-          _logoMark(36),
-          const SizedBox(width: AppSpacing.sm + 2),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppConstants.appName,
-                  style: AppTheme.headingMedium.copyWith(
-                    color: _pink,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.6,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  'Flair Training',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                    fontSize: 11,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
+          _logoMark(34),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: _brandWordmark(context)),
           const SizedBox(width: AppSpacing.xs),
           _CollapseButton(
             isCollapsed: widget.isCollapsed,
@@ -451,22 +501,15 @@ class _CollapseButtonState extends State<_CollapseButton> {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                color: _hovered ? context.elixCardSurface : Colors.transparent,
+                color: _hovered
+                    ? context.elixCardSurface.withValues(alpha: 0.7)
+                    : Colors.transparent,
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: _hovered
-                      ? context.elixBorder.withValues(alpha: 0.8)
-                      : context.elixBorder.withValues(alpha: 0.3),
+                      ? _pink.withValues(alpha: 0.35)
+                      : Colors.transparent,
                 ),
-                boxShadow: _hovered
-                    ? [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        ),
-                      ]
-                    : null,
               ),
               child: Center(
                 child: AnimatedRotation(
@@ -474,10 +517,10 @@ class _CollapseButtonState extends State<_CollapseButton> {
                   duration: const Duration(milliseconds: 220),
                   child: Icon(
                     FluentIcons.chevron_left,
-                    size: 12,
+                    size: 11,
                     color: _hovered
                         ? context.elixTextPrimary
-                        : context.elixTextSecondary,
+                        : context.elixTextSecondary.withValues(alpha: 0.7),
                   ),
                 ),
               ),

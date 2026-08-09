@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/utils/user_name.dart';
 import '../../data/models/session.dart';
 import '../progress/training_recommendation.dart';
 import '../../data/repositories/progress_repository.dart';
@@ -173,7 +174,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
-    final firstName = user?.fullName.split(' ').first ?? 'Trainee';
+    final normalizedFirstName = normalizeNamePart(user?.firstName ?? '');
+    final firstName = normalizedFirstName.isNotEmpty
+        ? normalizedFirstName
+        : 'Trainee';
 
     if (_loading) {
       return const ScaffoldPage(
