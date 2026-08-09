@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
@@ -29,7 +30,8 @@ class AppRouter {
         final isAuth = authService.isAuthenticated;
         final isAuthRoute =
             state.matchedLocation == '/login' ||
-            state.matchedLocation == '/register';
+            state.matchedLocation == '/register' ||
+            state.matchedLocation == '/forgot-password';
 
         if (!isAuth && !isAuthRoute) return '/login';
         if (isAuth && isAuthRoute) return '/dashboard';
@@ -48,6 +50,13 @@ class AppRouter {
           pageBuilder: (context, state) => fadeTransitionPage(
             key: state.pageKey,
             child: const RegisterScreen(),
+          ),
+        ),
+        GoRoute(
+          path: '/forgot-password',
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: const ForgotPasswordScreen(),
           ),
         ),
         GoRoute(

@@ -59,6 +59,9 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   }
 
   @override
+  Future<void> sendPasswordResetEmail({required String email}) async {}
+
+  @override
   Future<User?> loadPersistedUser() async => null;
 
   @override

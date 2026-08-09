@@ -93,6 +93,9 @@ class _FakeAuthRepository implements AuthRepositoryBase {
   }
 
   @override
+  Future<void> sendPasswordResetEmail({required String email}) async {}
+
+  @override
   Future<User?> loadPersistedUser() async => user;
 
   @override

@@ -76,6 +76,12 @@ abstract class AuthRepositoryBase {
 
   Future<User> login({required String email, required String password});
 
+  /// Sends a Firebase Auth password-reset email.
+  ///
+  /// Must not reveal whether [email] is registered. Callers should show a
+  /// generic success message after this completes without error.
+  Future<void> sendPasswordResetEmail({required String email});
+
   Future<User?> loadPersistedUser();
 
   Future<void> clearCurrentUser();
@@ -178,6 +184,31 @@ class AuthRepository implements AuthRepositoryBase {
       return _loadUserProfile(credential.user!);
     } on fb.FirebaseAuthException catch (e) {
       throw Exception(_messageForAuthError(e));
+    }
+  }
+
+  @override
+  Future<void> sendPasswordResetEmail({required String email}) async {
+    final trimmedEmail = email.trim();
+    if (trimmedEmail.isEmpty) {
+      throw Exception('Email cannot be empty.');
+    }
+    if (!_emailPattern.hasMatch(trimmedEmail)) {
+      throw Exception('Invalid email address');
+    }
+
+    try {
+      await _auth
+          .sendPasswordResetEmail(email: trimmedEmail)
+          .timeout(_authOperationTimeout);
+    } on fb.FirebaseAuthException catch (e) {
+      // Avoid leaking whether an account exists for this address.
+      if (e.code == 'user-not-found') return;
+      throw Exception(_messageForAuthError(e));
+    } on TimeoutException {
+      throw Exception(
+        'Password reset timed out. Check your internet connection and try again.',
+      );
     }
   }
 

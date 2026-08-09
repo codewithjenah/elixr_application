@@ -71,6 +71,14 @@ class _LoginScreenState extends State<LoginScreen> {
             obscureText: true,
             onSubmitted: (_) => _login(),
           ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: AuthFooterLink(
+              prompt: '',
+              action: 'Forgot password?',
+              onTap: () => context.go('/forgot-password'),
+            ),
+          ),
           if (_error != null) ...[
             const SizedBox(height: AppSpacing.md),
             AuthErrorBanner(message: _error!),

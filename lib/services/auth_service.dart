@@ -147,6 +147,14 @@ class AuthService extends ChangeNotifier {
     _scheduleClaimedAchievementProjectionSync();
   }
 
+  /// Requests a Firebase Auth password-reset email for [email].
+  ///
+  /// Does not change [currentUser]. Callers should show a generic success
+  /// message so account existence is not revealed.
+  Future<void> sendPasswordResetEmail({required String email}) {
+    return _repository.sendPasswordResetEmail(email: email);
+  }
+
   /// Best-effort owner-side repair of missing public achievement projections.
   ///
   /// Never fails authentication. Concurrent calls for the same user are

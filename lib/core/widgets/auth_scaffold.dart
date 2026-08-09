@@ -570,7 +570,8 @@ class _AuthFooterLinkState extends State<AuthFooterLink> {
                 color: context.elixTextSecondary,
               ),
               children: [
-                TextSpan(text: '${widget.prompt} '),
+                if (widget.prompt.isNotEmpty)
+                  TextSpan(text: '${widget.prompt} '),
                 TextSpan(
                   text: widget.action,
                   style: TextStyle(
