@@ -135,4 +135,7 @@ void main() {
     expect(repo.clearCurrentUserCallCount, 0);
     expect(service.takeAccountDeletedMessage(), isNull);
   });
+
+  // Storage-list failure → Auth.delete skipped is covered at repository level in
+  // test/data/repositories/auth_account_deletion_storage_test.dart.
 }

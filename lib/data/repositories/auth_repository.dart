@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 
 import '../database/firestore_helper.dart';
 import '../models/user.dart';
@@ -138,6 +140,56 @@ abstract class AuthRepositoryBase {
 
 enum _AuthErrorContext { login, reauthentication, emailChange }
 
+/// Deletes known + listed profile Storage objects for [uid].
+///
+/// `object-not-found` is treated as already-clean; every other
+/// [FirebaseException] is rethrown so account erasure can fail closed.
+@visibleForTesting
+Future<void> deleteProfileStorageObjects({
+  required String uid,
+  String? storagePath,
+  required ProfileImageRepositoryBase profileImages,
+  required Future<List<String>> Function(String uid) listObjectPaths,
+}) async {
+  if (storagePath != null && storagePath.isNotEmpty) {
+    await profileImages.deleteProfileImage(
+      authenticatedUid: uid,
+      storagePath: storagePath,
+    );
+  }
+
+  try {
+    final paths = await listObjectPaths(uid);
+    for (final path in paths) {
+      await profileImages.deleteProfileImage(
+        authenticatedUid: uid,
+        storagePath: path,
+      );
+    }
+  } on FirebaseException catch (e) {
+    if (e.code == 'object-not-found') return;
+    rethrow;
+  }
+}
+
+/// Purges account data then deletes Auth. Auth deletion runs only after a
+/// successful purge.
+@visibleForTesting
+Future<void> finishAccountDeletionAfterPurge({
+  required Future<void> Function() purgeUserData,
+  required Future<void> Function() deleteAuthUser,
+}) async {
+  try {
+    await purgeUserData();
+  } catch (e) {
+    throw Exception(
+      'Could not delete all account data. Your account was not removed. '
+      'Please try again. (${e.toString().replaceFirst('Exception: ', '')})',
+    );
+  }
+  await deleteAuthUser();
+}
+
 class AuthRepository implements AuthRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
@@ -145,11 +197,13 @@ class AuthRepository implements AuthRepositoryBase {
     FirebaseFirestore? firestore,
     ProfileImageRepositoryBase? profileImageRepository,
     FirebaseStorage? storage,
+    Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
        _db = db ?? FirestoreHelper.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
        _profileImages = profileImageRepository ?? ProfileImageRepository(),
-       _storage = storage ?? FirebaseStorage.instance;
+       _storage = storage ?? FirebaseStorage.instance,
+       _listProfileStorageObjectPaths = listProfileStorageObjectPaths;
 
   static const _authOperationTimeout = Duration(seconds: 30);
   static const _batchLimit = 500;
@@ -161,6 +215,8 @@ class AuthRepository implements AuthRepositoryBase {
   final FirebaseFirestore _firestore;
   final ProfileImageRepositoryBase _profileImages;
   final FirebaseStorage _storage;
+  final Future<List<String>> Function(String userId)?
+  _listProfileStorageObjectPaths;
 
   @override
   Future<User> register({
@@ -605,29 +661,25 @@ class AuthRepository implements AuthRepositoryBase {
     );
     final uid = activeUser.uid;
 
-    try {
-      await _purgeUserData(uid);
-    } catch (e) {
-      throw Exception(
-        'Could not delete all account data. Your account was not removed. '
-        'Please try again. (${e.toString().replaceFirst('Exception: ', '')})',
-      );
-    }
-
-    try {
-      await activeUser.delete().timeout(_authOperationTimeout);
-    } on fb.FirebaseAuthException catch (e) {
-      throw Exception(
-        'Your data was removed, but deleting the sign-in account failed: '
-        '${_messageForAuthError(e, context: _AuthErrorContext.reauthentication)}. '
-        'Try signing in again or contact support.',
-      );
-    } on TimeoutException {
-      throw Exception(
-        'Your data was removed, but deleting the sign-in account timed out. '
-        'Try signing in again or contact support.',
-      );
-    }
+    await finishAccountDeletionAfterPurge(
+      purgeUserData: () => _purgeUserData(uid),
+      deleteAuthUser: () async {
+        try {
+          await activeUser.delete().timeout(_authOperationTimeout);
+        } on fb.FirebaseAuthException catch (e) {
+          throw Exception(
+            'Your data was removed, but deleting the sign-in account failed: '
+            '${_messageForAuthError(e, context: _AuthErrorContext.reauthentication)}. '
+            'Try signing in again or contact support.',
+          );
+        } on TimeoutException {
+          throw Exception(
+            'Your data was removed, but deleting the sign-in account timed out. '
+            'Try signing in again or contact support.',
+          );
+        }
+      },
+    );
   }
 
   Future<void> _purgeUserData(String uid) async {
@@ -724,29 +776,23 @@ class AuthRepository implements AuthRepositoryBase {
     await _deleteProfileStorage(uid, profile?.profilePictureStoragePath);
   }
 
-  Future<void> _deleteProfileStorage(String uid, String? storagePath) async {
-    if (storagePath != null && storagePath.isNotEmpty) {
-      await _profileImages.deleteProfileImage(
-        authenticatedUid: uid,
-        storagePath: storagePath,
-      );
-    }
+  Future<void> _deleteProfileStorage(String uid, String? storagePath) {
+    return deleteProfileStorageObjects(
+      uid: uid,
+      storagePath: storagePath,
+      profileImages: _profileImages,
+      listObjectPaths: _listProfileObjectPaths,
+    );
+  }
 
-    try {
-      final listed = await _storage
-          .ref(ProfileImageRepository.profilePrefixForUser(uid))
-          .listAll();
-      for (final item in listed.items) {
-        await _profileImages.deleteProfileImage(
-          authenticatedUid: uid,
-          storagePath: item.fullPath,
-        );
-      }
-    } on FirebaseException catch (e) {
-      if (e.code == 'object-not-found') return;
-      // Prefix may not exist; treat as already clean.
-      if (e.code == 'unauthorized') rethrow;
-    }
+  Future<List<String>> _listProfileObjectPaths(String uid) async {
+    final override = _listProfileStorageObjectPaths;
+    if (override != null) return override(uid);
+
+    final listed = await _storage
+        .ref(ProfileImageRepository.profilePrefixForUser(uid))
+        .listAll();
+    return [for (final item in listed.items) item.fullPath];
   }
 
   Future<void> _commitDeletes(List<DocumentReference> refs) async {
