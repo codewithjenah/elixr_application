@@ -421,6 +421,7 @@ class LeaderboardRepository {
           userId: userId,
           displayName: displayName,
           profilePictureUrl: profilePictureUrl,
+          clearProfilePicture: profilePictureUrl?.trim().isEmpty ?? true,
         );
       } catch (error, stackTrace) {
         _logError('syncPublicProfile', error, stackTrace, userId: userId);
@@ -453,6 +454,7 @@ class LeaderboardRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    bool clearProfilePicture = false,
   }) async {
     final trimmed = displayName.trim();
     if (trimmed.isEmpty) return false;
@@ -470,6 +472,7 @@ class LeaderboardRepository {
         existing: existing,
         displayName: trimmed,
         profilePictureUrl: profilePictureUrl,
+        clearProfilePicture: clearProfilePicture,
       )) {
         return false;
       }
@@ -478,6 +481,7 @@ class LeaderboardRepository {
         ...buildPublicProfileFields(
           displayName: trimmed,
           profilePictureUrl: profilePictureUrl,
+          clearProfilePicture: clearProfilePicture,
         ),
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -576,6 +580,7 @@ class LeaderboardRepository {
   static Map<String, dynamic> buildPublicProfileFields({
     String? displayName,
     String? profilePictureUrl,
+    bool clearProfilePicture = false,
   }) {
     final fields = <String, dynamic>{};
     final trimmedName = displayName?.trim();
@@ -583,7 +588,9 @@ class LeaderboardRepository {
       fields['display_name'] = trimmedName;
     }
     final trimmedUrl = profilePictureUrl?.trim();
-    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+    if (clearProfilePicture) {
+      fields['profile_picture_url'] = FieldValue.delete();
+    } else if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
       fields['profile_picture_url'] = trimmedUrl;
     }
     return fields;
@@ -598,14 +605,21 @@ class LeaderboardRepository {
     required Map<String, dynamic> existing,
     required String displayName,
     String? profilePictureUrl,
+    bool clearProfilePicture = false,
   }) {
     final desired = buildPublicProfileFields(
       displayName: displayName,
       profilePictureUrl: profilePictureUrl,
+      clearProfilePicture: clearProfilePicture,
     );
     if (desired.isEmpty) return false;
 
+    if (clearProfilePicture && existing.containsKey('profile_picture_url')) {
+      return true;
+    }
+
     for (final entry in desired.entries) {
+      if (entry.value is FieldValue) continue;
       final raw = existing[entry.key];
       final current = raw is String ? raw.trim() : raw;
       if (current != entry.value) return true;

@@ -200,5 +200,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byType(ProfileAvatarWidget), findsOneWidget);
+    expect(find.text('AB'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Image && w.image is AssetImage,
+      ),
+      findsNothing,
+    );
   });
 }

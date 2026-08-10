@@ -84,7 +84,8 @@ void main() {
 
     test('initials helper', () {
       expect(LeaderboardPresentation.initialsFor('Ada Lovelace'), 'AL');
-      expect(LeaderboardPresentation.initialsFor('Grace'), 'GR');
+      expect(LeaderboardPresentation.initialsFor('Anton Jiro Yumul'), 'AY');
+      expect(LeaderboardPresentation.initialsFor('Grace'), 'G');
       expect(LeaderboardPresentation.initialsFor('  '), '?');
     });
 

@@ -1,5 +1,6 @@
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/leaderboard_period.dart';
+import '../../core/utils/user_name.dart';
 
 typedef LeaderboardPeriodMetrics = ({
   int xp,
@@ -80,19 +81,7 @@ abstract final class LeaderboardPresentation {
     ];
   }
 
-  static String initialsFor(String displayName) {
-    final parts = displayName
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) {
-      final word = parts.first;
-      return word.substring(0, word.length >= 2 ? 2 : 1).toUpperCase();
-    }
-    return ('${parts[0][0]}${parts[1][0]}').toUpperCase();
-  }
+  static String initialsFor(String displayName) => userInitials(displayName);
 
   /// Resolves the avatar URL for a leaderboard row, falling back to the
   /// authenticated user's profile URL for their own row while Firestore
@@ -102,14 +91,7 @@ abstract final class LeaderboardPresentation {
     required bool isCurrentUser,
     String? currentUserProfilePictureUrl,
   }) {
-    final entryUrl = entry.profilePictureUrl?.trim();
-    if (entryUrl != null && entryUrl.isNotEmpty) return entryUrl;
-
-    if (!isCurrentUser) return null;
-
-    final currentUrl = currentUserProfilePictureUrl?.trim();
-    if (currentUrl != null && currentUrl.isNotEmpty) return currentUrl;
-
-    return null;
+    if (isCurrentUser) return currentUserProfilePictureUrl?.trim();
+    return entry.profilePictureUrl?.trim();
   }
 }

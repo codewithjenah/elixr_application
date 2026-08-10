@@ -109,5 +109,34 @@ void main() {
         isFalse,
       );
     });
+
+    test('clears an existing profile URL explicitly', () {
+      expect(
+        LeaderboardRepository.publicProfileNeedsUpdate(
+          existing: {
+            'display_name': 'Ada',
+            'profile_picture_url': 'https://example.com/a.jpg',
+          },
+          displayName: 'Ada',
+          clearProfilePicture: true,
+        ),
+        isTrue,
+      );
+      expect(
+        LeaderboardRepository.publicProfileNeedsUpdate(
+          existing: {'display_name': 'Ada'},
+          displayName: 'Ada',
+          clearProfilePicture: true,
+        ),
+        isFalse,
+      );
+      expect(
+        LeaderboardRepository.buildPublicProfileFields(
+          displayName: 'Ada',
+          clearProfilePicture: true,
+        ).containsKey('profile_picture_url'),
+        isTrue,
+      );
+    });
   });
 }

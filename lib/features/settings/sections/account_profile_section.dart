@@ -11,11 +11,13 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_name.dart';
 import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/achievement_claim.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/models/profile_border.dart';
+import '../../../data/models/user.dart';
 import '../../../data/models/user_cosmetics.dart';
 import '../../../data/repositories/achievement_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
@@ -57,6 +59,8 @@ typedef AccountProfileEquipBorder =
 const double _accountProfileMaxBodyWidth = 960;
 const double _avatarCustomizationColumnWidth = 300;
 const double _avatarPreviewRadius = 56;
+
+enum _ProfilePictureOperation { idle, uploading, removing }
 
 /// Merged Account & Profile Settings section.
 class AccountProfileSection extends StatefulWidget {
@@ -112,7 +116,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   String? _busyBorderId;
 
   bool _savingProfile = false;
-  bool _uploadingProfilePicture = false;
+  _ProfilePictureOperation _profilePictureOperation =
+      _ProfilePictureOperation.idle;
   bool _refreshingEmail = false;
   bool _editingEmail = false;
 
@@ -298,7 +303,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     _emailController.text = _originalEmail;
     setState(() {
       // Keep an in-flight upload preview; otherwise clear any stale preview.
-      if (!_uploadingProfilePicture) {
+      if (_profilePictureOperation != _ProfilePictureOperation.uploading) {
         _pendingCrop = null;
       }
       _editingEmail = false;
@@ -366,7 +371,10 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   }
 
   Future<void> _pickImage() async {
-    if (_savingProfile || _uploadingProfilePicture) return;
+    if (_savingProfile ||
+        _profilePictureOperation != _ProfilePictureOperation.idle) {
+      return;
+    }
 
     final pick =
         widget.pickProfileImage ??
@@ -420,7 +428,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   /// [ProfileAvatarWidget.legacyLocalPath] until the user uploads a new
   /// cloud avatar, which retires the legacy path.
   Future<void> _updateProfilePicture(PendingProfileCrop crop) async {
-    if (_uploadingProfilePicture) return;
+    if (_profilePictureOperation != _ProfilePictureOperation.idle) return;
 
     if (!_authService.isAuthenticated) {
       await ElixDialog.error(
@@ -453,7 +461,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
 
     setState(() {
       _pendingCrop = crop;
-      _uploadingProfilePicture = true;
+      _profilePictureOperation = _ProfilePictureOperation.uploading;
     });
 
     try {
@@ -464,7 +472,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       if (!mounted) return;
       setState(() {
         _pendingCrop = null;
-        _uploadingProfilePicture = false;
+        _profilePictureOperation = _ProfilePictureOperation.idle;
       });
       // Picture changes must not affect account-form dirty state.
       _notifyDirtyChanged();
@@ -476,7 +484,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       if (!mounted) return;
       setState(() {
         _pendingCrop = null;
-        _uploadingProfilePicture = false;
+        _profilePictureOperation = _ProfilePictureOperation.idle;
       });
       _notifyDirtyChanged();
       await ElixDialog.error(
@@ -486,8 +494,53 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     }
   }
 
+  bool _hasProfilePicture(User? user) {
+    if (user == null) return false;
+    return [
+      user.profilePictureUrl,
+      user.profilePictureStoragePath,
+      user.profilePicturePath,
+    ].any((value) => value?.trim().isNotEmpty == true);
+  }
+
+  Future<void> _removeProfilePicture() async {
+    if (_savingProfile ||
+        _profilePictureOperation != _ProfilePictureOperation.idle) {
+      return;
+    }
+    if (!_hasProfilePicture(_authService.currentUser)) return;
+
+    final confirmed = await _confirmRemoveProfilePicture(context);
+    if (!mounted || !confirmed) return;
+
+    setState(
+      () => _profilePictureOperation = _ProfilePictureOperation.removing,
+    );
+    try {
+      await _authService.removeProfilePicture();
+      if (!mounted) return;
+      await ElixDialog.success(context, 'Profile photo removed.');
+    } catch (e) {
+      if (!mounted) return;
+      await ElixDialog.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
+    } finally {
+      if (mounted) {
+        setState(
+          () => _profilePictureOperation = _ProfilePictureOperation.idle,
+        );
+        _notifyDirtyChanged();
+      }
+    }
+  }
+
   Future<void> _saveProfile() async {
-    if (_savingProfile) return;
+    if (_savingProfile ||
+        _profilePictureOperation != _ProfilePictureOperation.idle) {
+      return;
+    }
 
     final nameError = validateUserNameParts(
       firstName: _firstNameController.text,
@@ -751,8 +804,10 @@ class AccountProfileSectionState extends State<AccountProfileSection>
 
   Widget _buildAvatarPreview() {
     final user = context.watch<AuthService>().currentUser;
-    final avatarBusy = _uploadingProfilePicture;
+    final avatarBusy =
+        _profilePictureOperation != _ProfilePictureOperation.idle;
     final avatarDisabled = _savingProfile || avatarBusy;
+    final hasPhoto = _hasProfilePicture(user);
     final avatarDiameter = _avatarPreviewRadius * 2;
     final ornament = ProfileBorderFrame.ornamentPaddingFor(_equippedBorderId);
     final outer = avatarDiameter + ornament * 2;
@@ -770,13 +825,17 @@ class AccountProfileSectionState extends State<AccountProfileSection>
         ),
         const SizedBox(height: AppSpacing.md),
         Center(
-          child: GestureDetector(
-            key: const Key('account_profile_avatar_tap'),
-            onTap: avatarDisabled ? null : _pickImage,
-            child: MouseRegion(
-              cursor: avatarDisabled
-                  ? SystemMouseCursors.basic
-                  : SystemMouseCursors.click,
+          child: Tooltip(
+            message: hasPhoto ? 'Change profile photo' : 'Add profile photo',
+            child: Button(
+              key: const Key('account_profile_avatar_tap'),
+              onPressed: avatarDisabled ? null : _pickImage,
+              style: ButtonStyle(
+                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                backgroundColor: const WidgetStatePropertyAll(
+                  Colors.transparent,
+                ),
+              ),
               child: SizedBox(
                 width: outer,
                 height: outer,
@@ -805,15 +864,14 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                           child: ProgressRing(strokeWidth: 2.5),
                         ),
                       ),
-                    // Camera sits on the avatar circle edge, not ornament bounds.
                     Transform.translate(
                       offset: Offset(
                         avatarDiameter * 0.34,
                         avatarDiameter * 0.34,
                       ),
                       child: Container(
-                        width: 28,
-                        height: 28,
+                        width: 36,
+                        height: 36,
                         decoration: BoxDecoration(
                           color: AppColors.primary,
                           shape: BoxShape.circle,
@@ -824,7 +882,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                         ),
                         child: const Icon(
                           FluentIcons.camera,
-                          size: 14,
+                          size: 16,
                           color: AppColors.textPrimary,
                         ),
                       ),
@@ -833,6 +891,32 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                 ),
               ),
             ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Center(
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
+            children: [
+              Button(
+                key: const Key('account_profile_change_photo'),
+                onPressed: avatarDisabled ? null : _pickImage,
+                child: Text(hasPhoto ? 'Change photo' : 'Add photo'),
+              ),
+              if (hasPhoto)
+                Button(
+                  key: const Key('account_profile_remove_photo'),
+                  onPressed: avatarDisabled ? null : _removeProfilePicture,
+                  style: ButtonStyle(
+                    foregroundColor: const WidgetStatePropertyAll(
+                      AppColors.error,
+                    ),
+                  ),
+                  child: const Text('Remove photo'),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -997,4 +1081,38 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       ),
     );
   }
+}
+
+Future<bool> _confirmRemoveProfilePicture(BuildContext context) async {
+  final result = await ElixDialog.show<bool>(
+    context,
+    title: 'Remove profile photo?',
+    icon: FluentIcons.warning,
+    iconColor: AppColors.error,
+    headerAccentColor: AppColors.error,
+    maxWidth: 420,
+    barrierDismissible: false,
+    content: Text(
+      'Your current photo will be deleted and your initials will be shown '
+      'instead. This can’t be undone.',
+      style: AppTheme.body.copyWith(
+        fontSize: 14,
+        color: context.elixTextSecondary,
+        height: 1.45,
+      ),
+    ),
+    actions: [
+      Button(
+        autofocus: true,
+        onPressed: () => Navigator.of(context).pop(false),
+        child: const Text('Cancel'),
+      ),
+      ElixPrimaryButton(
+        label: 'Remove photo',
+        expanded: false,
+        onPressed: () => Navigator.of(context).pop(true),
+      ),
+    ],
+  );
+  return result == true;
 }

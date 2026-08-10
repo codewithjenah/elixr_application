@@ -243,7 +243,7 @@ class AuthService extends ChangeNotifier {
       if (pictureUpdate != null) {
         // Firestore did not accept the new image reference; do not leave an
         // orphaned object in Storage, and keep the previous profile intact.
-        await _bestEffortDeleteImage(userId, pictureUpdate.storagePath);
+        await _bestEffortDeleteImage(userId, pictureUpdate.storagePath!);
       }
       rethrow;
     }
@@ -283,7 +283,7 @@ class AuthService extends ChangeNotifier {
         profilePictureUpdate: pictureUpdate,
       );
     } catch (error) {
-      await _bestEffortDeleteImage(userId, pictureUpdate.storagePath);
+      await _bestEffortDeleteImage(userId, pictureUpdate.storagePath!);
       rethrow;
     }
 
@@ -292,6 +292,37 @@ class AuthService extends ChangeNotifier {
       userId: userId,
       previousUser: previousUser,
       pictureUpdate: pictureUpdate,
+    );
+  }
+
+  /// Removes the current profile avatar without touching name or email edits.
+  ///
+  /// The Firestore references are cleared first. The previous Cloud Storage
+  /// object is then deleted using only its recorded, owner-scoped path.
+  Future<void> removeProfilePicture() async {
+    if (_currentUser?.id == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final userId = _currentUser!.id!;
+    final previousUser = _currentUser!;
+    final hasPicture = [
+      previousUser.profilePictureUrl,
+      previousUser.profilePictureStoragePath,
+      previousUser.profilePicturePath,
+    ].any((value) => value?.trim().isNotEmpty == true);
+    if (!hasPicture) return;
+
+    const removal = ProfilePictureUpdate.remove();
+    _currentUser = await _repository.updateProfilePicture(
+      userId: userId,
+      profilePictureUpdate: removal,
+    );
+    notifyListeners();
+    await _afterSuccessfulPictureUpdate(
+      userId: userId,
+      previousUser: previousUser,
+      pictureUpdate: removal,
     );
   }
 
@@ -316,11 +347,16 @@ class AuthService extends ChangeNotifier {
     required User previousUser,
     required ProfilePictureUpdate? pictureUpdate,
   }) async {
-    if (pictureUpdate != null) {
-      final previousStoragePath = previousUser.profilePictureStoragePath;
-      if (previousStoragePath != null && previousStoragePath.isNotEmpty) {
-        await _bestEffortDeleteImage(userId, previousStoragePath);
-      }
+    final previousStoragePath = previousUser.profilePictureStoragePath;
+
+    // Removal clears every visible projection first. This prevents a stale
+    // public URL from briefly restoring the deleted avatar while Storage
+    // cleanup is still in flight. Replacement retains the existing cleanup
+    // ordering and policy.
+    if (pictureUpdate?.isRemoval != true &&
+        previousStoragePath != null &&
+        previousStoragePath.isNotEmpty) {
+      await _bestEffortDeleteImage(userId, previousStoragePath);
     }
 
     try {
@@ -328,6 +364,7 @@ class AuthService extends ChangeNotifier {
         userId: userId,
         displayName: _currentUser?.fullName ?? '',
         profilePictureUrl: _currentUser?.profilePictureUrl,
+        clearProfilePicture: pictureUpdate?.isRemoval ?? false,
       );
     } catch (error, stackTrace) {
       if (kDebugMode) {
@@ -343,6 +380,7 @@ class AuthService extends ChangeNotifier {
         userId: userId,
         displayName: _currentUser?.fullName ?? '',
         profilePictureUrl: _currentUser?.profilePictureUrl,
+        clearProfilePicture: pictureUpdate?.isRemoval ?? false,
       );
     } catch (error, stackTrace) {
       if (kDebugMode) {
@@ -351,6 +389,12 @@ class AuthService extends ChangeNotifier {
         );
         debugPrint('$stackTrace');
       }
+    }
+
+    if (pictureUpdate?.isRemoval == true &&
+        previousStoragePath != null &&
+        previousStoragePath.isNotEmpty) {
+      await _bestEffortDeleteImage(userId, previousStoragePath);
     }
   }
 

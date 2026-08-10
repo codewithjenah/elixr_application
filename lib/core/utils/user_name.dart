@@ -1,3 +1,5 @@
+import 'package:characters/characters.dart';
+
 /// Normalization, validation, composition, and legacy parsing for user names.
 class UserNameParts {
   const UserNameParts({
@@ -79,12 +81,20 @@ UserNameParts normalizeUserNameParts({
   );
 }
 
-/// Avatar initials from a display name: first+last token letters, or `?`.
+/// Avatar initials from a display name: first+last token graphemes, or `?`.
 String userInitials(String name) {
-  final parts = name.trim().split(RegExp(r'\s+'));
-  if (parts.isEmpty || parts.first.isEmpty) return '?';
-  if (parts.length == 1) return parts.first[0].toUpperCase();
-  return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  if (parts.isEmpty) return '?';
+
+  String firstGrapheme(String value) => value.characters.first;
+
+  if (parts.length == 1) return firstGrapheme(parts.first).toUpperCase();
+  return '${firstGrapheme(parts.first)}${firstGrapheme(parts.last)}'
+      .toUpperCase();
 }
 
 /// Returns a user-facing validation error, or null when valid.

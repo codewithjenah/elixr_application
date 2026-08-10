@@ -135,6 +135,7 @@ class _FakeProfileImageRepository implements ProfileImageRepositoryBase {
   int deleteCallCount = 0;
   final List<String> deletedPaths = [];
   Object? uploadError;
+  Object? deleteError;
   ProfileImageUploadResult uploadResult = const ProfileImageUploadResult(
     downloadUrl: 'https://storage.example/new.jpg',
     storagePath: 'users/u1/profile/avatar_2.jpg',
@@ -158,6 +159,7 @@ class _FakeProfileImageRepository implements ProfileImageRepositoryBase {
   }) async {
     deleteCallCount++;
     deletedPaths.add(storagePath);
+    if (deleteError != null) throw deleteError!;
   }
 }
 
@@ -387,6 +389,55 @@ void main() {
         );
       },
     );
+  });
+
+  group('AuthService.removeProfilePicture', () {
+    test('clears the profile and deletes the recorded cloud object', () async {
+      final user = _testUser(
+        profilePictureUrl: 'https://storage.example/old.jpg',
+        profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+      );
+      authRepository.user = user;
+      authService.seedAuthenticatedUser(user);
+      var notified = false;
+      authService.addListener(() => notified = true);
+
+      await authService.removeProfilePicture();
+
+      expect(notified, isTrue);
+      expect(authRepository.lastPictureUpdate?.isRemoval, isTrue);
+      expect(authService.currentUser?.profilePictureUrl, isNull);
+      expect(authService.currentUser?.profilePictureStoragePath, isNull);
+      expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
+    });
+
+    test('clears a legacy-only profile without deleting a local file', () async {
+      final user = User(
+        id: 'u1',
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'user@example.com',
+        profilePicturePath: r'C:\Users\ada\Pictures\avatar.png',
+      );
+      authRepository.user = user;
+      authService.seedAuthenticatedUser(user);
+
+      await authService.removeProfilePicture();
+
+      expect(authService.currentUser?.profilePicturePath, isNull);
+      expect(imageRepository.deleteCallCount, 0);
+    });
+
+    test('keeps the profile when there is nothing to remove', () async {
+      final user = _testUser();
+      authRepository.user = user;
+      authService.seedAuthenticatedUser(user);
+
+      await authService.removeProfilePicture();
+
+      expect(authRepository.lastPictureUpdate, isNull);
+      expect(authService.currentUser, same(user));
+    });
   });
 
   group('LeaderboardRepository.buildPublicProfileFields', () {

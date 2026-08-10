@@ -40,6 +40,8 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   ProfilePictureUpdate? lastPictureUpdate;
   Map<String, dynamic>? lastUpdateFields;
 
+  void seedUser(User user) => _user = user;
+
   @override
   Future<bool> isCurrentEmailVerified() async {
     isCurrentEmailVerifiedCallCount++;
@@ -159,6 +161,8 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
 
 class _TrackingProfileImageRepository implements ProfileImageRepositoryBase {
   int uploadCallCount = 0;
+  int deleteCallCount = 0;
+  final deletedPaths = <String>[];
   Uint8List? lastBytes;
   String? lastContentType;
   Object? uploadError;
@@ -168,7 +172,10 @@ class _TrackingProfileImageRepository implements ProfileImageRepositoryBase {
   Future<void> deleteProfileImage({
     required String authenticatedUid,
     required String storagePath,
-  }) async {}
+  }) async {
+    deleteCallCount++;
+    deletedPaths.add(storagePath);
+  }
 
   @override
   Future<ProfileImageUploadResult> uploadProfileImage({
@@ -752,6 +759,70 @@ void main() {
         expect(authRepository.updateCallCount, 0);
       },
     );
+
+    testWidgets('remove photo requires confirmation and preserves dirty edits', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      final user = User(
+        id: 'u1',
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'user@example.com',
+        profilePictureUrl: 'https://storage.example/saved.jpg',
+        profilePictureStoragePath: 'users/u1/profile/avatar_1.jpg',
+      );
+      authRepository.seedUser(user);
+      authService.seedAuthenticatedUser(user);
+
+      await pumpSection(tester);
+      await tester.enterText(_accountField('Last Name'), 'Dirty');
+      await tester.pump();
+      expect(find.byKey(const Key('account_profile_remove_photo')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('account_profile_remove_photo')));
+      await tester.pump();
+      expect(find.text('Remove profile photo?'), findsOneWidget);
+      expect(
+        find.textContaining('your initials will be shown instead'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Cancel').last);
+      await tester.pump();
+      expect(authRepository.updatePictureCallCount, 0);
+      expect(find.byKey(const Key('account_profile_remove_photo')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('account_profile_remove_photo')));
+      await tester.pump();
+      await tester.tap(find.text('Remove photo').last);
+      await _pumpFrames(tester, count: 20);
+
+      expect(authRepository.updatePictureCallCount, 1);
+      expect(authRepository.lastPictureUpdate?.isRemoval, isTrue);
+      expect(authService.currentUser?.profilePictureUrl, isNull);
+      expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
+      expect(
+        tester
+            .state<AccountProfileSectionState>(
+              find.byType(AccountProfileSection),
+            )
+            .isDirty,
+        isTrue,
+      );
+      expect(find.text('Profile photo removed.'), findsOneWidget);
+    });
+
+    testWidgets('no saved photo shows Add photo without Remove photo', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      await pumpSection(tester);
+
+      expect(find.byKey(const Key('account_profile_change_photo')), findsOneWidget);
+      expect(find.text('Add photo'), findsOneWidget);
+      expect(find.byKey(const Key('account_profile_remove_photo')), findsNothing);
+    });
 
     testWidgets(
       'avatar tap while upload is active cannot produce duplicate uploads',

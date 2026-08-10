@@ -1016,7 +1016,7 @@ void main() {
 
   group('presentation partition still holds for UI inputs', () {
     test(
-      'profilePictureUrlFor prefers entry URL then current user fallback',
+      'profilePictureUrlFor treats the authenticated user URL as authoritative',
       () {
         final row = entry(id: 'me', name: 'Me', xp: 100);
         expect(
@@ -1040,7 +1040,15 @@ void main() {
             isCurrentUser: true,
             currentUserProfilePictureUrl: 'https://example.com/me.jpg',
           ),
-          'https://example.com/mirrored.jpg',
+          'https://example.com/me.jpg',
+        );
+        expect(
+          LeaderboardPresentation.profilePictureUrlFor(
+            entry: mirrored,
+            isCurrentUser: true,
+            currentUserProfilePictureUrl: null,
+          ),
+          isNull,
         );
       },
     );

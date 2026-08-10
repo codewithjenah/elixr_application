@@ -194,8 +194,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final root = controller.profileRoot;
     final displayName = root?.displayName ?? entry?.displayName ?? 'Player';
     final pictureUrl = root?.profilePictureUrl ?? entry?.profilePictureUrl;
-    final resolvedPicture =
-        controller.isSelf && (pictureUrl == null || pictureUrl.isEmpty)
+    final resolvedPicture = controller.isSelf
         ? currentUserPictureUrl
         : pictureUrl;
     final showOwnerUi = _showOwnerUi(controller);

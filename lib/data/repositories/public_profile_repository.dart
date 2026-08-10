@@ -301,6 +301,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      clearProfilePicture: profilePictureUrl?.trim().isEmpty ?? true,
     );
 
     try {
@@ -379,6 +380,7 @@ class PublicProfileRepository {
           userId: userId,
           displayName: trimmedName,
           profilePictureUrl: profilePictureUrl,
+          clearProfilePicture: profilePictureUrl?.trim().isEmpty ?? true,
         );
       }
 
@@ -453,6 +455,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    bool clearProfilePicture = false,
   }) async {
     final trimmedName = displayName.trim();
     if (trimmedName.isEmpty) return;
@@ -467,6 +470,8 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      clearProfilePicture:
+          clearProfilePicture || profilePictureUrl?.trim().isEmpty == true,
     );
   }
 
@@ -474,13 +479,16 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    bool clearProfilePicture = false,
   }) async {
     final fields = <String, dynamic>{
       'display_name': displayName,
       'updated_at': FieldValue.serverTimestamp(),
     };
     final trimmedUrl = profilePictureUrl?.trim();
-    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+    if (clearProfilePicture) {
+      fields['profile_picture_url'] = FieldValue.delete();
+    } else if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
       fields['profile_picture_url'] = trimmedUrl;
     }
     await _rootRef(userId).set(fields, SetOptions(merge: true));

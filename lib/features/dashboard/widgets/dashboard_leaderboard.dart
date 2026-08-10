@@ -300,7 +300,7 @@ class _PlayerSpotlight extends StatelessWidget {
     final isYou = currentUserId != null && entry.userId == currentUserId;
     final medal = LeaderboardRankStyle.medalForRank(rank);
     final pictureUrl = isYou
-        ? (currentUserProfilePictureUrl ?? entry.profilePictureUrl)
+        ? currentUserProfilePictureUrl
         : entry.profilePictureUrl;
 
     return DashboardHoverSurface(

@@ -13,14 +13,19 @@ import '../../core/constants/app_constants.dart';
 import '../../core/utils/manila_day.dart';
 import '../../core/utils/user_name.dart';
 
-/// A newly uploaded Cloud Storage avatar to persist alongside a profile
-/// update. Presence of this value is what tells the repository to write the
-/// new fields and retire the legacy local-path field.
+/// A profile-picture mutation to persist alongside a profile update.
 class ProfilePictureUpdate {
-  const ProfilePictureUpdate({required this.url, required this.storagePath});
+  const ProfilePictureUpdate({required this.url, required this.storagePath})
+    : isRemoval = false;
 
-  final String url;
-  final String storagePath;
+  const ProfilePictureUpdate.remove()
+    : url = null,
+      storagePath = null,
+      isRemoval = true;
+
+  final String? url;
+  final String? storagePath;
+  final bool isRemoval;
 }
 
 enum EmailChangeRequestResult { unchanged, verificationSent }
@@ -99,7 +104,7 @@ abstract class AuthRepositoryBase {
     ProfilePictureUpdate? profilePictureUpdate,
   });
 
-  /// Persists only Cloud Storage avatar fields for [userId].
+  /// Persists a Cloud Storage avatar mutation for [userId].
   ///
   /// Does not write name or email fields. Retires the legacy local
   /// `profile_picture_path` once a cloud URL exists.
@@ -365,10 +370,16 @@ class AuthRepository implements AuthRepositoryBase {
         'middle_name': FieldValue.delete(),
     };
     if (profilePictureUpdate != null) {
-      fields['profile_picture_url'] = profilePictureUpdate.url;
-      fields['profile_picture_storage_path'] = profilePictureUpdate.storagePath;
-      // Retire the legacy local-path field now that a cross-device URL exists.
-      fields['profile_picture_path'] = FieldValue.delete();
+      if (profilePictureUpdate.isRemoval) {
+        fields['profile_picture_url'] = FieldValue.delete();
+        fields['profile_picture_storage_path'] = FieldValue.delete();
+        fields['profile_picture_path'] = FieldValue.delete();
+      } else {
+        fields['profile_picture_url'] = profilePictureUpdate.url;
+        fields['profile_picture_storage_path'] = profilePictureUpdate.storagePath;
+        // Retire the legacy local-path field now that a cross-device URL exists.
+        fields['profile_picture_path'] = FieldValue.delete();
+      }
     }
     await _db.updateUserProfileField(userId, fields);
 
@@ -388,12 +399,19 @@ class AuthRepository implements AuthRepositoryBase {
       throw Exception('Authenticated user does not match the profile.');
     }
 
-    await _db.updateUserProfileField(userId, {
-      'profile_picture_url': profilePictureUpdate.url,
-      'profile_picture_storage_path': profilePictureUpdate.storagePath,
-      // Retire the legacy local-path field now that a cross-device URL exists.
-      'profile_picture_path': FieldValue.delete(),
-    });
+    final fields = profilePictureUpdate.isRemoval
+        ? <String, dynamic>{
+            'profile_picture_url': FieldValue.delete(),
+            'profile_picture_storage_path': FieldValue.delete(),
+            'profile_picture_path': FieldValue.delete(),
+          }
+        : <String, dynamic>{
+            'profile_picture_url': profilePictureUpdate.url,
+            'profile_picture_storage_path': profilePictureUpdate.storagePath,
+            // Retire the legacy local-path field now that a cross-device URL exists.
+            'profile_picture_path': FieldValue.delete(),
+          };
+    await _db.updateUserProfileField(userId, fields);
 
     final updated = await _db.getUserById(userId);
     if (updated == null) throw Exception('User profile not found');

@@ -18,13 +18,11 @@ import 'profile_border_frame.dart';
 ///    works across Windows machines.
 /// 4. [legacyLocalPath] — a pre-Cloud-Storage local file path, only usable
 ///    on the PC where it was picked.
-/// 5. `assets/default_profile.png`.
-/// 6. [initials] rendered over a tinted circle, if the asset itself fails
-///    to load.
+/// 5. [initials] rendered over a tinted circle.
 ///
 /// Performs no Firebase or repository calls; all resolution here is either
 /// a synchronous local file-existence check or delegated to [Image.memory] /
-/// [Image.network] / [Image.asset] loading and error callbacks.
+/// [Image.network] loading and error callbacks.
 class ProfileAvatarWidget extends StatelessWidget {
   const ProfileAvatarWidget({
     super.key,
@@ -97,7 +95,13 @@ class ProfileAvatarWidget extends StatelessWidget {
         fit: BoxFit.cover,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return const Center(child: ProgressRing(strokeWidth: 2));
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              _initialsFallback(),
+              const ProgressRing(strokeWidth: 2),
+            ],
+          );
         },
         errorBuilder: (context, error, stackTrace) => _legacyOrFallback(),
       );
@@ -111,20 +115,12 @@ class ProfileAvatarWidget extends StatelessWidget {
     if (legacyFile != null) {
       return _fileImage(legacyFile);
     }
-    return _defaultAssetOrInitials();
+    return _initialsFallback();
   }
 
   Widget _fileImage(File file) {
     return Image.file(
       file,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => _defaultAssetOrInitials(),
-    );
-  }
-
-  Widget _defaultAssetOrInitials() {
-    return Image.asset(
-      'assets/default_profile.png',
       fit: BoxFit.cover,
       errorBuilder: (context, error, stackTrace) => _initialsFallback(),
     );
