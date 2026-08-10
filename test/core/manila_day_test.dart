@@ -66,5 +66,21 @@ void main() {
       final nowUtc = DateTime.utc(2026, 1, 5, 1, 0);
       expect(ManilaDay.dayKeyFor(nowUtc), '20260105');
     });
+
+    test('enumerateDailyQuestBoardIds includes endpoints for a short range', () {
+      final ids = ManilaDay.enumerateDailyQuestBoardIds(
+        userId: 'alice',
+        createdAtUtc: DateTime.utc(2026, 1, 1, 0),
+        nowUtc: DateTime.utc(2026, 1, 2, 0),
+      );
+      expect(ids, ['alice_20260101', 'alice_20260102']);
+    });
+
+    test('boardEnumerationFallbackStartUtc is 2024-01-01 Manila', () {
+      expect(
+        ManilaDay.dayKeyFor(ManilaDay.boardEnumerationFallbackStartUtc),
+        '20240101',
+      );
+    });
   });
 }

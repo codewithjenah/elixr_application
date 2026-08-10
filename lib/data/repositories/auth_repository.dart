@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:math' as math;
 
-import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_storage/firebase_storage.dart';
 
 import '../database/firestore_helper.dart';
 import '../models/user.dart';
+import 'profile_image_repository.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/manila_day.dart';
 import '../../core/utils/user_name.dart';
 
 /// A newly uploaded Cloud Storage avatar to persist alongside a profile
@@ -119,6 +123,11 @@ abstract class AuthRepositoryBase {
     required String newPassword,
   });
 
+  /// Re-authenticates with [password], purges the user's Firestore/Storage
+  /// data, then deletes the Firebase Auth user. Does not delete Auth if the
+  /// data purge fails.
+  Future<void> deleteAccount({required String password});
+
   Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({
     required String originalUid,
     required String pendingEmail,
@@ -130,15 +139,28 @@ abstract class AuthRepositoryBase {
 enum _AuthErrorContext { login, reauthentication, emailChange }
 
 class AuthRepository implements AuthRepositoryBase {
-  AuthRepository({fb.FirebaseAuth? auth, FirestoreHelper? db})
-    : _auth = auth ?? fb.FirebaseAuth.instance,
-      _db = db ?? FirestoreHelper.instance;
+  AuthRepository({
+    fb.FirebaseAuth? auth,
+    FirestoreHelper? db,
+    FirebaseFirestore? firestore,
+    ProfileImageRepositoryBase? profileImageRepository,
+    FirebaseStorage? storage,
+  }) : _auth = auth ?? fb.FirebaseAuth.instance,
+       _db = db ?? FirestoreHelper.instance,
+       _firestore = firestore ?? FirebaseFirestore.instance,
+       _profileImages = profileImageRepository ?? ProfileImageRepository(),
+       _storage = storage ?? FirebaseStorage.instance;
 
   static const _authOperationTimeout = Duration(seconds: 30);
+  static const _batchLimit = 500;
+  static const _whereInLimit = 30;
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   final fb.FirebaseAuth _auth;
   final FirestoreHelper _db;
+  final FirebaseFirestore _firestore;
+  final ProfileImageRepositoryBase _profileImages;
+  final FirebaseStorage _storage;
 
   @override
   Future<User> register({
@@ -561,6 +583,181 @@ class AuthRepository implements AuthRepositoryBase {
       throw Exception(
         'Password update timed out. Check your internet connection and try again.',
       );
+    }
+  }
+
+  @override
+  Future<void> deleteAccount({required String password}) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) throw Exception('Not authenticated');
+
+    final email = firebaseUser.email;
+    if (email == null || email.isEmpty) {
+      throw Exception(
+        'This account has no email address. Account cannot be deleted.',
+      );
+    }
+
+    final activeUser = await _refreshRecentLogin(
+      email: email,
+      password: password,
+      errorContext: _AuthErrorContext.reauthentication,
+    );
+    final uid = activeUser.uid;
+
+    try {
+      await _purgeUserData(uid);
+    } catch (e) {
+      throw Exception(
+        'Could not delete all account data. Your account was not removed. '
+        'Please try again. (${e.toString().replaceFirst('Exception: ', '')})',
+      );
+    }
+
+    try {
+      await activeUser.delete().timeout(_authOperationTimeout);
+    } on fb.FirebaseAuthException catch (e) {
+      throw Exception(
+        'Your data was removed, but deleting the sign-in account failed: '
+        '${_messageForAuthError(e, context: _AuthErrorContext.reauthentication)}. '
+        'Try signing in again or contact support.',
+      );
+    } on TimeoutException {
+      throw Exception(
+        'Your data was removed, but deleting the sign-in account timed out. '
+        'Try signing in again or contact support.',
+      );
+    }
+  }
+
+  Future<void> _purgeUserData(String uid) async {
+    final sessionSnap = await _firestore
+        .collection(FirestoreCollections.sessions)
+        .where('user_id', isEqualTo: uid)
+        .get();
+    final sessionIds = sessionSnap.docs.map((d) => d.id).toList();
+
+    // Feedbacks must be deleted while parent sessions still exist (rules get()).
+    final feedbackRefs = <DocumentReference>[];
+    for (var i = 0; i < sessionIds.length; i += _whereInLimit) {
+      final chunk = sessionIds.sublist(
+        i,
+        math.min(i + _whereInLimit, sessionIds.length),
+      );
+      final feedbackSnap = await _firestore
+          .collection(FirestoreCollections.feedbacks)
+          .where('session_id', whereIn: chunk)
+          .get();
+      feedbackRefs.addAll(feedbackSnap.docs.map((d) => d.reference));
+    }
+    await _commitDeletes(feedbackRefs);
+    await _commitDeletes(sessionSnap.docs.map((d) => d.reference).toList());
+
+    final markerSnap = await _firestore
+        .collection(FirestoreCollections.leaderboardProcessedSessions)
+        .where('user_id', isEqualTo: uid)
+        .get();
+    await _commitDeletes(markerSnap.docs.map((d) => d.reference).toList());
+
+    final profile = await _db.getUserById(uid);
+    final createdAt =
+        DateTime.tryParse(profile?.createdAt ?? '')?.toUtc() ??
+        ManilaDay.boardEnumerationFallbackStartUtc;
+    final boardIds = ManilaDay.enumerateDailyQuestBoardIds(
+      userId: uid,
+      createdAtUtc: createdAt,
+      nowUtc: DateTime.now().toUtc(),
+    );
+    await _commitDeletes([
+      for (final id in boardIds)
+        _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(id),
+    ]);
+
+    final claimSnap = await _firestore
+        .collection(FirestoreCollections.dailyQuestClaims)
+        .where('user_id', isEqualTo: uid)
+        .get();
+    await _commitDeletes(claimSnap.docs.map((d) => d.reference).toList());
+
+    final achievementSnap = await _firestore
+        .collection(FirestoreCollections.achievementClaims)
+        .where('user_id', isEqualTo: uid)
+        .get();
+    await _commitDeletes(achievementSnap.docs.map((d) => d.reference).toList());
+
+    await _commitDeletes([
+      _firestore.collection(FirestoreCollections.userCosmetics).doc(uid),
+      _firestore.collection(FirestoreCollections.leaderboard).doc(uid),
+    ]);
+
+    final publicRoot = _firestore
+        .collection(FirestoreCollections.publicProfiles)
+        .doc(uid);
+    final publicSessions = await publicRoot.collection('sessions').get();
+    final publicAchievements = await publicRoot
+        .collection('achievements')
+        .get();
+    await _commitDeletes([
+      ...publicSessions.docs.map((d) => d.reference),
+      ...publicAchievements.docs.map((d) => d.reference),
+      publicRoot.collection('details').doc('summary'),
+      publicRoot,
+    ]);
+
+    final inboundVisits = await _firestore
+        .collection(FirestoreCollections.profileVisits)
+        .doc(uid)
+        .collection('visitors')
+        .get();
+    await _commitDeletes(inboundVisits.docs.map((d) => d.reference).toList());
+
+    final outboundVisits = await _firestore
+        .collectionGroup('visitors')
+        .where('viewer_id', isEqualTo: uid)
+        .get();
+    await _commitDeletes(outboundVisits.docs.map((d) => d.reference).toList());
+
+    await _commitDeletes([
+      _firestore.collection(FirestoreCollections.users).doc(uid),
+    ]);
+
+    await _deleteProfileStorage(uid, profile?.profilePictureStoragePath);
+  }
+
+  Future<void> _deleteProfileStorage(String uid, String? storagePath) async {
+    if (storagePath != null && storagePath.isNotEmpty) {
+      await _profileImages.deleteProfileImage(
+        authenticatedUid: uid,
+        storagePath: storagePath,
+      );
+    }
+
+    try {
+      final listed = await _storage
+          .ref(ProfileImageRepository.profilePrefixForUser(uid))
+          .listAll();
+      for (final item in listed.items) {
+        await _profileImages.deleteProfileImage(
+          authenticatedUid: uid,
+          storagePath: item.fullPath,
+        );
+      }
+    } on FirebaseException catch (e) {
+      if (e.code == 'object-not-found') return;
+      // Prefix may not exist; treat as already clean.
+      if (e.code == 'unauthorized') rethrow;
+    }
+  }
+
+  Future<void> _commitDeletes(List<DocumentReference> refs) async {
+    if (refs.isEmpty) return;
+    for (var i = 0; i < refs.length; i += _batchLimit) {
+      final batch = _firestore.batch();
+      final end = math.min(i + _batchLimit, refs.length);
+      for (var j = i; j < end; j++) {
+        batch.delete(refs[j]);
+      }
+      await batch.commit();
     }
   }
 

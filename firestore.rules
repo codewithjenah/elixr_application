@@ -549,6 +549,10 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.session_id)).data.user_id
           == request.auth.uid;
+      // Self-erasure: parent session must still exist (same get() as read).
+      allow delete: if isSignedIn()
+        && get(/databases/$(database)/documents/sessions/$(resource.data.session_id)).data.user_id
+          == request.auth.uid;
     }
 
     // Public aggregate rankings. Authenticated read; own-document writes only.
@@ -573,7 +577,8 @@ service cloud.firestore {
           || validQuestClaimUpdate()
           || validEquippedBorderUpdate());
 
-      allow delete: if false;
+      // Self-erasure only (RA 10173 account deletion).
+      allow delete: if isOwner(userId);
     }
 
     match /leaderboard_processed_sessions/{sessionId} {
@@ -598,7 +603,9 @@ service cloud.firestore {
         && sourceSession(sessionId).user_id == request.auth.uid
         && request.resource.data.score == sourceSession(sessionId).score;
 
-      allow update, delete: if false;
+      allow update: if false;
+      // Self-erasure only (RA 10173 account deletion).
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
     // Persisted per-user, per-real-day quest board. Fully immutable after
@@ -647,7 +654,9 @@ service cloud.firestore {
         && request.time >= request.resource.data.day_start
         && request.time < request.resource.data.day_start + duration.value(24, 'h');
 
-      allow update, delete: if false; // fully immutable after creation
+      allow update: if false; // fully immutable after creation
+      // Self-erasure only; list stays false (boards purged by deterministic id).
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
     // Idempotent, replay-proof quest-claim marker. Fully immutable after
@@ -682,7 +691,9 @@ service cloud.firestore {
         // claim created without ever bumping quest_xp).
         && leaderboardAfter(request.resource.data.user_id).last_claim_id == claimId;
 
-      allow update, delete: if false;
+      allow update: if false;
+      // Self-erasure only (RA 10173 account deletion).
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
     // Immutable achievement-claim markers. Atomic with user_cosmetics unlocks;
@@ -707,7 +718,9 @@ service cloud.firestore {
         && request.resource.data.reward_border_id
           in getAfter(userCosmeticsPath(request.auth.uid)).data.unlocked_border_ids;
 
-      allow update, delete: if false;
+      allow update: if false;
+      // Self-erasure only (RA 10173 account deletion).
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
     // Private cosmetics inventory. Unlock only via atomic fresh achievement claim.
@@ -777,7 +790,8 @@ service cloud.firestore {
           == request.auth.uid + '_'
             + getAfter(achievementClaimPath(request.resource.data.last_achievement_claim_id)).data.achievement_id;
 
-      allow delete: if false;
+      // Self-erasure only (RA 10173 account deletion).
+      allow delete: if isOwner(userId);
     }
 
     // ---- Public profiles (privacy-aware player profile viewing) ------------
@@ -895,20 +909,20 @@ service cloud.firestore {
       allow update: if isOwner(userId)
         && validPublicProfileRoot(request.resource.data, userId)
         && request.resource.data.user_id == resource.data.user_id;
-      allow delete: if false;
+      allow delete: if isOwner(userId);
 
       match /details/summary {
         allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
         allow create, update: if isOwner(userId)
           && validPublicProfileSummary(request.resource.data, userId);
-        allow delete: if false;
+        allow delete: if isOwner(userId);
       }
 
       match /sessions/{sessionId} {
         allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
         allow create, update: if isOwner(userId)
           && validPublicProfileSession(request.resource.data, userId, sessionId);
-        allow delete: if false;
+        allow delete: if isOwner(userId);
       }
 
       match /achievements/{achievementId} {
@@ -919,13 +933,14 @@ service cloud.firestore {
             userId,
             achievementId
           );
-        allow delete: if false;
+        allow delete: if isOwner(userId);
       }
     }
 
     match /profile_visits/{profileOwnerId}/visitors/{viewerId} {
       allow get: if isSignedIn()
         && (isOwner(profileOwnerId) || viewerId == request.auth.uid);
+      // Single-collection list of inbound visitors for the profile owner.
       allow list: if isSignedIn() && isOwner(profileOwnerId);
 
       allow create: if isSignedIn()
@@ -944,7 +959,16 @@ service cloud.firestore {
         && request.resource.data.viewer_id == viewerId
         && request.resource.data.first_viewed_at == resource.data.first_viewed_at;
 
-      allow delete: if false;
+      // Self-erasure: profile owner wiping inbound visits, or viewer wiping outbound rows.
+      allow delete: if isSignedIn()
+        && (isOwner(profileOwnerId) || viewerId == request.auth.uid);
+    }
+
+    // Collection-group list of outbound visit rows for account erasure.
+    // Requires rules_version = '2' recursive wildcard (see Firebase docs).
+    match /{path=**}/visitors/{viewerId} {
+      allow list: if isSignedIn()
+        && resource.data.viewer_id == request.auth.uid;
     }
   }
 }

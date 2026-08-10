@@ -38,4 +38,40 @@ abstract final class ManilaDay {
   /// Prefer this over comparing raw [DateTime] values.
   static bool dayKeyEquals(String dayKeyA, String dayKeyB) =>
       dayKeyA == dayKeyB;
+
+  /// Fixed fallback start when a user document has no usable `created_at`
+  /// (2024-01-01 00:00 Asia/Manila) for account self-erasure board enumeration.
+  static final DateTime boardEnumerationFallbackStartUtc = DateTime.utc(
+    2023,
+    12,
+    31,
+    16,
+  );
+
+  /// Builds `daily_quest_boards` document ids from [createdAtUtc] through
+  /// [nowUtc] (inclusive Manila days): `{userId}_{yyyyMMdd}`.
+  ///
+  /// Used for RA 10173 account erasure because boards cannot be listed
+  /// (`allow list: if false`).
+  static List<String> enumerateDailyQuestBoardIds({
+    required String userId,
+    required DateTime createdAtUtc,
+    required DateTime nowUtc,
+  }) {
+    if (userId.isEmpty) return const [];
+
+    var start = dayStartUtcFor(createdAtUtc);
+    final end = dayStartUtcFor(nowUtc);
+    if (start.isAfter(end)) {
+      start = end;
+    }
+
+    final ids = <String>[];
+    var cursor = start;
+    while (!cursor.isAfter(end)) {
+      ids.add('${userId}_${dayKeyFor(cursor)}');
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return ids;
+  }
 }

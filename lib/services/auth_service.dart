@@ -70,6 +70,7 @@ class AuthService extends ChangeNotifier {
   Timer? _pendingEmailPollTimer;
   String? _pendingEmailRecoveryError;
   String? _pendingEmailChangeSuccessMessage;
+  String? _accountDeletedMessage;
   Future<void>? _pendingEmailCheckInFlight;
 
   User? get currentUser => _currentUser;
@@ -84,6 +85,12 @@ class AuthService extends ChangeNotifier {
   String? takePendingEmailChangeSuccessMessage() {
     final message = _pendingEmailChangeSuccessMessage;
     _pendingEmailChangeSuccessMessage = null;
+    return message;
+  }
+
+  String? takeAccountDeletedMessage() {
+    final message = _accountDeletedMessage;
+    _accountDeletedMessage = null;
     return message;
   }
 
@@ -461,6 +468,20 @@ class AuthService extends ChangeNotifier {
       currentPassword: currentPassword,
       newPassword: newPassword,
     );
+  }
+
+  /// Permanently deletes the signed-in account and associated cloud data.
+  ///
+  /// On success, clears local auth state the same way [logout] does and
+  /// queues a one-shot message for [takeAccountDeletedMessage].
+  Future<void> deleteAccount({required String password}) async {
+    await _repository.deleteAccount(password: password);
+    _accountDeletedMessage =
+        'Your account and associated data have been permanently deleted.';
+    _clearPendingEmailChange(clearError: true);
+    _currentUser = null;
+    await _repository.clearCurrentUser();
+    notifyListeners();
   }
 
   void _beginPendingEmailChange({

@@ -76,6 +76,8 @@ class _StubAuthRepository implements AuthRepositoryBase {
     required String currentPassword,
     required String newPassword,
   }) async {}
+  @override
+  Future<void> deleteAccount({required String password}) async {}
 
   @override
   Future<User> updateProfileDetails({

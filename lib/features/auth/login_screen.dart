@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/widgets/auth_scaffold.dart';
+import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
@@ -20,6 +21,18 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final message = context.read<AuthService>().takeAccountDeletedMessage();
+      if (message != null) {
+        ElixDialog.success(context, message);
+      }
+    });
+  }
 
   @override
   void dispose() {

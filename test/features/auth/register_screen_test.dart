@@ -100,6 +100,8 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
     required String currentPassword,
     required String newPassword,
   }) async {}
+  @override
+  Future<void> deleteAccount({required String password}) async {}
 }
 
 Future<void> _setSurface(

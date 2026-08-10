@@ -113,6 +113,8 @@ class FakeAuthRepository implements AuthRepositoryBase {
     required String currentPassword,
     required String newPassword,
   }) async {}
+  @override
+  Future<void> deleteAccount({required String password}) async {}
 }
 
 User _testUser({String? id, String email = 'old@example.com'}) {

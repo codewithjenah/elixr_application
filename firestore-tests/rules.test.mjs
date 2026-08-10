@@ -16,6 +16,8 @@ import {
   getDoc,
   getDocs,
   collection,
+  collectionGroup,
+  deleteDoc,
   query,
   where,
   writeBatch,
@@ -1430,5 +1432,190 @@ describe('profile_visits', () => {
         }),
       ),
     );
+  });
+});
+
+describe('account self-erasure deletes', () => {
+  test('owner can delete own leaderboard doc; other user cannot', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    const bob = bobDb();
+    await assertFails(deleteDoc(doc(bob, 'leaderboard', 'alice')));
+
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'leaderboard', 'alice')));
+  });
+
+  test('owner can delete own leaderboard_processed_sessions marker; other user cannot', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'leaderboard_processed_sessions', 's1'), {
+        session_id: 's1',
+        user_id: 'alice',
+        score: 80,
+        xp_awarded: 25,
+        processed_at: Timestamp.now(),
+      });
+    });
+
+    const bob = bobDb();
+    await assertFails(deleteDoc(doc(bob, 'leaderboard_processed_sessions', 's1')));
+
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'leaderboard_processed_sessions', 's1')));
+  });
+
+  test('owner can delete own daily_quest_board by id; list remains denied', async () => {
+    const { id, data } = boardData('alice');
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', id), data);
+    });
+
+    const alice = aliceDb();
+    await assertFails(getDocs(query(collection(alice, 'daily_quest_boards'), where('user_id', '==', 'alice'))));
+    await assertSucceeds(deleteDoc(doc(alice, 'daily_quest_boards', id)));
+  });
+
+  test('owner can delete own daily_quest_claim; other user cannot', async () => {
+    const now = new Date();
+    const { id: boardId, data: board } = boardData('alice', now);
+    const claim = claimData({
+      userId: 'alice',
+      boardId,
+      dayKey: board.day_key,
+      dayStart: board.day_start.toDate(),
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', boardId), board);
+      await setDoc(doc(adminDb, 'daily_quest_claims', claim.id), claim.data);
+    });
+
+    const bob = bobDb();
+    await assertFails(deleteDoc(doc(bob, 'daily_quest_claims', claim.id)));
+
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'daily_quest_claims', claim.id)));
+  });
+
+  test('owner can delete own achievement_claim and user_cosmetics', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'achievement_claims', 'alice_first_steps'), {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        reward_border_id: 'starter_glow',
+        claimed_at: Timestamp.now(),
+      });
+      await setDoc(doc(adminDb, 'user_cosmetics', 'alice'), {
+        user_id: 'alice',
+        unlocked_border_ids: ['starter_glow'],
+        last_achievement_claim_id: 'alice_first_steps',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const bob = bobDb();
+    await assertFails(deleteDoc(doc(bob, 'achievement_claims', 'alice_first_steps')));
+    await assertFails(deleteDoc(doc(bob, 'user_cosmetics', 'alice')));
+
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'achievement_claims', 'alice_first_steps')));
+    await assertSucceeds(deleteDoc(doc(alice, 'user_cosmetics', 'alice')));
+  });
+
+  test('owner can delete public_profiles root and subdocs', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(
+        doc(adminDb, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+      );
+      await setDoc(doc(adminDb, 'public_profiles', 'alice', 'achievements', 'first_steps'), {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        claimed_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+
+    const bob = bobDb();
+    await assertFails(deleteDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertFails(deleteDoc(doc(bob, 'public_profiles', 'alice')));
+
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertSucceeds(
+      deleteDoc(doc(alice, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+    await assertSucceeds(deleteDoc(doc(alice, 'public_profiles', 'alice')));
+  });
+
+  test('session owner can delete feedback while session exists; non-owner cannot', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 's1'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Easy',
+        score: 80,
+        duration_seconds: 60,
+        prop_type: 'Bottle',
+        created_at: Timestamp.now(),
+      });
+      await setDoc(doc(adminDb, 'feedbacks', 'f1'), {
+        session_id: 's1',
+        message: 'Nice',
+        feedback_type: 'positive',
+        created_at: Timestamp.now(),
+      });
+    });
+
+    const bob = bobDb();
+    await assertFails(deleteDoc(doc(bob, 'feedbacks', 'f1')));
+
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'feedbacks', 'f1')));
+  });
+
+  test('profile owner and viewer can delete visit rows; third party cannot', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob'),
+      );
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'carol', 'visitors', 'alice'),
+        profileVisit('carol', 'alice'),
+      );
+    });
+
+    // Third party cannot delete alice's inbound visit from bob.
+    // (Use a fresh auth context for carol.)
+    const carol = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(deleteDoc(doc(carol, 'profile_visits', 'alice', 'visitors', 'bob')));
+
+    // Owner can delete inbound visitor row.
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'profile_visits', 'alice', 'visitors', 'bob')));
+
+    // Viewer can delete own outbound row on another profile.
+    await assertSucceeds(deleteDoc(doc(alice, 'profile_visits', 'carol', 'visitors', 'alice')));
+  });
+
+  test('viewer can collection-group list own outbound visits', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'bob', 'visitors', 'alice'),
+        profileVisit('bob', 'alice'),
+      );
+      await setDoc(
+        doc(adminDb, 'profile_visits', 'carol', 'visitors', 'alice'),
+        profileVisit('carol', 'alice'),
+      );
+    });
+
+    const alice = aliceDb();
+    const q = query(collectionGroup(alice, 'visitors'), where('viewer_id', '==', 'alice'));
+    await assertSucceeds(getDocs(q));
   });
 });

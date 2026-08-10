@@ -1,6 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
@@ -8,21 +8,24 @@ import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
+import 'package:elixr_application/features/settings/sections/security_section.dart';
 import 'package:elixr_application/features/settings/settings_screen.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
-import 'package:elixr_application/features/settings/widgets/practice_preferences_controller.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 class _StubAuthRepository implements AuthRepositoryBase {
   _StubAuthRepository(this._user);
 
   User? _user;
+  Object? deleteError;
+  int deleteAccountCallCount = 0;
+  String? lastDeletePassword;
 
   @override
   Future<bool> isCurrentEmailVerified() async => true;
@@ -92,8 +95,14 @@ class _StubAuthRepository implements AuthRepositoryBase {
     required String currentPassword,
     required String newPassword,
   }) async {}
+
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({required String password}) async {
+    deleteAccountCallCount++;
+    lastDeletePassword = password;
+    if (deleteError != null) throw deleteError!;
+    _user = null;
+  }
 }
 
 class _NoopImages implements ProfileImageRepositoryBase {
@@ -119,10 +128,11 @@ void main() {
   late Directory tempDir;
   late SettingsService settingsService;
   late AuthService authService;
+  late _StubAuthRepository repository;
   late CameraDeviceService cameraDeviceService;
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('elixr_settings_nav_');
+    tempDir = await Directory.systemTemp.createTemp('elixr_settings_delete_');
     settingsService = SettingsService(
       settingsFile: File('${tempDir.path}/settings.json'),
     );
@@ -130,15 +140,16 @@ void main() {
     cameraDeviceService = CameraDeviceService(
       httpGet: (_) async => '{"devices":[]}',
     );
-    authService = AuthService(
-      repository: _StubAuthRepository(
-        User(
-          id: 'u1',
-          firstName: 'Test',
-          lastName: 'User',
-          email: 'user@example.com',
-        ),
+    repository = _StubAuthRepository(
+      User(
+        id: 'u1',
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'user@example.com',
       ),
+    );
+    authService = AuthService(
+      repository: repository,
       leaderboardRepository: null,
       profileImageRepository: _NoopImages(),
     );
@@ -160,7 +171,7 @@ void main() {
     }
   });
 
-  Widget wrap(Widget child) {
+  Widget buildHarness({required Widget child}) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<AuthService>.value(value: authService),
@@ -169,113 +180,101 @@ void main() {
           value: cameraDeviceService,
         ),
       ],
-      child: FluentApp(
-        theme: AppTheme.dark,
-        home: ScaffoldPage(content: child),
-      ),
+      child: child,
     );
   }
 
-  Future<void> setSurface(WidgetTester tester, Size size) async {
-    tester.view.physicalSize = size;
+  testWidgets('Security section shows destructive Delete account affordance', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-  }
-
-  testWidgets('wide layout shows sidebar and section content', (tester) async {
-    await setSurface(tester, const Size(1400, 900));
 
     await tester.pumpWidget(
-      wrap(
-        SettingsScreen(
-          initialSection: SettingsSection.appearance,
-          watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
-          watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
-          equipBorder: ({required userId, required borderId}) async =>
-              const EquipBorderResult.alreadyEquipped(),
+      buildHarness(
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: ScaffoldPage(
+            content: SettingsScreen(
+              initialSection: SettingsSection.security,
+              watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+              watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+              equipBorder: ({required userId, required borderId}) async =>
+                  const EquipBorderResult.alreadyEquipped(),
+            ),
+          ),
         ),
       ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Dark mode'), findsOneWidget);
-    expect(find.byType(ComboBox<SettingsSection>), findsNothing);
-    expect(find.text('Account & Profile'), findsOneWidget);
-    expect(find.text('Security'), findsWidgets);
-    expect(find.text('Practice'), findsOneWidget);
+    expect(find.byType(SecuritySection), findsOneWidget);
+    expect(find.text('Delete account'), findsWidgets);
+    expect(find.text('Change password'), findsOneWidget);
   });
 
-  testWidgets('compact layout uses ComboBox navigation', (tester) async {
-    await setSurface(tester, const Size(720, 600));
+  testWidgets('Delete account dialog requires password and confirm gate', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => buildHarness(
+            child: FluentTheme(
+              data: AppTheme.dark,
+              child: const ScaffoldPage(content: SecuritySection()),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/login',
+          builder: (_, _) => const ScaffoldPage(content: Text('Login')),
+        ),
+      ],
+    );
 
     await tester.pumpWidget(
-      wrap(
-        SettingsScreen(
-          initialSection: SettingsSection.appearance,
-          watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
-          watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
-          equipBorder: ({required userId, required borderId}) async =>
-              const EquipBorderResult.alreadyEquipped(),
-        ),
-      ),
+      FluentApp.router(theme: AppTheme.dark, routerConfig: router),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.byType(ComboBox<SettingsSection>), findsOneWidget);
-    expect(find.text('Dark mode'), findsOneWidget);
-  });
+    await tester.tap(find.text('Delete account').last);
+    await tester.pumpAndSettle();
 
-  testWidgets('selecting Security shows password form', (tester) async {
-    await setSurface(tester, const Size(1400, 900));
-
-    await tester.pumpWidget(
-      wrap(
-        SettingsScreen(
-          initialSection: SettingsSection.appearance,
-          watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
-          watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
-          equipBorder: ({required userId, required borderId}) async =>
-              const EquipBorderResult.alreadyEquipped(),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-
-    await tester.tap(find.text('Security').last);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.text('Current password'), findsOneWidget);
-    expect(find.text('Update password'), findsOneWidget);
-  });
-
-  test('practice controller dirty and save round-trip', () async {
-    final controller = PracticePreferencesController(settingsService);
-    expect(controller.isDirty, isFalse);
-
-    controller.toggleMovement(movementCatalog.first.name, false);
-    // May still be dirty depending on starting setlist size.
-    final before = List.of(controller.draft.movementNames);
-    controller.setInterval(40);
-    expect(controller.isDirty, isTrue);
+    expect(find.text('Delete account permanently?'), findsOneWidget);
     expect(
-      controller.canSave,
-      before.isNotEmpty || controller.draft.movementNames.isNotEmpty,
+      find.textContaining('Practice sessions and feedback'),
+      findsOneWidget,
     );
 
-    // Ensure at least one movement remains.
-    if (controller.draft.movementNames.isEmpty) {
-      controller.toggleMovement(movementCatalog.first.name, true);
-    }
+    await tester.enterText(find.byType(TextBox).last, 'secret');
+    await tester.pump();
 
-    final outcome = await controller.save();
-    expect(outcome, SettingsWriteOutcome.saved);
-    expect(controller.isDirty, isFalse);
-    expect(settingsService.justDanceIntervalSeconds, 40);
-    controller.dispose();
+    final confirmLabel = find.text(
+      'I understand this permanently deletes my account and data',
+    );
+    await tester.ensureVisible(confirmLabel);
+    await tester.tap(confirmLabel);
+    await tester.pump();
+
+    final deleteAction = find.widgetWithText(FilledButton, 'Delete account');
+    await tester.ensureVisible(deleteAction.last);
+    await tester.tap(deleteAction.last);
+    await tester.pumpAndSettle();
+
+    expect(repository.deleteAccountCallCount, 1);
+    expect(repository.lastDeletePassword, 'secret');
+    expect(authService.isAuthenticated, isFalse);
+    expect(find.text('Login'), findsOneWidget);
   });
 }

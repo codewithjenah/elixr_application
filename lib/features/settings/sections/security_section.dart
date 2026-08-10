@@ -1,10 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
+import '../../../core/widgets/elix_primary_button.dart';
 import '../../../services/auth_service.dart';
 import '../widgets/settings_components.dart';
 
@@ -22,6 +24,7 @@ class SecuritySectionState extends State<SecuritySection> {
   final _confirmPasswordController = TextEditingController();
 
   bool _savingPassword = false;
+  bool _deletingAccount = false;
   int _passwordFormRevision = 0;
 
   @override
@@ -108,6 +111,28 @@ class SecuritySectionState extends State<SecuritySection> {
       }
     } finally {
       if (mounted) setState(() => _savingPassword = false);
+    }
+  }
+
+  Future<void> _confirmAndDeleteAccount() async {
+    final confirmed = await _DeleteAccountConfirm.show(context);
+    if (confirmed == null || !mounted) return;
+
+    setState(() => _deletingAccount = true);
+    final authService = context.read<AuthService>();
+    try {
+      await authService.deleteAccount(password: confirmed);
+      if (!mounted) return;
+      context.go('/login');
+    } catch (e) {
+      if (mounted) {
+        await ElixDialog.error(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
     }
   }
 
@@ -267,6 +292,97 @@ class SecuritySectionState extends State<SecuritySection> {
                       style: AppTheme.caption.copyWith(
                         color: context.elixTextSecondary,
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: SettingsGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: AppColors.error.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(
+                              settingsRadiusSm,
+                            ),
+                          ),
+                          child: const Icon(
+                            FluentIcons.delete,
+                            size: 16,
+                            color: AppColors.error,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm + 4),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Delete account',
+                                style: AppTheme.body.copyWith(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.elixTextPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Permanently erase your profile, training data, and sign-in. This cannot be undone.',
+                                style: AppTheme.caption.copyWith(
+                                  color: context.elixTextSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Button(
+                      onPressed: _deletingAccount || _savingPassword
+                          ? null
+                          : _confirmAndDeleteAccount,
+                      style: ButtonStyle(
+                        backgroundColor: WidgetStatePropertyAll(
+                          AppColors.error.withValues(alpha: 0.12),
+                        ),
+                        foregroundColor: const WidgetStatePropertyAll(
+                          AppColors.error,
+                        ),
+                      ),
+                      child: _deletingAccount
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const ProgressRing(strokeWidth: 2),
+                                const SizedBox(width: AppSpacing.sm),
+                                Text(
+                                  'Deleting account...',
+                                  style: AppTheme.body.copyWith(fontSize: 14),
+                                ),
+                              ],
+                            )
+                          : const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(FluentIcons.delete, size: 14),
+                                SizedBox(width: AppSpacing.sm),
+                                Text('Delete account'),
+                              ],
+                            ),
                     ),
                   ],
                 ),
@@ -487,6 +603,170 @@ class _PasswordRequirement extends StatelessWidget {
             color: color,
             fontWeight: met ? FontWeight.w500 : FontWeight.normal,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Returns the typed password when the user confirms deletion; otherwise null.
+class _DeleteAccountConfirm {
+  const _DeleteAccountConfirm._();
+
+  static Future<String?> show(BuildContext context) {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0xCC000000),
+      builder: (ctx) => const Center(child: _DeleteAccountDialog()),
+    );
+  }
+}
+
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog();
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  static const _erasureBullets = [
+    'Profile and sign-in account',
+    'Practice sessions and feedback',
+    'Leaderboard XP and quest / achievement progress',
+    'Public profile, cosmetics, and profile visits',
+    'Profile photo in cloud storage',
+  ];
+
+  final _passwordController = TextEditingController();
+  bool _obscured = true;
+  bool _confirmed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  bool get _canSubmit =>
+      _passwordController.text.isNotEmpty && _confirmed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ElixDialog(
+      title: 'Delete account permanently?',
+      subtitle: 'This cannot be undone',
+      icon: FluentIcons.delete,
+      iconColor: AppColors.error,
+      headerAccentColor: AppColors.error,
+      maxWidth: 480,
+      maxHeight: 560,
+      scrollableContent: true,
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'The following will be permanently erased:',
+            style: AppTheme.body.copyWith(
+              fontSize: 14,
+              color: context.elixTextSecondary,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final bullet in _erasureBullets)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '•  ',
+                    style: AppTheme.body.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      bullet,
+                      style: AppTheme.body.copyWith(
+                        fontSize: 13,
+                        color: context.elixTextSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Current password',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: 6),
+          TextBox(
+            controller: _passwordController,
+            obscureText: _obscured,
+            autofocus: true,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 11,
+            ),
+            suffix: IconButton(
+              icon: Icon(
+                _obscured ? FluentIcons.view : FluentIcons.hide,
+                size: 15,
+                color: context.elixTextSecondary,
+              ),
+              onPressed: () => setState(() => _obscured = !_obscured),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Checkbox(
+                checked: _confirmed,
+                onChanged: (value) =>
+                    setState(() => _confirmed = value == true),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _confirmed = !_confirmed),
+                  child: Text(
+                    'I understand this permanently deletes my account and data',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElixPrimaryButton(
+          label: 'Delete account',
+          expanded: false,
+          onPressed: _canSubmit
+              ? () => Navigator.of(context).pop(_passwordController.text)
+              : null,
         ),
       ],
     );
