@@ -22,6 +22,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/daily_quest_boards/$(boardId);
     }
 
+    // Canonical board id shape used by create + account-erasure enumeration:
+    // <authUid>_<yyyyMMdd>. Used to authorize idempotent deletes of missing
+    // deterministic board IDs without opening arbitrary missing-doc deletes.
+    function isCanonicalOwnDailyQuestBoardId(boardId) {
+      return isSignedIn()
+        && boardId.matches('^' + request.auth.uid + '_[0-9]{8}$');
+    }
+
     function claimPath(claimId) {
       return /databases/$(database)/documents/daily_quest_claims/$(claimId);
     }
@@ -656,7 +664,11 @@ service cloud.firestore {
 
       allow update: if false; // fully immutable after creation
       // Self-erasure only; list stays false (boards purged by deterministic id).
-      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      // Missing docs: allow no-op delete only for the caller's canonical board
+      // id (<uid>_<yyyyMMdd>). Existing docs still require resource.user_id.
+      // resource == null is checked before resource.data (short-circuit safe).
+      allow delete: if isCanonicalOwnDailyQuestBoardId(boardId)
+        && (resource == null || resource.data.user_id == request.auth.uid);
     }
 
     // Idempotent, replay-proof quest-claim marker. Fully immutable after

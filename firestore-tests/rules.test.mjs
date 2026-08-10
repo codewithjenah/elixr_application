@@ -1466,15 +1466,69 @@ describe('account self-erasure deletes', () => {
     await assertSucceeds(deleteDoc(doc(alice, 'leaderboard_processed_sessions', 's1')));
   });
 
-  test('owner can delete own daily_quest_board by id; list remains denied', async () => {
+  test('owner can delete an existing own daily_quest_board', async () => {
     const { id, data } = boardData('alice');
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'daily_quest_boards', id), data);
     });
 
     const alice = aliceDb();
-    await assertFails(getDocs(query(collection(alice, 'daily_quest_boards'), where('user_id', '==', 'alice'))));
     await assertSucceeds(deleteDoc(doc(alice, 'daily_quest_boards', id)));
+  });
+
+  test('owner can delete a nonexistent canonical own daily_quest_board (idempotent purge)', async () => {
+    // Account erasure enumerates deterministic board IDs from created_at→today.
+    // Many of those docs never existed; delete must still succeed as a no-op.
+    const missingOwnBoardId = 'alice_20240102';
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'daily_quest_boards', missingOwnBoardId)));
+  });
+
+  test('alice cannot delete a nonexistent canonical board belonging to bob', async () => {
+    const missingBobBoardId = 'bob_20240102';
+    const alice = aliceDb();
+    await assertFails(deleteDoc(doc(alice, 'daily_quest_boards', missingBobBoardId)));
+  });
+
+  test('alice cannot delete bob existing daily_quest_board', async () => {
+    const { id, data } = boardData('bob');
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', id), data);
+    });
+
+    const alice = aliceDb();
+    await assertFails(deleteDoc(doc(alice, 'daily_quest_boards', id)));
+  });
+
+  test('daily_quest_boards list/query remains denied during account erasure coverage', async () => {
+    const { id, data } = boardData('alice');
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', id), data);
+    });
+
+    const alice = aliceDb();
+    await assertFails(
+      getDocs(query(collection(alice, 'daily_quest_boards'), where('user_id', '==', 'alice'))),
+    );
+  });
+
+  test('owner can idempotently delete already-missing own cosmetics/leaderboard/public/users docs', async () => {
+    // Path-owned deletes must tolerate retry after a partial purge.
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'user_cosmetics', 'alice')));
+    await assertSucceeds(deleteDoc(doc(alice, 'leaderboard', 'alice')));
+    await assertSucceeds(deleteDoc(doc(alice, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertSucceeds(deleteDoc(doc(alice, 'public_profiles', 'alice')));
+    await assertSucceeds(deleteDoc(doc(alice, 'users', 'alice')));
+  });
+
+  test('alice cannot delete bob missing cosmetics/leaderboard/public/users docs', async () => {
+    const alice = aliceDb();
+    await assertFails(deleteDoc(doc(alice, 'user_cosmetics', 'bob')));
+    await assertFails(deleteDoc(doc(alice, 'leaderboard', 'bob')));
+    await assertFails(deleteDoc(doc(alice, 'public_profiles', 'bob', 'details', 'summary')));
+    await assertFails(deleteDoc(doc(alice, 'public_profiles', 'bob')));
+    await assertFails(deleteDoc(doc(alice, 'users', 'bob')));
   });
 
   test('owner can delete own daily_quest_claim; other user cannot', async () => {

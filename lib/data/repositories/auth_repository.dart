@@ -171,6 +171,39 @@ Future<void> deleteProfileStorageObjects({
   }
 }
 
+/// User-facing message when Firestore/Storage purge fails before Auth delete.
+const accountErasurePurgeFailedMessage =
+    "We couldn't finish deleting all of your account data, so your sign-in "
+    'account was not removed. Please try again.';
+
+/// Thrown from a purge stage so debug logs can identify where erasure failed.
+@visibleForTesting
+class AccountPurgeStageException implements Exception {
+  AccountPurgeStageException({required this.stage, required this.cause});
+
+  final String stage;
+  final Object cause;
+
+  @override
+  String toString() => 'AccountPurgeStageException($stage): $cause';
+}
+
+String _describeAccountPurgeError(Object error) {
+  if (error is FirebaseException) {
+    return 'plugin=${error.plugin} code=${error.code} '
+        'message=${error.message ?? '(none)'}';
+  }
+  if (error is AccountPurgeStageException) {
+    return 'stage=${error.stage}; ${_describeAccountPurgeError(error.cause)}';
+  }
+  return error.toString();
+}
+
+void _logAccountPurgeFailure(Object error) {
+  if (!kDebugMode) return;
+  debugPrint('Account erasure purge failed: ${_describeAccountPurgeError(error)}');
+}
+
 /// Purges account data then deletes Auth. Auth deletion runs only after a
 /// successful purge.
 @visibleForTesting
@@ -181,10 +214,8 @@ Future<void> finishAccountDeletionAfterPurge({
   try {
     await purgeUserData();
   } catch (e) {
-    throw Exception(
-      'Could not delete all account data. Your account was not removed. '
-      'Please try again. (${e.toString().replaceFirst('Exception: ', '')})',
-    );
+    _logAccountPurgeFailure(e);
+    throw Exception(accountErasurePurgeFailedMessage);
   }
   await deleteAuthUser();
 }
@@ -682,97 +713,147 @@ class AuthRepository implements AuthRepositoryBase {
   }
 
   Future<void> _purgeUserData(String uid) async {
-    final sessionSnap = await _firestore
-        .collection(FirestoreCollections.sessions)
-        .where('user_id', isEqualTo: uid)
-        .get();
+    final sessionSnap = await _runPurgeStage('sessions query', () {
+      return _firestore
+          .collection(FirestoreCollections.sessions)
+          .where('user_id', isEqualTo: uid)
+          .get();
+    });
     final sessionIds = sessionSnap.docs.map((d) => d.id).toList();
 
     // Feedbacks must be deleted while parent sessions still exist (rules get()).
-    final feedbackRefs = <DocumentReference>[];
-    for (var i = 0; i < sessionIds.length; i += _whereInLimit) {
-      final chunk = sessionIds.sublist(
-        i,
-        math.min(i + _whereInLimit, sessionIds.length),
-      );
-      final feedbackSnap = await _firestore
-          .collection(FirestoreCollections.feedbacks)
-          .where('session_id', whereIn: chunk)
+    await _runPurgeStage('feedback purge', () async {
+      final feedbackRefs = <DocumentReference>[];
+      for (var i = 0; i < sessionIds.length; i += _whereInLimit) {
+        final chunk = sessionIds.sublist(
+          i,
+          math.min(i + _whereInLimit, sessionIds.length),
+        );
+        final feedbackSnap = await _firestore
+            .collection(FirestoreCollections.feedbacks)
+            .where('session_id', whereIn: chunk)
+            .get();
+        feedbackRefs.addAll(feedbackSnap.docs.map((d) => d.reference));
+      }
+      await _commitDeletes(feedbackRefs);
+    });
+
+    await _runPurgeStage('sessions purge', () {
+      return _commitDeletes(sessionSnap.docs.map((d) => d.reference).toList());
+    });
+
+    await _runPurgeStage('leaderboard marker purge', () async {
+      final markerSnap = await _firestore
+          .collection(FirestoreCollections.leaderboardProcessedSessions)
+          .where('user_id', isEqualTo: uid)
           .get();
-      feedbackRefs.addAll(feedbackSnap.docs.map((d) => d.reference));
+      await _commitDeletes(markerSnap.docs.map((d) => d.reference).toList());
+    });
+
+    final profile = await _runPurgeStage('daily quest board purge', () async {
+      final loaded = await _db.getUserById(uid);
+      final createdAt =
+          DateTime.tryParse(loaded?.createdAt ?? '')?.toUtc() ??
+          ManilaDay.boardEnumerationFallbackStartUtc;
+      final boardIds = ManilaDay.enumerateDailyQuestBoardIds(
+        userId: uid,
+        createdAtUtc: createdAt,
+        nowUtc: DateTime.now().toUtc(),
+      );
+      await _commitDeletes([
+        for (final id in boardIds)
+          _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(id),
+      ]);
+      return loaded;
+    });
+
+    await _runPurgeStage('daily quest claim purge', () async {
+      final claimSnap = await _firestore
+          .collection(FirestoreCollections.dailyQuestClaims)
+          .where('user_id', isEqualTo: uid)
+          .get();
+      await _commitDeletes(claimSnap.docs.map((d) => d.reference).toList());
+    });
+
+    await _runPurgeStage('achievement claim purge', () async {
+      final achievementSnap = await _firestore
+          .collection(FirestoreCollections.achievementClaims)
+          .where('user_id', isEqualTo: uid)
+          .get();
+      await _commitDeletes(
+        achievementSnap.docs.map((d) => d.reference).toList(),
+      );
+    });
+
+    await _runPurgeStage('cosmetics/leaderboard purge', () {
+      return _commitDeletes([
+        _firestore.collection(FirestoreCollections.userCosmetics).doc(uid),
+        _firestore.collection(FirestoreCollections.leaderboard).doc(uid),
+      ]);
+    });
+
+    await _runPurgeStage('public profile purge', () async {
+      final publicRoot = _firestore
+          .collection(FirestoreCollections.publicProfiles)
+          .doc(uid);
+      final publicSessions = await publicRoot.collection('sessions').get();
+      final publicAchievements = await publicRoot
+          .collection('achievements')
+          .get();
+      await _commitDeletes([
+        ...publicSessions.docs.map((d) => d.reference),
+        ...publicAchievements.docs.map((d) => d.reference),
+        publicRoot.collection('details').doc('summary'),
+        publicRoot,
+      ]);
+    });
+
+    await _runPurgeStage('inbound visits purge', () async {
+      final inboundVisits = await _firestore
+          .collection(FirestoreCollections.profileVisits)
+          .doc(uid)
+          .collection('visitors')
+          .get();
+      await _commitDeletes(inboundVisits.docs.map((d) => d.reference).toList());
+    });
+
+    await _runPurgeStage('outbound visits purge', () async {
+      final outboundVisits = await _firestore
+          .collectionGroup('visitors')
+          .where('viewer_id', isEqualTo: uid)
+          .get();
+      await _commitDeletes(
+        outboundVisits.docs.map((d) => d.reference).toList(),
+      );
+    });
+
+    await _runPurgeStage('users document purge', () {
+      return _commitDeletes([
+        _firestore.collection(FirestoreCollections.users).doc(uid),
+      ]);
+    });
+
+    await _runPurgeStage('profile Storage purge', () {
+      return _deleteProfileStorage(uid, profile?.profilePictureStoragePath);
+    });
+  }
+
+  Future<T> _runPurgeStage<T>(
+    String stage,
+    Future<T> Function() action,
+  ) async {
+    try {
+      return await action();
+    } catch (e, st) {
+      final wrapped = AccountPurgeStageException(stage: stage, cause: e);
+      if (kDebugMode) {
+        debugPrint(
+          'Account erasure failed at stage "$stage": '
+          '${_describeAccountPurgeError(e)}',
+        );
+      }
+      Error.throwWithStackTrace(wrapped, st);
     }
-    await _commitDeletes(feedbackRefs);
-    await _commitDeletes(sessionSnap.docs.map((d) => d.reference).toList());
-
-    final markerSnap = await _firestore
-        .collection(FirestoreCollections.leaderboardProcessedSessions)
-        .where('user_id', isEqualTo: uid)
-        .get();
-    await _commitDeletes(markerSnap.docs.map((d) => d.reference).toList());
-
-    final profile = await _db.getUserById(uid);
-    final createdAt =
-        DateTime.tryParse(profile?.createdAt ?? '')?.toUtc() ??
-        ManilaDay.boardEnumerationFallbackStartUtc;
-    final boardIds = ManilaDay.enumerateDailyQuestBoardIds(
-      userId: uid,
-      createdAtUtc: createdAt,
-      nowUtc: DateTime.now().toUtc(),
-    );
-    await _commitDeletes([
-      for (final id in boardIds)
-        _firestore.collection(FirestoreCollections.dailyQuestBoards).doc(id),
-    ]);
-
-    final claimSnap = await _firestore
-        .collection(FirestoreCollections.dailyQuestClaims)
-        .where('user_id', isEqualTo: uid)
-        .get();
-    await _commitDeletes(claimSnap.docs.map((d) => d.reference).toList());
-
-    final achievementSnap = await _firestore
-        .collection(FirestoreCollections.achievementClaims)
-        .where('user_id', isEqualTo: uid)
-        .get();
-    await _commitDeletes(achievementSnap.docs.map((d) => d.reference).toList());
-
-    await _commitDeletes([
-      _firestore.collection(FirestoreCollections.userCosmetics).doc(uid),
-      _firestore.collection(FirestoreCollections.leaderboard).doc(uid),
-    ]);
-
-    final publicRoot = _firestore
-        .collection(FirestoreCollections.publicProfiles)
-        .doc(uid);
-    final publicSessions = await publicRoot.collection('sessions').get();
-    final publicAchievements = await publicRoot
-        .collection('achievements')
-        .get();
-    await _commitDeletes([
-      ...publicSessions.docs.map((d) => d.reference),
-      ...publicAchievements.docs.map((d) => d.reference),
-      publicRoot.collection('details').doc('summary'),
-      publicRoot,
-    ]);
-
-    final inboundVisits = await _firestore
-        .collection(FirestoreCollections.profileVisits)
-        .doc(uid)
-        .collection('visitors')
-        .get();
-    await _commitDeletes(inboundVisits.docs.map((d) => d.reference).toList());
-
-    final outboundVisits = await _firestore
-        .collectionGroup('visitors')
-        .where('viewer_id', isEqualTo: uid)
-        .get();
-    await _commitDeletes(outboundVisits.docs.map((d) => d.reference).toList());
-
-    await _commitDeletes([
-      _firestore.collection(FirestoreCollections.users).doc(uid),
-    ]);
-
-    await _deleteProfileStorage(uid, profile?.profilePictureStoragePath);
   }
 
   Future<void> _deleteProfileStorage(String uid, String? storagePath) {

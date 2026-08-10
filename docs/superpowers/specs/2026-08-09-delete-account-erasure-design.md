@@ -103,7 +103,7 @@ All Firestore deletes use chunked `WriteBatch` commits (max **500** operations p
    - `boardId = uid + '_' + manilaDayKey` for each Manila calendar day from the user’s `created_at` (inclusive) through today (inclusive).
    - Reuse the same Asia/Manila day-key idea as rules (`yyyyMMdd`, UTC+8).
    - If `created_at` is missing/unparseable, fall back to enumerating from **2024-01-01** Asia/Manila through today (bounded, complete enough for this product’s lifetime without enabling `list`).
-   - Deleting a non-existent board ID is fine (idempotent).
+   - Deleting a non-existent board ID is an intentional no-op for retry/idempotency, but it is **not** automatically authorized. Rules require the board document ID to match the authenticated user’s canonical shape `<authUid>_<yyyyMMdd>` (exactly 8 trailing digits). When the document is missing (`resource == null`), that canonical-ID check alone permits the no-op delete; when the document exists, `resource.data.user_id == request.auth.uid` is still required. Arbitrary missing-document deletes are denied.
    - **Do not** change `allow list: if false` on boards.
 6. **Delete `daily_quest_claims`** where `user_id == uid`.
 7. **Delete `achievement_claims`** where `user_id == uid`.
@@ -124,9 +124,12 @@ All Firestore deletes use chunked `WriteBatch` commits (max **500** operations p
 
 ### Idempotent retry
 
-- Firestore deletes of already-missing docs are safe.
+- Firestore deletes of already-missing **path-owned** docs (`users/{uid}`, `leaderboard/{uid}`, `user_cosmetics/{uid}`, `public_profiles/{uid}` and owned subdocs) are safe because ownership is authorized from the path (`isOwner`), not `resource.data`.
+- Firestore deletes of already-missing **`daily_quest_boards/{boardId}`** docs are safe **only** when `boardId` is the caller’s canonical `<uid>_<yyyyMMdd>` ID (see rules helper `isCanonicalOwnDailyQuestBoardId`). A missing board belonging to another user remains denied.
+- Query-driven deletes (sessions, feedbacks, claims, markers, visits) only target documents that currently exist in query results, so a retry simply sees fewer rows.
 - Storage missing objects are already ignored by `ProfileImageRepository`.
 - Auth delete runs only after a successful purge; a mid-purge failure leaves the user signed in so they can retry.
+- Mid-purge failures surface a clean user-facing erasure message; debug builds log the failing purge stage plus Firebase plugin/code/message without putting those internals in the dialog.
 
 ---
 
@@ -139,7 +142,7 @@ Narrow self-erasure only. Create/update invariants for awards, claims, boards, a
 | `feedbacks/{id}` | Add `allow delete` when signed-in and `get(sessions/{resource.data.session_id}).data.user_id == auth.uid` (mirror read ownership). |
 | `leaderboard/{userId}` | `allow delete: if isOwner(userId)` (was `false`). |
 | `leaderboard_processed_sessions/{sessionId}` | `allow delete` when `resource.data.user_id == auth.uid` (update stays `false`). |
-| `daily_quest_boards/{boardId}` | `allow delete` when `resource.data.user_id == auth.uid`; **`list` remains `false`**. |
+| `daily_quest_boards/{boardId}` | `allow delete` when `isCanonicalOwnDailyQuestBoardId(boardId)` and (`resource == null` **or** `resource.data.user_id == auth.uid`); **`list` remains `false`**. Canonical ID = `<authUid>_<yyyyMMdd>`. |
 | `daily_quest_claims/{claimId}` | `allow delete` when `resource.data.user_id == auth.uid`. |
 | `achievement_claims/{claimId}` | `allow delete` when `resource.data.user_id == auth.uid`. |
 | `user_cosmetics/{userId}` | `allow delete: if isOwner(userId)`. |
@@ -246,7 +249,7 @@ Append cases to the **single** existing rules suite (do not split per collection
 
 - Owner **can** delete own docs in formerly `delete: false` collections listed above.
 - Other users **cannot** delete those docs.
-- `daily_quest_boards`: owner delete allowed; **list still denied**.
+- `daily_quest_boards`: owner can delete an **existing** own board; owner can delete a **nonexistent** canonical own board (idempotent purge); other users cannot delete existing or nonexistent boards belonging to someone else; **list still denied**.
 - `feedbacks`: owner (via live session) can delete; delete denied for non-owner.
 - `profile_visits` visitors: viewer can **list/query** and **delete** own outbound rows; non-viewer non-owner denied.
 

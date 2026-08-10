@@ -95,12 +95,44 @@ void main() {
           isA<Exception>().having(
             (e) => e.toString(),
             'message',
-            contains('Could not delete all account data'),
+            equals('Exception: $accountErasurePurgeFailedMessage'),
           ),
         ),
       );
 
       expect(authDeleteCalls, 0);
+    },
+  );
+
+  test(
+    'purge failure message does not embed raw Firebase plugin details',
+    () async {
+      await expectLater(
+        () => finishAccountDeletionAfterPurge(
+          purgeUserData: () async {
+            throw AccountPurgeStageException(
+              stage: 'daily quest board purge',
+              cause: FirebaseException(
+                plugin: 'cloud_firestore',
+                code: 'permission-denied',
+                message: 'Missing or insufficient permissions',
+              ),
+            );
+          },
+          deleteAuthUser: () async {},
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (e) => e.toString(),
+            'message',
+            allOf(
+              equals('Exception: $accountErasurePurgeFailedMessage'),
+              isNot(contains('permission-denied')),
+              isNot(contains('cloud_firestore')),
+            ),
+          ),
+        ),
+      );
     },
   );
 }

@@ -7,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_primary_button.dart';
+import '../../../data/repositories/auth_repository.dart';
 import '../../../services/auth_service.dart';
 import '../widgets/settings_components.dart';
 
@@ -128,12 +129,33 @@ class SecuritySectionState extends State<SecuritySection> {
       if (mounted) {
         await ElixDialog.error(
           context,
-          e.toString().replaceFirst('Exception: ', ''),
+          _messageForDeleteAccountFailure(e),
         );
       }
     } finally {
       if (mounted) setState(() => _deletingAccount = false);
     }
+  }
+
+  /// Maps delete-account failures for the dialog.
+  ///
+  /// Auth/re-auth messages stay specific. Raw Firebase plugin errors are
+  /// replaced with a clean erasure failure message.
+  static String _messageForDeleteAccountFailure(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (_looksLikeRawFirebaseError(message)) {
+      return accountErasurePurgeFailedMessage;
+    }
+    return message;
+  }
+
+  static bool _looksLikeRawFirebaseError(String message) {
+    return message.contains('[cloud_firestore/') ||
+        message.contains('[firebase_storage/') ||
+        message.contains('cloud_firestore/') ||
+        message.contains('firebase_storage/') ||
+        (message.contains('permission-denied') &&
+            (message.contains('firestore') || message.contains('storage')));
   }
 
   @override
