@@ -65,16 +65,44 @@ void main() {
     test('single-digit month and day are zero-padded', () {
       final nowUtc = DateTime.utc(2026, 1, 5, 1, 0);
       expect(ManilaDay.dayKeyFor(nowUtc), '20260105');
+      expect(ManilaDay.monthKeyFor(nowUtc), '202601');
     });
 
-    test('enumerateDailyQuestBoardIds includes endpoints for a short range', () {
-      final ids = ManilaDay.enumerateDailyQuestBoardIds(
-        userId: 'alice',
-        createdAtUtc: DateTime.utc(2026, 1, 1, 0),
-        nowUtc: DateTime.utc(2026, 1, 2, 0),
+    test('month key rolls over at the Manila month boundary', () {
+      expect(
+        ManilaDay.monthKeyFor(DateTime.utc(2026, 7, 31, 15, 59, 59)),
+        '202607',
       );
-      expect(ids, ['alice_20260101', 'alice_20260102']);
+      expect(ManilaDay.monthKeyFor(DateTime.utc(2026, 7, 31, 16)), '202608');
     });
+
+    test('month key rolls over across the Manila year boundary', () {
+      expect(
+        ManilaDay.monthKeyFor(DateTime.utc(2026, 12, 31, 15, 59, 59)),
+        '202612',
+      );
+      expect(ManilaDay.monthKeyFor(DateTime.utc(2026, 12, 31, 16)), '202701');
+    });
+
+    test('monthKeyFromDayKey validates and derives the board month', () {
+      expect(ManilaDay.monthKeyFromDayKey('20260804'), '202608');
+      expect(
+        () => ManilaDay.monthKeyFromDayKey('20260230'),
+        throwsFormatException,
+      );
+    });
+
+    test(
+      'enumerateDailyQuestBoardIds includes endpoints for a short range',
+      () {
+        final ids = ManilaDay.enumerateDailyQuestBoardIds(
+          userId: 'alice',
+          createdAtUtc: DateTime.utc(2026, 1, 1, 0),
+          nowUtc: DateTime.utc(2026, 1, 2, 0),
+        );
+        expect(ids, ['alice_20260101', 'alice_20260102']);
+      },
+    );
 
     test('boardEnumerationFallbackStartUtc is 2024-01-01 Manila', () {
       expect(

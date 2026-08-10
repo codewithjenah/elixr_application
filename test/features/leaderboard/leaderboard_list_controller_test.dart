@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:elixr_application/data/models/leaderboard_award_plan.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_list_controller.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_presentation.dart';
@@ -37,11 +38,47 @@ class FakePages {
   final List<LeaderboardPage> pages;
   int calls = 0;
   int? failOnCall;
+  int? expireCursorOnCall;
   final pendingGates = <int, Completer<void>>{};
 
   Future<LeaderboardPage> fetch({LeaderboardPageCursor? startAfter}) async {
     final call = calls++;
     if (failOnCall == call) throw Exception('network');
+    if (expireCursorOnCall == call) {
+      throw const LeaderboardPageCursorExpiredException(
+        cursorPeriod: LeaderboardPeriod.today,
+        cursorPeriodKey: '20260810',
+        requestedPeriod: LeaderboardPeriod.today,
+        requestedPeriodKey: '20260811',
+      );
+    }
+    final gate = pendingGates[call];
+    if (gate != null) await gate.future;
+    if (call >= pages.length) {
+      return const LeaderboardPage(
+        entries: [],
+        nextCursor: null,
+        hasMore: false,
+      );
+    }
+    return pages[call];
+  }
+}
+
+class FakePeriodPages {
+  FakePeriodPages(this.pages);
+
+  final List<LeaderboardPage> pages;
+  final calls =
+      <({LeaderboardPeriod period, LeaderboardPageCursor? startAfter})>[];
+  final pendingGates = <int, Completer<void>>{};
+
+  Future<LeaderboardPage> fetch({
+    required LeaderboardPeriod period,
+    LeaderboardPageCursor? startAfter,
+  }) async {
+    final call = calls.length;
+    calls.add((period: period, startAfter: startAfter));
     final gate = pendingGates[call];
     if (gate != null) await gate.future;
     if (call >= pages.length) {
@@ -183,6 +220,34 @@ void main() {
       expect(controller.initialError, isNull);
     });
 
+    test('expired loadMore cursor resets rows and reloads page 1', () async {
+      final cursor = FakeLeaderboardPageCursor(
+        'today-page-1',
+        period: LeaderboardPeriod.today,
+        periodKey: '20260810',
+      );
+      fake = FakePages([
+        page([e('old-period', 100)], hasMore: true, cursor: cursor),
+        page([e('unused', 90)]),
+        page([e('fresh-period', 80)]),
+      ])..expireCursorOnCall = 1;
+      controller = LeaderboardListController(
+        fetchPage: fake.fetch,
+        initialPeriod: LeaderboardPeriod.today,
+      );
+
+      await controller.loadInitial();
+      await controller.loadMore();
+
+      expect(fake.calls, 3);
+      expect(controller.entries.map((entry) => entry.userId), ['fresh-period']);
+      expect(controller.hasMore, isFalse);
+      expect(controller.isInitialLoading, isFalse);
+      expect(controller.isLoadingMore, isFalse);
+      expect(controller.initialError, isNull);
+      expect(controller.loadMoreError, isNull);
+    });
+
     test(
       'refresh keeps existing entries visible; stale loadMore result ignored',
       () async {
@@ -190,7 +255,12 @@ void main() {
         fake = FakePages([
           page([e('a', 100)], hasMore: true, cursor: cursor),
           page([e('stale', 1)]),
-          page([e('fresh', 200)]),
+          page(
+            [e('fresh', 200)],
+            hasMore: true,
+            cursor: FakeLeaderboardPageCursor('fresh-page-1'),
+          ),
+          page([e('next', 150)]),
         ]);
         controller = LeaderboardListController(fetchPage: fake.fetch);
         await controller.loadInitial();
@@ -204,6 +274,7 @@ void main() {
         final refreshFuture = controller.refresh();
         expect(controller.entries.map((entry) => entry.userId), ['a']);
         expect(controller.isInitialLoading, isFalse);
+        expect(controller.isLoadingMore, isFalse);
 
         gate.complete();
         await loadMoreFuture;
@@ -215,6 +286,13 @@ void main() {
         expect(controller.entries.map((entry) => entry.userId), ['fresh']);
         expect(controller.isInitialLoading, isFalse);
         expect(fake.calls, 3);
+
+        await controller.loadMore();
+        expect(controller.entries.map((entry) => entry.userId), [
+          'fresh',
+          'next',
+        ]);
+        expect(fake.calls, 4);
       },
     );
 
@@ -323,6 +401,51 @@ void main() {
 
         expect(syncCalls, 2);
         expect(fake.calls, 2);
+      },
+    );
+
+    test(
+      'manual refresh rearms one post-sync reload for a forced sync',
+      () async {
+        fake = FakePages([
+          page([e('a', 100)]),
+          page([e('a', 150)]),
+          page([e('a', 150)]),
+          page([e('a', 200)]),
+        ]);
+        controller = LeaderboardListController(fetchPage: fake.fetch);
+
+        await controller.loadInitial();
+        await controller.startBackgroundSync(
+          userId: 'me',
+          syncUser: () async => const LeaderboardSyncResult(
+            totalSessionsChecked: 1,
+            alreadyProcessed: 0,
+            newlyProcessed: 1,
+            failures: 0,
+          ),
+        );
+        await pumpEventQueue();
+        expect(fake.calls, 2);
+        expect(controller.entries.single.totalXp, 150);
+
+        await controller.refresh();
+        expect(fake.calls, 3);
+
+        await controller.startBackgroundSync(
+          userId: 'me',
+          force: true,
+          syncUser: () async => const LeaderboardSyncResult(
+            totalSessionsChecked: 2,
+            alreadyProcessed: 1,
+            newlyProcessed: 1,
+            failures: 0,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(fake.calls, 4);
+        expect(controller.entries.single.totalXp, 200);
       },
     );
 
@@ -570,6 +693,108 @@ void main() {
       expect(controller.entries.map((entry) => entry.userId), ['b']);
       expect(controller.loadMoreError, isNull);
       expect(controller.initialError, isNull);
+    });
+
+    test(
+      'defaults to all time and switches the persistent controller',
+      () async {
+        final periodFake = FakePeriodPages([
+          page([e('all-time', 300)]),
+          page([e('today', 25)]),
+        ]);
+        controller = LeaderboardListController(
+          fetchPageForPeriod: periodFake.fetch,
+        );
+
+        expect(controller.period, LeaderboardPeriod.allTime);
+        await controller.loadInitial();
+        expect(controller.entries.single.userId, 'all-time');
+
+        final switching = controller.setPeriod(LeaderboardPeriod.today);
+        expect(controller.period, LeaderboardPeriod.today);
+        expect(controller.entries, isEmpty);
+        expect(controller.isInitialLoading, isTrue);
+        await switching;
+
+        expect(controller.entries.single.userId, 'today');
+        expect(periodFake.calls.map((call) => call.period), [
+          LeaderboardPeriod.allTime,
+          LeaderboardPeriod.today,
+        ]);
+      },
+    );
+
+    test(
+      'stale page from previous period cannot overwrite current rows',
+      () async {
+        final periodFake = FakePeriodPages([
+          page([e('stale-all-time', 999)]),
+          page([e('fresh-month', 50)]),
+        ]);
+        final staleGate = Completer<void>();
+        periodFake.pendingGates[0] = staleGate;
+        controller = LeaderboardListController(
+          fetchPageForPeriod: periodFake.fetch,
+        );
+
+        final staleLoad = controller.loadInitial();
+        await pumpEventQueue();
+        await controller.setPeriod(LeaderboardPeriod.thisMonth);
+
+        expect(controller.period, LeaderboardPeriod.thisMonth);
+        expect(controller.entries.single.userId, 'fresh-month');
+        staleGate.complete();
+        await staleLoad;
+
+        expect(controller.entries.single.userId, 'fresh-month');
+        expect(controller.initialError, isNull);
+        expect(controller.isInitialLoading, isFalse);
+      },
+    );
+
+    test(
+      'period switch resets pagination and uses only the new cursor',
+      () async {
+        final allTimeCursor = FakeLeaderboardPageCursor('all-time-page-1');
+        final todayCursor = FakeLeaderboardPageCursor('today-page-1');
+        final periodFake = FakePeriodPages([
+          page([e('all-time', 300)], hasMore: true, cursor: allTimeCursor),
+          page([e('today-1', 50)], hasMore: true, cursor: todayCursor),
+          page([e('today-2', 25)]),
+        ]);
+        controller = LeaderboardListController(
+          fetchPageForPeriod: periodFake.fetch,
+        );
+
+        await controller.loadInitial();
+        await controller.setPeriod(LeaderboardPeriod.today);
+        await controller.loadMore();
+
+        expect(periodFake.calls[1].period, LeaderboardPeriod.today);
+        expect(periodFake.calls[1].startAfter, isNull);
+        expect(periodFake.calls[2].period, LeaderboardPeriod.today);
+        expect(periodFake.calls[2].startAfter, same(todayCursor));
+        expect(periodFake.calls[2].startAfter, isNot(same(allTimeCursor)));
+        expect(controller.entries.map((entry) => entry.userId), [
+          'today-1',
+          'today-2',
+        ]);
+      },
+    );
+
+    test('selecting the active period is a no-op', () async {
+      final periodFake = FakePeriodPages([
+        page([e('all-time', 300)]),
+      ]);
+      controller = LeaderboardListController(
+        fetchPageForPeriod: periodFake.fetch,
+      );
+
+      await controller.loadInitial();
+      await controller.setPeriod(LeaderboardPeriod.allTime);
+
+      expect(periodFake.calls, hasLength(1));
+      expect(controller.entries.single.userId, 'all-time');
     });
   });
 }

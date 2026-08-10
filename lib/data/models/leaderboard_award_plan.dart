@@ -1,4 +1,6 @@
 import '../../core/constants/gamification_rules.dart';
+import 'leaderboard_period.dart';
+import 'leaderboard_period_aggregate.dart';
 
 /// Pure computation for a leaderboard XP award. No Firestore I/O.
 class LeaderboardAwardPlan {
@@ -10,6 +12,8 @@ class LeaderboardAwardPlan {
     required this.scoreSum,
     required this.averageScore,
     required this.bestScore,
+    required this.daily,
+    required this.monthly,
   });
 
   const LeaderboardAwardPlan.alreadyProcessed()
@@ -19,7 +23,25 @@ class LeaderboardAwardPlan {
       sessionsCompleted = 0,
       scoreSum = 0,
       averageScore = 0,
-      bestScore = 0;
+      bestScore = 0,
+      daily = const LeaderboardPeriodAggregate(
+        period: LeaderboardPeriod.today,
+        key: null,
+        xp: 0,
+        sessionsCompleted: 0,
+        scoreSum: 0,
+        averageScore: 0,
+        bestScore: 0,
+      ),
+      monthly = const LeaderboardPeriodAggregate(
+        period: LeaderboardPeriod.thisMonth,
+        key: null,
+        xp: 0,
+        sessionsCompleted: 0,
+        scoreSum: 0,
+        averageScore: 0,
+        bestScore: 0,
+      );
 
   final bool alreadyProcessed;
   final int totalXp;
@@ -31,6 +53,13 @@ class LeaderboardAwardPlan {
   final double scoreSum;
   final double averageScore;
   final int bestScore;
+  final LeaderboardPeriodAggregate daily;
+  final LeaderboardPeriodAggregate monthly;
+
+  Map<String, dynamic> get periodFields => {
+    ...daily.toFirestoreFields(),
+    ...monthly.toFirestoreFields(),
+  };
 
   /// Builds the next aggregate from an optional existing leaderboard map.
   /// [existing] uses snake_case Firestore field names when present.
@@ -38,6 +67,7 @@ class LeaderboardAwardPlan {
     required bool markerExists,
     required Map<String, dynamic>? existing,
     required int score,
+    required DateTime sessionCreatedAtUtc,
   }) {
     if (markerExists) {
       return const LeaderboardAwardPlan.alreadyProcessed();
@@ -53,6 +83,32 @@ class LeaderboardAwardPlan {
     final totalXp = prevXp + GamificationRules.xpPerSession;
     final scoreSum = prevSum + score;
     final bestScore = score > prevBest ? score : prevBest;
+    final eventDayKey = LeaderboardPeriod.today.keyFor(sessionCreatedAtUtc)!;
+    final eventMonthKey = LeaderboardPeriod.thisMonth.keyFor(
+      sessionCreatedAtUtc,
+    )!;
+    final daily =
+        LeaderboardPeriodAggregate.fromExisting(
+              period: LeaderboardPeriod.today,
+              existing: existing,
+            )
+            .applySession(
+              eventKey: eventDayKey,
+              xpAwarded: GamificationRules.xpPerSession,
+              score: score,
+            )
+            .aggregate;
+    final monthly =
+        LeaderboardPeriodAggregate.fromExisting(
+              period: LeaderboardPeriod.thisMonth,
+              existing: existing,
+            )
+            .applySession(
+              eventKey: eventMonthKey,
+              xpAwarded: GamificationRules.xpPerSession,
+              score: score,
+            )
+            .aggregate;
 
     return LeaderboardAwardPlan._(
       alreadyProcessed: false,
@@ -62,6 +118,8 @@ class LeaderboardAwardPlan {
       scoreSum: scoreSum,
       averageScore: scoreSum / sessionsCompleted,
       bestScore: bestScore,
+      daily: daily,
+      monthly: monthly,
     );
   }
 

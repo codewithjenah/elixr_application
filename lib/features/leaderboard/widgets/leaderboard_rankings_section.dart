@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/leaderboard_entry.dart';
+import '../../../data/models/leaderboard_period.dart';
 import '../leaderboard_presentation.dart';
 import 'leaderboard_rank_row.dart';
 
@@ -15,6 +16,7 @@ class LeaderboardRankingsSection extends StatelessWidget {
     required this.currentUserId,
     this.currentUserProfilePictureUrl,
     required this.footer,
+    this.period = LeaderboardPeriod.allTime,
     this.onTapPlayer,
   });
 
@@ -22,6 +24,7 @@ class LeaderboardRankingsSection extends StatelessWidget {
   final String? currentUserId;
   final String? currentUserProfilePictureUrl;
   final Widget footer;
+  final LeaderboardPeriod period;
   final void Function(LeaderboardEntry entry, int rank)? onTapPlayer;
 
   @override
@@ -35,16 +38,14 @@ class LeaderboardRankingsSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: panel,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.accent.withValues(
-            alpha: context.isDarkTheme ? 0.22 : 0.16,
-          ),
-        ),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.92)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(
+              alpha: context.isDarkTheme ? 0.12 : 0.05,
+            ),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -67,7 +68,17 @@ class LeaderboardRankingsSection extends StatelessWidget {
               ),
             ),
           ),
-          LeaderboardRankingsHeaderRow(),
+          Container(
+            color: context.elixCardSurface.withValues(
+              alpha: context.isDarkTheme ? 0.42 : 0.62,
+            ),
+            child: Column(
+              children: [
+                LeaderboardRankingsHeaderRow(period: period),
+                Container(height: 1, color: context.elixBorder),
+              ],
+            ),
+          ),
           for (var i = 0; i < rows.length; i++)
             LeaderboardRankRow(
               rank: rows[i].rank,
@@ -78,6 +89,7 @@ class LeaderboardRankingsSection extends StatelessWidget {
                 isCurrentUser: rows[i].entry.userId == currentUserId,
                 currentUserProfilePictureUrl: currentUserProfilePictureUrl,
               ),
+              period: period,
               showDivider: i > 0,
               onTap: onTapPlayer == null
                   ? null

@@ -4,6 +4,8 @@ import '../../core/utils/manila_day.dart';
 import '../database/firestore_helper.dart';
 import '../models/daily_quest.dart';
 import '../models/daily_quest_board.dart';
+import '../models/leaderboard_period.dart';
+import '../models/leaderboard_period_aggregate.dart';
 import '../models/quest_claim.dart';
 import '../models/session.dart';
 
@@ -152,6 +154,16 @@ class GamificationRepository {
         existing: leaderboardSnap.data(),
         xpAwarded: quest.xp,
       );
+      final eventDayKey = board.dayKey;
+      final eventMonthKey = ManilaDay.monthKeyFromDayKey(eventDayKey);
+      final daily = LeaderboardPeriodAggregate.fromExisting(
+        period: LeaderboardPeriod.today,
+        existing: leaderboardSnap.data(),
+      ).applyQuest(eventKey: eventDayKey, xpAwarded: quest.xp).aggregate;
+      final monthly = LeaderboardPeriodAggregate.fromExisting(
+        period: LeaderboardPeriod.thisMonth,
+        existing: leaderboardSnap.data(),
+      ).applyQuest(eventKey: eventMonthKey, xpAwarded: quest.xp).aggregate;
 
       final claim = QuestClaim(
         userId: userId,
@@ -169,6 +181,8 @@ class GamificationRepository {
         'quest_xp': plan.questXp,
         'total_xp': plan.totalXp,
         'last_claim_id': claimId,
+        ...daily.toFirestoreFields(),
+        ...monthly.toFirestoreFields(),
       }, SetOptions(merge: true));
 
       return QuestClaimResult.claimed(quest.xp);

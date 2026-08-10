@@ -2,18 +2,27 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/models/leaderboard_award_plan.dart';
 import '../../data/models/leaderboard_entry.dart';
+import '../../data/models/leaderboard_period.dart';
 import '../../data/repositories/leaderboard_repository.dart';
+
+typedef LeaderboardPageFetcher =
+    Future<LeaderboardPage> Function({LeaderboardPageCursor? startAfter});
+
+typedef LeaderboardPeriodPageFetcher =
+    Future<LeaderboardPage> Function({
+      required LeaderboardPeriod period,
+      LeaderboardPageCursor? startAfter,
+    });
 
 class LeaderboardListController extends ChangeNotifier {
   LeaderboardListController({
-    required Future<LeaderboardPage> Function({
-      LeaderboardPageCursor? startAfter,
-    })
-    fetchPage,
-  }) : _fetchPage = fetchPage;
+    LeaderboardPageFetcher? fetchPage,
+    LeaderboardPeriodPageFetcher? fetchPageForPeriod,
+    LeaderboardPeriod initialPeriod = LeaderboardPeriod.allTime,
+  }) : _fetchPage = _resolveFetcher(fetchPage, fetchPageForPeriod),
+       _period = initialPeriod;
 
-  final Future<LeaderboardPage> Function({LeaderboardPageCursor? startAfter})
-  _fetchPage;
+  final LeaderboardPeriodPageFetcher _fetchPage;
 
   List<LeaderboardEntry> entries = const [];
   bool isInitialLoading = false;
@@ -21,6 +30,9 @@ class LeaderboardListController extends ChangeNotifier {
   bool hasMore = false;
   Object? initialError;
   Object? loadMoreError;
+
+  LeaderboardPeriod _period;
+  LeaderboardPeriod get period => _period;
 
   LeaderboardPageCursor? _nextCursor;
   int _generation = 1;
@@ -32,9 +44,29 @@ class LeaderboardListController extends ChangeNotifier {
 
   Future<void> loadInitial() => _loadFirstPage();
 
+  /// Switches the single persistent list to [period] and starts a clean page-1
+  /// load. In-flight work from the previous period is invalidated before the
+  /// visible rows and pagination cursor are reset, so periods can never mix.
+  Future<void> setPeriod(LeaderboardPeriod period) {
+    if (_disposed || period == _period) return Future<void>.value();
+
+    _generation++;
+    _period = period;
+    entries = const [];
+    isInitialLoading = false;
+    isLoadingMore = false;
+    _nextCursor = null;
+    hasMore = false;
+    initialError = null;
+    loadMoreError = null;
+    _hasLoadedAdditionalPage = false;
+    return _loadFirstPage();
+  }
+
   Future<void> refresh() {
     _generation++;
     final preserveEntries = entries.isNotEmpty;
+    isLoadingMore = false;
     if (!preserveEntries) {
       entries = const [];
     }
@@ -43,6 +75,7 @@ class LeaderboardListController extends ChangeNotifier {
     loadMoreError = null;
     initialError = null;
     _hasLoadedAdditionalPage = false;
+    _didAutoRefreshAfterSync = false;
     return _loadFirstPage(preserveEntries: preserveEntries);
   }
 
@@ -56,7 +89,7 @@ class LeaderboardListController extends ChangeNotifier {
     _notifyIfActive();
 
     try {
-      final page = await _fetchPage(startAfter: cursor);
+      final page = await _fetchPage(period: _period, startAfter: cursor);
       if (_disposed || generation != _generation) return;
 
       if (page.entries.isEmpty) {
@@ -68,15 +101,24 @@ class LeaderboardListController extends ChangeNotifier {
         _nextCursor = page.nextCursor;
         _hasLoadedAdditionalPage = true;
       }
+    } on LeaderboardPageCursorExpiredException {
+      if (_disposed || generation != _generation) return;
+      _generation++;
+      entries = const [];
+      isLoadingMore = false;
+      _nextCursor = null;
+      hasMore = false;
+      initialError = null;
+      loadMoreError = null;
+      _hasLoadedAdditionalPage = false;
+      await _loadFirstPage();
     } catch (error) {
       if (_disposed || generation != _generation) return;
       loadMoreError = error;
     } finally {
-      if (!_disposed) {
+      if (!_disposed && generation == _generation) {
         isLoadingMore = false;
-        if (generation == _generation) {
-          _notifyIfActive();
-        }
+        _notifyIfActive();
       }
     }
   }
@@ -122,7 +164,7 @@ class LeaderboardListController extends ChangeNotifier {
     _notifyIfActive();
 
     try {
-      final page = await _fetchPage(startAfter: null);
+      final page = await _fetchPage(period: _period, startAfter: null);
       if (_disposed || generation != _generation) return;
 
       entries = List<LeaderboardEntry>.unmodifiable(page.entries);
@@ -193,4 +235,18 @@ class LeaderboardListController extends ChangeNotifier {
   void _notifyIfActive() {
     if (!_disposed) notifyListeners();
   }
+}
+
+LeaderboardPeriodPageFetcher _resolveFetcher(
+  LeaderboardPageFetcher? fetchPage,
+  LeaderboardPeriodPageFetcher? fetchPageForPeriod,
+) {
+  if (fetchPageForPeriod != null) return fetchPageForPeriod;
+  if (fetchPage != null) {
+    return ({
+      required LeaderboardPeriod period,
+      LeaderboardPageCursor? startAfter,
+    }) => fetchPage(startAfter: startAfter);
+  }
+  throw ArgumentError('Either fetchPage or fetchPageForPeriod is required.');
 }

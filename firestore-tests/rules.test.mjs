@@ -41,6 +41,13 @@ function manilaDayStartFor(date) {
   return new Date(utcMidnight - MANILA_OFFSET_MS);
 }
 
+function manilaMonthKeyFor(date) {
+  const shifted = new Date(date.getTime() + MANILA_OFFSET_MS);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}${m}`;
+}
+
 // A 5-quest combo satisfying exactly 2 easy + 2 medium + 1 hard with no
 // category-cap violations (sessionCount/duration/scoreThreshold all 0 here).
 // Kept in sync by the Dart<->rules contract test, not independently here.
@@ -135,11 +142,121 @@ function leaderboardSeed(userId, overrides = {}) {
   };
 }
 
+function periodFields({
+  dayKey,
+  dailyXp,
+  dailySessions,
+  dailyScoreSum,
+  dailyAverageScore,
+  dailyBestScore,
+  monthKey = dayKey.slice(0, 6),
+  monthlyXp = dailyXp,
+  monthlySessions = dailySessions,
+  monthlyScoreSum = dailyScoreSum,
+  monthlyAverageScore = dailyAverageScore,
+  monthlyBestScore = dailyBestScore,
+}) {
+  return {
+    daily_key: dayKey,
+    daily_xp: dailyXp,
+    daily_sessions_completed: dailySessions,
+    daily_score_sum: dailyScoreSum,
+    daily_average_score: dailyAverageScore,
+    daily_best_score: dailyBestScore,
+    monthly_key: monthKey,
+    monthly_xp: monthlyXp,
+    monthly_sessions_completed: monthlySessions,
+    monthly_score_sum: monthlyScoreSum,
+    monthly_average_score: monthlyAverageScore,
+    monthly_best_score: monthlyBestScore,
+  };
+}
+
+function sessionPeriodFields(createdAt, score) {
+  const date = createdAt instanceof Timestamp ? createdAt.toDate() : createdAt;
+  return periodFields({
+    dayKey: manilaDayKeyFor(date),
+    dailyXp: 25,
+    dailySessions: 1,
+    dailyScoreSum: score,
+    dailyAverageScore: score,
+    dailyBestScore: score,
+    monthKey: manilaMonthKeyFor(date),
+  });
+}
+
+function questPeriodFields(dayKey, xp) {
+  return periodFields({
+    dayKey,
+    dailyXp: xp,
+    dailySessions: 0,
+    dailyScoreSum: 0,
+    dailyAverageScore: 0,
+    dailyBestScore: 0,
+  });
+}
+
+function commitSessionAward(db, { sessionId, score, leaderboardUpdate }) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'leaderboard_processed_sessions', sessionId), {
+    session_id: sessionId,
+    user_id: 'alice',
+    score,
+    xp_awarded: 25,
+    processed_at: serverTimestamp(),
+  });
+  batch.set(doc(db, 'leaderboard', 'alice'), leaderboardUpdate, { merge: true });
+  return batch.commit();
+}
+
 async function seedBypassingRules(fn) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await fn(context.firestore());
   });
 }
+
+describe('session authoritative timestamps', () => {
+  test('session create accepts a server timestamp and rejects a client-supplied timestamp', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'server-stamped'), {
+        user_id: 'alice',
+        score: 82,
+        created_at: serverTimestamp(),
+      }),
+    );
+
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'spoofed-time'), {
+        user_id: 'alice',
+        score: 82,
+        created_at: Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z')),
+      }),
+    );
+  });
+
+  test('session update cannot move created_at or alter the awarded score', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'immutable-source'), {
+        user_id: 'alice',
+        score: 82,
+        created_at: serverTimestamp(),
+      }),
+    );
+
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'immutable-source'),
+        { created_at: Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z')) },
+        { merge: true },
+      ),
+    );
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'immutable-source'), { score: 100 }, { merge: true }),
+    );
+  });
+});
 
 describe('daily_quest_boards', () => {
   test('own missing board GET succeeds before creation', async () => {
@@ -257,7 +374,12 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
     batch.set(doc(db, 'daily_quest_claims', claimId), claim);
     batch.set(
       doc(db, 'leaderboard', 'alice'),
-      { quest_xp: CLAIM_QUEST_XP, total_xp: 25 + CLAIM_QUEST_XP, last_claim_id: claimId },
+      {
+        quest_xp: CLAIM_QUEST_XP,
+        total_xp: 25 + CLAIM_QUEST_XP,
+        last_claim_id: claimId,
+        ...questPeriodFields(board.day_key, CLAIM_QUEST_XP),
+      },
       { merge: true },
     );
     await assertSucceeds(batch.commit());
@@ -312,7 +434,12 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
     firstBatch.set(doc(db, 'daily_quest_claims', claimId), claim);
     firstBatch.set(
       doc(db, 'leaderboard', 'alice'),
-      { quest_xp: 15, total_xp: 40, last_claim_id: claimId },
+      {
+        quest_xp: 15,
+        total_xp: 40,
+        last_claim_id: claimId,
+        ...questPeriodFields(board.day_key, 15),
+      },
       { merge: true },
     );
     await assertSucceeds(firstBatch.commit());
@@ -351,7 +478,12 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
     batch.set(doc(db, 'daily_quest_claims', claimId), claim);
     batch.set(
       doc(db, 'leaderboard', 'alice'),
-      { quest_xp: 15, total_xp: 40, last_claim_id: claimId },
+      {
+        quest_xp: 15,
+        total_xp: 40,
+        last_claim_id: claimId,
+        ...questPeriodFields(board.day_key, 15),
+      },
       { merge: true },
     );
     await assertSucceeds(batch.commit());
@@ -465,9 +597,18 @@ describe('daily_quest_claims + leaderboard quest_xp', () => {
 
 describe('leaderboard quest_xp preservation', () => {
   test('session award preserves an existing quest_xp value', async () => {
+    const awardedAt = Timestamp.now();
     await seedBypassingRules(async (adminDb) => {
-      await setDoc(doc(adminDb, 'sessions', 's1'), { user_id: 'alice', score: 80 });
-      await setDoc(doc(adminDb, 'sessions', 's2'), { user_id: 'alice', score: 100 });
+      await setDoc(doc(adminDb, 'sessions', 's1'), {
+        user_id: 'alice',
+        score: 80,
+        created_at: Timestamp.now(),
+      });
+      await setDoc(doc(adminDb, 'sessions', 's2'), {
+        user_id: 'alice',
+        score: 100,
+        created_at: awardedAt,
+      });
       await setDoc(
         doc(adminDb, 'leaderboard', 'alice'),
         leaderboardSeed('alice', {
@@ -505,6 +646,7 @@ describe('leaderboard quest_xp preservation', () => {
         updated_at: Timestamp.now(),
         last_awarded_session_id: 's2',
         quest_xp: 15,
+        ...sessionPeriodFields(awardedAt, 100),
       },
       { merge: true },
     );
@@ -542,9 +684,18 @@ describe('leaderboard quest_xp preservation', () => {
   });
 
   test('legacy leaderboard document without quest_xp still accepts a session award', async () => {
+    const awardedAt = Timestamp.now();
     await seedBypassingRules(async (adminDb) => {
-      await setDoc(doc(adminDb, 'sessions', 's3'), { user_id: 'alice', score: 70 });
-      await setDoc(doc(adminDb, 'sessions', 's4'), { user_id: 'alice', score: 90 });
+      await setDoc(doc(adminDb, 'sessions', 's3'), {
+        user_id: 'alice',
+        score: 70,
+        created_at: Timestamp.now(),
+      });
+      await setDoc(doc(adminDb, 'sessions', 's4'), {
+        user_id: 'alice',
+        score: 90,
+        created_at: awardedAt,
+      });
       // Legacy doc: no quest_xp / last_claim_id fields at all.
       await setDoc(doc(adminDb, 'leaderboard', 'alice'), {
         user_id: 'alice',
@@ -582,10 +733,536 @@ describe('leaderboard quest_xp preservation', () => {
         last_session_at: Timestamp.now(),
         updated_at: Timestamp.now(),
         last_awarded_session_id: 's4',
+        ...sessionPeriodFields(awardedAt, 90),
       },
       { merge: true },
     );
     await assertSucceeds(batch.commit());
+  });
+});
+
+describe('leaderboard daily/monthly period aggregates', () => {
+  test('first session award uses source created_at across the Manila year boundary', async () => {
+    const createdAt = Timestamp.fromDate(new Date('2025-12-31T16:00:00.000Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'boundary-session'), {
+        user_id: 'alice',
+        score: 88,
+        created_at: createdAt,
+      });
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      commitSessionAward(db, {
+        sessionId: 'boundary-session',
+        score: 88,
+        leaderboardUpdate: leaderboardSeed('alice', {
+          last_awarded_session_id: 'boundary-session',
+          last_session_at: createdAt,
+          score_sum: 88,
+          average_score: 88,
+          best_score: 88,
+          ...sessionPeriodFields(createdAt, 88),
+        }),
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().daily_key, '20260101');
+    assert.equal(after.data().monthly_key, '202601');
+  });
+
+  test('same-period session accumulates XP and session score metrics', async () => {
+    const firstAt = Timestamp.fromDate(new Date('2026-05-02T01:00:00.000Z'));
+    const secondAt = Timestamp.fromDate(new Date('2026-05-02T09:00:00.000Z'));
+    const dayKey = manilaDayKeyFor(secondAt.toDate());
+    const monthKey = manilaMonthKeyFor(secondAt.toDate());
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'same-period-2'), {
+        user_id: 'alice',
+        score: 90,
+        created_at: secondAt,
+      });
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          total_xp: 35,
+          quest_xp: 10,
+          last_awarded_session_id: 'same-period-1',
+          last_session_at: firstAt,
+          score_sum: 70,
+          average_score: 70,
+          best_score: 70,
+          ...periodFields({
+            dayKey,
+            dailyXp: 35,
+            dailySessions: 1,
+            dailyScoreSum: 70,
+            dailyAverageScore: 70,
+            dailyBestScore: 70,
+            monthKey,
+          }),
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    const accumulated = periodFields({
+      dayKey,
+      dailyXp: 60,
+      dailySessions: 2,
+      dailyScoreSum: 160,
+      dailyAverageScore: 80,
+      dailyBestScore: 90,
+      monthKey,
+    });
+    await assertSucceeds(
+      commitSessionAward(db, {
+        sessionId: 'same-period-2',
+        score: 90,
+        leaderboardUpdate: {
+          total_xp: 60,
+          quest_xp: 10,
+          sessions_completed: 2,
+          score_sum: 160,
+          average_score: 80,
+          best_score: 90,
+          last_session_at: secondAt,
+          updated_at: serverTimestamp(),
+          last_awarded_session_id: 'same-period-2',
+          ...accumulated,
+        },
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().daily_xp, 60);
+    assert.equal(after.data().daily_sessions_completed, 2);
+    assert.equal(after.data().daily_average_score, 80);
+    assert.equal(after.data().monthly_xp, 60);
+  });
+
+  test('new Manila day in the same month resets daily and accumulates monthly', async () => {
+    const oldAt = Timestamp.fromDate(new Date('2026-05-01T04:00:00.000Z'));
+    const newAt = Timestamp.fromDate(new Date('2026-05-02T04:00:00.000Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'new-day-session'), {
+        user_id: 'alice',
+        score: 90,
+        created_at: newAt,
+      });
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          last_awarded_session_id: 'old-day-session',
+          last_session_at: oldAt,
+          ...sessionPeriodFields(oldAt, 80),
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      commitSessionAward(db, {
+        sessionId: 'new-day-session',
+        score: 90,
+        leaderboardUpdate: {
+          total_xp: 50,
+          quest_xp: 0,
+          sessions_completed: 2,
+          score_sum: 170,
+          average_score: 85,
+          best_score: 90,
+          last_session_at: newAt,
+          updated_at: serverTimestamp(),
+          last_awarded_session_id: 'new-day-session',
+          ...periodFields({
+            dayKey: manilaDayKeyFor(newAt.toDate()),
+            dailyXp: 25,
+            dailySessions: 1,
+            dailyScoreSum: 90,
+            dailyAverageScore: 90,
+            dailyBestScore: 90,
+            monthKey: manilaMonthKeyFor(newAt.toDate()),
+            monthlyXp: 50,
+            monthlySessions: 2,
+            monthlyScoreSum: 170,
+            monthlyAverageScore: 85,
+            monthlyBestScore: 90,
+          }),
+        },
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().daily_sessions_completed, 1);
+    assert.equal(after.data().daily_score_sum, 90);
+    assert.equal(after.data().monthly_sessions_completed, 2);
+    assert.equal(after.data().monthly_score_sum, 170);
+  });
+
+  test('newer session period resets both daily and monthly aggregates', async () => {
+    const oldAt = Timestamp.fromDate(new Date('2026-01-31T10:00:00.000Z'));
+    const newAt = Timestamp.fromDate(new Date('2026-01-31T16:00:00.000Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'new-month-session'), {
+        user_id: 'alice',
+        score: 90,
+        created_at: newAt,
+      });
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          last_awarded_session_id: 'old-month-session',
+          last_session_at: oldAt,
+          score_sum: 70,
+          average_score: 70,
+          best_score: 70,
+          ...sessionPeriodFields(oldAt, 70),
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      commitSessionAward(db, {
+        sessionId: 'new-month-session',
+        score: 90,
+        leaderboardUpdate: {
+          total_xp: 50,
+          quest_xp: 0,
+          sessions_completed: 2,
+          score_sum: 160,
+          average_score: 80,
+          best_score: 90,
+          last_session_at: newAt,
+          updated_at: serverTimestamp(),
+          last_awarded_session_id: 'new-month-session',
+          ...sessionPeriodFields(newAt, 90),
+        },
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().daily_key, '20260201');
+    assert.equal(after.data().daily_sessions_completed, 1);
+    assert.equal(after.data().monthly_key, '202602');
+    assert.equal(after.data().monthly_sessions_completed, 1);
+  });
+
+  test('older backfilled session preserves the newer daily/monthly period state', async () => {
+    const backfillAt = Timestamp.fromDate(new Date('2026-07-10T02:00:00.000Z'));
+    const newerFields = periodFields({
+      dayKey: '20260801',
+      dailyXp: 50,
+      dailySessions: 2,
+      dailyScoreSum: 150,
+      dailyAverageScore: 75,
+      dailyBestScore: 80,
+      monthKey: '202608',
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'backfilled-session'), {
+        user_id: 'alice',
+        score: 100,
+        created_at: backfillAt,
+      });
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          total_xp: 50,
+          sessions_completed: 2,
+          score_sum: 150,
+          average_score: 75,
+          best_score: 80,
+          last_awarded_session_id: 'newer-session',
+          ...newerFields,
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      commitSessionAward(db, {
+        sessionId: 'backfilled-session',
+        score: 100,
+        leaderboardUpdate: {
+          total_xp: 75,
+          quest_xp: 0,
+          sessions_completed: 3,
+          score_sum: 250,
+          average_score: 250 / 3,
+          best_score: 100,
+          last_session_at: backfillAt,
+          updated_at: serverTimestamp(),
+          last_awarded_session_id: 'backfilled-session',
+          ...newerFields,
+        },
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().daily_key, '20260801');
+    assert.equal(after.data().daily_xp, 50);
+    assert.equal(after.data().monthly_key, '202608');
+    assert.equal(after.data().monthly_xp, 50);
+  });
+
+  test('cannot toggle among existing processed-session markers to replay awards', async () => {
+    const createdAt = Timestamp.fromMillis(Date.now() - 60_000);
+    const dayKey = manilaDayKeyFor(createdAt.toDate());
+    const monthKey = manilaMonthKeyFor(createdAt.toDate());
+    const replayCandidates = [
+      { sessionId: 'processed-a', score: 90 },
+      { sessionId: 'processed-b', score: 70 },
+    ];
+    await seedBypassingRules(async (adminDb) => {
+      for (const candidate of replayCandidates) {
+        await setDoc(doc(adminDb, 'sessions', candidate.sessionId), {
+          user_id: 'alice',
+          score: candidate.score,
+          created_at: createdAt,
+        });
+        await setDoc(
+          doc(adminDb, 'leaderboard_processed_sessions', candidate.sessionId),
+          {
+            session_id: candidate.sessionId,
+            user_id: 'alice',
+            score: candidate.score,
+            xp_awarded: 25,
+            processed_at: createdAt,
+          },
+        );
+      }
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          last_awarded_session_id: 'seed-session',
+          last_session_at: createdAt,
+          ...sessionPeriodFields(createdAt, 80),
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    for (const candidate of replayCandidates) {
+      const scoreSum = 80 + candidate.score;
+      const bestScore = Math.max(80, candidate.score);
+      await assertFails(
+        setDoc(
+          doc(db, 'leaderboard', 'alice'),
+          {
+            total_xp: 50,
+            quest_xp: 0,
+            sessions_completed: 2,
+            score_sum: scoreSum,
+            average_score: scoreSum / 2,
+            best_score: bestScore,
+            last_session_at: createdAt,
+            updated_at: serverTimestamp(),
+            last_awarded_session_id: candidate.sessionId,
+            ...periodFields({
+              dayKey,
+              dailyXp: 50,
+              dailySessions: 2,
+              dailyScoreSum: scoreSum,
+              dailyAverageScore: scoreSum / 2,
+              dailyBestScore: bestScore,
+              monthKey,
+            }),
+          },
+          { merge: true },
+        ),
+      );
+    }
+  });
+
+  test('session award against a legacy doc must initialize the complete period block', async () => {
+    const createdAt = Timestamp.fromDate(new Date('2026-06-01T04:00:00.000Z'));
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'missing-period-session'), {
+        user_id: 'alice',
+        score: 90,
+        created_at: createdAt,
+      });
+      await setDoc(doc(adminDb, 'leaderboard', 'alice'), leaderboardSeed('alice'));
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      commitSessionAward(db, {
+        sessionId: 'missing-period-session',
+        score: 90,
+        leaderboardUpdate: {
+          total_xp: 50,
+          quest_xp: 0,
+          sessions_completed: 2,
+          score_sum: 170,
+          average_score: 85,
+          best_score: 90,
+          last_session_at: createdAt,
+          updated_at: serverTimestamp(),
+          last_awarded_session_id: 'missing-period-session',
+        },
+      }),
+    );
+  });
+
+  test('session award rejects forged period XP, keys, counts, averages, and best score', async () => {
+    const createdAt = Timestamp.fromDate(new Date('2026-06-01T04:00:00.000Z'));
+    const oldFields = sessionPeriodFields(createdAt, 80);
+    const validFields = periodFields({
+      dayKey: oldFields.daily_key,
+      dailyXp: 50,
+      dailySessions: 2,
+      dailyScoreSum: 170,
+      dailyAverageScore: 85,
+      dailyBestScore: 90,
+      monthKey: oldFields.monthly_key,
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'forged-period-session'), {
+        user_id: 'alice',
+        score: 90,
+        created_at: createdAt,
+      });
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { ...oldFields }),
+      );
+    });
+
+    const baseUpdate = {
+      total_xp: 50,
+      quest_xp: 0,
+      sessions_completed: 2,
+      score_sum: 170,
+      average_score: 85,
+      best_score: 90,
+      last_session_at: createdAt,
+      updated_at: serverTimestamp(),
+      last_awarded_session_id: 'forged-period-session',
+      ...validFields,
+    };
+    const forgeries = [
+      { daily_xp: 999 },
+      { daily_key: '20260602' },
+      { daily_sessions_completed: 99 },
+      { daily_average_score: 99 },
+      { monthly_best_score: 100 },
+    ];
+    const db = aliceDb();
+    for (const forgery of forgeries) {
+      await assertFails(
+        commitSessionAward(db, {
+          sessionId: 'forged-period-session',
+          score: 90,
+          leaderboardUpdate: { ...baseUpdate, ...forgery },
+        }),
+      );
+    }
+  });
+
+  test('same-period quest adds only XP and preserves session metrics', async () => {
+    const now = new Date();
+    const { id: boardId, data: board } = boardData('alice', now);
+    const sessionMetrics = periodFields({
+      dayKey: board.day_key,
+      dailyXp: 25,
+      dailySessions: 1,
+      dailyScoreSum: 80,
+      dailyAverageScore: 80,
+      dailyBestScore: 80,
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', boardId), board);
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { ...sessionMetrics }),
+      );
+    });
+
+    const { id: claimId, data: claim } = claimData({
+      userId: 'alice',
+      boardId,
+      dayKey: board.day_key,
+      dayStart: now,
+    });
+    claim.day_start = board.day_start;
+    const nextPeriods = { ...sessionMetrics, daily_xp: 35, monthly_xp: 35 };
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'daily_quest_claims', claimId), claim);
+    batch.set(
+      doc(db, 'leaderboard', 'alice'),
+      {
+        quest_xp: 10,
+        total_xp: 35,
+        last_claim_id: claimId,
+        ...nextPeriods,
+      },
+      { merge: true },
+    );
+    await assertSucceeds(batch.commit());
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().daily_xp, 35);
+    assert.equal(after.data().daily_sessions_completed, 1);
+    assert.equal(after.data().daily_score_sum, 80);
+    assert.equal(after.data().monthly_sessions_completed, 1);
+  });
+
+  test('quest update rejects omitted, forged, or fabricated period state', async () => {
+    const now = new Date();
+    const { id: boardId, data: board } = boardData('alice', now);
+    const currentPeriods = periodFields({
+      dayKey: board.day_key,
+      dailyXp: 25,
+      dailySessions: 1,
+      dailyScoreSum: 80,
+      dailyAverageScore: 80,
+      dailyBestScore: 80,
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'daily_quest_boards', boardId), board);
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', { ...currentPeriods }),
+      );
+    });
+
+    const { id: claimId, data: claim } = claimData({
+      userId: 'alice',
+      boardId,
+      dayKey: board.day_key,
+      dayStart: now,
+    });
+    claim.day_start = board.day_start;
+    const validPeriods = { ...currentPeriods, daily_xp: 35, monthly_xp: 35 };
+    const attempts = [
+      {},
+      { ...validPeriods, daily_xp: 999 },
+      { ...validPeriods, daily_key: '19990101' },
+      { ...validPeriods, daily_sessions_completed: 2 },
+      { ...validPeriods, monthly_score_sum: 90 },
+    ];
+    const db = aliceDb();
+    for (const periodAttempt of attempts) {
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'daily_quest_claims', claimId), claim);
+      batch.set(
+        doc(db, 'leaderboard', 'alice'),
+        {
+          quest_xp: 10,
+          total_xp: 35,
+          last_claim_id: claimId,
+          ...periodAttempt,
+        },
+        { merge: true },
+      );
+      await assertFails(batch.commit());
+    }
   });
 });
 
@@ -924,9 +1601,18 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
   });
 
   test('19 session award preserves equipped_border_id', async () => {
+    const awardedAt = Timestamp.now();
     await seedBypassingRules(async (adminDb) => {
-      await setDoc(doc(adminDb, 'sessions', 's1'), { user_id: 'alice', score: 80 });
-      await setDoc(doc(adminDb, 'sessions', 's2'), { user_id: 'alice', score: 100 });
+      await setDoc(doc(adminDb, 'sessions', 's1'), {
+        user_id: 'alice',
+        score: 80,
+        created_at: Timestamp.now(),
+      });
+      await setDoc(doc(adminDb, 'sessions', 's2'), {
+        user_id: 'alice',
+        score: 100,
+        created_at: awardedAt,
+      });
       await setDoc(
         doc(adminDb, 'leaderboard', 'alice'),
         leaderboardSeed('alice', {
@@ -966,6 +1652,7 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
         last_awarded_session_id: 's2',
         quest_xp: 0,
         equipped_border_id: 'starter_glow',
+        ...sessionPeriodFields(awardedAt, 100),
       },
       { merge: true },
     );
@@ -1006,6 +1693,7 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
         total_xp: 25 + CLAIM_QUEST_XP,
         last_claim_id: claimId,
         equipped_border_id: 'starter_glow',
+        ...questPeriodFields(board.day_key, CLAIM_QUEST_XP),
       },
       { merge: true },
     );

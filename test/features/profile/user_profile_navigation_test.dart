@@ -2,6 +2,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/leaderboard_award_plan.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:elixr_application/data/models/profile_visit.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/models/public_profile_summary.dart';
@@ -153,7 +154,11 @@ class _FakeLeaderboardRepository extends LeaderboardRepository {
   }
 
   @override
-  Future<int?> computeRankForUser(String userId) async => 1;
+  Future<int?> computeRankForUser(
+    String userId, {
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+    DateTime? nowUtc,
+  }) async => 1;
 }
 
 class _FakePublicProfileRepository extends PublicProfileRepository {

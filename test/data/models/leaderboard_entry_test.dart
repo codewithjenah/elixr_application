@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -186,6 +187,72 @@ void main() {
       expect(entry.scoreSum, 88);
       expect(entry.averageScore, 88.5);
       expect(entry.bestScore, 88);
+    });
+
+    test('parses and selects daily, monthly, and all-time metrics', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'u-periods',
+        'display_name': 'Period Player',
+        'total_xp': 500,
+        'sessions_completed': 16,
+        'score_sum': 1280,
+        'average_score': 80,
+        'best_score': 99,
+        'daily_key': '20260810',
+        'daily_xp': 45,
+        'daily_sessions_completed': 1,
+        'daily_score_sum': 82,
+        'daily_average_score': 82,
+        'daily_best_score': 82,
+        'monthly_key': '202608',
+        'monthly_xp': 170,
+        'monthly_sessions_completed': 6,
+        'monthly_score_sum': 510,
+        'monthly_average_score': 85,
+        'monthly_best_score': 96,
+      })!;
+
+      expect(entry.dailyKey, '20260810');
+      expect(entry.monthlyKey, '202608');
+      expect(entry.xpFor(LeaderboardPeriod.today), 45);
+      expect(entry.sessionsCompletedFor(LeaderboardPeriod.today), 1);
+      expect(entry.averageScoreFor(LeaderboardPeriod.today), 82);
+      expect(entry.bestScoreFor(LeaderboardPeriod.today), 82);
+      expect(entry.xpFor(LeaderboardPeriod.thisMonth), 170);
+      expect(entry.sessionsCompletedFor(LeaderboardPeriod.thisMonth), 6);
+      expect(entry.scoreSumFor(LeaderboardPeriod.thisMonth), 510);
+      expect(entry.bestScoreFor(LeaderboardPeriod.thisMonth), 96);
+      expect(entry.xpFor(LeaderboardPeriod.allTime), 500);
+      expect(entry.sessionsCompletedFor(LeaderboardPeriod.allTime), 16);
+      expect(entry.metricsFor(LeaderboardPeriod.allTime).bestScore, 99);
+    });
+
+    test('legacy documents default all period metrics to zero', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'legacy',
+        'display_name': 'Legacy Player',
+        'total_xp': 25,
+      })!;
+
+      expect(entry.dailyKey, isNull);
+      expect(entry.monthlyKey, isNull);
+      expect(entry.xpFor(LeaderboardPeriod.today), 0);
+      expect(entry.sessionsCompletedFor(LeaderboardPeriod.today), 0);
+      expect(entry.xpFor(LeaderboardPeriod.thisMonth), 0);
+      expect(entry.bestScoreFor(LeaderboardPeriod.thisMonth), 0);
+      expect(entry.xpFor(LeaderboardPeriod.allTime), 25);
+    });
+
+    test('invalid period keys are ignored without rejecting the document', () {
+      final entry = LeaderboardEntry.tryFromMap({
+        'user_id': 'invalid-period',
+        'display_name': 'Invalid Period',
+        'daily_key': '20260230',
+        'monthly_key': '202613',
+      })!;
+
+      expect(entry.dailyKey, isNull);
+      expect(entry.monthlyKey, isNull);
     });
 
     test('returns null when identity fields are invalid', () {

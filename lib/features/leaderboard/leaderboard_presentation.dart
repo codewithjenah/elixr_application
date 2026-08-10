@@ -1,6 +1,56 @@
 import '../../data/models/leaderboard_entry.dart';
+import '../../data/models/leaderboard_period.dart';
+
+typedef LeaderboardPeriodMetrics = ({
+  int xp,
+  int sessionsCompleted,
+  double averageScore,
+  int bestScore,
+});
 
 abstract final class LeaderboardPresentation {
+  static String periodLabel(LeaderboardPeriod period) {
+    return period.selectorLabel;
+  }
+
+  static String periodSubtitle(LeaderboardPeriod period) {
+    return period.subtitle;
+  }
+
+  static String periodXpHeading(LeaderboardPeriod period) {
+    return period.xpHeading;
+  }
+
+  static String periodTopThreeHeading(LeaderboardPeriod period) {
+    return switch (period) {
+      LeaderboardPeriod.today => "Today's top 3",
+      LeaderboardPeriod.thisMonth => "This month's top 3",
+      LeaderboardPeriod.allTime => 'All-time top 3',
+    };
+  }
+
+  /// Profile statistics are lifetime aggregates. Carry a preloaded rank only
+  /// when it was produced by the all-time ordering; other periods must let the
+  /// profile controller compute the user's lifetime rank instead.
+  static int? profileRankForNavigation({
+    required LeaderboardPeriod period,
+    required int selectedPeriodRank,
+  }) {
+    return period == LeaderboardPeriod.allTime ? selectedPeriodRank : null;
+  }
+
+  static LeaderboardPeriodMetrics metricsFor(
+    LeaderboardEntry entry,
+    LeaderboardPeriod period,
+  ) {
+    return (
+      xp: entry.xpFor(period),
+      sessionsCompleted: entry.sessionsCompletedFor(period),
+      averageScore: entry.averageScoreFor(period),
+      bestScore: entry.bestScoreFor(period),
+    );
+  }
+
   static List<LeaderboardEntry> podiumOf(List<LeaderboardEntry> entries) {
     if (entries.isEmpty) return const [];
     return entries.take(3).toList(growable: false);

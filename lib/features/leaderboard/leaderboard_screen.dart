@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/leaderboard_entry.dart';
+import '../../data/models/leaderboard_period.dart';
 import '../../data/repositories/leaderboard_repository.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
@@ -16,8 +17,16 @@ import 'widgets/leaderboard_header.dart';
 import 'widgets/leaderboard_podium.dart';
 import 'widgets/leaderboard_rankings_section.dart';
 
-/// Desktop content width for the full leaderboard screen.
-const double _kLeaderboardContentMaxWidth = 1200;
+abstract final class LeaderboardScreenLayout {
+  static const double maxContentWidth = 1480;
+
+  static double horizontalPaddingFor(double width) {
+    if (width < 640) return AppSpacing.md;
+    if (width < 1120) return 20;
+    if (width < 1680) return 28;
+    return 36;
+  }
+}
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key, this.repository, this.controller});
@@ -43,8 +52,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     _controller =
         widget.controller ??
         LeaderboardListController(
-          fetchPage: ({startAfter}) =>
-              _repository.fetchPlayersPage(startAfter: startAfter),
+          fetchPageForPeriod: ({required period, startAfter}) => _repository
+              .fetchPlayersPage(period: period, startAfter: startAfter),
         );
   }
 
@@ -94,10 +103,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     _startBackgroundSync(force: true);
   }
 
+  void _onPeriodChanged(LeaderboardPeriod period) {
+    _controller.setPeriod(period);
+  }
+
   void _onTapPlayer(LeaderboardEntry entry, int rank) {
     context.push(
       '/profile/${entry.userId}',
-      extra: ProfileRouteArgs(entry: entry, rank: rank),
+      extra: ProfileRouteArgs(
+        entry: entry,
+        rank: LeaderboardPresentation.profileRankForNavigation(
+          period: _controller.period,
+          selectedPeriodRank: rank,
+        ),
+      ),
     );
   }
 
@@ -106,7 +125,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(
-          maxWidth: _kLeaderboardContentMaxWidth,
+          maxWidth: LeaderboardScreenLayout.maxContentWidth,
         ),
         child: child,
       ),
@@ -117,131 +136,154 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   Widget build(BuildContext context) {
     return ScaffoldPage(
       content: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            AppSpacing.xl,
-            AppSpacing.xl,
-            0,
-          ),
-          child: ListenableBuilder(
-            listenable: _controller,
-            builder: (context, _) {
-              final entries = _controller.entries;
-              final currentUser = context.read<AuthService>().currentUser;
-              final currentUserId = currentUser?.id;
-              final currentUserProfilePictureUrl =
-                  currentUser?.profilePictureUrl;
+        child: LayoutBuilder(
+          builder: (context, viewportConstraints) {
+            final horizontalPadding =
+                LeaderboardScreenLayout.horizontalPaddingFor(
+                  viewportConstraints.maxWidth,
+                );
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                horizontalPadding,
+                horizontalPadding,
+                0,
+              ),
+              child: ListenableBuilder(
+                listenable: _controller,
+                builder: (context, _) {
+                  final entries = _controller.entries;
+                  final period = _controller.period;
+                  final currentUser = context.read<AuthService>().currentUser;
+                  final currentUserId = currentUser?.id;
+                  final currentUserProfilePictureUrl =
+                      currentUser?.profilePictureUrl;
 
-              if (_controller.isInitialLoading && entries.isEmpty) {
-                return _centered(
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LeaderboardHeader(
-                        refreshEnabled: false,
-                        onRefresh: _onRefresh,
+                  if (_controller.isInitialLoading && entries.isEmpty) {
+                    return _centered(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LeaderboardHeader(
+                            period: period,
+                            onPeriodChanged: _onPeriodChanged,
+                            refreshEnabled: false,
+                            onRefresh: _onRefresh,
+                          ),
+                          const Expanded(
+                            child: Center(
+                              child: ProgressRing(
+                                activeColor: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const Expanded(
-                        child: Center(
-                          child: ProgressRing(activeColor: AppColors.primary),
+                    );
+                  }
+
+                  if (_controller.initialError != null && entries.isEmpty) {
+                    return _centered(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LeaderboardHeader(
+                            period: period,
+                            onPeriodChanged: _onPeriodChanged,
+                            refreshEnabled: !_controller.isInitialLoading,
+                            onRefresh: _onRefresh,
+                          ),
+                          Expanded(
+                            child: _InitialErrorState(onRetry: _onRefresh),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  if (entries.isEmpty) {
+                    return _centered(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LeaderboardHeader(
+                            period: period,
+                            onPeriodChanged: _onPeriodChanged,
+                            refreshEnabled: !_controller.isInitialLoading,
+                            onRefresh: _onRefresh,
+                          ),
+                          const Expanded(child: _EmptyState()),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final podium = LeaderboardPresentation.podiumOf(entries);
+                  final rows = LeaderboardPresentation.rankedRowsOf(entries);
+                  final loadMoreFooter = _LoadMoreFooter(
+                    hasMore: _controller.hasMore,
+                    isLoadingMore: _controller.isLoadingMore,
+                    loadMoreError: _controller.loadMoreError,
+                    onLoadMore: _controller.loadMore,
+                  );
+
+                  return CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: _centered(
+                          LeaderboardHeader(
+                            period: period,
+                            onPeriodChanged: _onPeriodChanged,
+                            refreshEnabled: !_controller.isInitialLoading,
+                            onRefresh: _onRefresh,
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                );
-              }
-
-              if (_controller.initialError != null && entries.isEmpty) {
-                return _centered(
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LeaderboardHeader(
-                        refreshEnabled: !_controller.isInitialLoading,
-                        onRefresh: _onRefresh,
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.lg),
                       ),
-                      Expanded(child: _InitialErrorState(onRetry: _onRefresh)),
-                    ],
-                  ),
-                );
-              }
-
-              if (entries.isEmpty) {
-                return _centered(
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LeaderboardHeader(
-                        refreshEnabled: !_controller.isInitialLoading,
-                        onRefresh: _onRefresh,
-                      ),
-                      const Expanded(child: _EmptyState()),
-                    ],
-                  ),
-                );
-              }
-
-              final podium = LeaderboardPresentation.podiumOf(entries);
-              final rows = LeaderboardPresentation.rankedRowsOf(entries);
-              final loadMoreFooter = _LoadMoreFooter(
-                hasMore: _controller.hasMore,
-                isLoadingMore: _controller.isLoadingMore,
-                loadMoreError: _controller.loadMoreError,
-                onLoadMore: _controller.loadMore,
-              );
-
-              return CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: _centered(
-                      LeaderboardHeader(
-                        refreshEnabled: !_controller.isInitialLoading,
-                        onRefresh: _onRefresh,
-                      ),
-                    ),
-                  ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.lg),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _centered(
-                      LeaderboardPodium(
-                        podium: podium,
-                        currentUserId: currentUserId,
-                        currentUserProfilePictureUrl:
-                            currentUserProfilePictureUrl,
-                        variant: LeaderboardPodiumVariant.full,
-                        onTapPlayer: _onTapPlayer,
-                      ),
-                    ),
-                  ),
-                  if (rows.isNotEmpty) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: AppSpacing.lg),
-                    ),
-                    SliverToBoxAdapter(
-                      child: _centered(
-                        LeaderboardRankingsSection(
-                          rows: rows,
-                          currentUserId: currentUserId,
-                          currentUserProfilePictureUrl:
-                              currentUserProfilePictureUrl,
-                          footer: loadMoreFooter,
-                          onTapPlayer: _onTapPlayer,
+                      SliverToBoxAdapter(
+                        child: _centered(
+                          LeaderboardPodium(
+                            podium: podium,
+                            currentUserId: currentUserId,
+                            currentUserProfilePictureUrl:
+                                currentUserProfilePictureUrl,
+                            period: period,
+                            variant: LeaderboardPodiumVariant.full,
+                            onTapPlayer: _onTapPlayer,
+                          ),
                         ),
                       ),
-                    ),
-                  ] else ...[
-                    SliverToBoxAdapter(child: _centered(loadMoreFooter)),
-                  ],
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.xl),
-                  ),
-                ],
-              );
-            },
-          ),
+                      if (rows.isNotEmpty) ...[
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: AppSpacing.lg),
+                        ),
+                        SliverToBoxAdapter(
+                          child: _centered(
+                            LeaderboardRankingsSection(
+                              rows: rows,
+                              currentUserId: currentUserId,
+                              currentUserProfilePictureUrl:
+                                  currentUserProfilePictureUrl,
+                              period: period,
+                              footer: loadMoreFooter,
+                              onTapPlayer: _onTapPlayer,
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        SliverToBoxAdapter(child: _centered(loadMoreFooter)),
+                      ],
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.xl),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            );
+          },
         ),
       ),
     );
@@ -329,7 +371,7 @@ class _LoadMoreFooter extends StatelessWidget {
       child: Center(
         child: isLoadingMore
             ? const ProgressRing(activeColor: AppColors.primary)
-            : Button(onPressed: onLoadMore, child: const Text('Load More')),
+            : Button(onPressed: onLoadMore, child: const Text('Load more')),
       ),
     );
   }

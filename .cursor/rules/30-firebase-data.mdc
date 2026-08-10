@@ -24,8 +24,9 @@ alwaysApply: false
 - Leaderboard awards must be idempotent; do not award the same session twice.
 - The source `sessions/{sessionId}` document must exist and belong to the authenticated user.
 - The processed marker must match the session, user, score, and `xp_awarded` (25) according to `firestore.rules`.
-- Keep aggregate fields synchronized with `LeaderboardEntry`, `LeaderboardAwardPlan`, `LeaderboardRepository`, and `firestore.rules`: `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`.
-- Keep leaderboard query ordering synchronized with `firestore.indexes.json` (`total_xp` descending, then `best_score` descending).
+- Keep lifetime aggregate fields synchronized with `LeaderboardEntry`, `LeaderboardAwardPlan`, `LeaderboardRepository`, and `firestore.rules`: `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`.
+- Daily/monthly leaderboard fields are optional for legacy documents but all-or-none within each period group: `daily_key`/`daily_xp`/`daily_sessions_completed`/`daily_score_sum`/`daily_average_score`/`daily_best_score` and the matching `monthly_*` fields. Session awards derive period keys from the source session's immutable server-stamped `created_at`; quest awards derive them from the verified Manila-day board. Older events preserve newer period aggregates.
+- Keep leaderboard query ordering synchronized with `firestore.indexes.json`: all time uses `total_xp` then `best_score`; Today uses current `daily_key`, `daily_xp`, then `daily_best_score`; This month uses current `monthly_key`, `monthly_xp`, then `monthly_best_score`; every ordering ends with document ID ascending for deterministic ties.
 - Preserve authenticated leaderboard reads and own-document write constraints; do not weaken marker update/delete restrictions.
 - Display-name-only updates must not alter XP or score aggregates.
 - The current client transaction model is suitable for the controlled capstone environment but must not be described as server-authoritative or hostile-client-proof.

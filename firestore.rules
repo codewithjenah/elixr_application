@@ -53,7 +53,58 @@ service cloud.firestore {
         'last_awarded_session_id',
         'quest_xp',
         'last_claim_id',
-        'equipped_border_id'
+        'equipped_border_id',
+        'daily_key',
+        'daily_xp',
+        'daily_sessions_completed',
+        'daily_score_sum',
+        'daily_average_score',
+        'daily_best_score',
+        'monthly_key',
+        'monthly_xp',
+        'monthly_sessions_completed',
+        'monthly_score_sum',
+        'monthly_average_score',
+        'monthly_best_score'
+      ];
+    }
+
+    function dailyLeaderboardKeys() {
+      return [
+        'daily_key',
+        'daily_xp',
+        'daily_sessions_completed',
+        'daily_score_sum',
+        'daily_average_score',
+        'daily_best_score'
+      ];
+    }
+
+    function monthlyLeaderboardKeys() {
+      return [
+        'monthly_key',
+        'monthly_xp',
+        'monthly_sessions_completed',
+        'monthly_score_sum',
+        'monthly_average_score',
+        'monthly_best_score'
+      ];
+    }
+
+    function periodLeaderboardKeys() {
+      return [
+        'daily_key',
+        'daily_xp',
+        'daily_sessions_completed',
+        'daily_score_sum',
+        'daily_average_score',
+        'daily_best_score',
+        'monthly_key',
+        'monthly_xp',
+        'monthly_sessions_completed',
+        'monthly_score_sum',
+        'monthly_average_score',
+        'monthly_best_score'
       ];
     }
 
@@ -201,6 +252,17 @@ service cloud.firestore {
       return value is number && value >= 0;
     }
 
+    // Firestore clients and the rules runtime can round the same repeating
+    // division to adjacent IEEE-754 values. Compare the reconstructed sum
+    // within a sub-micro-point tolerance so legitimate averages such as
+    // 250 / 3 validate without permitting a meaningful forged metric.
+    function averageMatches(average, count, sum) {
+      let reconstructed = average * count;
+      return average is number
+        && reconstructed >= sum - 0.000001
+        && reconstructed <= sum + 0.000001;
+    }
+
     function isValidHttpsProfilePictureUrl(value) {
       return value is string
         && value.size() > 0
@@ -323,6 +385,12 @@ service cloud.firestore {
       return string(shifted.year()) + twoDigit(shifted.month()) + twoDigit(shifted.day());
     }
 
+    // Exact 'yyyyMM' for the Manila calendar month that contains timestamp ts.
+    function manilaMonthKey(ts) {
+      let shifted = ts + manilaOffset();
+      return string(shifted.year()) + twoDigit(shifted.month());
+    }
+
     function validLeaderboardShape(data) {
       return data.keys().hasOnly(leaderboardKeys())
         && data.user_id is string
@@ -362,42 +430,232 @@ service cloud.firestore {
         ]);
     }
 
+    function validLeaderboardPublicMetadata(data) {
+      return data.display_name is string
+        && data.display_name.size() > 0
+        && data.display_name.size() <= 80
+        && (!data.keys().hasAny(['profile_picture_url'])
+          || isValidHttpsProfilePictureUrl(data.profile_picture_url));
+    }
+
+    // Update paths below independently validate every mutable aggregate and
+    // the equipped-border transition. The shared update shape therefore only
+    // enforces the document/key, identity, timestamp, and public-metadata
+    // contract; rechecking every unchanged field here would exceed
+    // Firestore's 1,000-expression limit for legitimate older backfills.
+    function validLeaderboardUpdateShape(data) {
+      return data.keys().hasOnly(leaderboardKeys())
+        && data.user_id == request.auth.uid
+        && data.updated_at is timestamp
+        && validLeaderboardPublicMetadata(data);
+    }
+
     function sourceSession(sessionId) {
       return get(sessionPath(sessionId)).data;
     }
 
-    function markerAfter(sessionId) {
-      return getAfter(markerPath(sessionId)).data;
-    }
-
     function markerMatchesSession(sessionId, score) {
-      return existsAfter(markerPath(sessionId))
-        && markerAfter(sessionId).user_id == request.auth.uid
-        && markerAfter(sessionId).session_id == sessionId
-        && markerAfter(sessionId).score == score
-        && markerAfter(sessionId).xp_awarded == 25;
+      let marker = getAfter(markerPath(sessionId));
+      return !exists(markerPath(sessionId))
+        && existsAfter(markerPath(sessionId))
+        && marker.data.user_id == request.auth.uid
+        && marker.data.session_id == sessionId
+        && marker.data.score == score
+        && marker.data.xp_awarded == 25;
     }
 
     function awardSessionId() {
       return request.resource.data.last_awarded_session_id;
     }
 
-    function awardSessionScore() {
-      return sourceSession(awardSessionId()).score;
+    function validAwardSessionTimestamp(createdAt) {
+      return createdAt is timestamp && createdAt <= request.time;
+    }
+
+    function dailyPeriodUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(dailyLeaderboardKeys());
+    }
+
+    function monthlyPeriodUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(monthlyLeaderboardKeys());
+    }
+
+    function periodAggregatesUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(periodLeaderboardKeys());
+    }
+
+    function dailySessionAggregateReset(score, createdAt) {
+      return request.resource.data.daily_key
+          == manilaDayKey(createdAt)
+        && request.resource.data.daily_xp == 25
+        && request.resource.data.daily_sessions_completed == 1
+        && request.resource.data.daily_score_sum == score
+        && request.resource.data.daily_average_score == score
+        && request.resource.data.daily_best_score == score;
+    }
+
+    function monthlySessionAggregateReset(score, createdAt) {
+      return request.resource.data.monthly_key
+          == manilaMonthKey(createdAt)
+        && request.resource.data.monthly_xp == 25
+        && request.resource.data.monthly_sessions_completed == 1
+        && request.resource.data.monthly_score_sum == score
+        && request.resource.data.monthly_average_score == score
+        && request.resource.data.monthly_best_score == score;
+    }
+
+    function dailySessionAggregateAccumulates(score) {
+      return request.resource.data.daily_key == resource.data.daily_key
+        && request.resource.data.daily_xp == resource.data.daily_xp + 25
+        && request.resource.data.daily_sessions_completed
+          == resource.data.daily_sessions_completed + 1
+        && request.resource.data.daily_score_sum
+          == resource.data.daily_score_sum + score
+        && averageMatches(
+          request.resource.data.daily_average_score,
+          request.resource.data.daily_sessions_completed,
+          request.resource.data.daily_score_sum
+        )
+        && request.resource.data.daily_best_score
+          == (
+            resource.data.daily_best_score >= score
+              ? resource.data.daily_best_score
+              : score
+          );
+    }
+
+    function monthlySessionAggregateAccumulates(score) {
+      return request.resource.data.monthly_key == resource.data.monthly_key
+        && request.resource.data.monthly_xp == resource.data.monthly_xp + 25
+        && request.resource.data.monthly_sessions_completed
+          == resource.data.monthly_sessions_completed + 1
+        && request.resource.data.monthly_score_sum
+          == resource.data.monthly_score_sum + score
+        && averageMatches(
+          request.resource.data.monthly_average_score,
+          request.resource.data.monthly_sessions_completed,
+          request.resource.data.monthly_score_sum
+        )
+        && request.resource.data.monthly_best_score
+          == (
+            resource.data.monthly_best_score >= score
+              ? resource.data.monthly_best_score
+              : score
+          );
+    }
+
+    function validDailySessionAggregateTransition(score, createdAt) {
+      let eventKey = manilaDayKey(createdAt);
+      return (
+          eventKey > resource.data.daily_key
+          && dailySessionAggregateReset(score, createdAt)
+        )
+        || (
+          eventKey == resource.data.daily_key
+          && dailySessionAggregateAccumulates(score)
+        )
+        || (eventKey < resource.data.daily_key && dailyPeriodUnchanged());
+    }
+
+    function validMonthlySessionAggregateTransition(score, createdAt) {
+      let eventKey = manilaMonthKey(createdAt);
+      return (
+          eventKey > resource.data.monthly_key
+          && monthlySessionAggregateReset(score, createdAt)
+        )
+        || (
+          eventKey == resource.data.monthly_key
+          && monthlySessionAggregateAccumulates(score)
+        )
+        || (eventKey < resource.data.monthly_key && monthlyPeriodUnchanged());
+    }
+
+    function validSessionPeriodCreate(score, createdAt) {
+      return dailySessionAggregateReset(score, createdAt)
+        && monthlySessionAggregateReset(score, createdAt);
+    }
+
+    function validSessionPeriodUpdate(score, createdAt) {
+      let initialized = resource.data.keys().hasAny(['daily_key']);
+      return (
+          !initialized
+          && dailySessionAggregateReset(score, createdAt)
+          && monthlySessionAggregateReset(score, createdAt)
+        )
+        || (
+          initialized
+          && validDailySessionAggregateTransition(score, createdAt)
+          && validMonthlySessionAggregateTransition(score, createdAt)
+        );
+    }
+
+    // A fully older backfill changes lifetime aggregates while preserving all
+    // quest, cosmetic, identity, and period state. Expressing that invariant
+    // as the exact set of permitted changed keys avoids expanding both period
+    // transition trees and stays below Firestore's 1,000-expression limit.
+    function validOlderSessionAwardChanges() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'display_name',
+        'profile_picture_url',
+        'total_xp',
+        'sessions_completed',
+        'score_sum',
+        'average_score',
+        'best_score',
+        'last_session_at',
+        'updated_at',
+        'last_awarded_session_id'
+      ]);
+    }
+
+    function validCurrentSessionAwardChanges() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'display_name',
+        'profile_picture_url',
+        'total_xp',
+        'sessions_completed',
+        'score_sum',
+        'average_score',
+        'best_score',
+        'last_session_at',
+        'updated_at',
+        'last_awarded_session_id',
+        'daily_key',
+        'daily_xp',
+        'daily_sessions_completed',
+        'daily_score_sum',
+        'daily_average_score',
+        'daily_best_score',
+        'monthly_key',
+        'monthly_xp',
+        'monthly_sessions_completed',
+        'monthly_score_sum',
+        'monthly_average_score',
+        'monthly_best_score'
+      ]);
     }
 
     function validSessionAwardCreate() {
-      return exists(sessionPath(awardSessionId()))
-        && sourceSession(awardSessionId()).user_id == request.auth.uid
-        && isScore(awardSessionScore())
+      let sessionId = awardSessionId();
+      let session = get(sessionPath(sessionId));
+      let score = session.data.score;
+      let createdAt = session.data.created_at;
+      return session != null
+        && session.data.user_id == request.auth.uid
+        && isScore(score)
+        && validAwardSessionTimestamp(createdAt)
         && request.resource.data.sessions_completed == 1
         && questXpOf(request.resource.data) == 0
         && request.resource.data.total_xp == 25
-        && request.resource.data.score_sum == awardSessionScore()
-        && request.resource.data.average_score == awardSessionScore()
-        && request.resource.data.best_score == awardSessionScore()
+        && request.resource.data.score_sum == score
+        && request.resource.data.average_score == score
+        && request.resource.data.best_score == score
         && equippedBorderOf(request.resource.data) == ''
-        && markerMatchesSession(awardSessionId(), awardSessionScore());
+        && validSessionPeriodCreate(score, createdAt)
+        && markerMatchesSession(sessionId, score);
     }
 
     function aggregatesUnchanged() {
@@ -410,31 +668,49 @@ service cloud.firestore {
         && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
         && request.resource.data.last_session_at == resource.data.last_session_at
         && questXpOf(request.resource.data) == questXpOf(resource.data)
-        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data);
+        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
+        && periodAggregatesUnchanged();
     }
 
     function validSessionAwardUpdate() {
-      return resource.data.user_id == request.auth.uid
+      let sessionId = awardSessionId();
+      let session = get(sessionPath(sessionId));
+      let score = session.data.score;
+      let createdAt = session.data.created_at;
+      let initializedPeriod = resource.data.keys().hasAny(['daily_key']);
+      let fullyOlderPeriod = initializedPeriod
+        && manilaMonthKey(createdAt) < resource.data.monthly_key;
+      return request.resource.data.user_id == request.auth.uid
         && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.updated_at is timestamp
+        && validLeaderboardPublicMetadata(request.resource.data)
         && request.resource.data.sessions_completed == resource.data.sessions_completed + 1
         && request.resource.data.total_xp == resource.data.total_xp + 25
-        && questXpOf(request.resource.data) == questXpOf(resource.data)
-        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
-        && equippedBorderUnchanged()
-        && request.resource.data.score_sum == resource.data.score_sum + awardSessionScore()
-        && request.resource.data.average_score
-          == request.resource.data.score_sum / request.resource.data.sessions_completed
-        && request.resource.data.best_score >= resource.data.best_score
-        && request.resource.data.best_score >= awardSessionScore()
-        && (
-          request.resource.data.best_score == resource.data.best_score
-          || request.resource.data.best_score == awardSessionScore()
+        && request.resource.data.score_sum == resource.data.score_sum + score
+        && averageMatches(
+          request.resource.data.average_score,
+          request.resource.data.sessions_completed,
+          request.resource.data.score_sum
         )
+        && request.resource.data.best_score
+          == (
+            resource.data.best_score >= score
+              ? resource.data.best_score
+              : score
+          )
         && request.resource.data.last_awarded_session_id != resource.data.last_awarded_session_id
-        && exists(sessionPath(awardSessionId()))
-        && sourceSession(awardSessionId()).user_id == request.auth.uid
-        && isScore(awardSessionScore())
-        && markerMatchesSession(awardSessionId(), awardSessionScore());
+        && session.data.user_id == request.auth.uid
+        && isScore(score)
+        && validAwardSessionTimestamp(createdAt)
+        && (
+          fullyOlderPeriod
+            ? validOlderSessionAwardChanges()
+            : (
+              validCurrentSessionAwardChanges()
+              && validSessionPeriodUpdate(score, createdAt)
+            )
+        )
+        && markerMatchesSession(sessionId, score);
     }
 
     function validPublicProfileMetadataUpdate() {
@@ -464,6 +740,7 @@ service cloud.firestore {
         && request.resource.data.last_session_at == resource.data.last_session_at
         && questXpOf(request.resource.data) == questXpOf(resource.data)
         && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
+        && periodAggregatesUnchanged()
         && profilePictureUnchanged()
         && nextBorder is string
         && (
@@ -519,8 +796,98 @@ service cloud.firestore {
         && existsAfter(claimPath(claimId))
         && claimAfter(claimId).user_id == request.auth.uid
         && isKnownQuestId(claimAfter(claimId).quest_id)
+        && claimAfter(claimId).day_key is string
+        && claimAfter(claimId).day_key.matches('^[0-9]{8}$')
+        && claimAfter(claimId).day_key == manilaDayKey(request.time)
         && claimAfter(claimId).xp_awarded == questXpFor(claimAfter(claimId).quest_id)
         && request.resource.data.quest_xp == questXpOf(resource.data) + claimAfter(claimId).xp_awarded;
+    }
+
+    function questAwardXp() {
+      return claimAfter(request.resource.data.last_claim_id).xp_awarded;
+    }
+
+    function questAwardDayKey() {
+      return claimAfter(request.resource.data.last_claim_id).day_key;
+    }
+
+    function questAwardMonthKey() {
+      return manilaMonthKey(request.time);
+    }
+
+    function dailyQuestAggregateReset() {
+      return request.resource.data.daily_key == questAwardDayKey()
+        && request.resource.data.daily_xp == questAwardXp()
+        && request.resource.data.daily_sessions_completed == 0
+        && request.resource.data.daily_score_sum == 0
+        && request.resource.data.daily_average_score == 0
+        && request.resource.data.daily_best_score == 0;
+    }
+
+    function monthlyQuestAggregateReset() {
+      return request.resource.data.monthly_key == questAwardMonthKey()
+        && request.resource.data.monthly_xp == questAwardXp()
+        && request.resource.data.monthly_sessions_completed == 0
+        && request.resource.data.monthly_score_sum == 0
+        && request.resource.data.monthly_average_score == 0
+        && request.resource.data.monthly_best_score == 0;
+    }
+
+    function dailyQuestAggregateAccumulates() {
+      return request.resource.data.daily_key == resource.data.daily_key
+        && request.resource.data.daily_xp
+          == resource.data.daily_xp + questAwardXp()
+        && request.resource.data.daily_sessions_completed
+          == resource.data.daily_sessions_completed
+        && request.resource.data.daily_score_sum == resource.data.daily_score_sum
+        && request.resource.data.daily_average_score
+          == resource.data.daily_average_score
+        && request.resource.data.daily_best_score == resource.data.daily_best_score;
+    }
+
+    function monthlyQuestAggregateAccumulates() {
+      return request.resource.data.monthly_key == resource.data.monthly_key
+        && request.resource.data.monthly_xp
+          == resource.data.monthly_xp + questAwardXp()
+        && request.resource.data.monthly_sessions_completed
+          == resource.data.monthly_sessions_completed
+        && request.resource.data.monthly_score_sum == resource.data.monthly_score_sum
+        && request.resource.data.monthly_average_score
+          == resource.data.monthly_average_score
+        && request.resource.data.monthly_best_score == resource.data.monthly_best_score;
+    }
+
+    function validDailyQuestAggregateTransition() {
+      let eventKey = questAwardDayKey();
+      return (eventKey > resource.data.daily_key && dailyQuestAggregateReset())
+        || (
+          eventKey == resource.data.daily_key
+          && dailyQuestAggregateAccumulates()
+        )
+        || (eventKey < resource.data.daily_key && dailyPeriodUnchanged());
+    }
+
+    function validMonthlyQuestAggregateTransition() {
+      let eventKey = questAwardMonthKey();
+      return (eventKey > resource.data.monthly_key && monthlyQuestAggregateReset())
+        || (
+          eventKey == resource.data.monthly_key
+          && monthlyQuestAggregateAccumulates()
+        )
+        || (eventKey < resource.data.monthly_key && monthlyPeriodUnchanged());
+    }
+
+    function validQuestPeriodUpdate() {
+      return (
+          !resource.data.keys().hasAny(['daily_key'])
+          && dailyQuestAggregateReset()
+          && monthlyQuestAggregateReset()
+        )
+        || (
+          resource.data.keys().hasAny(['daily_key'])
+          && validDailyQuestAggregateTransition()
+          && validMonthlyQuestAggregateTransition()
+        );
     }
 
     function validQuestClaimUpdate() {
@@ -535,7 +902,8 @@ service cloud.firestore {
         && equippedBorderUnchanged()
         && request.resource.data.total_xp
            == request.resource.data.sessions_completed * 25 + questXpOf(request.resource.data)
-        && claimMatchesLeaderboardUpdate();
+        && claimMatchesLeaderboardUpdate()
+        && validQuestPeriodUpdate();
     }
 
     match /users/{userId} {
@@ -544,8 +912,21 @@ service cloud.firestore {
 
     match /sessions/{sessionId} {
       allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow create: if isSignedIn() && request.resource.data.user_id == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      // created_at is the authoritative event timestamp used by period
+      // leaderboard attribution. Requiring the server transform on create and
+      // preserving it (plus ownership/score) on update prevents a modified
+      // client from moving an award between Manila periods after the fact.
+      allow create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid
+        && isScore(request.resource.data.score)
+        && request.resource.data.created_at is timestamp
+        && request.resource.data.created_at == request.time;
+      allow update: if isSignedIn()
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.score == resource.data.score
+        && request.resource.data.created_at == resource.data.created_at;
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
     match /feedbacks/{feedbackId} {
@@ -579,11 +960,24 @@ service cloud.firestore {
         && validSessionAwardCreate();
 
       allow update: if isOwner(userId)
-        && validLeaderboardShape(request.resource.data)
-        && (validSessionAwardUpdate()
-          || validPublicProfileMetadataUpdate()
-          || validQuestClaimUpdate()
-          || validEquippedBorderUpdate());
+        && (
+          (
+            request.resource.data.sessions_completed
+              == resource.data.sessions_completed + 1
+            && validSessionAwardUpdate()
+          )
+          || (
+            validLeaderboardUpdateShape(request.resource.data)
+            && (
+              (
+                questXpOf(request.resource.data) > questXpOf(resource.data)
+                && validQuestClaimUpdate()
+              )
+              || validPublicProfileMetadataUpdate()
+              || validEquippedBorderUpdate()
+            )
+          )
+        );
 
       // Self-erasure only (RA 10173 account deletion).
       allow delete: if isOwner(userId);

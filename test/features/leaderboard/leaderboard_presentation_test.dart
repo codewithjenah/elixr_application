@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_presentation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -85,6 +86,84 @@ void main() {
       expect(LeaderboardPresentation.initialsFor('Ada Lovelace'), 'AL');
       expect(LeaderboardPresentation.initialsFor('Grace'), 'GR');
       expect(LeaderboardPresentation.initialsFor('  '), '?');
+    });
+
+    test('copy and XP headings follow the selected period', () {
+      expect(
+        LeaderboardPresentation.periodSubtitle(LeaderboardPeriod.today),
+        'Rankings based on XP earned today.',
+      );
+      expect(
+        LeaderboardPresentation.periodSubtitle(LeaderboardPeriod.thisMonth),
+        'Rankings based on XP earned this month.',
+      );
+      expect(
+        LeaderboardPresentation.periodSubtitle(LeaderboardPeriod.allTime),
+        'All-time rankings by total XP.',
+      );
+      expect(
+        LeaderboardPeriod.values.map(LeaderboardPresentation.periodXpHeading),
+        ['XP today', 'XP this month', 'Total XP'],
+      );
+    });
+
+    test('selected-period metrics never fall back to lifetime values', () {
+      const player = LeaderboardEntry(
+        userId: 'period-player',
+        displayName: 'Period Player',
+        totalXp: 1000,
+        sessionsCompleted: 40,
+        scoreSum: 3200,
+        averageScore: 80,
+        bestScore: 98,
+        dailyXp: 25,
+        dailySessionsCompleted: 1,
+        dailyScoreSum: 72,
+        dailyAverageScore: 72,
+        dailyBestScore: 72,
+        monthlyXp: 175,
+        monthlySessionsCompleted: 6,
+        monthlyScoreSum: 510,
+        monthlyAverageScore: 85,
+        monthlyBestScore: 94,
+      );
+
+      expect(
+        LeaderboardPresentation.metricsFor(player, LeaderboardPeriod.today),
+        (xp: 25, sessionsCompleted: 1, averageScore: 72.0, bestScore: 72),
+      );
+      expect(
+        LeaderboardPresentation.metricsFor(player, LeaderboardPeriod.thisMonth),
+        (xp: 175, sessionsCompleted: 6, averageScore: 85.0, bestScore: 94),
+      );
+      expect(
+        LeaderboardPresentation.metricsFor(player, LeaderboardPeriod.allTime),
+        (xp: 1000, sessionsCompleted: 40, averageScore: 80.0, bestScore: 98),
+      );
+    });
+
+    test('profile navigation carries only an all-time rank', () {
+      expect(
+        LeaderboardPresentation.profileRankForNavigation(
+          period: LeaderboardPeriod.allTime,
+          selectedPeriodRank: 4,
+        ),
+        4,
+      );
+      expect(
+        LeaderboardPresentation.profileRankForNavigation(
+          period: LeaderboardPeriod.today,
+          selectedPeriodRank: 1,
+        ),
+        isNull,
+      );
+      expect(
+        LeaderboardPresentation.profileRankForNavigation(
+          period: LeaderboardPeriod.thisMonth,
+          selectedPeriodRank: 2,
+        ),
+        isNull,
+      );
     });
   });
 }

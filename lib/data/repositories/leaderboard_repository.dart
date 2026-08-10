@@ -5,19 +5,66 @@ import '../../core/constants/gamification_rules.dart';
 import '../database/firestore_helper.dart';
 import '../models/leaderboard_award_plan.dart';
 import '../models/leaderboard_entry.dart';
+import '../models/leaderboard_period.dart';
 
 /// Opaque pagination cursor. UI stores and returns it; never unwraps it.
-abstract class LeaderboardPageCursor {}
+abstract class LeaderboardPageCursor {
+  LeaderboardPeriod get period;
+  String? get periodKey;
+}
 
 @visibleForTesting
 class FakeLeaderboardPageCursor implements LeaderboardPageCursor {
-  FakeLeaderboardPageCursor(this.id);
+  FakeLeaderboardPageCursor(
+    this.id, {
+    this.period = LeaderboardPeriod.allTime,
+    this.periodKey,
+  });
+
   final String id;
+
+  @override
+  final LeaderboardPeriod period;
+
+  @override
+  final String? periodKey;
 }
 
 class _FirestoreLeaderboardPageCursor implements LeaderboardPageCursor {
-  _FirestoreLeaderboardPageCursor(this.document);
+  _FirestoreLeaderboardPageCursor({
+    required this.document,
+    required this.period,
+    required this.periodKey,
+  });
+
   final DocumentSnapshot<Map<String, dynamic>> document;
+  @override
+  final LeaderboardPeriod period;
+
+  @override
+  final String? periodKey;
+}
+
+/// Signals that a pagination cursor belongs to a different resolved period.
+///
+/// This most commonly occurs when a Today/This month page crosses a Manila
+/// day or month boundary between page requests. Callers must restart at page 1
+/// instead of retrying the expired cursor or appending a different period.
+class LeaderboardPageCursorExpiredException implements Exception {
+  const LeaderboardPageCursorExpiredException({
+    required this.cursorPeriod,
+    required this.cursorPeriodKey,
+    required this.requestedPeriod,
+    required this.requestedPeriodKey,
+  });
+
+  final LeaderboardPeriod cursorPeriod;
+  final String? cursorPeriodKey;
+  final LeaderboardPeriod requestedPeriod;
+  final String? requestedPeriodKey;
+
+  @override
+  String toString() => 'Leaderboard pagination period changed';
 }
 
 class LeaderboardPage {
@@ -77,17 +124,37 @@ class LeaderboardRepository {
   }
 
   Future<LeaderboardPage> fetchPlayersPage({
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
     int limit = 50,
     LeaderboardPageCursor? startAfter,
+    DateTime? nowUtc,
   }) async {
-    Query<Map<String, dynamic>> query = _firestore
-        .collection(FirestoreCollections.leaderboard)
-        .orderBy('total_xp', descending: true)
-        .orderBy('best_score', descending: true)
+    final periodKey = period.keyFor((nowUtc ?? DateTime.now()).toUtc());
+    Query<Map<String, dynamic>> query = _firestore.collection(
+      FirestoreCollections.leaderboard,
+    );
+    if (periodKey != null) {
+      query = query.where(period.keyField!, isEqualTo: periodKey);
+    }
+    query = query
+        .orderBy(period.xpField, descending: true)
+        .orderBy(period.bestScoreField, descending: true)
         .orderBy(FieldPath.documentId)
         .limit(limit);
 
     if (startAfter is _FirestoreLeaderboardPageCursor) {
+      if (!isCursorCompatible(
+        cursor: startAfter,
+        period: period,
+        periodKey: periodKey,
+      )) {
+        throw LeaderboardPageCursorExpiredException(
+          cursorPeriod: startAfter.period,
+          cursorPeriodKey: startAfter.periodKey,
+          requestedPeriod: period,
+          requestedPeriodKey: periodKey,
+        );
+      }
       query = query.startAfterDocument(startAfter.document);
     } else if (startAfter != null) {
       throw ArgumentError(
@@ -101,11 +168,15 @@ class LeaderboardRepository {
         .map((doc) => LeaderboardEntry.tryFromMap(doc.data(), id: doc.id))
         .whereType<LeaderboardEntry>()
         .toList(growable: true);
-    sortLeaderboardEntries(entries);
+    sortLeaderboardEntries(entries, period: period);
 
     final cursor = docs.isEmpty
         ? null
-        : _FirestoreLeaderboardPageCursor(docs.last);
+        : _FirestoreLeaderboardPageCursor(
+            document: docs.last,
+            period: period,
+            periodKey: periodKey,
+          );
 
     return buildPage(
       entries: entries,
@@ -113,6 +184,15 @@ class LeaderboardRepository {
       limit: limit,
       cursorFromLastDoc: cursor,
     );
+  }
+
+  @visibleForTesting
+  static bool isCursorCompatible({
+    required LeaderboardPageCursor cursor,
+    required LeaderboardPeriod period,
+    required String? periodKey,
+  }) {
+    return cursor.period == period && cursor.periodKey == periodKey;
   }
 
   @visibleForTesting
@@ -182,17 +262,27 @@ class LeaderboardRepository {
         final score = _readScore(sessionData['score']);
         final markerSnap = await tx.get(markerRef);
         final leaderboardSnap = await tx.get(leaderboardRef);
+        if (markerSnap.exists) {
+          return;
+        }
+
+        final sessionCreatedAtUtc = _readSessionCreatedAtUtc(
+          sessionData['created_at'],
+          sessionId: sessionId,
+          userId: userId,
+        );
         final plan = LeaderboardAwardPlan.fromExisting(
-          markerExists: markerSnap.exists,
+          markerExists: false,
           existing: leaderboardSnap.data(),
           score: score,
+          sessionCreatedAtUtc: sessionCreatedAtUtc,
         );
 
         if (plan.alreadyProcessed) {
           return;
         }
 
-        final lastSessionAt = sessionData['created_at'] ?? Timestamp.now();
+        final lastSessionAt = sessionData['created_at'];
 
         tx.set(markerRef, {
           'session_id': sessionId,
@@ -216,6 +306,7 @@ class LeaderboardRepository {
           'last_session_at': lastSessionAt,
           'updated_at': FieldValue.serverTimestamp(),
           'last_awarded_session_id': sessionId,
+          ...plan.periodFields,
           ...buildPublicProfileFields(profilePictureUrl: profilePictureUrl),
         };
         tx.set(leaderboardRef, leaderboardData, SetOptions(merge: true));
@@ -399,7 +490,11 @@ class LeaderboardRepository {
 
   /// Deterministic rank for [userId] using the same ordering as leaderboard
   /// queries. Returns null when no leaderboard document exists.
-  Future<int?> computeRankForUser(String userId) async {
+  Future<int?> computeRankForUser(
+    String userId, {
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+    DateTime? nowUtc,
+  }) async {
     final ref = _firestore
         .collection(FirestoreCollections.leaderboard)
         .doc(userId);
@@ -407,36 +502,59 @@ class LeaderboardRepository {
     if (!snap.exists || snap.data() == null) return null;
 
     final data = snap.data()!;
-    final xp = _readInt(data['total_xp']) ?? 0;
-    final best = _readInt(data['best_score']) ?? 0;
-    final collection = _firestore.collection(FirestoreCollections.leaderboard);
+    final periodKey = period.keyFor((nowUtc ?? DateTime.now()).toUtc());
+    if (periodKey != null && data[period.keyField] != periodKey) return null;
 
-    final aheadByXp = await collection
-        .where('total_xp', isGreaterThan: xp)
+    final xp = _readInt(data[period.xpField]) ?? 0;
+    final best = _readInt(data[period.bestScoreField]) ?? 0;
+    Query<Map<String, dynamic>> ranked = _firestore.collection(
+      FirestoreCollections.leaderboard,
+    );
+    if (periodKey != null) {
+      ranked = ranked.where(period.keyField!, isEqualTo: periodKey);
+    }
+
+    final aheadByXp = await ranked
+        .where(period.xpField, isGreaterThan: xp)
         .count()
         .get();
-    final aheadByBest = await collection
-        .where('total_xp', isEqualTo: xp)
-        .where('best_score', isGreaterThan: best)
+    final tiedOnXp = ranked.where(period.xpField, isEqualTo: xp);
+    final aheadByBest = await tiedOnXp
+        .where(period.bestScoreField, isGreaterThan: best)
+        .count()
+        .get();
+    final aheadByDocumentId = await tiedOnXp
+        .where(period.bestScoreField, isEqualTo: best)
+        .where(FieldPath.documentId, isLessThan: userId)
         .count()
         .get();
 
-    return 1 + (aheadByXp.count ?? 0) + (aheadByBest.count ?? 0);
+    return 1 +
+        (aheadByXp.count ?? 0) +
+        (aheadByBest.count ?? 0) +
+        (aheadByDocumentId.count ?? 0);
   }
 
   /// Stable ordering for leaderboard rows when XP and best score tie.
   @visibleForTesting
-  static int compareLeaderboardEntries(LeaderboardEntry a, LeaderboardEntry b) {
-    final xpCmp = b.totalXp.compareTo(a.totalXp);
+  static int compareLeaderboardEntries(
+    LeaderboardEntry a,
+    LeaderboardEntry b, {
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+  }) {
+    final xpCmp = b.xpFor(period).compareTo(a.xpFor(period));
     if (xpCmp != 0) return xpCmp;
-    final bestCmp = b.bestScore.compareTo(a.bestScore);
+    final bestCmp = b.bestScoreFor(period).compareTo(a.bestScoreFor(period));
     if (bestCmp != 0) return bestCmp;
     return a.userId.compareTo(b.userId);
   }
 
   @visibleForTesting
-  static void sortLeaderboardEntries(List<LeaderboardEntry> entries) {
-    entries.sort(compareLeaderboardEntries);
+  static void sortLeaderboardEntries(
+    List<LeaderboardEntry> entries, {
+    LeaderboardPeriod period = LeaderboardPeriod.allTime,
+  }) {
+    entries.sort((a, b) => compareLeaderboardEntries(a, b, period: period));
   }
 
   static int? _readInt(dynamic value) {
@@ -499,6 +617,26 @@ class LeaderboardRepository {
     if (value is int) return value;
     if (value is num) return value.round();
     throw LeaderboardAwardException('Session score is missing or invalid');
+  }
+
+  static DateTime _readSessionCreatedAtUtc(
+    dynamic value, {
+    required String sessionId,
+    required String userId,
+  }) {
+    final createdAt = switch (value) {
+      Timestamp timestamp => timestamp.toDate(),
+      DateTime dateTime => dateTime,
+      _ => null,
+    };
+    if (createdAt == null) {
+      throw LeaderboardAwardException(
+        'Session created_at is missing or is not a server timestamp',
+        sessionId: sessionId,
+        userId: userId,
+      );
+    }
+    return createdAt.toUtc();
   }
 
   static int? _createdAtMs(dynamic value) {

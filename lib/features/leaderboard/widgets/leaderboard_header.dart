@@ -1,18 +1,76 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/leaderboard_period.dart';
+import '../leaderboard_presentation.dart';
 
 class LeaderboardHeader extends StatelessWidget {
   const LeaderboardHeader({
     super.key,
     required this.onRefresh,
+    this.period = LeaderboardPeriod.allTime,
+    this.onPeriodChanged,
     this.refreshEnabled = true,
   });
 
+  final LeaderboardPeriod period;
+  final ValueChanged<LeaderboardPeriod>? onPeriodChanged;
   final VoidCallback onRefresh;
   final bool refreshEnabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final title = _LeaderboardTitle(period: period);
+        final selector = LeaderboardPeriodSelector(
+          period: period,
+          onChanged: onPeriodChanged,
+        );
+        final refresh = _RefreshButton(
+          enabled: refreshEnabled,
+          onPressed: onRefresh,
+        );
+
+        if (constraints.maxWidth >= 880) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: title),
+              const SizedBox(width: AppSpacing.lg),
+              SizedBox(width: 348, child: selector),
+              const SizedBox(width: AppSpacing.sm),
+              refresh,
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            title,
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Expanded(child: selector),
+                const SizedBox(width: AppSpacing.sm),
+                refresh,
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _LeaderboardTitle extends StatelessWidget {
+  const _LeaderboardTitle({required this.period});
+
+  final LeaderboardPeriod period;
 
   @override
   Widget build(BuildContext context) {
@@ -39,46 +97,17 @@ class LeaderboardHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 10,
-                runSpacing: 6,
-                children: [
-                  Text(
-                    'Leaderboard',
-                    style: AppTheme.headingLarge.copyWith(
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: AppColors.warning.withValues(alpha: 0.28),
-                      ),
-                    ),
-                    child: Text(
-                      'All Time',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
-                        color: AppColors.warning.withValues(
-                          alpha: context.isDarkTheme ? 0.92 : 0.85,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
               Text(
-                'All-time rankings by total XP.',
+                'Leaderboard',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.headingLarge.copyWith(color: AppColors.primary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                LeaderboardPresentation.periodSubtitle(period),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: AppTheme.bodySecondary.copyWith(
                   color: context.elixTextSecondary,
                 ),
@@ -86,9 +115,145 @@ class LeaderboardHeader extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
-        _RefreshButton(enabled: refreshEnabled, onPressed: onRefresh),
       ],
+    );
+  }
+}
+
+class LeaderboardPeriodSelector extends StatelessWidget {
+  const LeaderboardPeriodSelector({
+    super.key,
+    required this.period,
+    required this.onChanged,
+  });
+
+  final LeaderboardPeriod period;
+  final ValueChanged<LeaderboardPeriod>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Leaderboard period',
+      child: Container(
+        height: 42,
+        padding: const EdgeInsets.all(AppSpacing.xs),
+        decoration: BoxDecoration(
+          color: context.elixCardSurface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: context.elixBorder),
+        ),
+        child: Row(
+          children: [
+            for (final value in LeaderboardPeriod.values)
+              Expanded(
+                child: _PeriodButton(
+                  key: ValueKey('leaderboard-period-${value.name}'),
+                  label: LeaderboardPresentation.periodLabel(value),
+                  selected: value == period,
+                  onPressed: onChanged == null || value == period
+                      ? null
+                      : () => onChanged!(value),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PeriodButton extends StatefulWidget {
+  const _PeriodButton({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_PeriodButton> createState() => _PeriodButtonState();
+}
+
+class _PeriodButtonState extends State<_PeriodButton> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final interactive = widget.onPressed != null;
+    final highlighted = widget.selected || _hovered || _focused;
+
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      enabled: interactive || widget.selected,
+      label: '${widget.label} leaderboard',
+      child: FocusableActionDetector(
+        enabled: interactive,
+        mouseCursor: interactive
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onPressed?.call();
+              return null;
+            },
+          ),
+        },
+        onShowHoverHighlight: (value) {
+          if (_hovered != value) setState(() => _hovered = value);
+        },
+        onShowFocusHighlight: (value) {
+          if (_focused != value) setState(() => _focused = value);
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: widget.selected
+                  ? AppColors.primary.withValues(
+                      alpha: context.isDarkTheme ? 0.18 : 0.12,
+                    )
+                  : _hovered
+                  ? AppColors.accent.withValues(alpha: 0.08)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _focused
+                    ? AppColors.primary.withValues(alpha: 0.85)
+                    : widget.selected
+                    ? AppColors.primary.withValues(alpha: 0.36)
+                    : Colors.transparent,
+                width: _focused ? 1.5 : 1,
+              ),
+            ),
+            child: Text(
+              widget.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: highlighted ? FontWeight.w700 : FontWeight.w600,
+                color: widget.selected
+                    ? AppColors.primarySoft
+                    : context.elixTextSecondary,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -119,15 +284,20 @@ class _RefreshButtonState extends State<_RefreshButton> {
       child: Tooltip(
         message: 'Refresh leaderboard',
         child: FocusableActionDetector(
+          enabled: interactive,
           onShowFocusHighlight: (focused) {
-            setState(() => _focused = focused);
+            if (_focused != focused) setState(() => _focused = focused);
           },
           onShowHoverHighlight: (hovered) {
-            setState(() => _hovered = hovered);
+            if (_hovered != hovered) setState(() => _hovered = hovered);
           },
           mouseCursor: interactive
               ? SystemMouseCursors.click
               : SystemMouseCursors.basic,
+          shortcuts: const <ShortcutActivator, Intent>{
+            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+          },
           actions: <Type, Action<Intent>>{
             ActivateIntent: CallbackAction<ActivateIntent>(
               onInvoke: (_) {
@@ -139,8 +309,10 @@ class _RefreshButtonState extends State<_RefreshButton> {
           child: GestureDetector(
             onTap: interactive ? widget.onPressed : null,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.all(11),
+              duration: const Duration(milliseconds: 120),
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: context.elixCardSurface,
                 borderRadius: BorderRadius.circular(12),
@@ -148,9 +320,9 @@ class _RefreshButtonState extends State<_RefreshButton> {
                   color: !interactive
                       ? context.elixBorder.withValues(alpha: 0.5)
                       : accentBorder
-                      ? AppColors.accent.withValues(alpha: 0.55)
+                      ? AppColors.accent.withValues(alpha: 0.60)
                       : context.elixBorder,
-                  width: _focused ? 1.6 : 1,
+                  width: _focused ? 1.5 : 1,
                 ),
               ),
               child: Icon(

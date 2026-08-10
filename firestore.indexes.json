@@ -26,6 +26,26 @@
       ]
     },
     {
+      "collectionGroup": "leaderboard",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "daily_key", "order": "ASCENDING" },
+        { "fieldPath": "daily_xp", "order": "DESCENDING" },
+        { "fieldPath": "daily_best_score", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "leaderboard",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "monthly_key", "order": "ASCENDING" },
+        { "fieldPath": "monthly_xp", "order": "DESCENDING" },
+        { "fieldPath": "monthly_best_score", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "daily_quest_claims",
       "queryScope": "COLLECTION",
       "fields": [

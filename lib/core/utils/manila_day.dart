@@ -34,10 +34,40 @@ abstract final class ManilaDay {
         '${d.day.toString().padLeft(2, '0')}';
   }
 
+  /// `'yyyyMM'` for the Manila calendar month that contains [nowUtc].
+  static String monthKeyFor(DateTime nowUtc) {
+    final d = _manilaCalendarDate(nowUtc);
+    return '${d.year.toString().padLeft(4, '0')}'
+        '${d.month.toString().padLeft(2, '0')}';
+  }
+
+  /// Derives a `'yyyyMM'` month key from a validated `'yyyyMMdd'` day key.
+  ///
+  /// Daily quest awards use the verified board's day key as their source of
+  /// period identity. Keeping this conversion here avoids duplicating date-key
+  /// formatting in repositories.
+  static String monthKeyFromDayKey(String dayKey) {
+    if (!_isValidDayKey(dayKey)) {
+      throw FormatException('Invalid Manila day key', dayKey);
+    }
+    return dayKey.substring(0, 6);
+  }
+
   /// Whether [dayKeyA] and [dayKeyB] denote the same Manila calendar day.
   /// Prefer this over comparing raw [DateTime] values.
   static bool dayKeyEquals(String dayKeyA, String dayKeyB) =>
       dayKeyA == dayKeyB;
+
+  static bool _isValidDayKey(String value) {
+    if (!RegExp(r'^\d{8}$').hasMatch(value)) return false;
+    final year = int.parse(value.substring(0, 4));
+    final month = int.parse(value.substring(4, 6));
+    final day = int.parse(value.substring(6, 8));
+    if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+    final parsed = DateTime.utc(year, month, day);
+    return parsed.year == year && parsed.month == month && parsed.day == day;
+  }
 
   /// Fixed fallback start when a user document has no usable `created_at`
   /// (2024-01-01 00:00 Asia/Manila) for account self-erasure board enumeration.

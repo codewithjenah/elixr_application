@@ -1,4 +1,5 @@
 import '../../core/constants/gamification_rules.dart';
+import 'leaderboard_period.dart';
 
 /// Public aggregate ranking row. May include a Cloud Storage download URL for
 /// the player's avatar. Never includes email, storage object paths, or local
@@ -13,6 +14,18 @@ class LeaderboardEntry {
     required this.averageScore,
     required this.bestScore,
     this.questXp = 0,
+    this.dailyKey,
+    this.dailyXp = 0,
+    this.dailySessionsCompleted = 0,
+    this.dailyScoreSum = 0,
+    this.dailyAverageScore = 0,
+    this.dailyBestScore = 0,
+    this.monthlyKey,
+    this.monthlyXp = 0,
+    this.monthlySessionsCompleted = 0,
+    this.monthlyScoreSum = 0,
+    this.monthlyAverageScore = 0,
+    this.monthlyBestScore = 0,
     this.profilePictureUrl,
     this.equippedBorderId,
     this.lastSessionAt,
@@ -34,6 +47,22 @@ class LeaderboardEntry {
   /// combined value (`sessionsCompleted * 25 + questXp`).
   final int questXp;
 
+  /// Optional latest Manila-day aggregate. Legacy documents omit this block.
+  final String? dailyKey;
+  final int dailyXp;
+  final int dailySessionsCompleted;
+  final double dailyScoreSum;
+  final double dailyAverageScore;
+  final int dailyBestScore;
+
+  /// Optional latest Manila-month aggregate. Legacy documents omit this block.
+  final String? monthlyKey;
+  final int monthlyXp;
+  final int monthlySessionsCompleted;
+  final double monthlyScoreSum;
+  final double monthlyAverageScore;
+  final int monthlyBestScore;
+
   /// HTTPS download URL mirrored from the owner's public profile metadata.
   final String? profilePictureUrl;
 
@@ -50,6 +79,44 @@ class LeaderboardEntry {
 
   int get xpIntoLevel => GamificationRules.xpIntoLevel(totalXp);
 
+  LeaderboardMetrics metricsFor(LeaderboardPeriod period) => LeaderboardMetrics(
+    xp: xpFor(period),
+    sessionsCompleted: sessionsCompletedFor(period),
+    scoreSum: scoreSumFor(period),
+    averageScore: averageScoreFor(period),
+    bestScore: bestScoreFor(period),
+  );
+
+  int xpFor(LeaderboardPeriod period) => switch (period) {
+    LeaderboardPeriod.today => dailyXp,
+    LeaderboardPeriod.thisMonth => monthlyXp,
+    LeaderboardPeriod.allTime => totalXp,
+  };
+
+  int sessionsCompletedFor(LeaderboardPeriod period) => switch (period) {
+    LeaderboardPeriod.today => dailySessionsCompleted,
+    LeaderboardPeriod.thisMonth => monthlySessionsCompleted,
+    LeaderboardPeriod.allTime => sessionsCompleted,
+  };
+
+  double scoreSumFor(LeaderboardPeriod period) => switch (period) {
+    LeaderboardPeriod.today => dailyScoreSum,
+    LeaderboardPeriod.thisMonth => monthlyScoreSum,
+    LeaderboardPeriod.allTime => scoreSum,
+  };
+
+  double averageScoreFor(LeaderboardPeriod period) => switch (period) {
+    LeaderboardPeriod.today => dailyAverageScore,
+    LeaderboardPeriod.thisMonth => monthlyAverageScore,
+    LeaderboardPeriod.allTime => averageScore,
+  };
+
+  int bestScoreFor(LeaderboardPeriod period) => switch (period) {
+    LeaderboardPeriod.today => dailyBestScore,
+    LeaderboardPeriod.thisMonth => monthlyBestScore,
+    LeaderboardPeriod.allTime => bestScore,
+  };
+
   /// Parses a Firestore map. Returns null when identity fields are unusable.
   static LeaderboardEntry? tryFromMap(Map<String, dynamic> map, {String? id}) {
     final userId = _readString(map['user_id']) ?? id;
@@ -64,6 +131,23 @@ class LeaderboardEntry {
     final averageScore = _readDouble(map['average_score']) ?? 0;
     final bestScore = _readInt(map['best_score']) ?? 0;
     final questXp = _readInt(map['quest_xp']) ?? 0;
+    final dailyKey = _readPeriodKey(map['daily_key'], LeaderboardPeriod.today);
+    final dailyXp = _readInt(map['daily_xp']) ?? 0;
+    final dailySessionsCompleted =
+        _readInt(map['daily_sessions_completed']) ?? 0;
+    final dailyScoreSum = _readDouble(map['daily_score_sum']) ?? 0;
+    final dailyAverageScore = _readDouble(map['daily_average_score']) ?? 0;
+    final dailyBestScore = _readInt(map['daily_best_score']) ?? 0;
+    final monthlyKey = _readPeriodKey(
+      map['monthly_key'],
+      LeaderboardPeriod.thisMonth,
+    );
+    final monthlyXp = _readInt(map['monthly_xp']) ?? 0;
+    final monthlySessionsCompleted =
+        _readInt(map['monthly_sessions_completed']) ?? 0;
+    final monthlyScoreSum = _readDouble(map['monthly_score_sum']) ?? 0;
+    final monthlyAverageScore = _readDouble(map['monthly_average_score']) ?? 0;
+    final monthlyBestScore = _readInt(map['monthly_best_score']) ?? 0;
 
     return LeaderboardEntry(
       userId: userId,
@@ -74,6 +158,22 @@ class LeaderboardEntry {
       averageScore: averageScore < 0 ? 0 : averageScore,
       bestScore: bestScore < 0 ? 0 : bestScore,
       questXp: questXp < 0 ? 0 : questXp,
+      dailyKey: dailyKey,
+      dailyXp: dailyXp < 0 ? 0 : dailyXp,
+      dailySessionsCompleted: dailySessionsCompleted < 0
+          ? 0
+          : dailySessionsCompleted,
+      dailyScoreSum: dailyScoreSum < 0 ? 0 : dailyScoreSum,
+      dailyAverageScore: dailyAverageScore < 0 ? 0 : dailyAverageScore,
+      dailyBestScore: dailyBestScore < 0 ? 0 : dailyBestScore,
+      monthlyKey: monthlyKey,
+      monthlyXp: monthlyXp < 0 ? 0 : monthlyXp,
+      monthlySessionsCompleted: monthlySessionsCompleted < 0
+          ? 0
+          : monthlySessionsCompleted,
+      monthlyScoreSum: monthlyScoreSum < 0 ? 0 : monthlyScoreSum,
+      monthlyAverageScore: monthlyAverageScore < 0 ? 0 : monthlyAverageScore,
+      monthlyBestScore: monthlyBestScore < 0 ? 0 : monthlyBestScore,
       profilePictureUrl: _readProfilePictureUrl(map['profile_picture_url']),
       equippedBorderId: _readEquippedBorderId(map['equipped_border_id']),
       lastSessionAt: _readTimestampString(map['last_session_at']),
@@ -96,6 +196,11 @@ class LeaderboardEntry {
   static String? _readString(dynamic value) {
     if (value is String) return value;
     return null;
+  }
+
+  static String? _readPeriodKey(dynamic value, LeaderboardPeriod period) {
+    if (value is! String || !period.isValidKey(value)) return null;
+    return value;
   }
 
   static int? _readInt(dynamic value) {

@@ -8,6 +8,7 @@ void main() {
         markerExists: false,
         existing: null,
         score: 80,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
 
       expect(plan.alreadyProcessed, isFalse);
@@ -16,6 +17,11 @@ void main() {
       expect(plan.scoreSum, 80);
       expect(plan.averageScore, 80);
       expect(plan.bestScore, 80);
+      expect(plan.daily.key, '20260810');
+      expect(plan.daily.xp, 25);
+      expect(plan.daily.sessionsCompleted, 1);
+      expect(plan.monthly.key, '202608');
+      expect(plan.monthly.xp, 25);
     });
 
     test('second session increments count and XP and recalculates average', () {
@@ -23,6 +29,7 @@ void main() {
         markerExists: false,
         existing: null,
         score: 80,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
       final second = LeaderboardAwardPlan.fromExisting(
         markerExists: false,
@@ -31,8 +38,10 @@ void main() {
           'sessions_completed': first.sessionsCompleted,
           'score_sum': first.scoreSum,
           'best_score': first.bestScore,
+          ...first.periodFields,
         },
         score: 60,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10, 1),
       );
 
       expect(second.sessionsCompleted, 2);
@@ -40,6 +49,10 @@ void main() {
       expect(second.scoreSum, 140);
       expect(second.averageScore, 70);
       expect(second.bestScore, 80);
+      expect(second.daily.xp, 50);
+      expect(second.daily.sessionsCompleted, 2);
+      expect(second.daily.averageScore, 70);
+      expect(second.monthly.xp, 50);
     });
 
     test('best score remains the maximum', () {
@@ -52,6 +65,7 @@ void main() {
           'best_score': 90,
         },
         score: 40,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
       expect(plan.bestScore, 90);
 
@@ -64,6 +78,7 @@ void main() {
           'best_score': 90,
         },
         score: 95,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
       expect(higher.bestScore, 95);
     });
@@ -79,6 +94,7 @@ void main() {
           'quest_xp': 15,
         },
         score: 100,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
 
       expect(plan.questXp, 15);
@@ -96,6 +112,7 @@ void main() {
           'best_score': 80,
         },
         score: 90,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
 
       expect(plan.questXp, 0);
@@ -112,6 +129,7 @@ void main() {
           'best_score': 80,
         },
         score: 80,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
       );
       expect(plan.alreadyProcessed, isTrue);
     });
