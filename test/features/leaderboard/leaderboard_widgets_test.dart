@@ -426,6 +426,80 @@ void main() {
       expect(find.text('YOU'), findsOneWidget);
     });
 
+    testWidgets(
+      'legendary frames and YOU badge fit full and compact card heights',
+      (tester) async {
+        addTearDown(() async {
+          await tester.binding.setSurfaceSize(null);
+        });
+        final podium = [
+          entry(
+            id: '1',
+            name: 'Legendary Champion',
+            xp: 300,
+            equippedBorderId: 'tin_specialist',
+          ),
+          entry(
+            id: '2',
+            name: 'Legendary Second',
+            xp: 275,
+            equippedBorderId: 'tin_specialist',
+          ),
+          entry(
+            id: '3',
+            name: 'Legendary Third',
+            xp: 250,
+            equippedBorderId: 'tin_specialist',
+          ),
+        ];
+
+        for (final scenario in const [
+          (
+            size: Size(1480, 700),
+            variant: LeaderboardPodiumVariant.full,
+            expectedHeight: LeaderboardPodiumLayout.fullCardHeight,
+          ),
+          (
+            size: Size(760, 700),
+            variant: LeaderboardPodiumVariant.compact,
+            expectedHeight: LeaderboardPodiumLayout.compactCardHeight,
+          ),
+          (
+            size: Size(390, 1000),
+            variant: LeaderboardPodiumVariant.full,
+            expectedHeight: LeaderboardPodiumLayout.fullCardHeight,
+          ),
+        ]) {
+          await tester.binding.setSurfaceSize(scenario.size);
+          await tester.pumpWidget(
+            wrap(
+              SingleChildScrollView(
+                child: LeaderboardPodium(
+                  podium: podium,
+                  currentUserId: '1',
+                  variant: scenario.variant,
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final cardSizes = tester.getSize(
+            find.byType(LeaderboardPodiumCard).first,
+          );
+          expect(cardSizes.height, scenario.expectedHeight);
+          expect(find.text('YOU'), findsOneWidget);
+          expect(
+            tester.takeException(),
+            isNull,
+            reason:
+                'Unexpected overflow for ${scenario.variant.name} at '
+                '${scenario.size.width}px',
+          );
+        }
+      },
+    );
+
     testWidgets('narrow width stacks without overflow', (tester) async {
       await setSurface(tester, const Size(390, 844));
       await tester.pumpWidget(
@@ -641,7 +715,7 @@ void main() {
       expect(find.text('Best score'), findsNothing);
     });
 
-    testWidgets('animates podium border but keeps dense row border static', (
+    testWidgets('animates equipped borders in podium and rank rows', (
       tester,
     ) async {
       await setSurface(tester, const Size(1200, 800));
@@ -684,18 +758,18 @@ void main() {
           .toList();
       expect(avatars, hasLength(2));
       expect(avatars[0].animateBorder, isTrue);
-      expect(avatars[1].animateBorder, isFalse);
+      expect(avatars[1].animateBorder, isTrue);
 
       final frames = tester
           .stateList<ProfileBorderFrameState>(find.byType(ProfileBorderFrame))
           .toList();
       expect(frames, hasLength(2));
       expect(frames[0].debugIsAnimating, isTrue);
-      expect(frames[1].debugIsAnimating, isFalse);
+      expect(frames[1].debugIsAnimating, isTrue);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('compact rank row keeps cosmetic border static', (
+    testWidgets('compact rank row animates an equipped cosmetic border', (
       tester,
     ) async {
       await setSurface(tester, const Size(400, 300));
@@ -718,11 +792,11 @@ void main() {
       final avatar = tester.widget<LeaderboardInitialsAvatar>(
         find.byType(LeaderboardInitialsAvatar),
       );
-      expect(avatar.animateBorder, isFalse);
+      expect(avatar.animateBorder, isTrue);
       final frameState = tester.state<ProfileBorderFrameState>(
         find.byType(ProfileBorderFrame),
       );
-      expect(frameState.debugIsAnimating, isFalse);
+      expect(frameState.debugIsAnimating, isTrue);
       expect(tester.takeException(), isNull);
     });
 
@@ -744,7 +818,7 @@ void main() {
       final avatar = tester.widget<LeaderboardInitialsAvatar>(
         find.byType(LeaderboardInitialsAvatar),
       );
-      expect(avatar.animateBorder, isFalse);
+      expect(avatar.animateBorder, isTrue);
       expect(avatar.equippedBorderId, isNull);
 
       final frameState = tester.state<ProfileBorderFrameState>(

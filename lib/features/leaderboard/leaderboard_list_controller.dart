@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import '../../data/models/leaderboard_award_plan.dart';
 import '../../data/models/leaderboard_entry.dart';
@@ -112,9 +113,10 @@ class LeaderboardListController extends ChangeNotifier {
       loadMoreError = null;
       _hasLoadedAdditionalPage = false;
       await _loadFirstPage();
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (_disposed || generation != _generation) return;
       loadMoreError = error;
+      _logPageLoadError('loadMore', error, stackTrace);
     } finally {
       if (!_disposed && generation == _generation) {
         isLoadingMore = false;
@@ -171,9 +173,10 @@ class LeaderboardListController extends ChangeNotifier {
       hasMore = page.hasMore;
       _nextCursor = page.nextCursor;
       initialError = null;
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (_disposed || generation != _generation) return;
       initialError = error;
+      _logPageLoadError('loadInitial', error, stackTrace);
     } finally {
       if (!_disposed && generation == _generation) {
         if (blockingLoad) {
@@ -234,6 +237,24 @@ class LeaderboardListController extends ChangeNotifier {
 
   void _notifyIfActive() {
     if (!_disposed) notifyListeners();
+  }
+
+  void _logPageLoadError(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    if (!kDebugMode) return;
+    final code = error is FirebaseException ? error.code : null;
+    final message = error is FirebaseException ? error.message : null;
+    debugPrint(
+      'Leaderboard page load failed: operation=$operation '
+      'period=${_period.name}'
+      '${code != null ? ' code=$code' : ''}'
+      '${message != null ? ' message=$message' : ''}'
+      ' error=$error',
+    );
+    debugPrint('$stackTrace');
   }
 }
 
