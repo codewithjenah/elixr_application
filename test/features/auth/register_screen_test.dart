@@ -207,15 +207,60 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
   }
 
+  Future<void> checkPrivacyConsent(WidgetTester tester) async {
+    final checkbox = find.byKey(const Key('register_privacy_consent'));
+    await tester.ensureVisible(checkbox);
+    await tester.tap(checkbox);
+    await tester.pump();
+  }
+
   Future<void> fillValidRegistrationForm(WidgetTester tester) async {
     await _enterAuthField(tester, 'First name', 'Ada');
     await _enterAuthField(tester, 'Last name', 'Lovelace');
     await _enterAuthField(tester, 'Email address', 'ada@example.com');
     await _enterAuthField(tester, 'Password', 'secret1');
     await _enterAuthField(tester, 'Confirm password', 'secret1');
+    await checkPrivacyConsent(tester);
   }
 
   group('RegisterScreen', () {
+    testWidgets(
+      'disables Create Account until privacy consent checkbox is checked',
+      (tester) async {
+        await _setSurface(tester);
+        await pumpRegisterScreen(tester);
+
+        await _enterAuthField(tester, 'First name', 'Ada');
+        await _enterAuthField(tester, 'Last name', 'Lovelace');
+        await _enterAuthField(tester, 'Email address', 'ada@example.com');
+        await _enterAuthField(tester, 'Password', 'secret1');
+        await _enterAuthField(tester, 'Confirm password', 'secret1');
+        await tester.pump();
+
+        final disabled = tester.widget<ElixPrimaryButton>(
+          find.byType(ElixPrimaryButton),
+        );
+        expect(disabled.onPressed, isNull);
+
+        await tester.tap(find.byType(ElixPrimaryButton));
+        await tester.pump();
+        expect(repository.registerCallCount, 0);
+
+        await checkPrivacyConsent(tester);
+
+        final enabled = tester.widget<ElixPrimaryButton>(
+          find.byType(ElixPrimaryButton),
+        );
+        expect(enabled.onPressed, isNotNull);
+
+        await tester.tap(find.byType(ElixPrimaryButton));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(repository.registerCallCount, 1);
+      },
+    );
+
     testWidgets('requires first and last name', (tester) async {
       await _setSurface(tester);
       await pumpRegisterScreen(tester);
@@ -223,6 +268,7 @@ void main() {
       await _enterAuthField(tester, 'Email address', 'ada@example.com');
       await _enterAuthField(tester, 'Password', 'secret1');
       await _enterAuthField(tester, 'Confirm password', 'secret1');
+      await checkPrivacyConsent(tester);
       await tester.tap(find.byType(ElixPrimaryButton));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
@@ -257,6 +303,7 @@ void main() {
         await _enterAuthField(tester, 'Email address', ' ada@example.com ');
         await _enterAuthField(tester, 'Password', 'secret1');
         await _enterAuthField(tester, 'Confirm password', 'secret1');
+        await checkPrivacyConsent(tester);
         await tester.tap(find.byType(ElixPrimaryButton));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));

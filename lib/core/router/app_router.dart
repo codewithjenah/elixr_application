@@ -8,6 +8,8 @@ import '../../features/calendar/calendar_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/leaderboard/leaderboard_screen.dart';
+import '../../features/legal/privacy_policy_screen.dart';
+import '../../features/legal/terms_of_service_screen.dart';
 import '../../features/movements/movements_screen.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
@@ -28,12 +30,16 @@ class AppRouter {
         if (authService.isLoading) return null;
 
         final isAuth = authService.isAuthenticated;
+        final location = state.matchedLocation;
         final isAuthRoute =
-            state.matchedLocation == '/login' ||
-            state.matchedLocation == '/register' ||
-            state.matchedLocation == '/forgot-password';
+            location == '/login' ||
+            location == '/register' ||
+            location == '/forgot-password';
+        final isPublicLegalRoute =
+            location == '/privacy-policy' || location == '/terms-of-service';
+        final isPublicRoute = isAuthRoute || isPublicLegalRoute;
 
-        if (!isAuth && !isAuthRoute) return '/login';
+        if (!isAuth && !isPublicRoute) return '/login';
         if (isAuth && isAuthRoute) return '/dashboard';
         return null;
       },
@@ -57,6 +63,20 @@ class AppRouter {
           pageBuilder: (context, state) => fadeTransitionPage(
             key: state.pageKey,
             child: const ForgotPasswordScreen(),
+          ),
+        ),
+        GoRoute(
+          path: '/privacy-policy',
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: const PrivacyPolicyScreen(),
+          ),
+        ),
+        GoRoute(
+          path: '/terms-of-service',
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: const TermsOfServiceScreen(),
           ),
         ),
         GoRoute(

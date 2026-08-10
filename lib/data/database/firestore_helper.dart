@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/feedback.dart';
 import '../models/session.dart';
 import '../models/user.dart';
+import '../privacy_consent.dart';
 
 abstract final class FirestoreCollections {
   static const users = 'users';
@@ -49,6 +50,8 @@ class FirestoreHelper {
       'profile_picture_path': data['profile_picture_path'],
       'profile_picture_url': data['profile_picture_url'],
       'profile_picture_storage_path': data['profile_picture_storage_path'],
+      'privacy_consent_at': _readCreatedAt(data['privacy_consent_at']),
+      'privacy_policy_version': data['privacy_policy_version'],
     };
   }
 
@@ -81,11 +84,17 @@ class FirestoreHelper {
     };
   }
 
-  Future<void> upsertUserProfile(User user) async {
-    if (user.id == null) {
-      throw ArgumentError('User id is required');
-    }
-    await _firestore.collection(FirestoreCollections.users).doc(user.id).set({
+  /// Builds the Firestore payload for [upsertUserProfile].
+  ///
+  /// When [includePrivacyConsent] is true, registration consent markers are
+  /// included. [serverTimestamp] defaults to `FieldValue.serverTimestamp()`.
+  static Map<String, dynamic> userProfileWriteData(
+    User user, {
+    bool includePrivacyConsent = false,
+    Object Function()? serverTimestamp,
+  }) {
+    final timestamp = serverTimestamp ?? () => FieldValue.serverTimestamp();
+    return {
       'first_name': user.firstName,
       if (user.middleName != null && user.middleName!.isNotEmpty)
         'middle_name': user.middleName,
@@ -93,14 +102,34 @@ class FirestoreHelper {
       'full_name': user.fullName,
       'email': user.email,
       'role': user.role,
-      'created_at': FieldValue.serverTimestamp(),
+      'created_at': timestamp(),
       if (user.profilePictureUrl != null)
         'profile_picture_url': user.profilePictureUrl,
       if (user.profilePictureStoragePath != null)
         'profile_picture_storage_path': user.profilePictureStoragePath,
       if (user.profilePictureUrl == null && user.profilePicturePath != null)
         'profile_picture_path': user.profilePicturePath,
-    }, SetOptions(merge: true));
+      if (includePrivacyConsent)
+        ...RegistrationPrivacyConsent.documentFields(
+          consentTimestamp: timestamp(),
+        ),
+    };
+  }
+
+  Future<void> upsertUserProfile(
+    User user, {
+    bool includePrivacyConsent = false,
+  }) async {
+    if (user.id == null) {
+      throw ArgumentError('User id is required');
+    }
+    await _firestore.collection(FirestoreCollections.users).doc(user.id).set(
+      userProfileWriteData(
+        user,
+        includePrivacyConsent: includePrivacyConsent,
+      ),
+      SetOptions(merge: true),
+    );
   }
 
   Future<void> updateUserProfileField(

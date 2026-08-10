@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
@@ -245,7 +244,7 @@ class AuthRepository implements AuthRepositoryBase {
         email: email,
         role: AppConstants.defaultRole,
       );
-      await _db.upsertUserProfile(user);
+      await _db.upsertUserProfile(user, includePrivacyConsent: true);
       return user;
     } on fb.FirebaseAuthException catch (e) {
       throw Exception(_messageForAuthError(e));

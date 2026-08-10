@@ -2,7 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -23,6 +25,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
+  bool _agreedToLegal = false;
   bool _isLoading = false;
   String? _error;
 
@@ -38,6 +41,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    if (!_agreedToLegal) return;
+
     final nameError = validateUserNameParts(
       firstName: _firstNameController.text,
       middleName: _middleNameController.text,
@@ -149,8 +154,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
             placeholder: 'Confirm password',
             icon: FluentIcons.shield_solid,
             obscureText: true,
-            onSubmitted: (_) => _register(),
+            onSubmitted: (_) {
+              if (_agreedToLegal) _register();
+            },
             dense: dense,
+          ),
+          SizedBox(height: fieldGap),
+          _RegisterLegalConsent(
+            agreed: _agreedToLegal,
+            onChanged: (value) => setState(() => _agreedToLegal = value),
           ),
           if (_error != null) ...[
             SizedBox(height: actionGap),
@@ -160,7 +172,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ElixPrimaryButton(
             label: 'Create Account',
             isLoading: _isLoading,
-            onPressed: _register,
+            onPressed: _agreedToLegal ? _register : null,
             dense: dense,
           ),
           SizedBox(height: verticalTight ? AppSpacing.xs : AppSpacing.sm),
@@ -173,6 +185,62 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RegisterLegalConsent extends StatelessWidget {
+  const _RegisterLegalConsent({
+    required this.agreed,
+    required this.onChanged,
+  });
+
+  final bool agreed;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final linkStyle = AppTheme.caption.copyWith(
+      color: AppColors.primary,
+      height: 1.35,
+      decoration: TextDecoration.underline,
+      decorationColor: AppColors.primary,
+    );
+    final plainStyle = AppTheme.caption.copyWith(
+      color: context.elixTextSecondary,
+      height: 1.35,
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Checkbox(
+          key: const Key('register_privacy_consent'),
+          checked: agreed,
+          onChanged: (value) => onChanged(value == true),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => onChanged(!agreed),
+                child: Text('I agree to the ', style: plainStyle),
+              ),
+              GestureDetector(
+                onTap: () => context.push('/privacy-policy'),
+                child: Text('Privacy Policy', style: linkStyle),
+              ),
+              Text(' and ', style: plainStyle),
+              GestureDetector(
+                onTap: () => context.push('/terms-of-service'),
+                child: Text('Terms of Service', style: linkStyle),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

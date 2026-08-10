@@ -12,6 +12,8 @@ class User {
     this.profilePicturePath,
     this.profilePictureUrl,
     this.profilePictureStoragePath,
+    this.privacyConsentAt,
+    this.privacyPolicyVersion,
   });
 
   final String? id;
@@ -35,6 +37,12 @@ class User {
   /// the previous avatar when a new one is saved.
   final String? profilePictureStoragePath;
 
+  /// When the user accepted the Privacy Policy / Terms at registration.
+  final DateTime? privacyConsentAt;
+
+  /// Privacy Policy version acknowledged at registration (e.g. `v1`).
+  final String? privacyPolicyVersion;
+
   String get fullName => composeUserFullName(
     firstName: firstName,
     middleName: middleName,
@@ -53,6 +61,8 @@ class User {
     String? profilePicturePath,
     String? profilePictureUrl,
     String? profilePictureStoragePath,
+    DateTime? privacyConsentAt,
+    String? privacyPolicyVersion,
   }) {
     return User(
       id: id ?? this.id,
@@ -66,6 +76,8 @@ class User {
       profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
       profilePictureStoragePath:
           profilePictureStoragePath ?? this.profilePictureStoragePath,
+      privacyConsentAt: privacyConsentAt ?? this.privacyConsentAt,
+      privacyPolicyVersion: privacyPolicyVersion ?? this.privacyPolicyVersion,
     );
   }
 
@@ -84,6 +96,10 @@ class User {
         'profile_picture_storage_path': profilePictureStoragePath,
       if (profilePictureUrl == null && profilePicturePath != null)
         'profile_picture_path': profilePicturePath,
+      if (privacyConsentAt != null)
+        'privacy_consent_at': privacyConsentAt!.toIso8601String(),
+      if (privacyPolicyVersion != null)
+        'privacy_policy_version': privacyPolicyVersion,
     };
 
     if (createdAt != null) {
@@ -93,9 +109,18 @@ class User {
     return map;
   }
 
+  static DateTime? _readPrivacyConsentAt(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
   factory User.fromMap(Map<String, dynamic> map) {
     final structuredFirst = map['first_name'];
     final structuredLast = map['last_name'];
+    final privacyConsentAt = _readPrivacyConsentAt(map['privacy_consent_at']);
+    final privacyPolicyVersion = map['privacy_policy_version'] as String?;
 
     if (structuredFirst is String && structuredLast is String) {
       final middle = map['middle_name'];
@@ -113,6 +138,8 @@ class User {
         profilePictureUrl: map['profile_picture_url'] as String?,
         profilePictureStoragePath:
             map['profile_picture_storage_path'] as String?,
+        privacyConsentAt: privacyConsentAt,
+        privacyPolicyVersion: privacyPolicyVersion,
       );
     }
 
@@ -130,6 +157,8 @@ class User {
       profilePicturePath: map['profile_picture_path'] as String?,
       profilePictureUrl: map['profile_picture_url'] as String?,
       profilePictureStoragePath: map['profile_picture_storage_path'] as String?,
+      privacyConsentAt: privacyConsentAt,
+      privacyPolicyVersion: privacyPolicyVersion,
     );
   }
 }
