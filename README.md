@@ -402,7 +402,7 @@ Guided practice and free practice share camera ownership and prepare/activate bo
 - The backend is unavailable.
 - The selected camera is still opening.
 - The preview is black or the client is still waiting for the first usable JPEG frame.
-- Guided readiness inputs are not yet stably ready, or the user has not tapped Start Practice.
+- Guided readiness inputs are not yet stably ready (or auto-start confirm has not been accepted).
 - The session has not been explicitly activated.
 
 ### Guided practice end-to-end flow
@@ -411,7 +411,7 @@ Guided practice and free practice share camera ownership and prepare/activate bo
 2. **Camera/session preparation** — Flutter sends a protocol v1 `prepare` command with `request_id`, `session_id`, movement, difficulty, selected `prop_type`, `bottle_detection_enabled`, and camera selection (`camera_device_id` or legacy `camera_index`). The backend opens the camera, then returns a correlated `command_ack` with `accepted: true` and `session_state: "preparing"`. Preview frames stream without scoring or detectors.
 3. **Waiting for first usable preview frame** — Flutter stays in `PracticeRunPhase.preparingCamera` until a preview JPEG arrives (20 s preparation timeout).
 4. **Readiness check** — After the first JPEG, guided practice sends protocol v1 `begin_readiness`. The backend loads detectors on the same camera session, streams annotated frames with `session_state: "readying"`, and emits optional checklist fields (`readiness_items`, `readiness_complete`, `readiness_stable`, `readiness_stable_progress`). Readiness validates **camera, prop, and landmark observability only** — it is not technique coaching and does not score, update hold confirmation, or evaluate movement success thresholds.
-5. **Manual Start Practice** — Start Practice enables only after `readiness_stable` is true (consecutive per-item frames plus a monotonic stable duration). On tap, Flutter sends protocol v1 `confirm_readiness`. The backend accepts only when the latest readiness snapshot is currently stable, then Flutter freezes the checklist and enters `PracticeRunPhase.countdown`. Ordinary detection loss during countdown does **not** cancel countdown or revoke confirmation; only fatal camera/backend/model errors abort.
+5. **Auto-start after Ready beat** — After `readiness_stable` is true (consecutive per-item frames plus a monotonic stable duration), Flutter waits a short Ready beat (~800 ms), then automatically sends protocol v1 `confirm_readiness`. The backend accepts only when the latest readiness snapshot is currently stable, then Flutter freezes the checklist and enters `PracticeRunPhase.countdown`. Ordinary detection loss during countdown does **not** cancel countdown or revoke confirmation; only fatal camera/backend/model errors abort. Losing stability during the Ready beat cancels auto-start and re-arms when stable again.
 6. **Explicit activation** — After countdown, Flutter sends protocol v1 `activate` for the same `session_id`. For sessions that entered `readying`, the backend requires a prior accepted `confirm_readiness`. Backend transitions the matching prepared/readying session to active **without reopening the camera** and returns `command_ack` with `session_state: "active"`.
 7. **Timer and scoring start** — Flutter enters `PracticeRunPhase.active` only after accepted activation, starts the elapsed timer from `00:00`, and enables scoring/combo/hold UI and music.
 8. **Hold confirmation** — Backend-authoritative during `session_state: active` only. Preview, readiness, and countdown frames never advance hold confirmation.
@@ -421,7 +421,7 @@ Guided practice and free practice share camera ownership and prepare/activate bo
 
 Free practice keeps `prepare` → first JPEG → countdown → `activate` (no readiness gate). It remains unscored and does not persist sessions.
 
-Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided practice uses protocol v1 `prepare` → `begin_readiness` → Start Practice (`confirm_readiness`) → countdown → `activate`.
+Legacy compatibility: commands without `protocol_version` (including `{"action":"start", ...}`) still prepare/activate with the older permissive behavior and do not require acknowledgments. New guided practice uses protocol v1 `prepare` → `begin_readiness` → auto `confirm_readiness` → countdown → `activate`.
 
 ### WebSocket contract
 

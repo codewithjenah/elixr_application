@@ -35,7 +35,7 @@ class PracticeReadinessState {
   /// Progress toward the stable-readiness threshold (0.0–1.0, clamped).
   final double stableProgress;
 
-  /// Frozen snapshot captured when the user tapped Start Practice and the
+  /// Frozen snapshot captured when auto-start confirmed readiness and the
   /// backend accepted [confirm_readiness]. Non-null only during countdown.
   final List<ReadinessItemView>? frozenSnapshot;
 
@@ -46,7 +46,7 @@ class PracticeReadinessState {
   final bool confirmed;
 
   /// True when the backend stream has not delivered a fresh readiness frame
-  /// within the freshness watchdog window (2 s). Disables Start Practice.
+  /// within the freshness watchdog window (2 s). Blocks auto-start.
   final bool streamStale;
 
   /// Recoverable inline message set by a soft rejection (readiness_not_stable,
@@ -61,7 +61,7 @@ class PracticeReadinessState {
   /// True once [frozenSnapshot] has been captured (confirm accepted, in countdown).
   bool get frozen => frozenSnapshot != null;
 
-  /// True when the user may tap Start Practice.
+  /// True when guided practice may auto-start after the Ready beat.
   ///
   /// Requires stable readiness, no in-flight or completed confirmation, and a
   /// fresh backend stream.

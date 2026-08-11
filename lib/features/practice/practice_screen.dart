@@ -190,7 +190,11 @@ class _PracticeScreenState extends State<PracticeScreen>
   }
 
   void _onRunChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_run.consumeAutoStartDue()) {
+      _onStartPractice();
+    }
   }
 
   void _publishFrame(Uint8List? bytes) {
@@ -360,7 +364,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     }
   }
 
-  /// Handle the "Start Practice" button press during the readiness gate.
+  /// Auto-start entry after the Ready beat (or shared confirm path).
   void _onStartPractice() {
     if (_commandInFlight) return;
     final stable = _run.readiness.stable || (_run.readinessStable == true);
@@ -1159,34 +1163,28 @@ class _PracticeScreenState extends State<PracticeScreen>
     );
   }
 
-  /// Action area shown during the readiness gate: Start Practice + Cancel.
+  /// Action area shown during the readiness gate: status + Cancel (auto-start).
   Widget _buildReadinessActionArea() {
     final readiness = _run.readiness;
-    final canStart =
-        readiness.canStartPractice && !_commandInFlight && _run.isReadiness;
-    final confirming = readiness.confirming;
+    final starting =
+        readiness.confirming ||
+        _commandInFlight ||
+        (readiness.canStartPractice && _run.isReadiness);
+    final statusText = starting ? 'Starting\u2026' : 'Hold steady\u2026';
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (confirming)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Text(
-              'Confirming readiness\u2026',
-              style: AppTheme.bodySecondary.copyWith(
-                color: context.elixTextSecondary,
-              ),
-              textAlign: TextAlign.center,
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+          child: Text(
+            statusText,
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
             ),
+            textAlign: TextAlign.center,
           ),
-        TrainingActionArea(
-          kind: TrainingActionKind.start,
-          startLabel: 'Start Practice',
-          onPressed: canStart ? _onStartPractice : null,
-          isLoading: _commandInFlight,
         ),
-        const SizedBox(height: AppSpacing.sm),
         HyperlinkButton(
           onPressed: _cancelPreActive,
           child: Text(

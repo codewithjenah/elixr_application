@@ -13,8 +13,9 @@ enum PracticeRunPhase {
 
   /// Pre-practice readiness gate (Guided Practice only). Camera is live and the
   /// backend is running readiness checks. Checklist items arrive via feedback
-  /// frames until [PracticeRunController.requestStartPractice] freezes the
-  /// state and transitions to countdown.
+  /// frames until auto-start (after a Ready beat) calls
+  /// [PracticeRunController.requestStartPractice], freezes the state, and
+  /// transitions to countdown.
   readiness,
 
   countdown,
@@ -33,9 +34,17 @@ const _kReadinessFreshnessWindow = Duration(seconds: 2);
 class PracticeRunController extends ChangeNotifier {
   PracticeRunController({
     this.preparationTimeout = const Duration(seconds: 20),
+    this.autoStartReadyBeat = defaultAutoStartReadyBeat,
   });
 
+  /// Brief hold after [PracticeReadinessState.canStartPractice] so the Ready
+  /// checklist state is visible before auto-confirm.
+  static const defaultAutoStartReadyBeat = Duration(milliseconds: 800);
+
   final Duration preparationTimeout;
+
+  /// Delay between stable readiness and [autoStartDue] for guided auto-start.
+  final Duration autoStartReadyBeat;
 
   PracticeRunPhase _phase = PracticeRunPhase.idle;
   int _elapsedSeconds = 0;
@@ -44,6 +53,8 @@ class PracticeRunController extends ChangeNotifier {
   Timer? _elapsedTimer;
   Timer? _prepTimeout;
   Timer? _watchdogTimer;
+  Timer? _autoStartTimer;
+  bool _autoStartDue = false;
   VoidCallback? _onPreparationTimeout;
 
   /// Incremented on each [beginPreparing] call. Callers may snapshot this
@@ -64,6 +75,9 @@ class PracticeRunController extends ChangeNotifier {
   PracticeReadinessState get readiness => _readiness;
 
   // ── Backward-compatible readiness getters ────────────────────────────────
+
+  /// True when the Ready beat completed and the screen should auto-confirm.
+  bool get autoStartDue => _autoStartDue;
 
   /// True after [requestStartPractice] freezes the readiness checklist.
   bool get readinessFrozen => _readiness.frozen;
@@ -105,6 +119,7 @@ class PracticeRunController extends ChangeNotifier {
     _stopElapsedTimer();
     _cancelPrepTimeout();
     _cancelWatchdog();
+    _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.preparingCamera;
     _elapsedSeconds = 0;
     _errorMessage = null;
@@ -165,7 +180,7 @@ class PracticeRunController extends ChangeNotifier {
   ///
   /// Accepted from two sources:
   /// - Free Practice: preparingCamera + [countdownTriggered] (first JPEG seen).
-  /// - Guided: readiness + frozen snapshot (after [requestStartPractice]).
+  /// - Guided: readiness + frozen snapshot (after auto-start confirm).
   void enterCountdown() {
     final fromFreePractice =
         _phase == PracticeRunPhase.preparingCamera && _firstPreviewReceived;
@@ -173,6 +188,7 @@ class PracticeRunController extends ChangeNotifier {
         _phase == PracticeRunPhase.readiness && _readiness.frozen;
     if (!fromFreePractice && !fromGuidedReadiness) return;
     _cancelWatchdog();
+    _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.countdown;
     notifyListeners();
   }
@@ -183,6 +199,7 @@ class PracticeRunController extends ChangeNotifier {
   ///
   /// Updates [readiness] only while phase == readiness && !frozen.
   /// Resets stream stale and restarts the 2-second freshness watchdog.
+  /// Arms or cancels the auto-start Ready beat based on [canStartPractice].
   ///
   /// Returns true if the state was updated and listeners were notified.
   bool applyReadinessFeedback({
@@ -201,6 +218,7 @@ class PracticeRunController extends ChangeNotifier {
       clearRecoverable: stable, // clear recoverable message once stable again
     );
     _restartWatchdog();
+    _syncAutoStartBeat();
     notifyListeners();
     return true;
   }
@@ -216,6 +234,7 @@ class PracticeRunController extends ChangeNotifier {
     if (readinessStable != null) {
       _readiness = _readiness.copyWith(stable: readinessStable);
     }
+    _syncAutoStartBeat();
     notifyListeners();
     return true;
   }
@@ -232,6 +251,7 @@ class PracticeRunController extends ChangeNotifier {
       streamStale: true,
       recoverableMessage: 'Waiting for a fresh camera reading\u2026',
     );
+    _syncAutoStartBeat();
     notifyListeners();
   }
 
@@ -240,16 +260,54 @@ class PracticeRunController extends ChangeNotifier {
     _watchdogTimer = null;
   }
 
+  /// Consume a one-shot auto-start signal after the Ready beat completes.
+  ///
+  /// Returns true once; subsequent calls return false until a new beat fires.
+  bool consumeAutoStartDue() {
+    if (!_autoStartDue) return false;
+    _autoStartDue = false;
+    return true;
+  }
+
+  /// Arm or cancel the Ready beat based on current readiness eligibility.
+  void _syncAutoStartBeat() {
+    final eligible =
+        _phase == PracticeRunPhase.readiness && _readiness.canStartPractice;
+    if (!eligible) {
+      _cancelAutoStartBeat(clearDue: true);
+      return;
+    }
+    if (_autoStartDue || _autoStartTimer != null) return;
+    _autoStartTimer = Timer(autoStartReadyBeat, _onAutoStartBeatComplete);
+  }
+
+  void _onAutoStartBeatComplete() {
+    _autoStartTimer = null;
+    if (_phase != PracticeRunPhase.readiness) return;
+    if (!_readiness.canStartPractice) return;
+    _autoStartDue = true;
+    notifyListeners();
+  }
+
+  void _cancelAutoStartBeat({required bool clearDue}) {
+    _autoStartTimer?.cancel();
+    _autoStartTimer = null;
+    if (clearDue) {
+      _autoStartDue = false;
+    }
+  }
+
   /// Request to start practice from the readiness gate (Guided Practice).
   ///
-  /// Returns false without changing state when:
+  /// Called by the screen after [consumeAutoStartDue] (or tests). Returns
+  /// false without changing state when:
   /// - [readiness.canStartPractice] is false (not stable, stream stale, or
   ///   already confirming/confirmed). The legacy [readinessStable] param is
   ///   accepted for backward compatibility but [readiness.stable] takes
   ///   precedence when it has been set via [applyReadinessFeedback].
   /// - Phase is not [PracticeRunPhase.readiness].
   ///
-  /// On success: marks confirmation in flight.
+  /// On success: marks confirmation in flight and cancels the Ready beat.
   bool requestStartPractice({required bool readinessStable}) {
     if (_phase != PracticeRunPhase.readiness) return false;
     // Compat: accept caller-supplied stable when readiness hasn't been updated
@@ -260,6 +318,7 @@ class PracticeRunController extends ChangeNotifier {
     if (_readiness.confirming || _readiness.frozen || _readiness.confirmed) {
       return false;
     }
+    _cancelAutoStartBeat(clearDue: true);
     _readiness = _readiness.copyWith(confirming: true, clearRecoverable: true);
     notifyListeners();
     return true;
@@ -276,6 +335,7 @@ class PracticeRunController extends ChangeNotifier {
       frozenSnapshot: List.unmodifiable(_readiness.items),
     );
     _cancelWatchdog();
+    _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.countdown;
     notifyListeners();
     return true;
@@ -286,7 +346,8 @@ class PracticeRunController extends ChangeNotifier {
   /// For [readiness_not_stable] and [readiness_stale] errors the rejection is
   /// recoverable: clears confirming, sets [recoverableMessage], and stays in
   /// readiness. Other error codes are also recoverable (the session is not
-  /// fatal) but do not set a specific message.
+  /// fatal) but do not set a specific message. Soft rejects re-arm auto-start
+  /// when stable feedback returns.
   void onConfirmReadinessRejected({String? errorCode, String? message}) {
     if (!_readiness.confirming) return;
     String? recoverable;
@@ -300,12 +361,13 @@ class PracticeRunController extends ChangeNotifier {
       recoverableMessage: recoverable,
       clearRecoverable: recoverable == null,
     );
+    _syncAutoStartBeat();
     notifyListeners();
   }
 
   /// Activation rejected after countdown (e.g. readiness_not_confirmed).
   ///
-  /// Returns to readiness phase and clears the frozen snapshot so the user
+  /// Returns to readiness phase and clears the frozen snapshot so auto-start
   /// can attempt confirmation again.
   void onActivationRejected() {
     _readiness = _readiness.copyWith(
@@ -316,6 +378,7 @@ class PracticeRunController extends ChangeNotifier {
     if (_phase == PracticeRunPhase.countdown) {
       _phase = PracticeRunPhase.readiness;
     }
+    _syncAutoStartBeat();
     notifyListeners();
   }
 
@@ -332,6 +395,7 @@ class PracticeRunController extends ChangeNotifier {
   void markCompleted() {
     _stopElapsedTimer();
     _cancelPrepTimeout();
+    _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.completed;
     notifyListeners();
   }
@@ -341,6 +405,7 @@ class PracticeRunController extends ChangeNotifier {
     _stopElapsedTimer();
     _cancelPrepTimeout();
     _cancelWatchdog();
+    _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.idle;
     _elapsedSeconds = 0;
     _errorMessage = null;
@@ -353,6 +418,7 @@ class PracticeRunController extends ChangeNotifier {
     _stopElapsedTimer();
     _cancelPrepTimeout();
     _cancelWatchdog();
+    _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.error;
     _errorMessage = message;
     _readiness = PracticeReadinessState.empty;
@@ -394,6 +460,9 @@ class PracticeRunController extends ChangeNotifier {
   @visibleForTesting
   bool get hasWatchdogTimer => _watchdogTimer != null;
 
+  @visibleForTesting
+  bool get hasAutoStartTimer => _autoStartTimer != null;
+
   /// Test helper: advance the elapsed counter as if Timer.periodic fired.
   @visibleForTesting
   void debugElapseSeconds(int seconds) {
@@ -412,11 +481,16 @@ class PracticeRunController extends ChangeNotifier {
   @visibleForTesting
   void debugFireReadinessWatchdog() => _onWatchdogExpired();
 
+  /// Test helper: fire the auto-start Ready beat immediately.
+  @visibleForTesting
+  void debugFireAutoStartBeat() => _onAutoStartBeatComplete();
+
   @override
   void dispose() {
     _stopElapsedTimer();
     _cancelPrepTimeout();
     _cancelWatchdog();
+    _cancelAutoStartBeat(clearDue: true);
     super.dispose();
   }
 }

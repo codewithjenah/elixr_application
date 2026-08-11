@@ -3,6 +3,7 @@ import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/practice_readiness_state.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:elixr_application/services/websocket_service.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -1113,6 +1114,162 @@ void main() {
       expect(run.hasWatchdogTimer, isTrue);
       run.dispose();
       expect(run.hasWatchdogTimer, isFalse);
+    });
+  });
+
+  group('PracticeRunController auto-start Ready beat', () {
+    List<ReadinessItemView> readyItems() => const [
+      ReadinessItemView(
+        code: 'camera_frame',
+        status: ReadinessItemStatus.ready,
+        message: 'OK',
+      ),
+    ];
+
+    void enterGuidedReadiness(PracticeRunController run) {
+      run.beginPreparing(onTimeout: () {});
+      run.onPreviewFeedback(hasJpegFrame: true, isFatal: false);
+      run.enterReadiness();
+    }
+
+    test('stable readiness arms beat; after 800ms autoStartDue is true', () {
+      fakeAsync((async) {
+        final run = PracticeRunController();
+        enterGuidedReadiness(run);
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        expect(run.hasAutoStartTimer, isTrue);
+        expect(run.autoStartDue, isFalse);
+
+        async.elapse(const Duration(milliseconds: 799));
+        expect(run.autoStartDue, isFalse);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(run.autoStartDue, isTrue);
+        expect(run.consumeAutoStartDue(), isTrue);
+        expect(run.consumeAutoStartDue(), isFalse);
+        expect(run.autoStartDue, isFalse);
+        run.dispose();
+      });
+    });
+
+    test('losing stability before beat completes cancels auto-start', () {
+      fakeAsync((async) {
+        final run = PracticeRunController();
+        enterGuidedReadiness(run);
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        expect(run.hasAutoStartTimer, isTrue);
+
+        async.elapse(const Duration(milliseconds: 400));
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: false,
+          stable: false,
+          progress: 0.2,
+        );
+        expect(run.hasAutoStartTimer, isFalse);
+        expect(run.autoStartDue, isFalse);
+
+        async.elapse(const Duration(milliseconds: 800));
+        expect(run.autoStartDue, isFalse);
+        expect(run.consumeAutoStartDue(), isFalse);
+        run.dispose();
+      });
+    });
+
+    test('soft reject re-arms Ready beat when still stable', () {
+      fakeAsync((async) {
+        final run = PracticeRunController();
+        enterGuidedReadiness(run);
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        async.elapse(PracticeRunController.defaultAutoStartReadyBeat);
+        expect(run.consumeAutoStartDue(), isTrue);
+
+        expect(run.requestStartPractice(readinessStable: true), isTrue);
+        run.onConfirmReadinessRejected(
+          errorCode: 'readiness_not_stable',
+          message: 'Not stable',
+        );
+        expect(run.phase, PracticeRunPhase.readiness);
+        expect(run.readiness.confirming, isFalse);
+        // Prior feedback still reports stable, so auto-start re-arms.
+        expect(run.hasAutoStartTimer, isTrue);
+
+        async.elapse(PracticeRunController.defaultAutoStartReadyBeat);
+        expect(run.autoStartDue, isTrue);
+        expect(run.consumeAutoStartDue(), isTrue);
+        run.dispose();
+      });
+    });
+
+    test('cancelToIdle and dispose cancel pending Ready beat', () {
+      fakeAsync((async) {
+        final run = PracticeRunController();
+        enterGuidedReadiness(run);
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        expect(run.hasAutoStartTimer, isTrue);
+
+        run.cancelToIdle();
+        expect(run.hasAutoStartTimer, isFalse);
+        expect(run.autoStartDue, isFalse);
+        async.elapse(const Duration(seconds: 2));
+        expect(run.autoStartDue, isFalse);
+
+        enterGuidedReadiness(run);
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        expect(run.hasAutoStartTimer, isTrue);
+        run.dispose();
+        expect(run.hasAutoStartTimer, isFalse);
+        async.elapse(const Duration(seconds: 2));
+        expect(run.autoStartDue, isFalse);
+      });
+    });
+
+    test('stream stale during beat cancels auto-start', () {
+      fakeAsync((async) {
+        final run = PracticeRunController();
+        enterGuidedReadiness(run);
+        run.applyReadinessFeedback(
+          items: readyItems(),
+          complete: true,
+          stable: true,
+          progress: 1.0,
+        );
+        expect(run.hasAutoStartTimer, isTrue);
+
+        run.debugFireReadinessWatchdog();
+        expect(run.readiness.streamStale, isTrue);
+        expect(run.hasAutoStartTimer, isFalse);
+        expect(run.autoStartDue, isFalse);
+
+        async.elapse(const Duration(seconds: 2));
+        expect(run.autoStartDue, isFalse);
+        run.dispose();
+      });
     });
   });
 
