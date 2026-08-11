@@ -18,6 +18,10 @@ logs/
 backend/logs/
 error_log*.txt
 
+# Local test-output captures (never commit; may leak machine paths)
+*_test_out.txt
+baseline_flutter_test.txt
+
 # IntelliJ related
 *.iml
 *.ipr
