@@ -437,6 +437,8 @@ class _PracticeScreenState extends State<PracticeScreen>
   /// became true. When the overlay animation completes it calls
   /// [_beginSessionAfterCountdown] via [onCountdownComplete].
   Future<void> _startGuidedCountdownOverlay() async {
+    final settings = context.read<SettingsService>();
+    await _sfx.setVolume(settings.soundEnabled ? settings.musicVolume : 0.0);
     await _sfx.playCountdown();
     // SFX completes; the overlay drives the rest via onCountdownComplete.
   }
@@ -585,9 +587,10 @@ class _PracticeScreenState extends State<PracticeScreen>
 
       _run.enterActive();
       _sfx.stop();
-      _music.start(
-        resolveTrack(context.read<SettingsService>().selectedMusicTrackId),
-      );
+      final settings = context.read<SettingsService>();
+      final volume = settings.soundEnabled ? settings.musicVolume : 0.0;
+      await _music.setVolume(volume);
+      _music.start(resolveTrack(settings.selectedMusicTrackId));
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;
@@ -660,6 +663,8 @@ class _PracticeScreenState extends State<PracticeScreen>
     final authUser = context.read<AuthService>().currentUser;
     final userId = authUser?.id;
     final displayName = authUser?.fullName ?? 'Trainee';
+    final settings = context.read<SettingsService>();
+    final sfxVolume = settings.soundEnabled ? settings.musicVolume : 0.0;
 
     await _stopWebSocketSession();
     if (_run.phase == PracticeRunPhase.active) {
@@ -700,6 +705,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _isShowingSummary = true;
     try {
       // Play congrats when the Session Complete dialog appears.
+      await _sfx.setVolume(sfxVolume);
       await _sfx.playCongrats();
       if (!mounted) return;
       final result = await SessionSummarySheet.show(

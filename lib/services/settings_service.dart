@@ -34,6 +34,8 @@ class SettingsService extends ChangeNotifier {
   static const _hasSeenOnboardingKey = 'has_seen_onboarding';
   static const _textScaleKey = 'text_scale';
   static const _highContrastKey = 'high_contrast';
+  static const _soundEnabledKey = 'sound_enabled';
+  static const _musicVolumeKey = 'music_volume';
   static const _cameraDeviceIdKey = 'camera_device_id';
   static const _cameraDisplayNameKey = 'camera_display_name';
   static const _justDanceMovementNamesKey = 'just_dance_movement_names';
@@ -45,6 +47,7 @@ class SettingsService extends ChangeNotifier {
 
   static const _defaultJustDanceIntervalSeconds = 25;
   static const _defaultTextScale = 1.0;
+  static const _defaultMusicVolume = 0.7;
 
   /// Allowed Accessibility text-size multipliers.
   static const allowedTextScales = <double>[1.0, 1.15, 1.3];
@@ -58,6 +61,8 @@ class SettingsService extends ChangeNotifier {
   bool _hasSeenOnboarding = false;
   double _textScale = _defaultTextScale;
   bool _highContrast = false;
+  bool _soundEnabled = true;
+  double _musicVolume = _defaultMusicVolume;
   String? _selectedCameraDeviceId;
   String? _selectedCameraDisplayName;
   List<String> _justDanceMovementNames = _defaultJustDanceMovementNames();
@@ -78,6 +83,12 @@ class SettingsService extends ChangeNotifier {
 
   /// When true, high-contrast light/dark themes are used.
   bool get highContrast => _highContrast;
+
+  /// Master mute for practice music and sound effects.
+  bool get soundEnabled => _soundEnabled;
+
+  /// Practice audio level from 0.0 (silent) to 1.0 (full). Default 0.7.
+  double get musicVolume => _musicVolume;
 
   /// Ordered Just Dance rotation setlist. Defaults to the full catalog.
   List<String> get justDanceMovementNames =>
@@ -117,6 +128,8 @@ class SettingsService extends ChangeNotifier {
         _hasSeenOnboarding = data[_hasSeenOnboardingKey] as bool? ?? false;
         _textScale = _parseTextScale(data[_textScaleKey]);
         _highContrast = data[_highContrastKey] as bool? ?? false;
+        _soundEnabled = data[_soundEnabledKey] as bool? ?? true;
+        _musicVolume = _parseMusicVolume(data[_musicVolumeKey]);
         _loadCameraSelection(data);
         _loadJustDanceSettings(data);
         _selectedMusicTrackId = _parseTrackId(data[_selectedMusicTrackIdKey]);
@@ -135,6 +148,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -151,6 +166,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -167,6 +184,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: value,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -193,6 +212,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: value,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -209,6 +230,46 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: value,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
+  }
+
+  Future<SettingsWriteOutcome> setSoundEnabled(bool value) {
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      soundEnabled: value,
+      musicVolume: _musicVolume,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
+  }
+
+  /// Practice music/SFX level. Values outside 0.0–1.0 are clamped.
+  Future<SettingsWriteOutcome> setMusicVolume(double value) {
+    final clamped = _clampMusicVolume(value);
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: clamped,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -230,6 +291,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -254,6 +317,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -271,6 +336,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -304,6 +371,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -329,6 +398,8 @@ class SettingsService extends ChangeNotifier {
       hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
+      soundEnabled: _soundEnabled,
+      musicVolume: _musicVolume,
       cameraDeviceId: normalizedId,
       cameraDisplayName: normalizedId == null ? null : name,
       legacyCameraIndex: null,
@@ -455,6 +526,24 @@ class SettingsService extends ChangeNotifier {
     return _defaultTextScale;
   }
 
+  /// Parses a persisted music volume, clamping to 0.0–1.0. Missing/invalid
+  /// values fall back to [_defaultMusicVolume].
+  static double _parseMusicVolume(Object? raw) {
+    final value = switch (raw) {
+      int v => v.toDouble(),
+      double v => v,
+      _ => null,
+    };
+    if (value == null) return _defaultMusicVolume;
+    return _clampMusicVolume(value);
+  }
+
+  static double _clampMusicVolume(double value) {
+    if (value < 0.0) return 0.0;
+    if (value > 1.0) return 1.0;
+    return value;
+  }
+
   /// Filters to catalog names, dedupes preserving order. Throws when empty.
   static List<String> _normalizeMovementNames(List<String> movementNames) {
     final validNames = movementCatalog.map((m) => m.name).toSet();
@@ -486,6 +575,8 @@ class SettingsService extends ChangeNotifier {
     required bool hasSeenOnboarding,
     required double textScale,
     required bool highContrast,
+    required bool soundEnabled,
+    required double musicVolume,
     required String? cameraDeviceId,
     required String? cameraDisplayName,
     required int? legacyCameraIndex,
@@ -498,6 +589,8 @@ class SettingsService extends ChangeNotifier {
         _hasSeenOnboarding == hasSeenOnboarding &&
         _textScale == textScale &&
         _highContrast == highContrast &&
+        _soundEnabled == soundEnabled &&
+        _musicVolume == musicVolume &&
         _selectedCameraDeviceId == cameraDeviceId &&
         _selectedCameraDisplayName == cameraDisplayName &&
         _legacyCameraIndex == legacyCameraIndex &&
@@ -513,6 +606,8 @@ class SettingsService extends ChangeNotifier {
       _hasSeenOnboardingKey: hasSeenOnboarding,
       _textScaleKey: textScale,
       _highContrastKey: highContrast,
+      _soundEnabledKey: soundEnabled,
+      _musicVolumeKey: musicVolume,
       _cameraDeviceIdKey: cameraDeviceId,
       _cameraDisplayNameKey: cameraDisplayName,
       _justDanceMovementNamesKey: justDanceMovementNames,
@@ -535,6 +630,8 @@ class SettingsService extends ChangeNotifier {
     _hasSeenOnboarding = hasSeenOnboarding;
     _textScale = textScale;
     _highContrast = highContrast;
+    _soundEnabled = soundEnabled;
+    _musicVolume = musicVolume;
     _selectedCameraDeviceId = cameraDeviceId;
     _selectedCameraDisplayName = cameraDisplayName;
     _legacyCameraIndex = legacyCameraIndex;

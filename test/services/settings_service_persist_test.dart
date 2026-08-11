@@ -128,6 +128,90 @@ void main() {
     expect(notifyCount, 0);
   });
 
+  test('sound defaults are enabled with volume 0.7', () async {
+    final service = buildService();
+    await service.initialize();
+
+    expect(service.soundEnabled, isTrue);
+    expect(service.musicVolume, 0.7);
+  });
+
+  test('sound enabled and music volume persist across reload', () async {
+    final service = buildService();
+    await service.initialize();
+
+    expect(await service.setSoundEnabled(false), SettingsWriteOutcome.saved);
+    expect(await service.setMusicVolume(0.35), SettingsWriteOutcome.saved);
+    expect(service.soundEnabled, isFalse);
+    expect(service.musicVolume, 0.35);
+
+    final reloaded = buildService();
+    await reloaded.initialize();
+    expect(reloaded.soundEnabled, isFalse);
+    expect(reloaded.musicVolume, 0.35);
+
+    final data =
+        jsonDecode(await settingsFile.readAsString()) as Map<String, dynamic>;
+    expect(data['sound_enabled'], isFalse);
+    expect(data['music_volume'], 0.35);
+  });
+
+  test('setSoundEnabled unchanged values skip write', () async {
+    final service = buildService();
+    await service.initialize();
+    writeCount = 0;
+    notifyCount = 0;
+
+    final outcome = await service.setSoundEnabled(true);
+
+    expect(outcome, SettingsWriteOutcome.unchanged);
+    expect(writeCount, 0);
+    expect(notifyCount, 0);
+  });
+
+  test('setMusicVolume unchanged values skip write', () async {
+    final service = buildService();
+    await service.initialize();
+    writeCount = 0;
+    notifyCount = 0;
+
+    final outcome = await service.setMusicVolume(0.7);
+
+    expect(outcome, SettingsWriteOutcome.unchanged);
+    expect(writeCount, 0);
+    expect(notifyCount, 0);
+  });
+
+  test('setMusicVolume clamps to the 0.0–1.0 range', () async {
+    final service = buildService();
+    await service.initialize();
+
+    expect(await service.setMusicVolume(-0.2), SettingsWriteOutcome.saved);
+    expect(service.musicVolume, 0.0);
+    expect(await service.setMusicVolume(1.5), SettingsWriteOutcome.saved);
+    expect(service.musicVolume, 1.0);
+  });
+
+  test('sound write failure leaves in-memory values unchanged', () async {
+    final service = buildService();
+    await service.initialize();
+    expect(service.soundEnabled, isTrue);
+    expect(service.musicVolume, 0.7);
+    writeOverride = (file, contents) async {
+      throw const FileSystemException('simulated write failure');
+    };
+    notifyCount = 0;
+
+    expect(
+      await service.setSoundEnabled(false),
+      SettingsWriteOutcome.writeFailed,
+    );
+    expect(await service.setMusicVolume(0.2), SettingsWriteOutcome.writeFailed);
+    expect(service.soundEnabled, isTrue);
+    expect(service.musicVolume, 0.7);
+    expect(notifyCount, 0);
+  });
+
   test(
     'accessibility defaults are default text scale and contrast off',
     () async {

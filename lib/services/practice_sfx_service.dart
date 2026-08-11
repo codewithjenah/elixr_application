@@ -15,6 +15,15 @@ class PracticeSfxService {
   bool _disposed = false;
   bool _preloaded = false;
 
+  Future<void> setVolume(double volume) async {
+    if (_disposed) return;
+    try {
+      await _player.setVolume(volume);
+    } catch (e, st) {
+      debugPrint('Practice SFX failed to set volume: $e\n$st');
+    }
+  }
+
   /// Warm the countdown source so Start → first beat is not delayed by decode.
   Future<void> preload() async {
     if (_disposed || _preloaded) return;

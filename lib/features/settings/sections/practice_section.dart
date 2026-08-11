@@ -24,6 +24,9 @@ class PracticeSection extends StatefulWidget {
 class _PracticeSectionState extends State<PracticeSection> {
   bool _mirrorWriting = false;
   String? _mirrorWriteError;
+  bool _soundWriting = false;
+  String? _soundWriteError;
+  double? _volumeDraft;
   bool _savingDraft = false;
   String? _draftSaveError;
   bool _camerasRefreshed = false;
@@ -54,6 +57,46 @@ class _PracticeSectionState extends State<PracticeSection> {
       if (outcome == SettingsWriteOutcome.writeFailed) {
         _mirrorWriteError =
             'Could not save camera mirror preference. Try again.';
+      }
+    });
+  }
+
+  Future<void> _onSoundEnabledChanged(bool value) async {
+    if (_soundWriting) return;
+    setState(() {
+      _soundWriting = true;
+      _soundWriteError = null;
+    });
+
+    final settings = context.read<SettingsService>();
+    final outcome = await settings.setSoundEnabled(value);
+    if (!mounted) return;
+
+    setState(() {
+      _soundWriting = false;
+      if (outcome == SettingsWriteOutcome.writeFailed) {
+        _soundWriteError = 'Could not save sound preference. Try again.';
+      }
+    });
+  }
+
+  Future<void> _onVolumeChangeEnd(double value) async {
+    if (_soundWriting) return;
+    setState(() {
+      _soundWriting = true;
+      _soundWriteError = null;
+      _volumeDraft = value;
+    });
+
+    final settings = context.read<SettingsService>();
+    final outcome = await settings.setMusicVolume(value);
+    if (!mounted) return;
+
+    setState(() {
+      _soundWriting = false;
+      _volumeDraft = null;
+      if (outcome == SettingsWriteOutcome.writeFailed) {
+        _soundWriteError = 'Could not save volume preference. Try again.';
       }
     });
   }
@@ -116,6 +159,61 @@ class _PracticeSectionState extends State<PracticeSection> {
             child: _CameraSourcePreference(
               settings: settings,
               cameras: cameras,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          SettingsGroup(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sound',
+                  style: AppTheme.body.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Control practice music and sound effects.',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SettingsToggleRow(
+                  label: 'Enable sound',
+                  description:
+                      'Mute or unmute practice music and sound effects.',
+                  checked: settings.soundEnabled,
+                  onChanged: _soundWriting ? null : _onSoundEnabledChanged,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Volume',
+                  style: AppTheme.body.copyWith(
+                    fontSize: 14,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Slider(
+                  value: _volumeDraft ?? settings.musicVolume,
+                  min: 0.0,
+                  max: 1.0,
+                  label:
+                      '${((_volumeDraft ?? settings.musicVolume) * 100).round()}%',
+                  onChanged: !settings.soundEnabled || _soundWriting
+                      ? null
+                      : (value) => setState(() => _volumeDraft = value),
+                  onChangeEnd: !settings.soundEnabled || _soundWriting
+                      ? null
+                      : _onVolumeChangeEnd,
+                ),
+                if (_soundWriteError != null)
+                  SettingsStatusBanner(message: _soundWriteError!),
+              ],
             ),
           ),
           const SizedBox(height: AppSpacing.md),

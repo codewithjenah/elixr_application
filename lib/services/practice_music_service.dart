@@ -11,6 +11,14 @@ class PracticeMusicService {
   final AudioPlayer _player;
   bool _playing = false;
 
+  Future<void> setVolume(double volume) async {
+    try {
+      await _player.setVolume(volume);
+    } catch (e, st) {
+      debugPrint('Practice music failed to set volume: $e\n$st');
+    }
+  }
+
   Future<void> start(MusicTrack track) async {
     if (_playing) return;
     _playing = true;
