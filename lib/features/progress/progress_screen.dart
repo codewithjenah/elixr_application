@@ -21,7 +21,6 @@ const _violet = AppColors.accentSoft;
 const _pink = AppColors.primary;
 const _cyan = AppColors.primarySoft;
 const _amber = AppColors.warning;
-const _panelColor = AppColors.panelSurface;
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -308,7 +307,7 @@ class _PanelCard extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: _panelColor,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: accent.withValues(alpha: glow ? 0.55 : 0.22)),
         boxShadow: [
@@ -421,9 +420,9 @@ class _StatCardState extends State<_StatCard> {
                 const SizedBox(height: 4),
                 Text(
                   widget.label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.textSecondary,
+                    color: context.elixTextSecondary,
                   ),
                 ),
               ],
@@ -498,7 +497,7 @@ class _ScoreTrendChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: 25,
           getDrawingHorizontalLine: (_) => FlLine(
-            color: AppColors.border.withValues(alpha: 0.5),
+            color: context.elixBorder.withValues(alpha: 0.5),
             strokeWidth: 1,
           ),
         ),
@@ -520,9 +519,9 @@ class _ScoreTrendChart extends StatelessWidget {
               interval: 25,
               getTitlesWidget: (value, _) => Text(
                 value.toInt().toString(),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textSecondary,
+                  color: context.elixTextSecondary,
                 ),
               ),
             ),
@@ -530,7 +529,7 @@ class _ScoreTrendChart extends StatelessWidget {
         ),
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => _panelColor,
+            getTooltipColor: (_) => context.elixPanelSurface,
             tooltipBorder: const BorderSide(color: _pink),
             getTooltipItems: (touched) => touched.map((t) {
               final s = sessions[t.x.toInt()];
@@ -549,8 +548,8 @@ class _ScoreTrendChart extends StatelessWidget {
                 children: [
                   TextSpan(
                     text: '${s.movementName}\n$date',
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
+                    style: TextStyle(
+                      color: context.elixTextSecondary,
                       fontWeight: FontWeight.w400,
                       fontSize: 10,
                     ),
@@ -617,7 +616,7 @@ class _DifficultyBreakdown extends StatelessWidget {
             label: entry.key,
             count: entry.value,
             fraction: total == 0 ? 0 : entry.value / total,
-            color: _colors[entry.key] ?? AppColors.textSecondary,
+            color: _colors[entry.key] ?? context.elixTextSecondary,
           ),
           if (entry.key != data.keys.last)
             const SizedBox(height: AppSpacing.sm),
@@ -648,10 +647,10 @@ class _DifficultyRow extends StatelessWidget {
           width: 60,
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
+              color: context.elixTextPrimary,
             ),
           ),
         ),
@@ -662,7 +661,11 @@ class _DifficultyRow extends StatelessWidget {
               height: 10,
               child: Stack(
                 children: [
-                  Container(color: Colors.white.withValues(alpha: 0.04)),
+                  Container(
+                    color: context.isDarkTheme
+                        ? Colors.white.withValues(alpha: 0.04)
+                        : Colors.black.withValues(alpha: 0.04),
+                  ),
                   TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0, end: fraction),
                     duration: const Duration(milliseconds: 600),
@@ -727,12 +730,12 @@ class _MovementChartState extends State<_MovementChart> {
         maxY: (maxVal + 2).toDouble(),
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => _panelColor,
+            getTooltipColor: (_) => context.elixPanelSurface,
             tooltipBorder: const BorderSide(color: _purple),
             getTooltipItem: (group, _, rod, _) => BarTooltipItem(
               '${entries[group.x].key}\n',
-              const TextStyle(
-                color: AppColors.textPrimary,
+              TextStyle(
+                color: context.elixTextPrimary,
                 fontWeight: FontWeight.w700,
                 fontSize: 12,
               ),
@@ -763,7 +766,7 @@ class _MovementChartState extends State<_MovementChart> {
           show: true,
           drawVerticalLine: false,
           getDrawingHorizontalLine: (_) => FlLine(
-            color: AppColors.border.withValues(alpha: 0.5),
+            color: context.elixBorder.withValues(alpha: 0.5),
             strokeWidth: 1,
           ),
         ),
@@ -782,9 +785,9 @@ class _MovementChartState extends State<_MovementChart> {
               interval: maxVal > 8 ? (maxVal / 4).ceilToDouble() : 2,
               getTitlesWidget: (value, _) => Text(
                 value.toInt().toString(),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textSecondary,
+                  color: context.elixTextSecondary,
                 ),
               ),
             ),
@@ -810,7 +813,7 @@ class _MovementChartState extends State<_MovementChart> {
                       fontSize: 11,
                       color: index == _touchedIndex
                           ? AppColors.primarySoft
-                          : AppColors.textSecondary,
+                          : context.elixTextSecondary,
                       fontWeight: index == _touchedIndex
                           ? FontWeight.w700
                           : FontWeight.w400,
@@ -842,7 +845,7 @@ class _MovementChartState extends State<_MovementChart> {
                   backDrawRodData: BackgroundBarChartRodData(
                     show: true,
                     toY: (maxVal + 2).toDouble(),
-                    color: AppColors.border.withValues(alpha: 0.25),
+                    color: context.elixBorder.withValues(alpha: 0.25),
                   ),
                 ),
               ],

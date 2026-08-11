@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../data/models/session.dart';
 import '../models/calendar_day_summary.dart';
 import '../utils/calendar_metrics.dart';
@@ -33,7 +34,7 @@ class SelectedDayPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.panelSurface,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _purple.withValues(alpha: 0.22)),
       ),
@@ -42,10 +43,10 @@ class SelectedDayPanel extends StatelessWidget {
         children: [
           Text(
             DateFormat.yMMMMEEEEd().format(summary.date),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: context.elixTextPrimary,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -99,27 +100,29 @@ class _MetricChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: context.isDarkTheme
+            ? Colors.white.withValues(alpha: 0.03)
+            : Colors.black.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.elixBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
-              color: AppColors.textSecondary,
+              color: context.elixTextSecondary,
             ),
           ),
           const SizedBox(height: 2),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: context.elixTextPrimary,
             ),
           ),
         ],
@@ -139,25 +142,27 @@ class _EmptySelectedDay extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.02),
+        color: context.isDarkTheme
+            ? Colors.white.withValues(alpha: 0.02)
+            : Colors.black.withValues(alpha: 0.02),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.elixBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'No practice recorded',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: context.elixTextPrimary,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Complete a guided practice session to add activity to this date.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           FilledButton(
@@ -175,7 +180,7 @@ class _SessionRow extends StatelessWidget {
 
   final Session session;
 
-  Color _difficultyColor(String difficulty) {
+  Color _difficultyColor(BuildContext context, String difficulty) {
     switch (difficulty) {
       case 'Easy':
         return _cyan;
@@ -184,7 +189,7 @@ class _SessionRow extends StatelessWidget {
       case 'Hard':
         return _pink;
       default:
-        return AppColors.textSecondary;
+        return context.elixTextSecondary;
     }
   }
 
@@ -199,15 +204,17 @@ class _SessionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final time = _localTime();
-    final diffColor = _difficultyColor(session.difficulty);
+    final diffColor = _difficultyColor(context, session.difficulty);
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: context.isDarkTheme
+            ? Colors.white.withValues(alpha: 0.03)
+            : Colors.black.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.elixBorder),
       ),
       child: Row(
         children: [
@@ -219,10 +226,10 @@ class _SessionRow extends StatelessWidget {
                   session.movementName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: context.elixTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -253,9 +260,9 @@ class _SessionRow extends StatelessWidget {
                       const SizedBox(width: 8),
                       Text(
                         time,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.textSecondary,
+                          color: context.elixTextSecondary,
                         ),
                       ),
                     ],
@@ -279,9 +286,9 @@ class _SessionRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 formatCalendarDuration(session.durationSeconds),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textSecondary,
+                  color: context.elixTextSecondary,
                 ),
               ),
             ],

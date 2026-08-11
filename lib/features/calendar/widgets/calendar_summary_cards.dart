@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../models/calendar_day_summary.dart';
 
 const _pink = AppColors.primary;
@@ -136,7 +137,7 @@ class _SummaryCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.panelSurface,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: accent.withValues(alpha: 0.22)),
         boxShadow: [
@@ -164,10 +165,10 @@ class _SummaryCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
+                    color: context.elixTextSecondary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -190,9 +191,9 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             subLabel,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
-              color: AppColors.textSecondary,
+              color: context.elixTextSecondary,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

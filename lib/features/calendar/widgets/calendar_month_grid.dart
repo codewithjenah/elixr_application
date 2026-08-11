@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../models/calendar_day_summary.dart';
 import 'calendar_day_cell.dart';
 
@@ -39,7 +40,7 @@ class CalendarMonthGrid extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.panelSurface,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.accent.withValues(alpha: 0.22)),
       ),
@@ -52,10 +53,10 @@ class CalendarMonthGrid extends StatelessWidget {
                   child: Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
+                      color: context.elixTextSecondary,
                     ),
                   ),
                 ),

@@ -17,6 +17,7 @@ abstract final class AppColors {
 
   static const backgroundLight = Color(0xFFF3F3F6);
   static const cardSurfaceLight = Color(0xFFFFFFFF);
+  static const panelSurfaceLight = Color(0xFFF0EDF6);
   static const textPrimaryLight = Color(0xFF1C1C22);
   static const textSecondaryLight = Color(0xFF5C5C66);
   static const borderLight = Color(0xFFE2E2E8);

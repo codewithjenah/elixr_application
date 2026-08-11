@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../models/calendar_day_summary.dart';
 
 const _pink = AppColors.primary;
@@ -48,7 +49,7 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
       case 'Hard':
         return _pink;
       default:
-        return AppColors.textSecondary;
+        return context.elixTextSecondary;
     }
   }
 
@@ -64,14 +65,14 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
         : widget.isToday
         ? _purple.withValues(alpha: 0.7)
         : _hovered
-        ? AppColors.border.withValues(alpha: 0.9)
-        : AppColors.border.withValues(alpha: 0.55);
+        ? context.elixBorder.withValues(alpha: 0.9)
+        : context.elixBorder.withValues(alpha: 0.55);
 
     final numberColor = widget.isOutsideMonth
-        ? AppColors.textSecondary.withValues(alpha: 0.45)
+        ? context.elixTextSecondary.withValues(alpha: 0.45)
         : widget.isSelected || widget.isToday
-        ? AppColors.textPrimary
-        : AppColors.textPrimary.withValues(alpha: 0.92);
+        ? context.elixTextPrimary
+        : context.elixTextPrimary.withValues(alpha: 0.92);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -117,7 +118,7 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
                         color: widget.isOutsideMonth
-                            ? AppColors.textSecondary.withValues(alpha: 0.55)
+                            ? context.elixTextSecondary.withValues(alpha: 0.55)
                             : _violetSafe,
                       ),
                     ),
@@ -131,8 +132,8 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: widget.isOutsideMonth
-                        ? AppColors.textSecondary.withValues(alpha: 0.5)
-                        : AppColors.textSecondary,
+                        ? context.elixTextSecondary.withValues(alpha: 0.5)
+                        : context.elixTextSecondary,
                   ),
                 )
               else

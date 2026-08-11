@@ -310,13 +310,13 @@ class _CalendarErrorState extends StatelessWidget {
               color: AppColors.error,
             ),
             const SizedBox(height: AppSpacing.md),
-            const Text(
+            Text(
               'Unable to load your training calendar.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+                color: context.elixTextPrimary,
               ),
             ),
             const SizedBox(height: AppSpacing.md),

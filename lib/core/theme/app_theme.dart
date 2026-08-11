@@ -47,6 +47,15 @@ extension ElixThemeContext on BuildContext {
     return isDarkTheme ? AppColors.cardSurface : AppColors.cardSurfaceLight;
   }
 
+  Color get elixPanelSurface {
+    if (isHighContrast) {
+      return isDarkTheme
+          ? AppColors.cardSurfaceHighContrastDark
+          : AppColors.cardSurfaceHighContrastLight;
+    }
+    return isDarkTheme ? AppColors.panelSurface : AppColors.panelSurfaceLight;
+  }
+
   Color get elixTextPrimary {
     if (isHighContrast) {
       return isDarkTheme

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 
 const _pink = AppColors.primary;
 const _purple = AppColors.accent;
@@ -37,10 +38,10 @@ class CalendarHeader extends StatelessWidget {
           child: Text(
             DateFormat.yMMMM().format(visibleMonth),
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: context.elixTextPrimary,
             ),
           ),
         ),

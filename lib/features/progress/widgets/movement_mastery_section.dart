@@ -6,8 +6,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../movements/movements_presentation.dart';
 import '../training_recommendation.dart';
 
-const _panelColor = AppColors.panelSurface;
-
 /// Displays per-movement mastery rows grouped by difficulty.
 class MovementMasterySection extends StatelessWidget {
   const MovementMasterySection({super.key, required this.masteries});
@@ -90,7 +88,7 @@ class _DifficultyGroup extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: _panelColor,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: accent.withValues(alpha: 0.22)),
       ),
@@ -141,10 +139,10 @@ class _MasteryRow extends StatelessWidget {
           children: [
             Text(
               mastery.movement.name,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+                color: context.elixTextPrimary,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -164,23 +162,23 @@ class _MasteryRow extends StatelessWidget {
                 ),
                 Text(
                   'Recent $recentLabel',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: AppColors.textSecondary,
+                    color: context.elixTextSecondary,
                   ),
                 ),
                 Text(
                   'Best $bestLabel',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: AppColors.textSecondary,
+                    color: context.elixTextSecondary,
                   ),
                 ),
                 Text(
                   '${mastery.completedSessions} sessions',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: AppColors.textSecondary,
+                    color: context.elixTextSecondary,
                   ),
                 ),
               ],
@@ -230,7 +228,11 @@ class _MasteryProgressBar extends StatelessWidget {
               height: 8,
               child: Stack(
                 children: [
-                  Container(color: Colors.white.withValues(alpha: 0.04)),
+                  Container(
+                    color: context.isDarkTheme
+                        ? Colors.white.withValues(alpha: 0.04)
+                        : Colors.black.withValues(alpha: 0.04),
+                  ),
                   FractionallySizedBox(
                     alignment: Alignment.centerLeft,
                     widthFactor: value.clamp(0.0, 1.0),
