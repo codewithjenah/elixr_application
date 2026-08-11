@@ -64,14 +64,14 @@ class PrivacySectionState extends State<PrivacySection> {
     }
   }
 
-  Future<void> _setVisibility(bool isPublic) async {
+  Future<void> _setLocked(bool isLocked) async {
     final userId = context.read<AuthService>().currentUser?.id;
     final repository = _repository;
     if (userId == null || repository == null || _saving) return;
 
-    final next = isPublic
-        ? ProfileVisibility.public
-        : ProfileVisibility.private;
+    final next = isLocked
+        ? ProfileVisibility.private
+        : ProfileVisibility.public;
     final previous = _visibility;
     setState(() {
       _visibility = next;
@@ -110,14 +110,14 @@ class PrivacySectionState extends State<PrivacySection> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SettingsToggleRow(
-              label: 'Public profile',
+              label: 'Lock profile',
               description:
-                  'When enabled, other players can see your detailed stats, '
-                  'claimed achievements, completed movements, and practice history. '
+                  'When locked, other players cannot see your detailed stats, '
+                  'claimed achievements, completed movements, or practice history. '
                   'Your basic leaderboard identity remains visible either way. '
                   'Profile owners can see recent profile visitors.',
-              checked: _visibility == ProfileVisibility.public,
-              onChanged: _saving ? null : _setVisibility,
+              checked: _visibility == ProfileVisibility.private,
+              onChanged: _saving ? null : _setLocked,
             ),
             if (_saving)
               const Padding(

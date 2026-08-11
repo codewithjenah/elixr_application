@@ -269,7 +269,7 @@ class _VisibilityBadge extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            isPublic ? 'Public' : 'Private',
+            isPublic ? 'Public' : 'Locked',
             style: AppTheme.caption.copyWith(
               color: context.elixTextSecondary,
               fontWeight: FontWeight.w600,

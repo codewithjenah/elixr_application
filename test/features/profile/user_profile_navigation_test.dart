@@ -699,7 +699,7 @@ void main() {
         ),
       );
       expect(_backButton(), findsOneWidget);
-      expect(find.text('This profile is private'), findsOneWidget);
+      expect(find.text('This profile is locked'), findsOneWidget);
     });
 
     testWidgets('visible on error', (tester) async {
@@ -1201,14 +1201,14 @@ void main() {
     ) async {
       await pumpSelfProfile(tester, visibility: ProfileVisibility.private);
 
-      expect(find.text('Private'), findsOneWidget);
+      expect(find.text('Locked'), findsOneWidget);
       expect(find.text('Achievements'), findsOneWidget);
       expect(find.text('Profile Visitors'), findsOneWidget);
 
       await tester.tap(find.text('Preview as Visitor'));
       await tester.pumpAndSettle();
 
-      expect(find.text('This profile is private'), findsOneWidget);
+      expect(find.text('This profile is locked'), findsOneWidget);
       expect(find.text('Achievements'), findsNothing);
       expect(find.text('Profile Visitors'), findsNothing);
       expect(find.text('Edit Profile'), findsNothing);

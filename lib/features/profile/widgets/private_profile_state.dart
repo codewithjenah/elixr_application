@@ -28,7 +28,7 @@ class PrivateProfileState extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
-            'This profile is private',
+            'This profile is locked',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
@@ -37,7 +37,7 @@ class PrivateProfileState extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'This player has chosen to keep their detailed activity private. '
+            'This player has locked their detailed activity. '
             'Basic leaderboard identity remains visible.',
             textAlign: TextAlign.center,
             style: AppTheme.bodySecondary.copyWith(

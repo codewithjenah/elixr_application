@@ -144,6 +144,28 @@ class AuthService extends ChangeNotifier {
     );
     _currentUser = user;
     notifyListeners();
+
+    // Seed public visibility before achievement sync. Sync/repair paths create
+    // private roots when missing; seeding first keeps new accounts public.
+    final seedRepository = _publicProfileRepository;
+    final seedUserId = user.id?.trim();
+    if (seedRepository != null && seedUserId != null && seedUserId.isNotEmpty) {
+      try {
+        await seedRepository.seedNewAccountPublicProfile(
+          userId: seedUserId,
+          displayName: user.fullName,
+          profilePictureUrl: user.profilePictureUrl,
+        );
+      } catch (error, stackTrace) {
+        if (kDebugMode) {
+          debugPrint(
+            'Public profile seed failed: userId=$seedUserId error=$error',
+          );
+          debugPrint('$stackTrace');
+        }
+      }
+    }
+
     _scheduleClaimedAchievementProjectionSync();
   }
 

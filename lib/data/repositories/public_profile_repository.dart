@@ -35,6 +35,38 @@ class PublicProfileSessionPage {
   final bool hasMore;
 }
 
+/// Pure builder for a new `public_profiles/{userId}` root document payload.
+class PublicProfileRootCreation {
+  const PublicProfileRootCreation._();
+
+  /// Fields written when creating a missing public-profile root.
+  ///
+  /// [createdAt] / [updatedAt] are normally `FieldValue.serverTimestamp()`;
+  /// tests may inject markers.
+  static Map<String, dynamic> fields({
+    required String userId,
+    required String displayName,
+    required ProfileVisibility initialVisibility,
+    String? profilePictureUrl,
+    required Object createdAt,
+    required Object updatedAt,
+  }) {
+    final payload = <String, dynamic>{
+      'user_id': userId,
+      'display_name': displayName,
+      'visibility': initialVisibility.firestoreValue,
+      'schema_version': 1,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+    };
+    final trimmedUrl = profilePictureUrl?.trim();
+    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+      payload['profile_picture_url'] = trimmedUrl;
+    }
+    return payload;
+  }
+}
+
 /// Draft payload for a missing public achievement projection document.
 @immutable
 class ClaimedAchievementProjectionDraft {
@@ -228,6 +260,33 @@ class PublicProfileRepository {
     );
   }
 
+  /// Seeds a brand-new account's public-profile root as [ProfileVisibility.public].
+  ///
+  /// Idempotent: if the root already exists, visibility is left unchanged.
+  /// Repair and backfill paths must not call this; they create private roots.
+  Future<void> seedNewAccountPublicProfile({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) {
+    final trimmedUserId = userId.trim();
+    if (trimmedUserId.isEmpty) return Future<void>.value();
+
+    final trimmedName = displayName.trim().isEmpty
+        ? 'Trainee'
+        : displayName.trim();
+
+    return _runWithEnsureGuard(
+      trimmedUserId,
+      () => _ensureRootDocument(
+        userId: trimmedUserId,
+        displayName: trimmedName,
+        profilePictureUrl: profilePictureUrl,
+        initialVisibility: ProfileVisibility.public,
+      ),
+    );
+  }
+
   /// Focused owner-side repair of missing public achievement projections.
   ///
   /// Reads authoritative `achievement_claims` for [userId] and creates only
@@ -295,6 +354,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      initialVisibility: ProfileVisibility.private,
     );
 
     await _syncIdentity(
@@ -375,6 +435,7 @@ class PublicProfileRepository {
           userId: userId,
           displayName: trimmedName,
           profilePictureUrl: profilePictureUrl,
+          initialVisibility: ProfileVisibility.private,
         );
         await _syncIdentity(
           userId: userId,
@@ -431,24 +492,22 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    required ProfileVisibility initialVisibility,
   }) async {
     final ref = _rootRef(userId);
     final snap = await ref.get();
     if (snap.exists) return;
 
-    final payload = <String, dynamic>{
-      'user_id': userId,
-      'display_name': displayName,
-      'visibility': ProfileVisibility.private.firestoreValue,
-      'schema_version': 1,
-      'created_at': FieldValue.serverTimestamp(),
-      'updated_at': FieldValue.serverTimestamp(),
-    };
-    final trimmedUrl = profilePictureUrl?.trim();
-    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
-      payload['profile_picture_url'] = trimmedUrl;
-    }
-    await ref.set(payload);
+    await ref.set(
+      PublicProfileRootCreation.fields(
+        userId: userId,
+        displayName: displayName,
+        initialVisibility: initialVisibility,
+        profilePictureUrl: profilePictureUrl,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      ),
+    );
   }
 
   Future<void> updatePublicIdentity({
@@ -464,6 +523,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      initialVisibility: ProfileVisibility.private,
     );
 
     await _syncIdentity(

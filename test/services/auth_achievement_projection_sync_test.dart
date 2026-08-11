@@ -104,11 +104,25 @@ class _FakeAuthRepository implements AuthRepositoryBase {
 
 class _RecordingPublicProfileRepository extends PublicProfileRepository {
   int syncCalls = 0;
+  int seedCalls = 0;
   final syncUserIds = <String>[];
   final syncDisplayNames = <String>[];
   final syncPictureUrls = <String?>[];
+  final callOrder = <String>[];
   Completer<void>? gate;
   Object? syncError;
+  Object? seedError;
+
+  @override
+  Future<void> seedNewAccountPublicProfile({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {
+    seedCalls++;
+    callOrder.add('seed');
+    if (seedError != null) throw seedError!;
+  }
 
   @override
   Future<void> syncClaimedAchievementProjections({
@@ -117,6 +131,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
     String? profilePictureUrl,
   }) async {
     syncCalls++;
+    callOrder.add('sync');
     syncUserIds.add(userId);
     syncDisplayNames.add(displayName);
     syncPictureUrls.add(profilePictureUrl);
@@ -160,6 +175,57 @@ void main() {
     expect(profiles.syncCalls, 1);
     expect(profiles.syncUserIds.single, 'u1');
     expect(auth.currentUser?.id, 'u1');
+  });
+
+  test('registration seeds public profile before projection sync', () async {
+    final profiles = _RecordingPublicProfileRepository();
+    final auth = AuthService(
+      repository: _FakeAuthRepository(
+        registerUser: _user(id: 'u2', first: 'Grace', last: 'Hopper'),
+      ),
+      publicProfileRepository: profiles,
+      awaitInitialAuthState: () async {},
+    );
+
+    await auth.register(
+      firstName: 'Grace',
+      lastName: 'Hopper',
+      email: 'grace@example.com',
+      password: 'secret',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(profiles.seedCalls, 1);
+    expect(profiles.syncCalls, 1);
+    expect(profiles.callOrder, ['seed', 'sync']);
+    expect(profiles.syncUserIds.single, 'u2');
+    expect(profiles.syncDisplayNames.single, 'Grace Hopper');
+  });
+
+  test('registration seed failure does not fail authentication', () async {
+    final profiles = _RecordingPublicProfileRepository()
+      ..seedError = Exception('firestore unavailable');
+    final auth = AuthService(
+      repository: _FakeAuthRepository(
+        registerUser: _user(id: 'u2', first: 'Grace', last: 'Hopper'),
+      ),
+      publicProfileRepository: profiles,
+      awaitInitialAuthState: () async {},
+    );
+
+    await auth.register(
+      firstName: 'Grace',
+      lastName: 'Hopper',
+      email: 'grace@example.com',
+      password: 'secret',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(auth.isAuthenticated, isTrue);
+    expect(auth.currentUser?.id, 'u2');
+    expect(profiles.seedCalls, 1);
+    expect(profiles.syncCalls, 1);
+    expect(profiles.callOrder, ['seed', 'sync']);
   });
 
   test('registration triggers best-effort projection sync', () async {

@@ -16,6 +16,11 @@ class PrivacyPolicyScreen extends StatelessWidget {
         'our servers. It is processed locally on your device during practice '
         'sessions only.',
     'Profile photos are stored in Cloud Storage for display across the app.',
+    'Public Profile: by default, other signed-in players can view your '
+        'detailed stats, claimed achievements, completed movements, and '
+        'practice history. You can lock your profile at any time in '
+        'Settings > Privacy. Basic leaderboard identity remains visible '
+        'whether your profile is locked or unlocked.',
     'Data Retention: profile and training data are kept while your account '
         'is active. If you delete your account via Settings > Security, we '
         'permanently remove all associated data.',
