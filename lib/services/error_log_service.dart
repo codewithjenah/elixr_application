@@ -30,7 +30,7 @@ class ErrorLogService {
   }) async {
     try {
       final logsDir = await _resolveLogsDirectory();
-      final now = _clock().toUtc();
+      final now = _clock();
       final date = _formatDate(now);
       final file = await _resolveWriteTarget(logsDir, date);
       final entry = _formatEntry(

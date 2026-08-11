@@ -21,7 +21,7 @@ void main() {
   test('logError creates logs dir and appends structured entry', () async {
     final service = ErrorLogService(
       logsDirectory: logsDir,
-      clock: () => DateTime.utc(2026, 8, 11, 10, 30),
+      clock: () => DateTime(2026, 8, 11, 10, 30),
     );
 
     await service.logError(
@@ -36,7 +36,7 @@ void main() {
     );
     expect(await file.exists(), isTrue);
     final contents = await file.readAsString();
-    expect(contents, contains('2026-08-11T10:30:00.000Z'));
+    expect(contents, contains('2026-08-11T10:30:00.000'));
     expect(contents, contains('FlutterError'));
     expect(contents, contains('boom'));
     expect(contents, contains('#0 fake'));
@@ -51,7 +51,7 @@ void main() {
 
     final service = ErrorLogService(
       logsDirectory: logsDir,
-      clock: () => DateTime.utc(2026, 8, 11, 12),
+      clock: () => DateTime(2026, 8, 11, 12),
       maxFileBytes: 100,
     );
 
