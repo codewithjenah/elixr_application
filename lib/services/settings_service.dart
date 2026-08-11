@@ -31,6 +31,7 @@ class SettingsService extends ChangeNotifier {
   static const _fileName = 'settings.json';
   static const _cameraMirroredKey = 'camera_mirrored';
   static const _darkModeKey = 'dark_mode';
+  static const _hasSeenOnboardingKey = 'has_seen_onboarding';
   static const _textScaleKey = 'text_scale';
   static const _highContrastKey = 'high_contrast';
   static const _cameraDeviceIdKey = 'camera_device_id';
@@ -54,6 +55,7 @@ class SettingsService extends ChangeNotifier {
 
   bool _cameraMirrored = true;
   bool _darkMode = true;
+  bool _hasSeenOnboarding = false;
   double _textScale = _defaultTextScale;
   bool _highContrast = false;
   String? _selectedCameraDeviceId;
@@ -69,6 +71,7 @@ class SettingsService extends ChangeNotifier {
   bool get isInitialized => _initialized;
   bool get cameraMirrored => _cameraMirrored;
   bool get darkMode => _darkMode;
+  bool get hasSeenOnboarding => _hasSeenOnboarding;
 
   /// App-wide text size multiplier. One of [allowedTextScales].
   double get textScale => _textScale;
@@ -111,6 +114,7 @@ class SettingsService extends ChangeNotifier {
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
         _cameraMirrored = data[_cameraMirroredKey] as bool? ?? true;
         _darkMode = data[_darkModeKey] as bool? ?? true;
+        _hasSeenOnboarding = data[_hasSeenOnboardingKey] as bool? ?? false;
         _textScale = _parseTextScale(data[_textScaleKey]);
         _highContrast = data[_highContrastKey] as bool? ?? false;
         _loadCameraSelection(data);
@@ -128,6 +132,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: value,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -143,6 +148,23 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: value,
+      hasSeenOnboarding: _hasSeenOnboarding,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
+  }
+
+  Future<SettingsWriteOutcome> setHasSeenOnboarding(bool value) {
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      hasSeenOnboarding: value,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -168,6 +190,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: value,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -183,6 +206,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: value,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -203,6 +227,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -226,6 +251,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -242,6 +268,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -274,6 +301,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
@@ -298,6 +326,7 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      hasSeenOnboarding: _hasSeenOnboarding,
       textScale: _textScale,
       highContrast: _highContrast,
       cameraDeviceId: normalizedId,
@@ -454,6 +483,7 @@ class SettingsService extends ChangeNotifier {
   Future<SettingsWriteOutcome> _commitCandidate({
     required bool cameraMirrored,
     required bool darkMode,
+    required bool hasSeenOnboarding,
     required double textScale,
     required bool highContrast,
     required String? cameraDeviceId,
@@ -465,6 +495,7 @@ class SettingsService extends ChangeNotifier {
   }) async {
     if (_cameraMirrored == cameraMirrored &&
         _darkMode == darkMode &&
+        _hasSeenOnboarding == hasSeenOnboarding &&
         _textScale == textScale &&
         _highContrast == highContrast &&
         _selectedCameraDeviceId == cameraDeviceId &&
@@ -479,6 +510,7 @@ class SettingsService extends ChangeNotifier {
     final payload = <String, dynamic>{
       _cameraMirroredKey: cameraMirrored,
       _darkModeKey: darkMode,
+      _hasSeenOnboardingKey: hasSeenOnboarding,
       _textScaleKey: textScale,
       _highContrastKey: highContrast,
       _cameraDeviceIdKey: cameraDeviceId,
@@ -500,6 +532,7 @@ class SettingsService extends ChangeNotifier {
 
     _cameraMirrored = cameraMirrored;
     _darkMode = darkMode;
+    _hasSeenOnboarding = hasSeenOnboarding;
     _textScale = textScale;
     _highContrast = highContrast;
     _selectedCameraDeviceId = cameraDeviceId;
