@@ -13,6 +13,11 @@
 migrate_working_dir/
 .worktrees/
 
+# Runtime local error / backend logs (never commit)
+logs/
+backend/logs/
+error_log*.txt
+
 # IntelliJ related
 *.iml
 *.ipr

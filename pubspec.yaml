@@ -45,6 +45,7 @@ dependencies:
   crop: ^0.5.5
   fluent_ui: 4.9.2
   audioplayers: ^6.7.1
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
