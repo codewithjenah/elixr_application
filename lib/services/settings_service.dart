@@ -31,6 +31,8 @@ class SettingsService extends ChangeNotifier {
   static const _fileName = 'settings.json';
   static const _cameraMirroredKey = 'camera_mirrored';
   static const _darkModeKey = 'dark_mode';
+  static const _textScaleKey = 'text_scale';
+  static const _highContrastKey = 'high_contrast';
   static const _cameraDeviceIdKey = 'camera_device_id';
   static const _cameraDisplayNameKey = 'camera_display_name';
   static const _justDanceMovementNamesKey = 'just_dance_movement_names';
@@ -41,6 +43,10 @@ class SettingsService extends ChangeNotifier {
   static const _cameraIndexKey = 'camera_index';
 
   static const _defaultJustDanceIntervalSeconds = 25;
+  static const _defaultTextScale = 1.0;
+
+  /// Allowed Accessibility text-size multipliers.
+  static const allowedTextScales = <double>[1.0, 1.15, 1.3];
 
   final File? _settingsFileOverride;
   final Future<void> Function(File file, String contents)?
@@ -48,6 +54,8 @@ class SettingsService extends ChangeNotifier {
 
   bool _cameraMirrored = true;
   bool _darkMode = true;
+  double _textScale = _defaultTextScale;
+  bool _highContrast = false;
   String? _selectedCameraDeviceId;
   String? _selectedCameraDisplayName;
   List<String> _justDanceMovementNames = _defaultJustDanceMovementNames();
@@ -61,6 +69,12 @@ class SettingsService extends ChangeNotifier {
   bool get isInitialized => _initialized;
   bool get cameraMirrored => _cameraMirrored;
   bool get darkMode => _darkMode;
+
+  /// App-wide text size multiplier. One of [allowedTextScales].
+  double get textScale => _textScale;
+
+  /// When true, high-contrast light/dark themes are used.
+  bool get highContrast => _highContrast;
 
   /// Ordered Just Dance rotation setlist. Defaults to the full catalog.
   List<String> get justDanceMovementNames =>
@@ -97,6 +111,8 @@ class SettingsService extends ChangeNotifier {
             jsonDecode(await file.readAsString()) as Map<String, dynamic>;
         _cameraMirrored = data[_cameraMirroredKey] as bool? ?? true;
         _darkMode = data[_darkModeKey] as bool? ?? true;
+        _textScale = _parseTextScale(data[_textScaleKey]);
+        _highContrast = data[_highContrastKey] as bool? ?? false;
         _loadCameraSelection(data);
         _loadJustDanceSettings(data);
         _selectedMusicTrackId = _parseTrackId(data[_selectedMusicTrackIdKey]);
@@ -112,6 +128,8 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: value,
       darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -125,6 +143,48 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: value,
+      textScale: _textScale,
+      highContrast: _highContrast,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
+  }
+
+  /// Sets the Accessibility text-size multiplier.
+  ///
+  /// Throws [ArgumentError] when [value] is not one of [allowedTextScales].
+  Future<SettingsWriteOutcome> setTextScale(double value) {
+    if (!allowedTextScales.contains(value)) {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'Text scale must be one of $allowedTextScales',
+      );
+    }
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      textScale: value,
+      highContrast: _highContrast,
+      cameraDeviceId: _selectedCameraDeviceId,
+      cameraDisplayName: _selectedCameraDisplayName,
+      legacyCameraIndex: _legacyCameraIndex,
+      justDanceMovementNames: _justDanceMovementNames,
+      justDanceIntervalSeconds: _justDanceIntervalSeconds,
+      selectedMusicTrackId: _selectedMusicTrackId,
+    );
+  }
+
+  Future<SettingsWriteOutcome> setHighContrast(bool value) {
+    return _commitCandidate(
+      cameraMirrored: _cameraMirrored,
+      darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: value,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -143,6 +203,8 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -164,6 +226,8 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -178,6 +242,8 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -208,6 +274,8 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: _highContrast,
       cameraDeviceId: _selectedCameraDeviceId,
       cameraDisplayName: _selectedCameraDisplayName,
       legacyCameraIndex: _legacyCameraIndex,
@@ -230,6 +298,8 @@ class SettingsService extends ChangeNotifier {
     return _commitCandidate(
       cameraMirrored: _cameraMirrored,
       darkMode: _darkMode,
+      textScale: _textScale,
+      highContrast: _highContrast,
       cameraDeviceId: normalizedId,
       cameraDisplayName: normalizedId == null ? null : name,
       legacyCameraIndex: null,
@@ -341,6 +411,21 @@ class SettingsService extends ChangeNotifier {
     return value.isEmpty ? null : value;
   }
 
+  /// Parses a persisted text scale, falling back to the default when missing
+  /// or not one of [allowedTextScales].
+  static double _parseTextScale(Object? raw) {
+    final value = switch (raw) {
+      int v => v.toDouble(),
+      double v => v,
+      _ => null,
+    };
+    if (value == null) return _defaultTextScale;
+    for (final allowed in allowedTextScales) {
+      if (value == allowed) return allowed;
+    }
+    return _defaultTextScale;
+  }
+
   /// Filters to catalog names, dedupes preserving order. Throws when empty.
   static List<String> _normalizeMovementNames(List<String> movementNames) {
     final validNames = movementCatalog.map((m) => m.name).toSet();
@@ -369,6 +454,8 @@ class SettingsService extends ChangeNotifier {
   Future<SettingsWriteOutcome> _commitCandidate({
     required bool cameraMirrored,
     required bool darkMode,
+    required double textScale,
+    required bool highContrast,
     required String? cameraDeviceId,
     required String? cameraDisplayName,
     required int? legacyCameraIndex,
@@ -378,6 +465,8 @@ class SettingsService extends ChangeNotifier {
   }) async {
     if (_cameraMirrored == cameraMirrored &&
         _darkMode == darkMode &&
+        _textScale == textScale &&
+        _highContrast == highContrast &&
         _selectedCameraDeviceId == cameraDeviceId &&
         _selectedCameraDisplayName == cameraDisplayName &&
         _legacyCameraIndex == legacyCameraIndex &&
@@ -390,6 +479,8 @@ class SettingsService extends ChangeNotifier {
     final payload = <String, dynamic>{
       _cameraMirroredKey: cameraMirrored,
       _darkModeKey: darkMode,
+      _textScaleKey: textScale,
+      _highContrastKey: highContrast,
       _cameraDeviceIdKey: cameraDeviceId,
       _cameraDisplayNameKey: cameraDisplayName,
       _justDanceMovementNamesKey: justDanceMovementNames,
@@ -409,6 +500,8 @@ class SettingsService extends ChangeNotifier {
 
     _cameraMirrored = cameraMirrored;
     _darkMode = darkMode;
+    _textScale = textScale;
+    _highContrast = highContrast;
     _selectedCameraDeviceId = cameraDeviceId;
     _selectedCameraDisplayName = cameraDisplayName;
     _legacyCameraIndex = legacyCameraIndex;

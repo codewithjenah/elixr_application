@@ -20,4 +20,18 @@ abstract final class AppColors {
   static const textPrimaryLight = Color(0xFF1C1C22);
   static const textSecondaryLight = Color(0xFF5C5C66);
   static const borderLight = Color(0xFFE2E2E8);
+
+  // High-contrast dark: pure white-on-black with a hard border.
+  static const backgroundHighContrastDark = Color(0xFF000000);
+  static const cardSurfaceHighContrastDark = Color(0xFF000000);
+  static const textPrimaryHighContrastDark = Color(0xFFFFFFFF);
+  static const textSecondaryHighContrastDark = Color(0xFFFFFFFF);
+  static const borderHighContrastDark = Color(0xFFFFFFFF);
+
+  // High-contrast light: pure black-on-white with a hard border.
+  static const backgroundHighContrastLight = Color(0xFFFFFFFF);
+  static const cardSurfaceHighContrastLight = Color(0xFFFFFFFF);
+  static const textPrimaryHighContrastLight = Color(0xFF000000);
+  static const textSecondaryHighContrastLight = Color(0xFF000000);
+  static const borderHighContrastLight = Color(0xFF000000);
 }

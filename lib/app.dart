@@ -67,24 +67,33 @@ class _ElixrAppState extends State<ElixrApp> {
         builder: (context, settings, _) {
           return FluentApp.router(
             title: AppConstants.appName,
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
+            theme: settings.highContrast
+                ? AppTheme.highContrastLight
+                : AppTheme.light,
+            darkTheme: settings.highContrast
+                ? AppTheme.highContrastDark
+                : AppTheme.dark,
             themeMode: settings.darkMode ? ThemeMode.dark : ThemeMode.light,
             routerConfig: _router,
             debugShowCheckedModeBanner: false,
             builder: (context, child) {
-              return Consumer<AuthService>(
-                builder: (context, auth, _) {
-                  if (!_splashFinished || auth.isLoading) {
-                    return SplashScreen(
-                      authReady: !auth.isLoading,
-                      onFinished: () {
-                        if (mounted) setState(() => _splashFinished = true);
-                      },
-                    );
-                  }
-                  return child ?? const SizedBox.shrink();
-                },
+              return MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(settings.textScale)),
+                child: Consumer<AuthService>(
+                  builder: (context, auth, _) {
+                    if (!_splashFinished || auth.isLoading) {
+                      return SplashScreen(
+                        authReady: !auth.isLoading,
+                        onFinished: () {
+                          if (mounted) setState(() => _splashFinished = true);
+                        },
+                      );
+                    }
+                    return child ?? const SizedBox.shrink();
+                  },
+                ),
               );
             },
           );

@@ -128,6 +128,86 @@ void main() {
     expect(notifyCount, 0);
   });
 
+  test(
+    'accessibility defaults are default text scale and contrast off',
+    () async {
+      final service = buildService();
+      await service.initialize();
+
+      expect(service.textScale, 1.0);
+      expect(service.highContrast, isFalse);
+    },
+  );
+
+  test('text scale and high contrast persist across reload', () async {
+    final service = buildService();
+    await service.initialize();
+
+    expect(await service.setTextScale(1.15), SettingsWriteOutcome.saved);
+    expect(await service.setHighContrast(true), SettingsWriteOutcome.saved);
+    expect(service.textScale, 1.15);
+    expect(service.highContrast, isTrue);
+
+    final reloaded = buildService();
+    await reloaded.initialize();
+    expect(reloaded.textScale, 1.15);
+    expect(reloaded.highContrast, isTrue);
+
+    final data =
+        jsonDecode(await settingsFile.readAsString()) as Map<String, dynamic>;
+    expect(data['text_scale'], 1.15);
+    expect(data['high_contrast'], isTrue);
+  });
+
+  test('setTextScale unchanged values skip write', () async {
+    final service = buildService();
+    await service.initialize();
+    writeCount = 0;
+    notifyCount = 0;
+
+    final outcome = await service.setTextScale(1.0);
+
+    expect(outcome, SettingsWriteOutcome.unchanged);
+    expect(writeCount, 0);
+    expect(notifyCount, 0);
+  });
+
+  test('setTextScale rejects unsupported values', () {
+    final service = buildService();
+    expect(() => service.setTextScale(1.2), throwsArgumentError);
+  });
+
+  test(
+    'high contrast write failure leaves in-memory value unchanged',
+    () async {
+      final service = buildService();
+      await service.initialize();
+      expect(service.highContrast, isFalse);
+      writeOverride = (file, contents) async {
+        throw const FileSystemException('simulated write failure');
+      };
+      notifyCount = 0;
+
+      final outcome = await service.setHighContrast(true);
+
+      expect(outcome, SettingsWriteOutcome.writeFailed);
+      expect(service.highContrast, isFalse);
+      expect(notifyCount, 0);
+    },
+  );
+
+  test('extra large text scale persists and round-trips', () async {
+    final service = buildService();
+    await service.initialize();
+
+    expect(await service.setTextScale(1.3), SettingsWriteOutcome.saved);
+    expect(service.textScale, 1.3);
+
+    final reloaded = buildService();
+    await reloaded.initialize();
+    expect(reloaded.textScale, 1.3);
+  });
+
   test('legacy camera migration write failure retains legacy index', () async {
     await settingsFile.writeAsString(
       jsonEncode({
