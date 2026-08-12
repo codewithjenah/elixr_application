@@ -16,7 +16,7 @@ alwaysApply: false
 - `GET /cameras` discovery must stay separate from session startup; probing must be bounded, cancellable, and tolerant of warm-up. Black or unusable frames mean the device is not healthy.
 - `prepare` streams preview without scoring; `activate` begins active inference/scoring; legacy `start` combines both. Await in-flight frame work before releasing camera/detector resources.
 - Do not assume vendor-specific cameras, fixed 1080p, or fixed 30 FPS. Add camera lifecycle tests when changing identity, discovery, prepare/activate, stop, or disconnect behavior.
-- `PropDetector` selects the checked-in prop model for the session (`backend/models/bottle_best.pt` or `backend/models/shaker_best.pt`) and resolves its declared class names at load time. Do not download, replace, or reinterpret model classes silently.
+- `PropDetector` and `DualPropDetector` share one combined YOLO model at `backend/models/best.pt` and resolve bottle/shaker class IDs from the model's declared names at load time; class zero must not be assumed for every prop. Do not download, replace, or reinterpret model classes silently.
 - Distinguish model-load failure from ordinary no-detection behavior.
 - Do not cache hand landmarks across frames; stale landmarks cause ghost-hand artifacts.
 - Keep per-session movement state explicit, not in mutable module globals.

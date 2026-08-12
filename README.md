@@ -37,8 +37,8 @@ Flutter Windows client
 FastAPI backend
   ├─ WebSocket session orchestration
   ├─ Shared OpenCV webcam capture
-  ├─ Prop-aware YOLO detection (backend/models/bottle_best.pt,
-  │  backend/models/shaker_best.pt)
+  ├─ Prop-aware YOLO detection (backend/models/best.pt — combined
+  │  bottle and shaker classes)
   ├─ MediaPipe Hands and Pose landmarks
   ├─ Movement-specific rule engine
   ├─ Rolling session score
@@ -135,8 +135,8 @@ cd ..
 
 The repository already contains:
 
-- `backend/models/bottle_best.pt` for bottle detection.
-- `backend/models/shaker_best.pt` for cocktail-shaker detection.
+- `backend/models/best.pt` — combined YOLO model for bottle and
+  cocktail-shaker detection (class IDs resolved from declared names at load time).
 - `backend/models/hand_landmarker.task`.
 - `backend/models/pose_landmarker_lite.task`.
 
@@ -647,10 +647,9 @@ Computer-vision unit tests should prefer synthetic landmarks and detections. A r
 
 ### Model load failed
 
-- Confirm both `backend/models/bottle_best.pt` and
-  `backend/models/shaker_best.pt` exist.
-- The detector resolves these paths relative to the backend source and loads
-  only the prop selected for the session.
+- Confirm `backend/models/best.pt` exists.
+- `PropDetector` and `DualPropDetector` load the combined model and resolve
+  bottle/shaker class IDs from its declared class names at load time.
 - Reinstall the pinned Python requirements in the active virtual environment.
 
 ### Firebase permission or index error
