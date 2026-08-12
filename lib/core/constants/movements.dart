@@ -103,3 +103,15 @@ const movementCatalog = <Movement>[
 List<Movement> movementsByDifficulty(String difficulty) {
   return movementCatalog.where((m) => m.difficulty == difficulty).toList();
 }
+
+/// Returns the next enabled movement in catalog order after the
+/// movement named [name], or null if [name] is the last enabled
+/// movement, isn't found, or nothing enabled follows it.
+Movement? nextEnabledMovementAfter(String name) {
+  final index = movementCatalog.indexWhere((m) => m.name == name);
+  if (index == -1) return null;
+  for (var i = index + 1; i < movementCatalog.length; i++) {
+    if (movementCatalog[i].enabled) return movementCatalog[i];
+  }
+  return null;
+}

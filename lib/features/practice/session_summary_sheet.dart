@@ -7,10 +7,11 @@ import 'package:flutter/material.dart' show Material, MaterialType;
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/movement.dart';
 import 'practice_game_widgets.dart';
 import 'session_assessment.dart';
 
-enum SessionSummaryResult { saved, discarded, tryAgain }
+enum SessionSummaryResult { saved, discarded, tryAgain, next }
 
 /// Centralized sizing for the session-complete dashboard.
 abstract final class _SummaryLayout {
@@ -28,7 +29,8 @@ abstract final class _SummaryLayout {
   static const headerPaddingH = 20.0;
   static const headerPaddingV = 14.0;
   static const actionsPadding = 16.0;
-  static const saveButtonWidth = 300.0;
+  static const saveButtonWidth = 240.0;
+  static const nextButtonWidth = 190.0;
 }
 
 class SessionSummarySheet extends StatelessWidget {
@@ -40,8 +42,10 @@ class SessionSummarySheet extends StatelessWidget {
     required this.onSave,
     required this.onDiscard,
     required this.onTryAgain,
+    this.onNext,
     this.saving = false,
     this.saveError,
+    this.nextMovementName,
   });
 
   final String movement;
@@ -50,8 +54,10 @@ class SessionSummarySheet extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onDiscard;
   final VoidCallback onTryAgain;
+  final VoidCallback? onNext;
   final bool saving;
   final String? saveError;
+  final String? nextMovementName;
 
   int get _score => assessment.finalScore;
 
@@ -63,6 +69,7 @@ class SessionSummarySheet extends StatelessWidget {
     required int durationSeconds,
     required SessionAssessment assessment,
     required Future<String> Function(String? existingSessionId) onSave,
+    Movement? nextMovement,
   }) {
     return showDialog<SessionSummaryResult>(
       context: context,
@@ -75,6 +82,33 @@ class SessionSummarySheet extends StatelessWidget {
         String? pendingSessionId;
         return StatefulBuilder(
           builder: (context, setState) {
+            Future<void> handleSave() async {
+              if (saving) return;
+              setState(() {
+                saving = true;
+                saveError = null;
+              });
+              try {
+                pendingSessionId = await onSave(pendingSessionId);
+              } catch (error) {
+                if (ctx.mounted) {
+                  setState(() {
+                    saveError = _formatSaveError(error);
+                    saving = false;
+                  });
+                }
+                return;
+              }
+              // Pop on success only — do not setState after pop (navigator can
+              // be locked / element deactivated, which leaves the spinner up).
+              if (ctx.mounted) {
+                Navigator.of(
+                  ctx,
+                  rootNavigator: true,
+                ).pop(SessionSummaryResult.saved);
+              }
+            }
+
             return Stack(
               children: [
                 if (assessment.finalScore >= 60)
@@ -90,6 +124,7 @@ class SessionSummarySheet extends StatelessWidget {
                           assessment: assessment,
                           saving: saving,
                           saveError: saveError,
+                          nextMovementName: nextMovement?.name,
                           onDiscard: () => Navigator.of(
                             ctx,
                             rootNavigator: true,
@@ -98,32 +133,18 @@ class SessionSummarySheet extends StatelessWidget {
                             ctx,
                             rootNavigator: true,
                           ).pop(SessionSummaryResult.tryAgain),
-                          onSave: () async {
-                            if (saving) return;
-                            setState(() {
-                              saving = true;
-                              saveError = null;
-                            });
-                            try {
-                              pendingSessionId = await onSave(pendingSessionId);
-                              if (ctx.mounted) {
-                                Navigator.of(
-                                  ctx,
-                                  rootNavigator: true,
-                                ).pop(SessionSummaryResult.saved);
-                              }
-                            } catch (error) {
-                              if (ctx.mounted) {
-                                setState(() {
-                                  saveError = _formatSaveError(error);
-                                });
-                              }
-                            } finally {
-                              if (ctx.mounted) {
-                                setState(() => saving = false);
-                              }
-                            }
-                          },
+                          onSave: handleSave,
+                          // Next skips persistence and goes straight to the
+                          // next catalog movement (same as discard/try-again).
+                          onNext: nextMovement == null
+                              ? null
+                              : () {
+                                  if (saving) return;
+                                  Navigator.of(
+                                    ctx,
+                                    rootNavigator: true,
+                                  ).pop(SessionSummaryResult.next);
+                                },
                         ),
                       ),
                     ),
@@ -271,9 +292,11 @@ class SessionSummarySheet extends StatelessWidget {
                   _SummaryActions(
                     saving: saving,
                     saveError: saveError,
+                    nextMovementName: nextMovementName,
                     onSave: onSave,
                     onDiscard: onDiscard,
                     onTryAgain: onTryAgain,
+                    onNext: onNext,
                     regularLayout:
                         maxWidth >= _SummaryLayout.actionsRegularBreakpoint,
                   ),
@@ -1049,6 +1072,8 @@ class _SummaryActions extends StatelessWidget {
     required this.onSave,
     required this.onDiscard,
     required this.onTryAgain,
+    required this.onNext,
+    required this.nextMovementName,
     required this.regularLayout,
   });
 
@@ -1057,10 +1082,20 @@ class _SummaryActions extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onDiscard;
   final VoidCallback onTryAgain;
+  final VoidCallback? onNext;
+  final String? nextMovementName;
   final bool regularLayout;
 
   @override
   Widget build(BuildContext context) {
+    final nextButton = onNext == null
+        ? null
+        : GameActionButton(
+            label: 'Next: $nextMovementName',
+            icon: FluentIcons.chevron_right,
+            onPressed: saving ? null : onNext,
+          );
+
     return Container(
       key: const Key('session-summary-actions'),
       padding: const EdgeInsets.fromLTRB(
@@ -1161,6 +1196,13 @@ class _SummaryActions extends StatelessWidget {
                     isLoading: saving,
                   ),
                 ),
+                if (nextButton != null) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  SizedBox(
+                    width: _SummaryLayout.nextButtonWidth,
+                    child: nextButton,
+                  ),
+                ],
               ],
             )
           else
@@ -1203,6 +1245,10 @@ class _SummaryActions extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (nextButton != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  nextButton,
+                ],
                 const SizedBox(height: AppSpacing.xs),
                 Center(
                   child: HyperlinkButton(

@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/forgot_password_screen.dart';
@@ -89,8 +90,14 @@ class AppRouter {
             final prop = TrainingProp.fromProtocolValue(
               state.uri.queryParameters['prop'],
             );
+            // Include movement/prop in the page key so /practice?... →
+            // /practice?movement=Other recreates PracticeScreen. go_router's
+            // default pageKey is path-only and would reuse the old State
+            // (late finals for movement/difficulty/prop never update).
             return fadeTransitionPage(
-              key: state.pageKey,
+              key: ValueKey(
+                'practice:$movement|$difficulty|${prop.protocolValue}',
+              ),
               child: PracticeScreen(
                 movement: movement,
                 difficulty: difficulty,

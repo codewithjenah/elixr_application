@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
@@ -154,6 +155,7 @@ Future<void> _openSummary(
   required Future<String> Function(String? existingSessionId) onSave,
   Size size = const Size(1366, 768),
   String movement = 'Hand Stall',
+  Movement? nextMovement,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -171,6 +173,7 @@ Future<void> _openSummary(
                   durationSeconds: 45,
                   assessment: assessment,
                   onSave: onSave,
+                  nextMovement: nextMovement,
                 );
               },
               child: const Text('Open'),
@@ -193,6 +196,14 @@ Finder get _actions => find.byKey(const Key('session-summary-actions'));
 
 Finder get _recommendation =>
     find.byKey(const Key('session-summary-recommendation'));
+
+const _nextMovementFixture = Movement(
+  name: "Bartender's Grip",
+  difficulty: 'Easy',
+  description: 'Pinch the neck with thumb and index finger.',
+  requiresHandsDetection: true,
+  enabled: true,
+);
 
 double _maxScrollExtent(WidgetTester tester) {
   final scrollable = tester.state<ScrollableState>(
@@ -925,5 +936,138 @@ void main() {
     await tester.tap(find.text('Try Again'));
     await tester.pumpAndSettle();
     expect(result, SessionSummaryResult.tryAgain);
+  });
+
+  group('Next button', () {
+    testWidgets('is absent when nextMovement is not provided', (tester) async {
+      await _openSummary(
+        tester,
+        assessment: _standardSummaryAssessment(),
+        onSave: (_) async => 'session-no-next',
+      );
+
+      expect(find.textContaining('Next:'), findsNothing);
+      expect(_saveButton, findsOneWidget);
+    });
+
+    testWidgets('appears with Next: <name> label when provided', (
+      tester,
+    ) async {
+      await _openSummary(
+        tester,
+        assessment: _standardSummaryAssessment(),
+        nextMovement: _nextMovementFixture,
+        onSave: (_) async => 'session-with-next',
+      );
+
+      expect(find.text("Next: Bartender's Grip"), findsOneWidget);
+      expect(find.byType(GameActionButton), findsNWidgets(2));
+    });
+
+    testWidgets('pops SessionSummaryResult.next without saving', (
+      tester,
+    ) async {
+      var saveCalls = 0;
+      SessionSummaryResult? result;
+
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        FluentApp(
+          home: Builder(
+            builder: (context) {
+              return Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    result = await SessionSummarySheet.show(
+                      context,
+                      movement: 'Hand Stall',
+                      durationSeconds: 45,
+                      assessment: _standardSummaryAssessment(),
+                      nextMovement: _nextMovementFixture,
+                      onSave: (existingSessionId) async {
+                        saveCalls++;
+                        return existingSessionId ?? 'session-next';
+                      },
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+
+      await tester.tap(find.text("Next: Bartender's Grip"));
+      await tester.pumpAndSettle();
+
+      expect(saveCalls, 0);
+      expect(result, SessionSummaryResult.next);
+    });
+
+    testWidgets('tap while a save is in flight is a no-op', (tester) async {
+      var saveCalls = 0;
+      SessionSummaryResult? result;
+
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        FluentApp(
+          home: Builder(
+            builder: (context) {
+              return Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    result = await SessionSummarySheet.show(
+                      context,
+                      movement: 'Hand Stall',
+                      durationSeconds: 45,
+                      assessment: _standardSummaryAssessment(),
+                      nextMovement: _nextMovementFixture,
+                      onSave: (existingSessionId) async {
+                        saveCalls++;
+                        await Future<void>.delayed(
+                          const Duration(milliseconds: 120),
+                        );
+                        return existingSessionId ?? 'session-next-inflight';
+                      },
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+
+      // Start a Save & Continue so Next is disabled while saving.
+      await tester.tap(
+        find.widgetWithText(GameActionButton, 'Save & Continue'),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      await tester.tap(
+        find.widgetWithText(GameActionButton, "Next: Bartender's Grip"),
+        warnIfMissed: false,
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(saveCalls, 1);
+      expect(result, isNull);
+      await tester.pump(const Duration(milliseconds: 200));
+      tester.takeException();
+      expect(result, SessionSummaryResult.saved);
+    });
   });
 }

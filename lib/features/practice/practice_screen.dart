@@ -708,11 +708,13 @@ class _PracticeScreenState extends State<PracticeScreen>
       await _sfx.setVolume(sfxVolume);
       await _sfx.playCongrats();
       if (!mounted) return;
+      final nextMovement = nextEnabledMovementAfter(_movement);
       final result = await SessionSummarySheet.show(
         context,
         movement: _movement,
         durationSeconds: summaryDuration,
         assessment: sessionAssessment,
+        nextMovement: nextMovement,
         onSave: (existingSessionId) => sessionService.saveCompletedSession(
           existingSessionId: existingSessionId,
           userId: userId,
@@ -729,18 +731,37 @@ class _PracticeScreenState extends State<PracticeScreen>
 
       if (!mounted) return;
 
-      // End congrats before the next action. Do NOT stop again in finally —
-      // Try Again starts preparation on the same player and a finally stop
-      // would silence it immediately.
-      await _sfx.stop();
-
       if (result == SessionSummaryResult.tryAgain) {
+        await _sfx.stop();
         _clearSessionState();
         _run.cancelToIdle();
         setState(() {});
         await _startSession();
         return;
       }
+
+      if (result == SessionSummaryResult.next && nextMovement != null) {
+        // Don't block navigation on SFX teardown — Next skips save and should
+        // move immediately to the next catalog movement.
+        unawaited(_sfx.stop());
+        _clearSessionState();
+        _run.cancelToIdle();
+        final prop = nextMovement.supportedProps.contains(_prop)
+            ? _prop
+            : nextMovement.supportedProps.first;
+        final encoded = Uri.encodeComponent(nextMovement.name);
+        router.go(
+          '/practice?movement=$encoded'
+          '&difficulty=${nextMovement.difficulty}'
+          '&prop=${prop.protocolValue}',
+        );
+        return;
+      }
+
+      // End congrats before leaving practice. Do NOT stop again in finally —
+      // Try Again starts preparation on the same player and a finally stop
+      // would silence it immediately.
+      await _sfx.stop();
 
       _clearSessionState();
       _run.cancelToIdle();
