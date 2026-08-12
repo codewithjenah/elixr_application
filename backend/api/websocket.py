@@ -27,7 +27,8 @@ from assessment.rule_engine import (
     movement_requires_pose,
     validate_movement_difficulty,
 )
-from assessment.scoring import SessionScorer
+from assessment.scoring import RubricTracker
+from assessment.rubric import RubricAssessment
 from config import (
     FPS_LOG_INTERVAL,
     JPEG_QUALITY,
@@ -48,7 +49,7 @@ from schemas.commands import (
     StopCommand,
     parse_v1_command,
 )
-from schemas.feedback import FeedbackMessage
+from schemas.feedback import AssessmentPayload, CriterionScorePayload, FeedbackMessage
 from schemas.protocol import CommandAck, ProtocolError
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
@@ -77,6 +78,21 @@ SESSION_ACTIVE = "active"
 SESSION_CLOSED = "closed"
 
 SendText = Callable[[str], Awaitable[None]]
+
+
+def _assessment_payload(assessment: RubricAssessment) -> AssessmentPayload:
+    """Convert domain RubricAssessment into the WebSocket payload schema."""
+    payload = assessment.to_payload()
+    criteria = {
+        key: CriterionScorePayload(**value)
+        for key, value in payload["criteria"].items()
+    }
+    return AssessmentPayload(
+        version=2,
+        criteria=criteria,
+        total=payload["total"],
+        performance_level=payload["performance_level"],
+    )
 
 _PIPELINE_STAGE_ORDER = (
     "camera",
@@ -457,7 +473,7 @@ class VisionSession:
         self._pose_needed = (
             not self._prop_detection_only and movement_requires_pose(movement)
         )
-        self.scorer = SessionScorer()
+        self.rubric = RubricTracker()
 
         self._frame_index = 0
         self._last_bottles: list[PropDetection] = []
@@ -660,7 +676,7 @@ class VisionSession:
             return False, "readiness_not_confirmed"
 
         self._ensure_detectors()
-        self.scorer.reset()
+        self.rubric.activate()
         if not self._prop_detection_only:
             self._hold_validator.activate()
         self._prev_hip_center = None
@@ -695,7 +711,6 @@ class VisionSession:
                     bottle_detected=False,
                     prop_type=self.prop_type,
                     movement=self.movement,
-                    score=0,
                     feedback=(
                         f"{self.prop_display_name} model load failed. "
                         "Check the backend model files and ultralytics installation."
@@ -743,7 +758,6 @@ class VisionSession:
                 bottle_count=0,
                 prop_type=self.prop_type,
                 movement=self.movement,
-                score=self.scorer.score,
                 feedback="Preparing camera…",
                 feedback_type="positive",
                 posture_status="unknown",
@@ -848,7 +862,6 @@ class VisionSession:
             "Checking readiness\u2026",
             "positive",
             self.movement,
-            self.scorer.score,
             pose=pose,
             prop_label=self.prop_display_name,
         )
@@ -870,7 +883,6 @@ class VisionSession:
                 bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
-                score=self.scorer.score,
                 feedback="Checking readiness\u2026",
                 feedback_type="positive",
                 posture_status="unknown",
@@ -938,7 +950,6 @@ class VisionSession:
             feedback,
             feedback_type,
             self.movement,
-            0,
             pose=None,
             prop_label=self.prop_display_name,
         )
@@ -960,7 +971,6 @@ class VisionSession:
                 bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
-                score=0,
                 feedback=feedback,
                 feedback_type=feedback_type,
                 posture_status="unknown",
@@ -1079,14 +1089,21 @@ class VisionSession:
         )
         self.timings.add("evaluate", time.perf_counter() - t0)
 
-        self.scorer.record(rule_result.feedback_type)
+        hold_ts = time.monotonic()
+        self.rubric.record(
+            feedback_code=rule_result.feedback_code,
+            feedback_type=rule_result.feedback_type,
+            posture_status=rule_result.posture_status,
+            timestamp=hold_ts,
+        )
 
         hold = self._hold_validator.update(
             feedback_type=rule_result.feedback_type,
             posture_status=rule_result.posture_status,
             session_active=self.is_active,
-            timestamp=time.monotonic(),
+            timestamp=hold_ts,
         )
+        assessment = _assessment_payload(self.rubric.snapshot(hold))
 
         # Combine both detection lists only for drawing; movement evaluation
         # above kept bottles and shakers separate.
@@ -1100,7 +1117,6 @@ class VisionSession:
             rule_result.feedback,
             rule_result.feedback_type,
             self.movement,
-            self.scorer.score,
             pose=pose,
             prop_label=self.prop_display_name,
         )
@@ -1124,7 +1140,6 @@ class VisionSession:
                 bottle_count=normalized.selected_count,
                 prop_type=self.prop_type,
                 movement=self.movement,
-                score=self.scorer.score,
                 feedback=rule_result.feedback,
                 feedback_type=rule_result.feedback_type,
                 posture_status=rule_result.posture_status,
@@ -1138,6 +1153,7 @@ class VisionSession:
                 hold_target_ms=hold.hold_target_ms,
                 feedback_code=feedback_code,
                 feedback_category=category.value if category is not None else None,
+                assessment=assessment,
             )
         )
         self.timings.add("encode", time.perf_counter() - t0)
@@ -1224,7 +1240,6 @@ async def _cv_session_loop(
             bottle_detected=False,
             prop_type=prop_type,
             movement=movement,
-            score=0,
             feedback=(
                 "Vision pipeline failed to start. From the backend folder run "
                 ".\\run.ps1 (or backend\\.venv\\Scripts\\python.exe -m uvicorn "
@@ -1261,7 +1276,6 @@ async def _cv_session_loop(
                 bottle_detected=False,
                 prop_type=prop_type,
                 movement=movement,
-                score=0,
                 feedback=feedback,
                 feedback_type="error",
                 posture_status="unknown",
@@ -1390,7 +1404,6 @@ async def _cv_session_loop(
             bottle_detected=False,
             prop_type=prop_type,
             movement=movement,
-            score=0,
             feedback="Vision pipeline error. Check backend logs for details.",
             feedback_type="error",
             posture_status="unknown",
@@ -1441,7 +1454,6 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
             bottle_detected=False,
             prop_type="bottle",
             movement=movement,
-            score=0,
             feedback=_human_error_message(bool_error),
             feedback_type="error",
             posture_status="unknown",
@@ -1458,7 +1470,6 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
             bottle_detected=False,
             prop_type=prop_type,
             movement=movement,
-            score=0,
             feedback=_human_error_message(prop_error),
             feedback_type="error",
             posture_status="unknown",
@@ -1476,7 +1487,6 @@ def _parse_session_request(data: dict, movement: str, difficulty: str):
             bottle_detected=False,
             prop_type=prop_type,
             movement=movement,
-            score=0,
             feedback=(
                 "Invalid camera selection. Choose Auto-select or a "
                 "valid camera in Settings."
@@ -2093,7 +2103,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     bottle_detected=False,
                     prop_type=prop_type,
                     movement=movement,
-                    score=0,
                     feedback=_human_error_message("movement_prop_mismatch"),
                     feedback_type="error",
                     posture_status="unknown",
@@ -2139,7 +2148,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     bottle_detected=False,
                     prop_type=getattr(session, "prop_type", "bottle"),
                     movement=movement,
-                    score=0,
                     feedback=(
                         "No prepared camera session to activate. "
                         "Start again to prepare the camera."
@@ -2166,7 +2174,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     bottle_detected=False,
                     prop_type=getattr(session, "prop_type", "bottle"),
                     movement=movement,
-                    score=0,
                     feedback=_human_error_message("readiness_not_confirmed"),
                     feedback_type="error",
                     posture_status="unknown",

@@ -202,9 +202,7 @@ void main() {
     expect(find.byType(ProfileAvatarWidget), findsOneWidget);
     expect(find.text('AB'), findsOneWidget);
     expect(
-      find.byWidgetPredicate(
-        (w) => w is Image && w.image is AssetImage,
-      ),
+      find.byWidgetPredicate((w) => w is Image && w.image is AssetImage),
       findsNothing,
     );
   });

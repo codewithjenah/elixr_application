@@ -3,19 +3,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('trainingPerformanceLabel', () {
-    test('Excellent at 85–100', () {
-      expect(trainingPerformanceLabel(85), 'Excellent');
-      expect(trainingPerformanceLabel(100), 'Excellent');
+    test('uses rubric performance-level thresholds', () {
+      expect(trainingPerformanceLabel(0), 'Beginning');
+      expect(trainingPerformanceLabel(3), 'Beginning');
+      expect(trainingPerformanceLabel(4), 'Developing');
+      expect(trainingPerformanceLabel(6), 'Developing');
+      expect(trainingPerformanceLabel(7), 'Competent');
+      expect(trainingPerformanceLabel(9), 'Competent');
+      expect(trainingPerformanceLabel(10), 'Proficient');
+      expect(trainingPerformanceLabel(11), 'Proficient');
+      expect(trainingPerformanceLabel(12), 'Mastered');
     });
 
-    test('Developing at 70–84', () {
-      expect(trainingPerformanceLabel(70), 'Developing');
-      expect(trainingPerformanceLabel(84), 'Developing');
-    });
-
-    test('Needs Practice below 70', () {
-      expect(trainingPerformanceLabel(69), 'Needs Practice');
-      expect(trainingPerformanceLabel(0), 'Needs Practice');
+    test('clamps out-of-range totals instead of throwing', () {
+      expect(trainingPerformanceLabel(-1), 'Beginning');
+      expect(trainingPerformanceLabel(13), 'Mastered');
     });
   });
 
@@ -24,10 +26,12 @@ void main() {
       expect(trainingPerformanceFraction(null), 0.0);
     });
 
-    test('clamps below 0 and above 100', () {
-      expect(trainingPerformanceFraction(-10), 0.0);
-      expect(trainingPerformanceFraction(150), 1.0);
-      expect(trainingPerformanceFraction(50), 0.5);
+    test('is a fraction of 12 and clamps out-of-range totals', () {
+      expect(trainingPerformanceFraction(0), 0.0);
+      expect(trainingPerformanceFraction(6), 0.5);
+      expect(trainingPerformanceFraction(12), 1.0);
+      expect(trainingPerformanceFraction(-4), 0.0);
+      expect(trainingPerformanceFraction(24), 1.0);
     });
   });
 }

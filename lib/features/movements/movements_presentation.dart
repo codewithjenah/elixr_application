@@ -3,43 +3,64 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
 
-typedef MovementStats = ({int count, double avgScore});
+/// Per-movement aggregates.
+///
+/// [count] is every completed session; [rubricSessionCount] and
+/// [averageRubricTotal] cover only Assessment V2 sessions on the 0..12 scale.
+typedef MovementStats = ({
+  int count,
+  int rubricSessionCount,
+  double? averageRubricTotal,
+});
 
 class MovementsSummary {
   const MovementsSummary({
     required this.practicedCount,
     required this.totalMovements,
     required this.totalSessions,
-    required this.overallAverage,
+    required this.rubricSessionCount,
+    required this.overallAverageRubric,
   });
 
   final int practicedCount;
   final int totalMovements;
   final int totalSessions;
 
-  /// Weighted average across sessions, or null when there are no sessions.
-  final double? overallAverage;
+  /// Sessions contributing to [overallAverageRubric].
+  final int rubricSessionCount;
+
+  /// Weighted rubric average (0..12), or null without Assessment V2 sessions.
+  final double? overallAverageRubric;
 }
 
 /// Builds page-level summary values from per-movement session aggregates.
 MovementsSummary computeMovementsSummary(Map<String, MovementStats> stats) {
   var practiced = 0;
   var totalSessions = 0;
-  var weightedSum = 0.0;
+  var rubricSessions = 0;
+  var weightedRubricSum = 0.0;
 
   for (final movement in movementCatalog) {
     final entry = stats[movement.name];
     if (entry == null || entry.count <= 0) continue;
     practiced++;
     totalSessions += entry.count;
-    weightedSum += entry.avgScore * entry.count;
+
+    final average = entry.averageRubricTotal;
+    if (entry.rubricSessionCount > 0 && average != null) {
+      rubricSessions += entry.rubricSessionCount;
+      weightedRubricSum += average * entry.rubricSessionCount;
+    }
   }
 
   return MovementsSummary(
     practicedCount: practiced,
     totalMovements: movementCatalog.length,
     totalSessions: totalSessions,
-    overallAverage: totalSessions > 0 ? weightedSum / totalSessions : null,
+    rubricSessionCount: rubricSessions,
+    overallAverageRubric: rubricSessions > 0
+        ? weightedRubricSum / rubricSessions
+        : null,
   );
 }
 

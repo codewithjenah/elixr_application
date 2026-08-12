@@ -21,7 +21,15 @@ class DashboardTrainingOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avg = stats?.averageScore;
+    // Assessment V2 reports a rubric total out of 12; legacy-only users keep
+    // the 0..100 percentage. The scales are never blended.
+    final hasRubric = stats?.hasRubricData ?? false;
+    final average = hasRubric
+        ? stats?.averageRubricTotal
+        : stats?.averageLegacyScore;
+    final best = hasRubric ? stats?.bestRubricTotal : stats?.bestLegacyScore;
+    final scaleSuffix = hasRubric ? ' /12' : ' /100';
+
     final metrics = <_MetricData>[
       _MetricData(
         label: 'Total Sessions',
@@ -33,9 +41,11 @@ class DashboardTrainingOverview extends StatelessWidget {
         accent: AppColors.accent,
       ),
       _MetricData(
-        label: 'Average Score',
-        value: avg != null ? avg.toStringAsFixed(0) : '—',
-        valueSuffix: avg != null ? ' /100' : null,
+        label: hasRubric ? 'Average Rubric' : 'Average Legacy Score',
+        value: average != null
+            ? average.toStringAsFixed(hasRubric ? 1 : 0)
+            : '—',
+        valueSuffix: average != null ? scaleSuffix : null,
         subLabel: weeklyTrendPercent != null
             ? '${weeklyTrendPercent! >= 0 ? '+' : '−'}${weeklyTrendPercent!.abs()}% vs last week'
             : 'All time',
@@ -43,8 +53,9 @@ class DashboardTrainingOverview extends StatelessWidget {
         accent: AppColors.accentSoft,
       ),
       _MetricData(
-        label: 'Best Score',
-        value: stats?.bestScore?.toString() ?? '—',
+        label: hasRubric ? 'Best Rubric' : 'Best Legacy Score',
+        value: best?.toString() ?? '—',
+        valueSuffix: best != null ? scaleSuffix : null,
         subLabel: 'Personal record',
         icon: FluentIcons.trophy2,
         accent: AppColors.warning,

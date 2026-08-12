@@ -1,3 +1,4 @@
+import 'rubric_assessment.dart';
 import 'training_prop.dart';
 
 /// Sanitized practice-history projection at
@@ -8,7 +9,9 @@ class PublicProfileSession {
     required this.userId,
     required this.movementName,
     required this.difficulty,
-    required this.score,
+    this.legacyScore,
+    this.rubric,
+    this.assessmentVersion = 1,
     required this.durationSeconds,
     required this.propType,
     this.createdAt,
@@ -18,10 +21,16 @@ class PublicProfileSession {
   final String userId;
   final String movementName;
   final String difficulty;
-  final int score;
+
+  /// Legacy Assessment V1 percentage. Null for V2 projections.
+  final int? legacyScore;
+  final RubricAssessment? rubric;
+  final int assessmentVersion;
   final int durationSeconds;
   final TrainingProp propType;
   final String? createdAt;
+
+  bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
 
   static PublicProfileSession? tryFromMap(
     Map<String, dynamic> map, {
@@ -31,7 +40,6 @@ class PublicProfileSession {
     final userId = _readString(map['user_id']);
     final movementName = _readString(map['movement_name']);
     final difficulty = _readString(map['difficulty']);
-    final score = _readInt(map['score']);
     final durationSeconds = _readInt(map['duration_seconds']);
 
     if (sessionId == null ||
@@ -42,17 +50,35 @@ class PublicProfileSession {
         movementName.isEmpty ||
         difficulty == null ||
         difficulty.isEmpty ||
-        score == null ||
         durationSeconds == null) {
       return null;
     }
+
+    final rubric = RubricAssessment.tryFromFirestore(map);
+    if (rubric != null) {
+      return PublicProfileSession(
+        sessionId: sessionId,
+        userId: userId,
+        movementName: movementName,
+        difficulty: difficulty,
+        rubric: rubric,
+        assessmentVersion: 2,
+        durationSeconds: durationSeconds < 0 ? 0 : durationSeconds,
+        propType: TrainingProp.fromProtocolValue(map['prop_type']),
+        createdAt: _readTimestampString(map['created_at']),
+      );
+    }
+
+    final score = _readInt(map['score']);
+    if (score == null) return null;
 
     return PublicProfileSession(
       sessionId: sessionId,
       userId: userId,
       movementName: movementName,
       difficulty: difficulty,
-      score: score,
+      legacyScore: score,
+      assessmentVersion: 1,
       durationSeconds: durationSeconds < 0 ? 0 : durationSeconds,
       propType: TrainingProp.fromProtocolValue(map['prop_type']),
       createdAt: _readTimestampString(map['created_at']),

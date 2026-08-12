@@ -19,6 +19,25 @@ abstract final class FirestoreCollections {
   static const profileVisits = 'profile_visits';
 }
 
+/// Partitioned session assessment aggregates. V1 and V2 are never mixed.
+class SessionAssessmentStats {
+  const SessionAssessmentStats({
+    required this.rubricSessionCount,
+    required this.averageRubricTotal,
+    required this.bestRubricTotal,
+    required this.legacySessionCount,
+    required this.averageLegacyScore,
+    required this.bestLegacyScore,
+  });
+
+  final int rubricSessionCount;
+  final double? averageRubricTotal;
+  final int? bestRubricTotal;
+  final int legacySessionCount;
+  final double? averageLegacyScore;
+  final int? bestLegacyScore;
+}
+
 class FirestoreHelper {
   FirestoreHelper._({FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -68,6 +87,10 @@ class FirestoreHelper {
       'duration_seconds': data['duration_seconds'],
       'prop_type': data['prop_type'],
       'created_at': _readCreatedAt(data['created_at']),
+      'assessment_version': data['assessment_version'],
+      'rubric': data['rubric'],
+      'rubric_total': data['rubric_total'],
+      'performance_level': data['performance_level'],
     };
   }
 
@@ -123,13 +146,16 @@ class FirestoreHelper {
     if (user.id == null) {
       throw ArgumentError('User id is required');
     }
-    await _firestore.collection(FirestoreCollections.users).doc(user.id).set(
-      userProfileWriteData(
-        user,
-        includePrivacyConsent: includePrivacyConsent,
-      ),
-      SetOptions(merge: true),
-    );
+    await _firestore
+        .collection(FirestoreCollections.users)
+        .doc(user.id)
+        .set(
+          userProfileWriteData(
+            user,
+            includePrivacyConsent: includePrivacyConsent,
+          ),
+          SetOptions(merge: true),
+        );
   }
 
   Future<void> updateUserProfileField(
@@ -171,15 +197,25 @@ class FirestoreHelper {
     final sessionRef = _firestore
         .collection(FirestoreCollections.sessions)
         .doc(sessionId);
-    batch.set(sessionRef, {
+    final sessionPayload = <String, dynamic>{
       'user_id': session.userId,
       'movement_name': session.movementName,
       'difficulty': session.difficulty,
-      'score': session.score,
       'duration_seconds': session.durationSeconds,
       'prop_type': session.propType.protocolValue,
       'created_at': FieldValue.serverTimestamp(),
-    });
+    };
+    if (session.isRubricAssessed && session.rubric != null) {
+      sessionPayload.addAll(session.rubric!.toFirestoreFields());
+    } else if (session.legacyScore != null) {
+      sessionPayload['score'] = session.legacyScore;
+      sessionPayload['assessment_version'] = 1;
+    } else {
+      throw ArgumentError(
+        'Session must include Assessment V2 rubric or a legacy score',
+      );
+    }
+    batch.set(sessionRef, sessionPayload);
 
     for (var index = 0; index < feedbacks.length; index++) {
       final feedback = feedbacks[index];
@@ -265,22 +301,52 @@ class FirestoreHelper {
     return snapshot.count ?? 0;
   }
 
-  Future<double?> averageScoreForUser(String userId) async {
+  /// Partitioned assessment aggregates — never mix V1 and V2 numerics.
+  Future<SessionAssessmentStats> sessionAssessmentStatsForUser(
+    String userId,
+  ) async {
     final sessions = await _sessionsForUser(userId);
-    if (sessions.isEmpty) return null;
-    final total = sessions.fold<int>(
-      0,
-      (running, session) => running + session.score,
+    var rubricCount = 0;
+    var rubricSum = 0;
+    var rubricBest = 0;
+    var legacyCount = 0;
+    var legacySum = 0;
+    var legacyBest = 0;
+
+    for (final session in sessions) {
+      if (session.isRubricAssessed) {
+        final total = session.rubric!.total;
+        rubricCount++;
+        rubricSum += total;
+        if (total > rubricBest) rubricBest = total;
+      } else if (session.legacyScore != null) {
+        final score = session.legacyScore!;
+        legacyCount++;
+        legacySum += score;
+        if (score > legacyBest) legacyBest = score;
+      }
+    }
+
+    return SessionAssessmentStats(
+      rubricSessionCount: rubricCount,
+      averageRubricTotal: rubricCount == 0 ? null : rubricSum / rubricCount,
+      bestRubricTotal: rubricCount == 0 ? null : rubricBest,
+      legacySessionCount: legacyCount,
+      averageLegacyScore: legacyCount == 0 ? null : legacySum / legacyCount,
+      bestLegacyScore: legacyCount == 0 ? null : legacyBest,
     );
-    return total / sessions.length;
   }
 
+  @Deprecated('Use sessionAssessmentStatsForUser — never mix V1/V2')
+  Future<double?> averageScoreForUser(String userId) async {
+    final stats = await sessionAssessmentStatsForUser(userId);
+    return stats.averageLegacyScore;
+  }
+
+  @Deprecated('Use sessionAssessmentStatsForUser — never mix V1/V2')
   Future<int?> bestScoreForUser(String userId) async {
-    final sessions = await _sessionsForUser(userId);
-    if (sessions.isEmpty) return null;
-    return sessions
-        .map((session) => session.score)
-        .reduce((a, b) => a > b ? a : b);
+    final stats = await sessionAssessmentStatsForUser(userId);
+    return stats.bestLegacyScore;
   }
 
   Future<Map<String, int>> sessionCountByMovement(String userId) async {

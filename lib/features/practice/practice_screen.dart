@@ -12,6 +12,7 @@ import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/auth_service.dart';
@@ -31,6 +32,14 @@ import 'widgets/training_performance.dart';
 import 'widgets/training_session_header.dart';
 import 'widgets/training_session_panel.dart';
 import 'widgets/training_status_row.dart';
+
+/// Rubric used when a scored session ends with no assessment frame observed.
+const _emptyRubric = RubricAssessment(
+  technique: 0,
+  stability: 0,
+  completion: 0,
+  propPositioning: 0,
+);
 
 class PracticeScreen extends StatefulWidget {
   const PracticeScreen({
@@ -100,7 +109,8 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
-  final ValueNotifier<int?> _scoreNotifier = ValueNotifier<int?>(null);
+  final ValueNotifier<RubricAssessment?> _assessmentNotifier =
+      ValueNotifier<RubricAssessment?>(null);
   final ValueNotifier<double> _holdProgressNotifier = ValueNotifier<double>(0);
   bool _connecting = false;
   String? _sessionError;
@@ -110,7 +120,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
-  int? _lastPulsedScore;
+  int? _lastPulsedTotal;
 
   static const _maxContentWidth = AppSpacing.practiceMaxContentWidth;
   static const _desktopBreakpoint = AppSpacing.practiceDesktopBreakpoint;
@@ -142,7 +152,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _feedbackSub?.cancel();
     _scorePulseController.dispose();
     _frameBytes.dispose();
-    _scoreNotifier.dispose();
+    _assessmentNotifier.dispose();
     _holdProgressNotifier.dispose();
     _comboNotifier.dispose();
     _scorePopupNotifier.dispose();
@@ -161,7 +171,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       _music.stop();
       _sfx.stop();
       _frameBytes.value = null;
-      _scoreNotifier.value = null;
+      _assessmentNotifier.value = null;
       _holdProgressNotifier.value = 0;
       if (mounted) {
         final wasCalibrating =
@@ -232,7 +242,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       );
       unawaited(_stopWebSocketSession());
       _clearFrame();
-      _scoreNotifier.value = null;
+      _assessmentNotifier.value = null;
       _holdProgressNotifier.value = 0;
       setState(() {
         _sessionError = feedback.feedback;
@@ -295,7 +305,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     final result = _feedback.applyActiveFeedback(feedback);
 
     _publishFrame(feedback.frameJpegBytes);
-    _scoreNotifier.value = feedback.score;
+    _assessmentNotifier.value = feedback.assessment;
     _holdProgressNotifier.value = feedback.holdProgress;
 
     if (result.comboChanged) {
@@ -315,8 +325,11 @@ class _PracticeScreenState extends State<PracticeScreen>
       unawaited(_onMovementConfirmed());
     }
 
-    if (result.scoreChanged && _lastPulsedScore != feedback.score) {
-      _lastPulsedScore = feedback.score;
+    final total = feedback.assessment?.total;
+    if (result.assessmentChanged &&
+        total != null &&
+        _lastPulsedTotal != total) {
+      _lastPulsedTotal = total;
       _scorePulseController.forward(from: 0);
     }
   }
@@ -621,11 +634,11 @@ class _PracticeScreenState extends State<PracticeScreen>
     _feedback.reset();
     _sessionError = null;
     _clearFrame();
-    _scoreNotifier.value = null;
+    _assessmentNotifier.value = null;
     _holdProgressNotifier.value = 0;
     _comboNotifier.value = const ComboState();
     _scorePopupNotifier.value = const ScorePopupState();
-    _lastPulsedScore = null;
+    _lastPulsedTotal = null;
     _movementConfirmedShowing = false;
   }
 
@@ -675,7 +688,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
     if (!_hasSessionData && _run.elapsedSeconds == 0) {
       // Still show summary for an activated session with zero elapsed when
-      // there was at least a score snapshot; otherwise return to catalog.
+      // there was at least a feedback snapshot; otherwise return to catalog.
       if (_feedback.latestFeedback == null &&
           _feedback.feedbackHistory.isEmpty) {
         _run.cancelToIdle();
@@ -693,12 +706,15 @@ class _PracticeScreenState extends State<PracticeScreen>
       return;
     }
 
-    final summaryScore = _feedback.latestFeedback?.score ?? 0;
+    // Assessment V2 requires a rubric to persist. A session that ended before
+    // any assessment frame arrived saves an explicit all-zero rubric rather
+    // than fabricating criterion scores.
+    final summaryRubric = _feedback.latestFeedback?.assessment ?? _emptyRubric;
     final summaryDuration = _run.elapsedSeconds;
     final sessionAssessment = _feedback.buildSessionAssessment(
       movement: _movement,
       prop: _prop,
-      finalScore: summaryScore,
+      rubric: summaryRubric,
       heldSteady: heldSteady,
     );
 
@@ -723,7 +739,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           movementName: _movement,
           difficulty: _difficulty,
           prop: _prop,
-          score: summaryScore,
+          rubric: summaryRubric,
           durationSeconds: summaryDuration,
           sessionImprovements: sessionAssessment.improvementFeedbacks,
         ),
@@ -1006,9 +1022,10 @@ class _PracticeScreenState extends State<PracticeScreen>
       phase: _panelPhase(),
       expandVertically: expandVertically,
       rankBadge: isTrainingActive
-          ? ValueListenableBuilder<int?>(
-              valueListenable: _scoreNotifier,
-              builder: (context, score, _) => RankBadge(score: score),
+          ? ValueListenableBuilder<RubricAssessment?>(
+              valueListenable: _assessmentNotifier,
+              builder: (context, assessment, _) =>
+                  RankBadge(level: assessment?.performanceLevel),
             )
           : null,
       metrics: isCalibrating
@@ -1023,16 +1040,18 @@ class _PracticeScreenState extends State<PracticeScreen>
             )
           : SessionMetricTiles(
               elapsedDisplay: _formatDuration(_run.elapsedSeconds),
-              scoreChild: isTrainingActive
-                  ? ValueListenableBuilder<int?>(
-                      valueListenable: _scoreNotifier,
-                      builder: (context, score, _) {
+              rubricChild: isTrainingActive
+                  ? ValueListenableBuilder<RubricAssessment?>(
+                      valueListenable: _assessmentNotifier,
+                      builder: (context, assessment, _) {
                         return ScaleTransition(
                           scale: _scorePulse,
                           child: Text(
-                            score != null ? '$score' : '—',
+                            assessment != null
+                                ? '${assessment.total} / ${RubricScale.maxTotal}'
+                                : '—',
                             style: AppTheme.headingMedium.copyWith(
-                              fontSize: 26,
+                              fontSize: 22,
                               color: AppColors.primary,
                               fontWeight: FontWeight.w800,
                             ),
@@ -1043,18 +1062,25 @@ class _PracticeScreenState extends State<PracticeScreen>
                   : Text(
                       '—',
                       style: AppTheme.headingMedium.copyWith(
-                        fontSize: 26,
+                        fontSize: 22,
                         color: AppColors.primary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
               performanceBar: isTrainingActive
-                  ? ValueListenableBuilder<int?>(
-                      valueListenable: _scoreNotifier,
-                      builder: (context, score, _) =>
-                          TrainingPerformanceBar(score: score),
+                  ? ValueListenableBuilder<RubricAssessment?>(
+                      valueListenable: _assessmentNotifier,
+                      builder: (context, assessment, _) =>
+                          TrainingPerformanceBar(total: assessment?.total),
                     )
-                  : const TrainingPerformanceBar(score: null),
+                  : const TrainingPerformanceBar(total: null),
+              rubricBreakdown: isTrainingActive
+                  ? ValueListenableBuilder<RubricAssessment?>(
+                      valueListenable: _assessmentNotifier,
+                      builder: (context, assessment, _) =>
+                          RubricCriteriaTiles(assessment: assessment),
+                    )
+                  : const RubricCriteriaTiles(assessment: null),
             ),
       statusContent: (isReadiness || (_run.isCountdown && readiness.frozen))
           ? ReadinessChecklistPanel(

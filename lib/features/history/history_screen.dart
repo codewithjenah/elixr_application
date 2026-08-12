@@ -89,12 +89,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case HistorySortMode.oldest:
         return _compareCreatedAt(a, b, ascending: true);
       case HistorySortMode.highestScore:
-        return b.score.compareTo(a.score);
+        return _compareResult(a, b, descending: true);
       case HistorySortMode.lowestScore:
-        return a.score.compareTo(b.score);
+        return _compareResult(a, b, descending: false);
       case HistorySortMode.longestSession:
         return b.durationSeconds.compareTo(a.durationSeconds);
     }
+  }
+
+  /// Orders by assessment result within a cohort.
+  ///
+  /// Rubric totals (0..12) are never compared against legacy percentages
+  /// (0..100), so Assessment V2 sessions form the leading cohort and legacy
+  /// sessions are ordered among themselves after them.
+  int _compareResult(Session a, Session b, {required bool descending}) {
+    final aRubric = a.isRubricAssessed;
+    final bRubric = b.isRubricAssessed;
+    if (aRubric != bRubric) return aRubric ? -1 : 1;
+
+    final aValue = aRubric ? a.rubricTotal! : (a.legacyScore ?? 0);
+    final bValue = bRubric ? b.rubricTotal! : (b.legacyScore ?? 0);
+    final cmp = aValue.compareTo(bValue);
+    return descending ? -cmp : cmp;
   }
 
   int _compareCreatedAt(Session a, Session b, {required bool ascending}) {
@@ -153,16 +169,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return DateFormat.yMMMMd().format(date);
   }
 
+  static double? _average(List<int> values) {
+    if (values.isEmpty) return null;
+    return values.reduce((a, b) => a + b) / values.length;
+  }
+
+  static int? _best(List<int> values) {
+    if (values.isEmpty) return null;
+    return values.reduce((a, b) => a > b ? a : b);
+  }
+
   @override
   Widget build(BuildContext context) {
     final groups = _groupByDate();
-    final totalScore = _sessions.fold<int>(0, (sum, s) => sum + s.score);
-    final avgScore = _sessions.isEmpty
-        ? 0
-        : (totalScore / _sessions.length).round();
-    final bestScore = _sessions.isEmpty
-        ? 0
-        : _sessions.map((s) => s.score).reduce((a, b) => a > b ? a : b);
+
+    // Assessment cohorts are aggregated separately: rubric totals are 0..12 and
+    // legacy scores are 0..100.
+    final rubricTotals = <int>[
+      for (final s in _sessions)
+        if (s.isRubricAssessed) s.rubricTotal!,
+    ];
+    final legacyScores = <int>[
+      for (final s in _sessions)
+        if (!s.isRubricAssessed && s.legacyScore != null) s.legacyScore!,
+    ];
+
     final totalDurationSeconds = _sessions.fold<int>(
       0,
       (sum, s) => sum + s.durationSeconds,
@@ -187,8 +218,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 const SizedBox(height: AppSpacing.lg),
                 HistorySummarySection(
                   totalSessions: _sessions.length,
-                  averageScore: avgScore,
-                  bestScore: bestScore,
+                  rubricSessionCount: rubricTotals.length,
+                  averageRubricTotal: _average(rubricTotals),
+                  bestRubricTotal: _best(rubricTotals),
+                  legacySessionCount: legacyScores.length,
+                  averageLegacyScore: _average(legacyScores),
+                  bestLegacyScore: _best(legacyScores),
                   totalDurationSeconds: totalDurationSeconds,
                   matchingCount: _hasResultFilter ? _filtered.length : null,
                 ),

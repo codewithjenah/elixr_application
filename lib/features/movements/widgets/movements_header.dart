@@ -15,9 +15,9 @@ class MovementsHeader extends StatelessWidget {
     final progress = summary.totalMovements > 0
         ? summary.practicedCount / summary.totalMovements
         : 0.0;
-    final averageLabel = summary.overallAverage == null
-        ? 'No score yet'
-        : '${summary.overallAverage!.round()}%';
+    final averageLabel = summary.overallAverageRubric == null
+        ? 'No rubric result yet'
+        : '${summary.overallAverageRubric!.toStringAsFixed(1)} / 12';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -90,7 +90,10 @@ class MovementsHeader extends StatelessWidget {
                     label: 'Sessions completed',
                     value: '${summary.totalSessions}',
                   ),
-                  _SummaryStat(label: 'Overall average', value: averageLabel),
+                  _SummaryStat(
+                    label: 'Overall rubric average',
+                    value: averageLabel,
+                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.md),

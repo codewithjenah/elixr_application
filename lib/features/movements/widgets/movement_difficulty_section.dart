@@ -218,8 +218,9 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                       movement: widget.movements[i],
                       sessionCount:
                           widget.stats[widget.movements[i].name]?.count ?? 0,
-                      avgScore:
-                          widget.stats[widget.movements[i].name]?.avgScore ?? 0,
+                      averageRubricTotal: widget
+                          .stats[widget.movements[i].name]
+                          ?.averageRubricTotal,
                     ),
                   ],
                 ],

@@ -385,7 +385,7 @@ class _PlayerSpotlight extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${entry.totalXp} XP · Best ${entry.bestScore}',
+                        '${entry.totalXp} XP',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -502,8 +502,7 @@ class _PlayerRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Lv. ${entry.level} · ${entry.totalXp} XP'
-                    '${entry.bestScore > 0 ? ' · Best ${entry.bestScore}' : ''}',
+                    'Lv. ${entry.level} · ${entry.totalXp} XP',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

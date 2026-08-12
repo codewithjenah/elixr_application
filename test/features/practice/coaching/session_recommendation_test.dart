@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/coaching/session_recommendation.dart';
@@ -16,7 +17,6 @@ PracticeFeedback _frame({
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Hand Stall',
-    score: 70,
     feedback: feedback,
     feedbackType: feedbackType,
     postureStatus: feedbackType == 'positive' ? 'stable' : 'unstable',
@@ -34,7 +34,6 @@ void main() {
         movement: 'Hand Stall',
         prop: TrainingProp.bottle,
         heldSteady: false,
-        finalScore: 70,
         positiveRatio: 0.5,
         totalApplicableSamples: 20,
         improvements: [
@@ -71,7 +70,6 @@ void main() {
         movement: 'Hand Stall',
         prop: TrainingProp.shaker,
         heldSteady: false,
-        finalScore: 70,
         positiveRatio: 0.5,
         totalApplicableSamples: 20,
         improvements: [
@@ -110,7 +108,6 @@ void main() {
           movement: 'Hand Stall',
           prop: TrainingProp.bottle,
           heldSteady: false,
-          finalScore: 60,
           positiveRatio: 0.4,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -134,7 +131,6 @@ void main() {
         movement: 'Hand Stall',
         prop: TrainingProp.bottle,
         heldSteady: true,
-        finalScore: 90,
         positiveRatio: 0.85,
         totalApplicableSamples: 30,
         improvements: const [],
@@ -157,7 +153,6 @@ void main() {
         movement: 'Hand Stall',
         prop: TrainingProp.bottle,
         heldSteady: false,
-        finalScore: 70,
         positiveRatio: 0,
         totalApplicableSamples: 0,
         improvements: const [],
@@ -189,7 +184,6 @@ void main() {
           movement: 'Normal Grip',
           prop: TrainingProp.bottle,
           heldSteady: false,
-          finalScore: 60,
           positiveRatio: 0.4,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -218,7 +212,6 @@ void main() {
           movement: 'Hand Stall',
           prop: TrainingProp.shaker,
           heldSteady: false,
-          finalScore: 60,
           positiveRatio: 0.4,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -237,7 +230,6 @@ void main() {
           movement: 'One Finger Stall',
           prop: TrainingProp.bottle,
           heldSteady: false,
-          finalScore: 60,
           positiveRatio: 0.4,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -253,7 +245,6 @@ void main() {
           movement: 'Double Hand Stall',
           prop: TrainingProp.bottle,
           heldSteady: false,
-          finalScore: 60,
           positiveRatio: 0.4,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -268,7 +259,6 @@ void main() {
           movement: 'Bottle in a tin',
           prop: TrainingProp.bottleAndShaker,
           heldSteady: false,
-          finalScore: 60,
           positiveRatio: 0.4,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -287,7 +277,6 @@ void main() {
           movement: 'Normal Grip',
           prop: TrainingProp.bottle,
           heldSteady: false,
-          finalScore: 65,
           positiveRatio: 0.4,
           totalApplicableSamples: 20,
           improvements: [
@@ -345,7 +334,6 @@ void main() {
         movement: 'Hand Stall',
         prop: TrainingProp.bottle,
         heldSteady: false,
-        finalScore: 72,
         positiveRatio: 0.55,
         totalApplicableSamples: 20,
         improvements: [
@@ -379,7 +367,6 @@ void main() {
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
         heldSteady: false,
-        finalScore: 65,
         positiveRatio: 0.4,
         totalApplicableSamples: 20,
         improvements: [
@@ -414,7 +401,6 @@ void main() {
         movement: 'Bottle in a tin',
         prop: TrainingProp.bottleAndShaker,
         heldSteady: false,
-        finalScore: 55,
         positiveRatio: 0.3,
         totalApplicableSamples: 20,
         improvements: [
@@ -449,7 +435,6 @@ void main() {
         movement: 'Double Hand Stall',
         prop: TrainingProp.bottle,
         heldSteady: false,
-        finalScore: 60,
         positiveRatio: 0.35,
         totalApplicableSamples: 20,
         improvements: [
@@ -484,7 +469,6 @@ void main() {
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
         heldSteady: true,
-        finalScore: 90,
         positiveRatio: 0.9,
         totalApplicableSamples: 30,
         improvements: const [],
@@ -505,7 +489,6 @@ void main() {
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
         heldSteady: true,
-        finalScore: 90,
         positiveRatio: 0.9,
         totalApplicableSamples: 30,
         improvements: [
@@ -560,7 +543,6 @@ void main() {
           movement: movement,
           prop: TrainingProp.bottle,
           heldSteady: false,
-          finalScore: 70,
           positiveRatio: 0.5,
           totalApplicableSamples: 10,
           improvements: const [],
@@ -607,7 +589,12 @@ void main() {
         final assessment = controller.buildSessionAssessment(
           movement: 'Hand Stall',
           prop: TrainingProp.shaker,
-          finalScore: 78,
+          rubric: const RubricAssessment(
+            technique: 2,
+            stability: 2,
+            completion: 2,
+            propPositioning: 2,
+          ),
           heldSteady: false,
         );
 

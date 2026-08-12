@@ -55,7 +55,7 @@ Keep Flutter independent of these implementation details except for the document
   (`session_state: preparing`) without detectors or scoring.
   `begin_readiness` (guided practice) loads detectors on the same session,
   streams `session_state: readying` with observability checklist fields, and
-  must not call movement technique evaluation, `SessionScorer.record`, or
+  must not call movement technique evaluation, `RubricTracker.record`, or
   `HoldValidator.update`. It is idempotent when already readying and rejected
   before prepare or after activation. `confirm_readiness` locks stable readiness
   before countdown; `activate` from `readying` requires prior confirmation.
@@ -67,7 +67,7 @@ Keep Flutter independent of these implementation details except for the document
   camera release. Stale `session_id` values must not stop or activate a newer
   session. Malformed JSON and invalid v1 commands return structured errors
   without closing a healthy connection.
-- Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record score changes.
+- Preview-only preparation must not load YOLO/MediaPipe detectors, evaluate movement rules, or record rubric changes.
 - Readiness lives in `assessment/readiness.py` and checks camera/prop/landmark
   observability only (not palm openness, grip orientation, proximity, or
   steadiness). Pose-required movements include `upper_body_visible` (both
@@ -100,12 +100,13 @@ Keep Flutter independent of these implementation details except for the document
 - Add a movement to all required registries/configuration layers, including Flutter's catalog when it is user-selectable.
 - Threshold changes require positive, boundary, and negative synthetic tests.
 
-## Scoring
+## Rubric assessment (Assessment V2)
 
-- Keep score output within `0..100`.
-- Treat feedback classifications as part of the scoring contract.
-- Test window rollover, reset, and bounds when changing weights or window size.
-- Do not derive score from UI-only state.
+- Keep each criterion within `0..3` and the derived total within `0..12`.
+- Derive `performance_level` from total only (beginning / developing / competent / proficient / mastered).
+- Map feedback codes to rubric criteria via `feedback_codes.criterion_for`; visibility/environment codes must not reduce the rubric.
+- Do not derive the rubric from UI-only state or from frame counts.
+- Treat feedback severity (`positive` / `warning` / `error`) as coaching only — not as a direct score delta.
 
 ## WebSocket schema
 

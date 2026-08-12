@@ -81,9 +81,27 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
     final duration = formatTrainingDuration(s.durationSeconds);
     final emoji = MovementVisuals.emojiFor(s.movementName);
     final diffColor = difficultyColor(s.difficulty);
-    final scoreColor = scoreQualityColor(s.score);
-    final scoreLabel = scoreQualityLabel(s.score);
     final active = _expanded || _hovered;
+
+    // Assessment V2 shows the rubric total and performance level; legacy
+    // sessions keep the 0..100 percentage. The two scales never mix.
+    final String resultValue;
+    final String resultLabel;
+    final Color resultColor;
+    if (s.isRubricAssessed) {
+      final total = s.rubricTotal!;
+      final level = rubricPerformanceLevel(total);
+      resultValue = rubricTotalLabel(total);
+      resultLabel = level.label;
+      resultColor = performanceLevelColor(level);
+    } else {
+      final legacy = s.legacyScore;
+      resultValue = legacy == null ? '—' : '$legacy';
+      resultLabel = legacy == null ? 'Not scored' : scoreQualityLabel(legacy);
+      resultColor = legacy == null
+          ? context.elixTextSecondary
+          : scoreQualityColor(legacy);
+    }
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -127,9 +145,9 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
                       difficultyColor: diffColor,
                       time: time,
                       duration: duration,
-                      score: s.score,
-                      scoreLabel: scoreLabel,
-                      scoreColor: scoreColor,
+                      resultValue: resultValue,
+                      resultLabel: resultLabel,
+                      resultColor: resultColor,
                       expanded: _expanded,
                       active: active,
                     );
@@ -140,8 +158,8 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
                     difficulty: s.difficulty,
                     time: time,
                     duration: duration,
-                    score: s.score,
-                    scoreColor: scoreColor,
+                    resultValue: resultValue,
+                    resultColor: resultColor,
                     expanded: _expanded,
                     active: active,
                   );
@@ -176,9 +194,9 @@ class _WideRow extends StatelessWidget {
     required this.difficultyColor,
     required this.time,
     required this.duration,
-    required this.score,
-    required this.scoreLabel,
-    required this.scoreColor,
+    required this.resultValue,
+    required this.resultLabel,
+    required this.resultColor,
     required this.expanded,
     required this.active,
   });
@@ -189,9 +207,9 @@ class _WideRow extends StatelessWidget {
   final Color difficultyColor;
   final String time;
   final String duration;
-  final int score;
-  final String scoreLabel;
-  final Color scoreColor;
+  final String resultValue;
+  final String resultLabel;
+  final Color resultColor;
   final bool expanded;
   final bool active;
 
@@ -226,7 +244,11 @@ class _WideRow extends StatelessWidget {
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
         const SizedBox(width: AppSpacing.md),
-        _ScoreBadge(score: score, label: scoreLabel, color: scoreColor),
+        _ResultBadge(
+          value: resultValue,
+          label: resultLabel,
+          color: resultColor,
+        ),
         const SizedBox(width: AppSpacing.sm),
         AnimatedRotation(
           turns: expanded ? 0.5 : 0,
@@ -249,8 +271,8 @@ class _NarrowRow extends StatelessWidget {
     required this.difficulty,
     required this.time,
     required this.duration,
-    required this.score,
-    required this.scoreColor,
+    required this.resultValue,
+    required this.resultColor,
     required this.expanded,
     required this.active,
   });
@@ -260,8 +282,8 @@ class _NarrowRow extends StatelessWidget {
   final String difficulty;
   final String time;
   final String duration;
-  final int score;
-  final Color scoreColor;
+  final String resultValue;
+  final Color resultColor;
   final bool expanded;
   final bool active;
 
@@ -291,11 +313,11 @@ class _NarrowRow extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '$score',
+                    resultValue,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: scoreColor,
+                      color: resultColor,
                     ),
                   ),
                 ],
@@ -384,14 +406,14 @@ class _DifficultyBadge extends StatelessWidget {
   }
 }
 
-class _ScoreBadge extends StatelessWidget {
-  const _ScoreBadge({
-    required this.score,
+class _ResultBadge extends StatelessWidget {
+  const _ResultBadge({
+    required this.value,
     required this.label,
     required this.color,
   });
 
-  final int score;
+  final String value;
   final String label;
   final Color color;
 
@@ -408,7 +430,7 @@ class _ScoreBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '$score',
+            value,
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w800,

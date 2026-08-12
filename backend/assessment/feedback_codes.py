@@ -2,11 +2,18 @@
 
 Movement rules must import [FeedbackCode] values. Categories are derived only
 via [category_for] — rules must not hand-pair code/category strings.
+
+Rubric criterion membership is derived via [criterion_for]. Visibility and
+environment codes map to None so readiness/camera failures never reduce the
+trainee's rubric score.
 """
 
 from __future__ import annotations
 
 from enum import Enum
+from typing import Optional
+
+from assessment.rubric import RubricCriterion
 
 
 class FeedbackCategory(str, Enum):
@@ -210,6 +217,92 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.BOTTLE_IN_TIN_LOCKED: FeedbackCategory.TECHNIQUE,
 }
 
+# Rubric criterion membership. None = visibility/environment — never scored.
+# Locked codes map to TECHNIQUE as a registry default; RubricTracker treats
+# locked frames as satisfying technique + stability + prop_positioning.
+_CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
+    # Visibility / environment — no rubric impact
+    FeedbackCode.PROP_NOT_DETECTED: None,
+    FeedbackCode.HAND_NOT_VISIBLE: None,
+    FeedbackCode.HAND_NOT_FULLY_VISIBLE: None,
+    FeedbackCode.INDEX_FINGER_NOT_VISIBLE: None,
+    FeedbackCode.POSE_ARM_NOT_VISIBLE: None,
+    FeedbackCode.SHOULDERS_NOT_VISIBLE: None,
+    FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE: None,
+    FeedbackCode.NEED_TWO_BOTTLES: None,
+    FeedbackCode.BOTH_HANDS_NOT_VISIBLE: None,
+    FeedbackCode.BOTH_PROPS_NOT_DETECTED: None,
+    FeedbackCode.BOTTLE_NOT_DETECTED: None,
+    FeedbackCode.SHAKER_NOT_DETECTED: None,
+    FeedbackCode.HAND_NOT_SUPPORTING_SHAKER: None,
+    FeedbackCode.PINCH_FINGERS_NOT_VISIBLE: None,
+    # Technique
+    FeedbackCode.PALM_NOT_OPEN: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BOTH_PALMS_NOT_OPEN: RubricCriterion.TECHNIQUE,
+    FeedbackCode.PROP_NOT_UPRIGHT: RubricCriterion.TECHNIQUE,
+    FeedbackCode.SHAKER_NOT_HORIZONTAL: RubricCriterion.TECHNIQUE,
+    FeedbackCode.OVERHAND_GRIP_REQUIRED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.UNDERHAND_GRIP_REQUIRED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP: RubricCriterion.TECHNIQUE,
+    FeedbackCode.REVERSE_PINKY_THUMB_ORIENTATION: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BARTENDER_PINCH_REQUIRED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BARTENDER_HAND_ORIENTATION: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BARTENDER_INDEX_EXTENSION: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BARTENDER_WRAP_FINGERS: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_FINGERS_NOT_CURLED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_NOT_PINCH_GRIP: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_NOT_SIDE_OVERHAND: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_NOT_REVERSE_HOLD: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_THUMB_SUPPORT: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_MORE_FINGERS_CURLED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.INDEX_FINGER_NOT_EXTENDED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.OTHER_FINGERS_NOT_CURLED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.PINCH_NOT_CLOSED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BOTH_PALMS_HEIGHT_MISMATCH: RubricCriterion.TECHNIQUE,
+    # Prop positioning
+    FeedbackCode.PROP_BASE_NOT_ON_PALM: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_ABOVE_PALM: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_BASE_NOT_ON_INDEX: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_CENTERED_ON_INDEX: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.HAND_BOTTLE_TOO_FAR: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.HAND_NOT_AT_NECK: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.BARTENDER_GRIP_POSITION: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.BARTENDER_PALM_TOO_LOW: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.CLAW_WRIST_ABOVE_NECK: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.CLAW_REACH_FROM_ABOVE: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.CLAW_PALM_OVER_MOUTH: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_TOO_NEAR_ELBOW: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_TOO_NEAR_MID_FOREARM: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_BELOW_SHOULDER: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_ON_SHOULDER: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.BOTTLE_NOT_ON_SHAKER: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.BOTTLES_NOT_ONE_PER_PALM: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_IN_PINCH: RubricCriterion.PROP_POSITIONING,
+    # Stability
+    FeedbackCode.PROP_NOT_STEADY: RubricCriterion.STABILITY,
+    FeedbackCode.BOTH_PROPS_NOT_STEADY: RubricCriterion.STABILITY,
+    # Locked success codes (registry default; tracker expands to three criteria)
+    FeedbackCode.NORMAL_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BARTENDER_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.REVERSE_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.CLAW_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.HAND_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.ONE_FINGER_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.FOREARM_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.ELBOW_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.REVERSE_FOREARM_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.SHOULDER_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.DOUBLE_HAND_STALL_LOCKED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.BOTTLE_IN_TIN_LOCKED: RubricCriterion.TECHNIQUE,
+}
+
+_LOCKED_CODES: frozenset[FeedbackCode] = frozenset(
+    code for code in FeedbackCode if code.value.endswith("_locked")
+)
+
 
 def _validate_registry() -> None:
     values = [code.value for code in FeedbackCode]
@@ -218,8 +311,12 @@ def _validate_registry() -> None:
     for code in FeedbackCode:
         if code not in _CODE_CATEGORIES:
             raise RuntimeError(f"FeedbackCode {code!r} missing category mapping")
+        if code not in _CODE_CRITERIA:
+            raise RuntimeError(f"FeedbackCode {code!r} missing criterion mapping")
     if len(_CODE_CATEGORIES) != len(FeedbackCode):
         raise RuntimeError("Orphan category mappings for unknown FeedbackCode values")
+    if len(_CODE_CRITERIA) != len(FeedbackCode):
+        raise RuntimeError("Orphan criterion mappings for unknown FeedbackCode values")
 
 
 _validate_registry()
@@ -236,6 +333,31 @@ def category_for(code: str | FeedbackCode | None) -> FeedbackCategory | None:
     except ValueError:
         return None
     return _CODE_CATEGORIES.get(feedback_code)
+
+
+def criterion_for(code: str | FeedbackCode | None) -> Optional[RubricCriterion]:
+    """Return the rubric criterion for a code, or None if unscored/unknown."""
+    if code is None:
+        return None
+    if isinstance(code, FeedbackCode):
+        return _CODE_CRITERIA.get(code)
+    try:
+        feedback_code = FeedbackCode(code)
+    except ValueError:
+        return None
+    return _CODE_CRITERIA.get(feedback_code)
+
+
+def is_locked_code(code: str | FeedbackCode | None) -> bool:
+    """True when the code is a movement-locked success identity."""
+    if code is None:
+        return False
+    if isinstance(code, FeedbackCode):
+        return code in _LOCKED_CODES
+    try:
+        return FeedbackCode(code) in _LOCKED_CODES
+    except ValueError:
+        return False
 
 
 def is_registered(code: str | FeedbackCode | None) -> bool:

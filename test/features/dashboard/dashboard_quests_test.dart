@@ -31,7 +31,7 @@ Session _session({
     userId: 'u1',
     movementName: movementName,
     difficulty: 'Easy',
-    score: score,
+    legacyScore: score,
     durationSeconds: 60,
     createdAt: createdAt,
   );

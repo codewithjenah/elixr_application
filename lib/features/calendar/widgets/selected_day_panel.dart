@@ -30,6 +30,16 @@ class SelectedDayPanel extends StatelessWidget {
         return bAt.compareTo(aAt);
       });
 
+    // Rubric days read out of 12; legacy-only days read out of 100.
+    final average = summary.preferredAverage;
+    final best = summary.preferredBest;
+    final scaleSuffix = summary.hasRubricData ? ' / 12' : ' / 100';
+    final averageValue = average == null
+        ? '—'
+        : '${average.toStringAsFixed(summary.hasRubricData ? 1 : 0)}'
+              '$scaleSuffix';
+    final bestValue = best == null ? '—' : '$best$scaleSuffix';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -56,14 +66,12 @@ class SelectedDayPanel extends StatelessWidget {
             children: [
               _MetricChip(label: 'Sessions', value: '${summary.sessionCount}'),
               _MetricChip(
-                label: 'Average',
-                value: summary.averageScore == null
-                    ? '—'
-                    : summary.averageScore!.toStringAsFixed(0),
+                label: summary.hasRubricData ? 'Average Rubric' : 'Average',
+                value: averageValue,
               ),
               _MetricChip(
-                label: 'Best',
-                value: summary.bestScore?.toString() ?? '—',
+                label: summary.hasRubricData ? 'Best Rubric' : 'Best',
+                value: bestValue,
               ),
               _MetricChip(
                 label: 'Duration',
@@ -111,10 +119,7 @@ class _MetricChip extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 10,
-              color: context.elixTextSecondary,
-            ),
+            style: TextStyle(fontSize: 10, color: context.elixTextSecondary),
           ),
           const SizedBox(height: 2),
           Text(
@@ -205,6 +210,15 @@ class _SessionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final time = _localTime();
     final diffColor = _difficultyColor(context, session.difficulty);
+    final isRubric = session.isRubricAssessed;
+    final resultValue = isRubric
+        ? '${session.rubricTotal} / 12'
+        : session.legacyScore == null
+        ? '—'
+        : '${session.legacyScore} / 100';
+    final resultCaption = isRubric
+        ? session.performanceLevel!.label
+        : 'Legacy score';
 
     return Container(
       width: double.infinity,
@@ -276,11 +290,19 @@ class _SessionRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${session.score}',
+                resultValue,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                   color: AppColors.accentSoft,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                resultCaption,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.elixTextSecondary,
                 ),
               ),
               const SizedBox(height: 2),

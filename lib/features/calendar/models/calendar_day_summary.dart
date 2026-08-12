@@ -10,15 +10,49 @@ class CalendarDaySummary {
 
   int get sessionCount => sessions.length;
 
-  double? get averageScore {
-    if (sessions.isEmpty) return null;
-    final total = sessions.fold<int>(0, (sum, s) => sum + s.score);
-    return total / sessions.length;
+  /// Assessment V2 rubric totals (0..12) recorded on this date.
+  List<int> get _rubricTotals => [
+    for (final s in sessions)
+      if (s.isRubricAssessed) s.rubricTotal!,
+  ];
+
+  /// Legacy Assessment V1 percentages (0..100) recorded on this date.
+  List<int> get _legacyScores => [
+    for (final s in sessions)
+      if (!s.isRubricAssessed && s.legacyScore != null) s.legacyScore!,
+  ];
+
+  int get rubricSessionCount => _rubricTotals.length;
+
+  double? get averageRubricTotal => _average(_rubricTotals);
+
+  int? get bestRubricTotal => _best(_rubricTotals);
+
+  int get legacySessionCount => _legacyScores.length;
+
+  double? get averageLegacyScore => _average(_legacyScores);
+
+  int? get bestLegacyScore => _best(_legacyScores);
+
+  bool get hasRubricData => rubricSessionCount > 0;
+
+  /// Preferred average for UI: rubric when any V2 session exists.
+  ///
+  /// Callers must pair this with [hasRubricData] to label the scale; a 0..12
+  /// rubric total and a 0..100 legacy score are never averaged together.
+  double? get preferredAverage =>
+      hasRubricData ? averageRubricTotal : averageLegacyScore;
+
+  int? get preferredBest => hasRubricData ? bestRubricTotal : bestLegacyScore;
+
+  static double? _average(List<int> values) {
+    if (values.isEmpty) return null;
+    return values.reduce((a, b) => a + b) / values.length;
   }
 
-  int? get bestScore {
-    if (sessions.isEmpty) return null;
-    return sessions.map((s) => s.score).reduce((a, b) => a > b ? a : b);
+  static int? _best(List<int> values) {
+    if (values.isEmpty) return null;
+    return values.reduce((a, b) => a > b ? a : b);
   }
 
   int get totalDurationSeconds =>

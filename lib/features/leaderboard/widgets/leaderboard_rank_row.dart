@@ -11,31 +11,28 @@ import 'leaderboard_identity.dart';
 
 /// Breakpoints for ranking-row column visibility.
 abstract final class LeaderboardRankRowLayout {
-  static const wideMin = 900.0;
   static const mediumMin = 680.0;
 
-  static bool showBestScore(double width) => width >= wideMin;
   static bool showMetricColumns(double width) => width >= mediumMin;
 }
 
 /// Shared fixed column widths keep the header and every loaded page aligned.
+///
+/// Assessment V2 replaced the 0..100 session percentage with a 0..12 rubric
+/// total, so the ranking table no longer exposes percentage score columns.
+/// Ranking remains XP-based.
 abstract final class LeaderboardRankColumns {
   static const double accentGutter = 3;
   static const double rank = 64;
   static const double sessions = 92;
-  static const double avgScore = 104;
-  static const double bestScore = 104;
   static const double xp = 116;
   static const EdgeInsets rowPadding = EdgeInsets.fromLTRB(16, 10, 16, 10);
   static const EdgeInsets headerPadding = EdgeInsets.fromLTRB(16, 8, 16, 9);
 
   static Widget row({
-    required bool showBestScore,
     required Widget rank,
     required Widget player,
     required Widget sessions,
-    required Widget avgScore,
-    required Widget bestScore,
     required Widget xp,
   }) {
     return Row(
@@ -43,9 +40,6 @@ abstract final class LeaderboardRankColumns {
         SizedBox(width: LeaderboardRankColumns.rank, child: rank),
         Expanded(child: player),
         SizedBox(width: LeaderboardRankColumns.sessions, child: sessions),
-        SizedBox(width: LeaderboardRankColumns.avgScore, child: avgScore),
-        if (showBestScore)
-          SizedBox(width: LeaderboardRankColumns.bestScore, child: bestScore),
         SizedBox(width: LeaderboardRankColumns.xp, child: xp),
       ],
     );
@@ -86,7 +80,6 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
       widget.entry,
       widget.period,
     );
-    final averageScore = metrics.averageScore.toStringAsFixed(0);
     final interactive = widget.onTap != null;
 
     return Column(
@@ -166,9 +159,6 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                         child: LayoutBuilder(
                           builder: (context, constraints) {
                             final width = constraints.maxWidth;
-                            final wide = LeaderboardRankRowLayout.showBestScore(
-                              width,
-                            );
                             final medium =
                                 LeaderboardRankRowLayout.showMetricColumns(
                                   width,
@@ -185,7 +175,6 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                             }
 
                             return LeaderboardRankColumns.row(
-                              showBestScore: wide,
                               rank: Text(
                                 '#${widget.rank}',
                                 style: TextStyle(
@@ -201,16 +190,6 @@ class _LeaderboardRankRowState extends State<LeaderboardRankRow> {
                               ),
                               sessions: Text(
                                 '${metrics.sessionsCompleted}',
-                                textAlign: TextAlign.end,
-                                style: _metricStyle(context),
-                              ),
-                              avgScore: Text(
-                                averageScore,
-                                textAlign: TextAlign.end,
-                                style: _metricStyle(context),
-                              ),
-                              bestScore: Text(
-                                '${metrics.bestScore}',
                                 textAlign: TextAlign.end,
                                 style: _metricStyle(context),
                               ),
@@ -297,21 +276,10 @@ class LeaderboardRankingsHeaderRow extends StatelessWidget {
                 }
 
                 return LeaderboardRankColumns.row(
-                  showBestScore: LeaderboardRankRowLayout.showBestScore(width),
                   rank: Text('Rank', style: style),
                   player: Text('Player', style: style),
                   sessions: Text(
                     'Sessions',
-                    textAlign: TextAlign.end,
-                    style: style,
-                  ),
-                  avgScore: Text(
-                    'Avg score',
-                    textAlign: TextAlign.end,
-                    style: style,
-                  ),
-                  bestScore: Text(
-                    'Best score',
                     textAlign: TextAlign.end,
                     style: style,
                   ),
@@ -450,9 +418,7 @@ class _CompactRankRow extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                'Lv. ${entry.level} • ${metrics.sessionsCompleted} sessions • '
-                '${metrics.averageScore.toStringAsFixed(0)} avg • '
-                '${metrics.bestScore} best',
+                'Lv. ${entry.level} • ${metrics.sessionsCompleted} sessions',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

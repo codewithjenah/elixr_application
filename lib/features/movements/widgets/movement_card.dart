@@ -15,12 +15,14 @@ class MovementCard extends StatefulWidget {
     super.key,
     required this.movement,
     required this.sessionCount,
-    required this.avgScore,
+    required this.averageRubricTotal,
   });
 
   final Movement movement;
   final int sessionCount;
-  final double avgScore;
+
+  /// Assessment V2 rubric average (0..12), or null without rubric sessions.
+  final double? averageRubricTotal;
 
   @override
   State<MovementCard> createState() => _MovementCardState();
@@ -404,7 +406,7 @@ class _MovementCardState extends State<MovementCard> {
       );
     }
 
-    final score = widget.avgScore.round();
+    final average = widget.averageRubricTotal;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -418,7 +420,9 @@ class _MovementCardState extends State<MovementCard> {
         ),
         const SizedBox(height: 2),
         Text(
-          'Average score $score%',
+          average == null
+              ? 'No rubric result yet'
+              : 'Average rubric ${average.round()} / 12',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
@@ -435,7 +439,7 @@ class _MovementCardState extends State<MovementCard> {
               children: [
                 Container(color: context.elixBorder),
                 FractionallySizedBox(
-                  widthFactor: (widget.avgScore / 100).clamp(0.0, 1.0),
+                  widthFactor: ((average ?? 0) / 12).clamp(0.0, 1.0),
                   child: Container(color: _accent.withValues(alpha: 0.85)),
                 ),
               ],

@@ -17,7 +17,6 @@ PracticeFeedback _frame({
   return PracticeFeedback(
     bottleDetected: true,
     movement: movement,
-    score: 70,
     feedback: feedback,
     feedbackType: 'warning',
     postureStatus: 'unstable',
@@ -160,7 +159,6 @@ void main() {
         movement: name,
         prop: TrainingProp.bottle,
         heldSteady: false,
-        finalScore: 70,
         positiveRatio: 0.4,
         totalApplicableSamples: 20,
         improvements: [
@@ -199,7 +197,6 @@ void main() {
       movement: 'Legacy Unknown Stall',
       prop: TrainingProp.bottle,
       heldSteady: false,
-      finalScore: 50,
       positiveRatio: 0,
       totalApplicableSamples: 0,
       improvements: const [],
@@ -218,7 +215,6 @@ void main() {
       movement: 'Legacy Unknown Stall',
       prop: TrainingProp.bottle,
       heldSteady: false,
-      finalScore: 50,
       positiveRatio: 0.2,
       totalApplicableSamples: 5,
       improvements: const [],

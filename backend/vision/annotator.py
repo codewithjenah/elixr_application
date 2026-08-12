@@ -225,7 +225,6 @@ def annotate_frame(
     feedback: str,
     feedback_type: str,
     movement: str,
-    score: int,
     pose: PoseLandmarks | None = None,
     prop_label: str = "Bottle",
 ) -> np.ndarray:
@@ -234,6 +233,7 @@ def annotate_frame(
     ``prop_label`` remains part of the signature for compatibility with
     existing callers, but Flutter renders it outside the mirrored image.
     """
+    _ = movement, feedback, feedback_type  # reserved for future overlay text
     out = frame.copy()
 
     for prop in bottles or []:

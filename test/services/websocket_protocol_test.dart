@@ -38,7 +38,7 @@ void main() {
       );
       expect(decoded, isA<WsFeedbackMessage>());
       final feedback = (decoded as WsFeedbackMessage).feedback;
-      expect(feedback.score, 80);
+      expect(feedback.assessment, isNull);
       expect(feedback.sessionId, isNull);
       expect(feedback.feedbackCode, isNull);
       expect(feedback.feedbackCategory, isNull);

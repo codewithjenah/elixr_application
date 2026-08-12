@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/readiness_checklist_panel.dart';
 import 'package:elixr_application/features/practice/widgets/training_action_area.dart';
@@ -36,8 +37,9 @@ void main() {
               expandVertically: false,
               metrics: SessionMetricTiles(
                 elapsedDisplay: '00:00',
-                scoreChild: const Text('—'),
-                performanceBar: const TrainingPerformanceBar(score: null),
+                rubricChild: const Text('—'),
+                performanceBar: const TrainingPerformanceBar(total: null),
+                rubricBreakdown: const RubricCriteriaTiles(assessment: null),
               ),
               statusContent: const TrainingStatusRow(
                 detection: TrainingDetectionStatus.inactive,
@@ -63,7 +65,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Ready'), findsOneWidget);
-      expect(find.text('Waiting for score'), findsOneWidget);
+      expect(find.text('Waiting for assessment'), findsOneWidget);
+      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('%'), findsNothing);
       expect(
         find.byKey(const ValueKey('practice-primary-action')),
         findsOneWidget,
@@ -71,9 +75,15 @@ void main() {
       expect(find.text('Begin Calibration'), findsOneWidget);
     });
 
-    testWidgets('in-progress phase renders score metric and rank area', (
+    testWidgets('in-progress phase renders rubric metric and rank area', (
       tester,
     ) async {
+      const rubric = RubricAssessment(
+        technique: 3,
+        stability: 2,
+        completion: 3,
+        propPositioning: 2,
+      );
       await tester.pumpWidget(
         _wrap(
           SizedBox(
@@ -82,11 +92,12 @@ void main() {
             child: TrainingSessionPanel(
               phase: TrainingSessionPhase.inProgress,
               expandVertically: false,
-              rankBadge: const RankBadge(score: 82),
+              rankBadge: RankBadge(level: rubric.performanceLevel),
               metrics: SessionMetricTiles(
                 elapsedDisplay: '01:12',
-                scoreChild: const Text('82'),
-                performanceBar: const TrainingPerformanceBar(score: 82),
+                rubricChild: const Text('10 / 12'),
+                performanceBar: const TrainingPerformanceBar(total: 10),
+                rubricBreakdown: const RubricCriteriaTiles(assessment: rubric),
               ),
               statusContent: const TrainingStatusRow(
                 detection: TrainingDetectionStatus.detected,
@@ -113,9 +124,11 @@ void main() {
         find.byKey(const ValueKey('session-score-metric')),
         findsOneWidget,
       );
-      expect(find.text('82'), findsWidgets);
-      expect(find.text('Excellent'), findsNothing);
-      expect(find.text('Developing'), findsOneWidget);
+      expect(find.text('10 / 12'), findsWidgets);
+      expect(find.text('Proficient'), findsOneWidget);
+      expect(find.text('Pro'), findsOneWidget);
+      expect(find.text('3 / 3'), findsNWidgets(2));
+      expect(find.text('2 / 3'), findsNWidgets(2));
     });
 
     testWidgets('readiness phase renders checklist in status surface', (
@@ -189,8 +202,8 @@ void main() {
               expandVertically: false,
               metrics: SessionMetricTiles(
                 elapsedDisplay: '00:00',
-                scoreChild: const Text('—'),
-                performanceBar: const TrainingPerformanceBar(score: null),
+                rubricChild: const Text('—'),
+                performanceBar: const TrainingPerformanceBar(total: null),
               ),
               statusContent: const TrainingStatusRow(
                 detection: TrainingDetectionStatus.inactive,
@@ -308,7 +321,7 @@ void main() {
                 TrainingConnectionBadge(
                   state: WebSocketConnectionState.connected,
                 ),
-                const TrainingPerformanceBar(score: null),
+                const TrainingPerformanceBar(total: null),
                 TrainingSessionHeader(
                   onBack: () {},
                   title: 'Hand Stall',

@@ -14,7 +14,8 @@ from assessment.readiness import (
     readiness_needs_hands,
     readiness_needs_pose,
 )
-from assessment.scoring import SessionScorer
+from assessment.scoring import RubricTracker
+from assessment.hold_validator import HoldSnapshot
 from schemas.feedback import FeedbackMessage
 
 
@@ -161,13 +162,13 @@ def test_prepare_opens_one_camera_session(monkeypatch):
 
     monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
 
-    real_record = SessionScorer.record
+    real_record = RubricTracker.record
 
-    def tracking_record(self, feedback_type):
+    def tracking_record(self, *args, **kwargs):
         record_calls["n"] += 1
-        return real_record(self, feedback_type)
+        return real_record(self, *args, **kwargs)
 
-    monkeypatch.setattr(SessionScorer, "record", tracking_record)
+    monkeypatch.setattr(RubricTracker, "record", tracking_record)
 
     session = websocket_api.VisionSession("Hand Stall")
     assert session.start() is True
@@ -182,7 +183,7 @@ def test_prepare_opens_one_camera_session(monkeypatch):
     assert message.frame_jpeg_base64 is not None
     assert evaluate_calls["n"] == 0
     assert record_calls["n"] == 0
-    assert session.scorer.score == SessionScorer().score
+    assert session.rubric.snapshot(HoldSnapshot()).total == 0
     # Preview must not load YOLO / MediaPipe.
     assert session.hands_detector is None
     assert session._model_checked is False
@@ -512,7 +513,13 @@ def test_activate_reuses_same_camera_and_resets_state(monkeypatch):
     cam = StubCamera.instances[0]
 
     session.process_preview_frame()
-    session.scorer.record("error")
+    session.rubric.activate()
+    session.rubric.record(
+        feedback_code="prop_not_steady",
+        feedback_type="warning",
+        posture_status="unstable",
+        timestamp=1.0,
+    )
     session._prev_hip_center = object()  # type: ignore[assignment]
     session._movement_state = {"stale": True}
     session._last_bottles = [object()]  # type: ignore[list-item]
@@ -523,7 +530,7 @@ def test_activate_reuses_same_camera_and_resets_state(monkeypatch):
     assert session.hands_detector is not None
     assert StubCamera.open_calls == 1
     assert cam.released is False
-    assert session.scorer.score == SessionScorer().score
+    assert session.rubric.snapshot(HoldSnapshot()).total == 0
     assert session._prev_hip_center is None
     assert session._movement_state is None
     assert session._last_bottles == []
@@ -641,7 +648,6 @@ def test_feedback_message_optional_lifecycle_fields_default_none():
     msg = FeedbackMessage(
         bottle_detected=False,
         movement="Hand Stall",
-        score=70,
         feedback="hi",
         feedback_type="positive",
         posture_status="unknown",
@@ -842,13 +848,13 @@ def test_free_practice_skips_hands_pose_scoring_and_hold(monkeypatch):
 
     monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
 
-    real_record = SessionScorer.record
+    real_record = RubricTracker.record
 
-    def tracking_record(self, feedback_type):
+    def tracking_record(self, *args, **kwargs):
         record_calls["n"] += 1
-        return real_record(self, feedback_type)
+        return real_record(self, *args, **kwargs)
 
-    monkeypatch.setattr(SessionScorer, "record", tracking_record)
+    monkeypatch.setattr(RubricTracker, "record", tracking_record)
 
     real_hold_update = websocket_api.HoldValidator.update
 
@@ -872,7 +878,7 @@ def test_free_practice_skips_hands_pose_scoring_and_hold(monkeypatch):
     assert message.movement == "Free Practice"
     assert message.prop_type == "shaker"
     assert message.session_state == "active"
-    assert message.score == 0
+    assert message.assessment is None
     assert message.hold_progress == 0.0
     assert message.hold_confirmed is False
     assert message.frame_jpeg_base64
@@ -1468,7 +1474,7 @@ def test_begin_readiness_after_activate_returns_false(monkeypatch):
 
 def test_process_readiness_frame_does_not_evaluate_or_score(monkeypatch):
     """prepare -> begin_readiness -> process_readiness_frame must not call
-    evaluate_movement or scorer.record."""
+    evaluate_movement or rubric.record."""
     _patch_vision(monkeypatch)
     evaluate_calls = {"n": 0}
     record_calls = {"n": 0}
@@ -1479,13 +1485,13 @@ def test_process_readiness_frame_does_not_evaluate_or_score(monkeypatch):
 
     monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
 
-    real_record = SessionScorer.record
+    real_record = RubricTracker.record
 
-    def tracking_record(self, feedback_type):
+    def tracking_record(self, *args, **kwargs):
         record_calls["n"] += 1
-        return real_record(self, feedback_type)
+        return real_record(self, *args, **kwargs)
 
-    monkeypatch.setattr(SessionScorer, "record", tracking_record)
+    monkeypatch.setattr(RubricTracker, "record", tracking_record)
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
@@ -1504,7 +1510,7 @@ def test_process_readiness_frame_does_not_evaluate_or_score(monkeypatch):
     assert evaluate_calls["n"] == 0
     assert record_calls["n"] == 0
     # Score must be the unmodified baseline (no recording happened).
-    assert msg.score == SessionScorer().score
+    assert msg.assessment is None
     session.close()
 
 

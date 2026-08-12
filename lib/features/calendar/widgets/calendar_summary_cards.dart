@@ -31,9 +31,12 @@ class CalendarSummaryCards extends StatelessWidget {
     final bestLabel = bestDay == null
         ? '—'
         : DateFormat.MMMd().format(bestDay!.date);
-    final bestSub = bestDay?.averageScore == null
+    final bestAverage = bestDay?.preferredAverage;
+    final bestSub = bestAverage == null
         ? 'No activity'
-        : 'Average ${bestDay!.averageScore!.toStringAsFixed(0)}';
+        : bestDay!.hasRubricData
+        ? 'Average rubric ${bestAverage.toStringAsFixed(1)} / 12'
+        : 'Legacy average ${bestAverage.toStringAsFixed(0)} / 100';
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -191,10 +194,7 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             subLabel,
-            style: TextStyle(
-              fontSize: 11,
-              color: context.elixTextSecondary,
-            ),
+            style: TextStyle(fontSize: 11, color: context.elixTextSecondary),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

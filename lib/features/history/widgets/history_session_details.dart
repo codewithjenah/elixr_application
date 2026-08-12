@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/feedback.dart' as models;
+import '../../../data/models/rubric_assessment.dart';
 import '../../../data/models/session.dart';
 import '../history_format.dart';
 
@@ -53,10 +54,11 @@ class HistorySessionDetails extends StatelessWidget {
                 label: 'Duration',
                 value: formatTrainingDuration(session.durationSeconds),
               ),
-              _MetaItem(label: 'Score', value: '${session.score}'),
               _MetaItem(label: 'Difficulty', value: session.difficulty),
             ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          _AssessmentBlock(session: session),
           const SizedBox(height: AppSpacing.md),
           Text(
             'Session Feedback',
@@ -139,6 +141,59 @@ class HistorySessionDetails extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Assessment read-out: the four V2 criteria, or the legacy percentage.
+class _AssessmentBlock extends StatelessWidget {
+  const _AssessmentBlock({required this.session});
+
+  final Session session;
+
+  @override
+  Widget build(BuildContext context) {
+    final rubric = session.rubric;
+    if (!session.isRubricAssessed || rubric == null) {
+      final legacy = session.legacyScore;
+      return Text(
+        legacy == null ? 'No score recorded' : legacyScoreLabel(legacy),
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: context.elixTextPrimary,
+        ),
+      );
+    }
+
+    final level = rubricPerformanceLevel(rubric.total);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: AppSpacing.lg,
+          runSpacing: AppSpacing.sm,
+          children: [
+            _MetaItem(label: 'Performance', value: level.label),
+            _MetaItem(
+              label: 'Rubric Total',
+              value: rubricTotalLabel(rubric.total),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.lg,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final criterion in RubricCriterion.values)
+              _MetaItem(
+                label: criterion.label,
+                value: '${rubric.scoreFor(criterion)} / 3',
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

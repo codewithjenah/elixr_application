@@ -133,19 +133,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   int get _streakDays => currentStreak(_practicedDays);
 
+  /// Week-over-week change in average rubric total (Assessment V2 only).
+  ///
+  /// Legacy percentage sessions are excluded so the two scales never mix.
   int? get _weeklyTrendPercent {
     final today = normalizeDate(DateTime.now());
     double? avgBetween(int fromDaysAgo, int toDaysAgo) {
-      final scores = _sessions
-          .where((s) {
-            final d = parseSessionLocalDate(s);
-            if (d == null) return false;
-            final diff = today.difference(d).inDays;
-            return diff >= toDaysAgo && diff <= fromDaysAgo;
-          })
-          .map((s) => s.score);
-      if (scores.isEmpty) return null;
-      return scores.reduce((a, b) => a + b) / scores.length;
+      final totals = <int>[
+        for (final s in _sessions)
+          if (s.isRubricAssessed)
+            if (_isWithin(s, today, fromDaysAgo, toDaysAgo)) s.rubricTotal!,
+      ];
+      if (totals.isEmpty) return null;
+      return totals.reduce((a, b) => a + b) / totals.length;
     }
 
     final thisWeek = avgBetween(6, 0);
@@ -154,12 +154,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return (((thisWeek - lastWeek) / lastWeek) * 100).round();
   }
 
+  static bool _isWithin(
+    Session session,
+    DateTime today,
+    int fromDaysAgo,
+    int toDaysAgo,
+  ) {
+    final date = parseSessionLocalDate(session);
+    if (date == null) return false;
+    final diff = today.difference(date).inDays;
+    return diff >= toDaysAgo && diff <= fromDaysAgo;
+  }
+
+  /// Personal best, preferring the Assessment V2 cohort.
+  ///
+  /// A rubric total (0..12) is never compared against a legacy score (0..100),
+  /// so legacy sessions are only considered when no V2 session exists.
   Session? get _bestSession {
-    Session? best;
+    Session? bestRubric;
+    Session? bestLegacy;
     for (final s in _sessions) {
-      if (best == null || s.score > best.score) best = s;
+      if (s.isRubricAssessed) {
+        if (bestRubric == null || s.rubricTotal! > bestRubric.rubricTotal!) {
+          bestRubric = s;
+        }
+      } else if (s.legacyScore != null) {
+        if (bestLegacy == null || s.legacyScore! > bestLegacy.legacyScore!) {
+          bestLegacy = s;
+        }
+      }
     }
-    return best;
+    return bestRubric ?? bestLegacy;
   }
 
   @override

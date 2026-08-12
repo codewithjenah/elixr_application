@@ -53,8 +53,9 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
     final movement = mastery.movement;
     final accent = difficultyAccentColor(movement.difficulty);
     final statusLabel = masteryStatusLabel(mastery.status);
-    final recentLabel = mastery.recentAverageScore != null
-        ? mastery.recentAverageScore!.round().toString()
+    final recentAverage = mastery.recentAverageRubric;
+    final recentLabel = recentAverage != null
+        ? '${recentAverage.round()} / 12'
         : 'Not practiced';
 
     return DashboardPanelCard(

@@ -1,13 +1,28 @@
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _defaultRubric = RubricAssessment(
+  technique: 2,
+  stability: 2,
+  completion: 2,
+  propPositioning: 2,
+);
+
+const _perfectRubric = RubricAssessment(
+  technique: 3,
+  stability: 3,
+  completion: 3,
+  propPositioning: 3,
+);
+
 PracticeFeedback _frame({
   String feedback = 'Keep steady',
   String feedbackType = 'warning',
-  int score = 70,
+  RubricAssessment? assessment,
   String? sessionState = 'active',
   String? errorCode,
   String? feedbackCode,
@@ -20,7 +35,7 @@ PracticeFeedback _frame({
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Hand Stall',
-    score: score,
+    assessment: assessment,
     feedback: feedback,
     feedbackType: feedbackType,
     postureStatus: feedbackType == 'positive' ? 'stable' : 'unstable',
@@ -49,14 +64,14 @@ SessionAssessment _build(
   SessionAssessmentAccumulator accumulator, {
   String movement = 'Hand Stall',
   TrainingProp prop = TrainingProp.bottle,
-  int finalScore = 80,
+  RubricAssessment rubric = _defaultRubric,
   bool heldSteady = false,
   PracticeFeedback? latestFeedback,
 }) {
   return accumulator.buildAssessment(
     movement: movement,
     prop: prop,
-    finalScore: finalScore,
+    rubric: rubric,
     heldSteady: heldSteady,
     latestFeedback: latestFeedback,
   );
@@ -65,7 +80,7 @@ SessionAssessment _build(
 void main() {
   group('SessionAssessmentAccumulator', () {
     test(
-      'confirmed score-100 session retains persistent technique improvements',
+      'confirmed 12/12 session retains persistent technique improvements',
       () {
         final accumulator = SessionAssessmentAccumulator();
         _recordFrames(
@@ -90,14 +105,14 @@ void main() {
 
         final assessment = _build(
           accumulator,
-          finalScore: 100,
+          rubric: _perfectRubric,
           heldSteady: true,
           latestFeedback: _frame(
             feedback: 'Hand stall locked in.',
             feedbackType: 'positive',
             feedbackCode: 'hand_stall_locked',
             feedbackCategory: 'technique',
-            score: 100,
+            assessment: _perfectRubric,
           ),
         );
 
@@ -142,7 +157,7 @@ void main() {
         ),
       );
 
-      final assessment = _build(accumulator, finalScore: 85);
+      final assessment = _build(accumulator);
       expect(assessment.improvements, isEmpty);
     });
 
@@ -167,7 +182,7 @@ void main() {
         ),
       );
 
-      final assessment = _build(accumulator, finalScore: 88);
+      final assessment = _build(accumulator);
       expect(assessment.improvements, hasLength(1));
       expect(assessment.improvements.single.code, 'prop_not_upright');
       expect(assessment.improvements.single.sampleCount, 4);
@@ -207,7 +222,7 @@ void main() {
         ),
       );
 
-      final assessment = _build(accumulator, finalScore: 75);
+      final assessment = _build(accumulator);
       expect(assessment.improvements, isEmpty);
       expect(assessment.positiveSampleCount, 10);
     });
@@ -233,7 +248,7 @@ void main() {
         ),
       );
 
-      final assessment = _build(accumulator, finalScore: 75);
+      final assessment = _build(accumulator);
       expect(assessment.improvements, isEmpty);
       expect(assessment.totalApplicableSamples, 10);
     });
@@ -281,7 +296,7 @@ void main() {
         frame: _frame(feedback: 'Wrap fingers around the neck.'),
       );
 
-      final assessment = _build(accumulator, finalScore: 75);
+      final assessment = _build(accumulator);
       expect(assessment.improvements, hasLength(1));
       expect(
         assessment.improvementMessages,
@@ -379,7 +394,7 @@ void main() {
         ),
       );
 
-      final assessment = _build(accumulator, finalScore: 70);
+      final assessment = _build(accumulator);
       expect(assessment.improvements, hasLength(3));
       expect(assessment.improvementMessages, ['Issue A', 'Issue B', 'Issue C']);
     });
@@ -417,7 +432,7 @@ void main() {
         ),
       );
 
-      final assessment = _build(accumulator, finalScore: 70);
+      final assessment = _build(accumulator);
       expect(assessment.improvements.first.code, 'prop_not_upright');
       expect(assessment.improvements.first.feedbackType, 'warning');
       expect(assessment.improvements[1].code, 'palm_not_open');
@@ -833,7 +848,7 @@ void main() {
 
     test('empty coaching fabricates no recommendation', () {
       const assessment = SessionAssessment(
-        finalScore: 80,
+        rubric: _defaultRubric,
         heldSteady: false,
         totalApplicableSamples: 0,
         positiveSampleCount: 0,
@@ -862,7 +877,7 @@ void main() {
         accumulator,
         movement: 'Shoulder Stall',
         heldSteady: true,
-        finalScore: 92,
+        rubric: _perfectRubric,
       );
 
       expect(
@@ -893,7 +908,7 @@ void main() {
             feedbackType: 'positive',
             feedbackCode: 'normal_grip_locked',
             feedbackCategory: 'technique',
-            score: 100,
+            assessment: _perfectRubric,
             holdConfirmed: true,
             holdProgress: 1,
             holdDurationMs: 2500,
@@ -904,7 +919,7 @@ void main() {
         final assessment = _build(
           accumulator,
           movement: 'Normal Grip',
-          finalScore: 100,
+          rubric: _perfectRubric,
           heldSteady: true,
         );
 
@@ -1046,7 +1061,6 @@ void main() {
               accumulator,
               movement: c.movement,
               heldSteady: false,
-              finalScore: 75,
             );
 
             expect(assessment.coaching.improvements, isNotEmpty);
@@ -1157,14 +1171,14 @@ void main() {
             holdProgress: 1,
             holdDurationMs: 2500,
             holdTargetMs: 2500,
-            score: 100,
+            assessment: _perfectRubric,
           ),
         );
 
         final assessment = _build(
           accumulator,
           heldSteady: true,
-          finalScore: 100,
+          rubric: _perfectRubric,
         );
         expect(
           assessment.coaching.strengths.any(

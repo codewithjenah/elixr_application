@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
@@ -8,15 +9,32 @@ import 'package:elixr_application/features/practice/session_summary_sheet.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Spreads a 0..12 rubric total deterministically across the four criteria.
+RubricAssessment _rubric(int total) {
+  assert(total >= 0 && total <= 12);
+  final scores = <int>[0, 0, 0, 0];
+  var remaining = total;
+  for (var i = 0; i < scores.length && remaining > 0; i++) {
+    scores[i] = remaining >= 3 ? 3 : remaining;
+    remaining -= scores[i];
+  }
+  return RubricAssessment(
+    technique: scores[0],
+    stability: scores[1],
+    completion: scores[2],
+    propPositioning: scores[3],
+  );
+}
+
 PracticeFeedback _practiceFeedback(
   String message, {
   String feedbackType = 'warning',
-  int score = 50,
+  int rubricTotal = 5,
 }) {
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Hand Stall',
-    score: score,
+    assessment: _rubric(rubricTotal),
     feedback: message,
     feedbackType: feedbackType,
     postureStatus: 'ok',
@@ -37,7 +55,7 @@ SessionImprovement _improvement(String message) {
 }
 
 SessionAssessment _assessment({
-  required int score,
+  required int total,
   List<SessionImprovement> improvements = const [],
   List<SessionStrength> strengths = const [],
   SessionRecommendation? recommendation,
@@ -55,7 +73,7 @@ SessionAssessment _assessment({
           cleanSessionMessage: cleanSessionMessage,
         );
   return SessionAssessment(
-    finalScore: score,
+    rubric: _rubric(total),
     heldSteady: heldSteady,
     totalApplicableSamples: 20,
     positiveSampleCount: 16,
@@ -68,7 +86,7 @@ SessionAssessment _assessment({
 
 SessionAssessment _standardSummaryAssessment() {
   return _assessment(
-    score: 78,
+    total: 10,
     heldSteady: true,
     improvements: [_improvement('Keep the bottle upright on your palm.')],
     strengths: const [
@@ -98,7 +116,7 @@ SessionAssessment denseCoachingAssessment({
       'sentence that remains readable without overlapping pinned actions',
 }) {
   return _assessment(
-    score: heldSteady ? 92 : 58,
+    total: heldSteady ? 12 : 8,
     heldSteady: heldSteady,
     strengths: const [
       SessionStrength(
@@ -252,7 +270,7 @@ void main() {
         tester,
         movement: 'Normal Grip',
         assessment: _assessment(
-          score: 55,
+          total: 6,
           heldSteady: false,
           recommendation: const SessionRecommendation(
             movementName: 'Normal Grip',
@@ -288,7 +306,7 @@ void main() {
       tester,
       movement: 'Normal Grip',
       assessment: _assessment(
-        score: 58,
+        total: 8,
         heldSteady: false,
         improvements: [
           _improvement('Rotate your wrist into an overhand grip.'),
@@ -327,7 +345,7 @@ void main() {
   ) async {
     await _openSummary(
       tester,
-      assessment: _assessment(score: 70, includeEmptyCoaching: true),
+      assessment: _assessment(total: 9, includeEmptyCoaching: true),
       onSave: (_) async => 'session-legacy',
     );
 
@@ -346,7 +364,7 @@ void main() {
     await _openSummary(
       tester,
       assessment: _assessment(
-        score: 100,
+        total: 12,
         heldSteady: true,
         improvements: improvements,
         strengths: const [
@@ -373,19 +391,19 @@ void main() {
     expect(find.text('Keep the bottle upright on your palm.'), findsOneWidget);
   });
 
-  testWidgets('score 100 with no improvements shows threshold message', (
+  testWidgets('rubric 12/12 with no improvements shows threshold message', (
     tester,
   ) async {
     await _openSummary(
       tester,
       assessment: _assessment(
-        score: 100,
+        total: 12,
         heldSteady: true,
         cleanSessionMessage: cleanSessionMessageFor('Hand Stall'),
         latestFeedback: _practiceFeedback(
           'Great grip!',
           feedbackType: 'positive',
-          score: 100,
+          rubricTotal: 12,
         ),
       ),
       onSave: (_) async => 'session-perfect',
@@ -395,19 +413,40 @@ void main() {
     expect(find.text(cleanSessionMessageFor('Hand Stall')), findsOneWidget);
   });
 
+  testWidgets('summary presents rubric total, level, and four criteria', (
+    tester,
+  ) async {
+    await _openSummary(
+      tester,
+      assessment: _assessment(total: 10, heldSteady: true),
+      onSave: (_) async => 'session-rubric',
+    );
+
+    expect(find.byKey(const Key('session-summary-rubric')), findsOneWidget);
+    expect(find.text('Rubric Score'), findsOneWidget);
+    expect(find.text('10 / 12'), findsOneWidget);
+    expect(find.text('Proficient'), findsOneWidget);
+    expect(find.text('Pro'), findsOneWidget);
+    for (final criterion in RubricCriterion.values) {
+      expect(find.text(criterion.label), findsOneWidget);
+    }
+    expect(find.textContaining('%'), findsNothing);
+    expect(find.text('Score'), findsNothing);
+  });
+
   testWidgets(
     'legacy coaching without cleanSessionMessage uses neutral fallback',
     (tester) async {
       await _openSummary(
         tester,
         assessment: _assessment(
-          score: 100,
+          total: 12,
           heldSteady: true,
           includeEmptyCoaching: false,
           latestFeedback: _practiceFeedback(
             'Great grip!',
             feedbackType: 'positive',
-            score: 100,
+            rubricTotal: 12,
           ),
         ),
         onSave: (_) async => 'session-legacy-clean',
@@ -421,11 +460,12 @@ void main() {
   );
 
   testWidgets(
-    'score below 80 with no improvements shows neutral needs-improvement message',
+    'below proficient with no improvements shows neutral needs-improvement '
+    'message',
     (tester) async {
       await _openSummary(
         tester,
-        assessment: _assessment(score: 55),
+        assessment: _assessment(total: 6),
         onSave: (_) async => 'session-low',
       );
 
@@ -441,7 +481,7 @@ void main() {
   ) async {
     await _openSummary(
       tester,
-      assessment: _assessment(score: 85, heldSteady: true),
+      assessment: _assessment(total: 11, heldSteady: true),
       onSave: (_) async => 'session-held',
     );
 
@@ -579,7 +619,7 @@ void main() {
           size: const Size(751, 911),
           movement: movement,
           assessment: _assessment(
-            score: 82,
+            total: 11,
             heldSteady: true,
             strengths: const [
               SessionStrength(
@@ -692,7 +732,7 @@ void main() {
         tester,
         size: const Size(1280, 720),
         assessment: _assessment(
-          score: 40,
+          total: 4,
           heldSteady: false,
           includeEmptyCoaching: false,
         ),
@@ -707,7 +747,7 @@ void main() {
       await _openSummary(
         tester,
         size: const Size(1024, 768),
-        assessment: _assessment(score: 70, includeEmptyCoaching: true),
+        assessment: _assessment(total: 9, includeEmptyCoaching: true),
         onSave: (_) async => 'session-legacy-layout',
       );
       expect(find.text('Recommended Next Session'), findsNothing);
@@ -759,7 +799,7 @@ void main() {
     await _openSummary(
       tester,
       assessment: _assessment(
-        score: 50,
+        total: 5,
         improvements: [_improvement('Keep your wrist steady')],
       ),
       onSave: (existingSessionId) async {
@@ -784,7 +824,7 @@ void main() {
     await _openSummary(
       tester,
       assessment: _assessment(
-        score: 50,
+        total: 5,
         improvements: [_improvement('Keep your wrist steady')],
       ),
       onSave: (_) async {
@@ -822,7 +862,7 @@ void main() {
                     movement: 'Hand Stall',
                     durationSeconds: 45,
                     assessment: _assessment(
-                      score: 50,
+                      total: 5,
                       improvements: [_improvement('Keep your wrist steady')],
                     ),
                     onSave: (existingSessionId) async {

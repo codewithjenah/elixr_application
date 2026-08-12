@@ -31,7 +31,6 @@ PracticeFeedback _feedback(TrainingProp prop, {String text = 'Good'}) {
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Hand Stall',
-    score: 80,
     feedback: text,
     feedbackType: 'positive',
     postureStatus: 'stable',

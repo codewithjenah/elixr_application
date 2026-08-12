@@ -1,16 +1,24 @@
 import 'package:elixr_application/data/database/firestore_helper.dart';
 import 'package:elixr_application/data/models/feedback.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _testRubric = RubricAssessment(
+  technique: 3,
+  stability: 2,
+  completion: 2,
+  propPositioning: 3,
+);
+
 PracticeFeedback _feedback(String message, {String feedbackType = 'warning'}) {
   return PracticeFeedback(
     bottleDetected: true,
     movement: 'Basic Flip',
-    score: 80,
+    assessment: _testRubric,
     feedback: message,
     feedbackType: feedbackType,
     postureStatus: 'ok',
@@ -53,7 +61,7 @@ void main() {
         displayName: 'Ada',
         movementName: 'Basic Flip',
         difficulty: 'Easy',
-        score: 80,
+        rubric: _testRubric,
         durationSeconds: 30,
         sessionImprovements: [
           _feedback('Lower your elbow'),
@@ -102,7 +110,7 @@ void main() {
         displayName: 'Ada',
         movementName: 'Basic Flip',
         difficulty: 'Easy',
-        score: 80,
+        rubric: _testRubric,
         durationSeconds: 30,
         sessionImprovements: [_feedback('Nice')],
       ),
@@ -143,7 +151,7 @@ void main() {
         displayName: 'Ada',
         movementName: 'Basic Flip',
         difficulty: 'Easy',
-        score: 80,
+        rubric: _testRubric,
         durationSeconds: 30,
         sessionImprovements: const [],
       ),
@@ -157,7 +165,7 @@ void main() {
       displayName: 'Ada',
       movementName: 'Basic Flip',
       difficulty: 'Easy',
-      score: 80,
+      rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: const [],
       existingSessionId: firstSessionId,
@@ -199,7 +207,7 @@ void main() {
       displayName: 'Ada',
       movementName: 'Basic Flip',
       difficulty: 'Easy',
-      score: 80,
+      rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: [_feedback('Nice')],
     );
@@ -238,7 +246,7 @@ void main() {
       displayName: 'Ada',
       movementName: 'Basic Flip',
       difficulty: 'Easy',
-      score: 88,
+      rubric: _testRubric,
       durationSeconds: 40,
       sessionImprovements: const [],
     );
@@ -272,7 +280,7 @@ void main() {
       displayName: 'Ada',
       movementName: 'Hand Stall',
       difficulty: 'Medium',
-      score: 92,
+      rubric: _testRubric,
       durationSeconds: 45,
       sessionImprovements: const [],
       prop: TrainingProp.shaker,
@@ -309,7 +317,7 @@ void main() {
       displayName: 'Ada',
       movementName: 'Basic Flip',
       difficulty: 'Easy',
-      score: 100,
+      rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: const [],
     );
@@ -344,7 +352,7 @@ void main() {
       displayName: 'Ada',
       movementName: 'Basic Flip',
       difficulty: 'Easy',
-      score: 82,
+      rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: [
         _feedback('Wrap at least three fingers around the neck.'),

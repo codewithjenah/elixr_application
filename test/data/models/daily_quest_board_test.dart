@@ -1,16 +1,31 @@
 import 'package:elixr_application/data/models/daily_quest.dart';
 import 'package:elixr_application/data/models/daily_quest_board.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 QuestTier _tierOf(String id) => questById(id)!.tier;
 QuestCategory _categoryOf(String id) => questById(id)!.category;
 
+/// Spreads [total] (0..12) across the four criteria so the rubric derives
+/// exactly that total.
+RubricAssessment _rubric(int total) {
+  assert(total >= 0 && total <= 12);
+  final base = total ~/ 4;
+  final remainder = total % 4;
+  return RubricAssessment(
+    technique: base + (remainder > 0 ? 1 : 0),
+    stability: base + (remainder > 1 ? 1 : 0),
+    completion: base + (remainder > 2 ? 1 : 0),
+    propPositioning: base,
+  );
+}
+
 Session _session({
   String userId = 'u1',
   String movementName = 'Flair',
   String difficulty = 'Easy',
-  int score = 70,
+  int rubricTotal = 7,
   int durationSeconds = 60,
   String? createdAt,
 }) {
@@ -18,9 +33,20 @@ Session _session({
     userId: userId,
     movementName: movementName,
     difficulty: difficulty,
-    score: score,
+    rubric: _rubric(rubricTotal),
+    assessmentVersion: 2,
     durationSeconds: durationSeconds,
     createdAt: createdAt,
+  );
+}
+
+Session _legacySession({int score = 100}) {
+  return Session(
+    userId: 'u1',
+    movementName: 'Flair',
+    difficulty: 'Easy',
+    legacyScore: score,
+    durationSeconds: 60,
   );
 }
 
@@ -194,6 +220,71 @@ void main() {
       final session = _session(createdAt: 'not-a-date');
       final windowed = sessionsWithinBoardWindow(board, [session]);
       expect(windowed, isEmpty);
+    });
+  });
+
+  group('rubric quest evaluators', () {
+    test('score_70 completes at a rubric total of 7 (Competent)', () {
+      final quest = questById('score_70')!;
+      expect(quest.evaluate([_session(rubricTotal: 6)]).target, 7);
+      expect(quest.evaluate([_session(rubricTotal: 6)]).completed, isFalse);
+      expect(quest.evaluate([_session(rubricTotal: 7)]).completed, isTrue);
+    });
+
+    test('score_85 completes at a rubric total of 10 (Proficient)', () {
+      final quest = questById('score_85')!;
+      expect(quest.evaluate([_session(rubricTotal: 9)]).target, 10);
+      expect(quest.evaluate([_session(rubricTotal: 9)]).completed, isFalse);
+      expect(quest.evaluate([_session(rubricTotal: 10)]).completed, isTrue);
+    });
+
+    test('score_95 completes only at a perfect rubric total of 12', () {
+      final quest = questById('score_95')!;
+      expect(quest.evaluate([_session(rubricTotal: 11)]).target, 12);
+      expect(quest.evaluate([_session(rubricTotal: 11)]).completed, isFalse);
+      expect(quest.evaluate([_session(rubricTotal: 12)]).completed, isTrue);
+    });
+
+    test('score quests report the best rubric total across sessions', () {
+      final quest = questById('score_85')!;
+      final progress = quest.evaluate([
+        _session(rubricTotal: 4),
+        _session(rubricTotal: 9),
+        _session(rubricTotal: 6),
+      ]);
+      expect(progress.current, 9);
+      expect(progress.completed, isFalse);
+    });
+
+    test('sessions_above_70_x2 counts Competent sessions only', () {
+      final quest = questById('sessions_above_70_x2')!;
+      final oneQualifies = quest.evaluate([
+        _session(rubricTotal: 7),
+        _session(rubricTotal: 6),
+      ]);
+      expect(oneQualifies.current, 1);
+      expect(oneQualifies.target, 2);
+      expect(oneQualifies.completed, isFalse);
+
+      final twoQualify = quest.evaluate([
+        _session(rubricTotal: 7),
+        _session(rubricTotal: 12),
+      ]);
+      expect(twoQualify.completed, isTrue);
+    });
+
+    test('legacy percentage sessions never advance rubric quests', () {
+      final legacy = [_legacySession(score: 100), _legacySession(score: 95)];
+      for (final id in [
+        'score_70',
+        'score_85',
+        'score_95',
+        'sessions_above_70_x2',
+      ]) {
+        final progress = questById(id)!.evaluate(legacy);
+        expect(progress.current, 0, reason: id);
+        expect(progress.completed, isFalse, reason: id);
+      }
     });
   });
 }

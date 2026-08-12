@@ -1,3 +1,4 @@
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/features/calendar/models/calendar_day_summary.dart';
 import 'package:elixr_application/features/calendar/utils/calendar_metrics.dart';
@@ -5,9 +6,27 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _userId = 'user-1';
 
+/// Distributes a 0..12 total across the four criteria (each 0..3).
+RubricAssessment _rubric(int total) {
+  final scores = <int>[0, 0, 0, 0];
+  var remaining = total.clamp(0, 12);
+  for (var i = 0; i < scores.length && remaining > 0; i++) {
+    final value = remaining >= 3 ? 3 : remaining;
+    scores[i] = value;
+    remaining -= value;
+  }
+  return RubricAssessment(
+    technique: scores[0],
+    stability: scores[1],
+    completion: scores[2],
+    propPositioning: scores[3],
+  );
+}
+
+/// Assessment V2 fixture.
 Session _session({
   String? createdAt,
-  int score = 80,
+  int rubricTotal = 8,
   int durationSeconds = 60,
   String difficulty = 'Easy',
   String movementName = 'Flair',
@@ -16,7 +35,26 @@ Session _session({
     userId: _userId,
     movementName: movementName,
     difficulty: difficulty,
-    score: score,
+    rubric: _rubric(rubricTotal),
+    assessmentVersion: 2,
+    durationSeconds: durationSeconds,
+    createdAt: createdAt,
+  );
+}
+
+/// Legacy Assessment V1 fixture (0..100 percentage).
+Session _legacySession({
+  String? createdAt,
+  int legacyScore = 80,
+  int durationSeconds = 60,
+  String difficulty = 'Easy',
+  String movementName = 'Flair',
+}) {
+  return Session(
+    userId: _userId,
+    movementName: movementName,
+    difficulty: difficulty,
+    legacyScore: legacyScore,
     durationSeconds: durationSeconds,
     createdAt: createdAt,
   );
@@ -52,8 +90,8 @@ void main() {
   group('groupSessionsByDate', () {
     test('groups multiple sessions on the same local date', () {
       final sessions = [
-        _session(createdAt: '2026-08-02T09:00:00.000', score: 70),
-        _session(createdAt: '2026-08-02T18:00:00.000', score: 90),
+        _session(createdAt: '2026-08-02T09:00:00.000', rubricTotal: 7),
+        _session(createdAt: '2026-08-02T18:00:00.000', rubricTotal: 9),
       ];
       final grouped = groupSessionsByDate(sessions);
       expect(grouped.keys, [DateTime(2026, 8, 2)]);
@@ -85,40 +123,88 @@ void main() {
   });
 
   group('CalendarDaySummary metrics', () {
-    test('computes count, average, best, duration, and difficulties', () {
+    test(
+      'computes count, rubric average, best, duration, and difficulties',
+      () {
+        final summary = CalendarDaySummary(
+          date: DateTime(2026, 8, 2),
+          sessions: [
+            _session(
+              createdAt: '2026-08-02T09:00:00.000',
+              rubricTotal: 6,
+              durationSeconds: 40,
+              difficulty: 'Easy',
+            ),
+            _session(
+              createdAt: '2026-08-02T18:00:00.000',
+              rubricTotal: 10,
+              durationSeconds: 80,
+              difficulty: 'Hard',
+            ),
+          ],
+        );
+
+        expect(summary.sessionCount, 2);
+        expect(summary.rubricSessionCount, 2);
+        expect(summary.averageRubricTotal, 8);
+        expect(summary.bestRubricTotal, 10);
+        expect(summary.hasRubricData, isTrue);
+        expect(summary.preferredAverage, 8);
+        expect(summary.preferredBest, 10);
+        expect(summary.totalDurationSeconds, 120);
+        expect(summary.difficulties, {'Easy', 'Hard'});
+      },
+    );
+
+    test('keeps legacy scores in their own cohort', () {
       final summary = CalendarDaySummary(
         date: DateTime(2026, 8, 2),
         sessions: [
-          _session(
-            createdAt: '2026-08-02T09:00:00.000',
-            score: 70,
-            durationSeconds: 40,
-            difficulty: 'Easy',
-          ),
-          _session(
+          _legacySession(createdAt: '2026-08-02T09:00:00.000', legacyScore: 70),
+          _legacySession(createdAt: '2026-08-02T18:00:00.000', legacyScore: 90),
+        ],
+      );
+
+      expect(summary.rubricSessionCount, 0);
+      expect(summary.averageRubricTotal, isNull);
+      expect(summary.bestRubricTotal, isNull);
+      expect(summary.legacySessionCount, 2);
+      expect(summary.averageLegacyScore, 80);
+      expect(summary.bestLegacyScore, 90);
+      expect(summary.hasRubricData, isFalse);
+      expect(summary.preferredAverage, 80);
+    });
+
+    test('mixed days never blend the two scales', () {
+      final summary = CalendarDaySummary(
+        date: DateTime(2026, 8, 2),
+        sessions: [
+          _session(createdAt: '2026-08-02T09:00:00.000', rubricTotal: 6),
+          _legacySession(
             createdAt: '2026-08-02T18:00:00.000',
-            score: 90,
-            durationSeconds: 80,
-            difficulty: 'Hard',
+            legacyScore: 100,
           ),
         ],
       );
 
       expect(summary.sessionCount, 2);
-      expect(summary.averageScore, 80);
-      expect(summary.bestScore, 90);
-      expect(summary.totalDurationSeconds, 120);
-      expect(summary.difficulties, {'Easy', 'Hard'});
+      expect(summary.averageRubricTotal, 6);
+      expect(summary.averageLegacyScore, 100);
+      expect(summary.preferredAverage, 6);
+      expect(summary.preferredBest, 6);
     });
 
-    test('returns null averages and best score when empty', () {
+    test('returns null averages and best results when empty', () {
       final summary = CalendarDaySummary(
         date: DateTime(2026, 8, 2),
         sessions: const [],
       );
       expect(summary.sessionCount, 0);
-      expect(summary.averageScore, isNull);
-      expect(summary.bestScore, isNull);
+      expect(summary.averageRubricTotal, isNull);
+      expect(summary.bestRubricTotal, isNull);
+      expect(summary.averageLegacyScore, isNull);
+      expect(summary.bestLegacyScore, isNull);
+      expect(summary.preferredAverage, isNull);
       expect(summary.totalDurationSeconds, 0);
       expect(summary.difficulties, isEmpty);
     });
@@ -265,33 +351,33 @@ void main() {
   });
 
   group('bestTrainingDay', () {
-    test('prefers highest average score', () {
+    test('prefers highest average rubric total', () {
       final grouped = groupSessionsByDate([
-        _session(createdAt: '2026-08-01T12:00:00.000', score: 90),
-        _session(createdAt: '2026-08-02T12:00:00.000', score: 80),
-        _session(createdAt: '2026-08-02T13:00:00.000', score: 80),
+        _session(createdAt: '2026-08-01T12:00:00.000', rubricTotal: 11),
+        _session(createdAt: '2026-08-02T12:00:00.000', rubricTotal: 8),
+        _session(createdAt: '2026-08-02T13:00:00.000', rubricTotal: 8),
       ]);
       final best = bestTrainingDay(grouped, year: 2026, month: 8);
       expect(best?.date, DateTime(2026, 8, 1));
     });
 
-    test('breaks average ties with highest individual score', () {
+    test('breaks average ties with highest individual total', () {
       final grouped = groupSessionsByDate([
-        _session(createdAt: '2026-08-01T12:00:00.000', score: 70),
-        _session(createdAt: '2026-08-01T13:00:00.000', score: 90),
-        _session(createdAt: '2026-08-02T12:00:00.000', score: 80),
-        _session(createdAt: '2026-08-02T13:00:00.000', score: 80),
+        _session(createdAt: '2026-08-01T12:00:00.000', rubricTotal: 7),
+        _session(createdAt: '2026-08-01T13:00:00.000', rubricTotal: 9),
+        _session(createdAt: '2026-08-02T12:00:00.000', rubricTotal: 8),
+        _session(createdAt: '2026-08-02T13:00:00.000', rubricTotal: 8),
       ]);
       final best = bestTrainingDay(grouped, year: 2026, month: 8);
       expect(best?.date, DateTime(2026, 8, 1));
-      expect(best?.bestScore, 90);
+      expect(best?.bestRubricTotal, 9);
     });
 
-    test('breaks score ties with session count', () {
+    test('breaks result ties with session count', () {
       final grouped = groupSessionsByDate([
-        _session(createdAt: '2026-08-01T12:00:00.000', score: 80),
-        _session(createdAt: '2026-08-02T12:00:00.000', score: 80),
-        _session(createdAt: '2026-08-02T13:00:00.000', score: 80),
+        _session(createdAt: '2026-08-01T12:00:00.000', rubricTotal: 8),
+        _session(createdAt: '2026-08-02T12:00:00.000', rubricTotal: 8),
+        _session(createdAt: '2026-08-02T13:00:00.000', rubricTotal: 8),
       ]);
       final best = bestTrainingDay(grouped, year: 2026, month: 8);
       expect(best?.date, DateTime(2026, 8, 2));
@@ -300,11 +386,32 @@ void main() {
 
     test('breaks remaining ties with most recent date', () {
       final grouped = groupSessionsByDate([
-        _session(createdAt: '2026-08-01T12:00:00.000', score: 80),
-        _session(createdAt: '2026-08-03T12:00:00.000', score: 80),
+        _session(createdAt: '2026-08-01T12:00:00.000', rubricTotal: 8),
+        _session(createdAt: '2026-08-03T12:00:00.000', rubricTotal: 8),
       ]);
       final best = bestTrainingDay(grouped, year: 2026, month: 8);
       expect(best?.date, DateTime(2026, 8, 3));
+    });
+
+    test('rubric days rank ahead of legacy-only days', () {
+      final grouped = groupSessionsByDate([
+        // A perfect legacy percentage must not outrank a modest rubric total.
+        _legacySession(createdAt: '2026-08-01T12:00:00.000', legacyScore: 100),
+        _session(createdAt: '2026-08-02T12:00:00.000', rubricTotal: 4),
+      ]);
+      final best = bestTrainingDay(grouped, year: 2026, month: 8);
+      expect(best?.date, DateTime(2026, 8, 2));
+      expect(best?.hasRubricData, isTrue);
+    });
+
+    test('falls back to legacy days when no rubric day exists', () {
+      final grouped = groupSessionsByDate([
+        _legacySession(createdAt: '2026-08-01T12:00:00.000', legacyScore: 60),
+        _legacySession(createdAt: '2026-08-02T12:00:00.000', legacyScore: 90),
+      ]);
+      final best = bestTrainingDay(grouped, year: 2026, month: 8);
+      expect(best?.date, DateTime(2026, 8, 2));
+      expect(best?.hasRubricData, isFalse);
     });
 
     test('returns null when the month has no activity', () {

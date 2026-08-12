@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/user.dart';
 import 'package:elixr_application/data/repositories/auth_repository.dart';
@@ -16,18 +17,33 @@ import 'package:provider/provider.dart';
 
 const _userId = 'calendar-user';
 
+/// Assessment V2 fixture; distributes a 0..12 total across the four criteria.
 Session _session({
   required String createdAt,
-  int score = 80,
+  int rubricTotal = 8,
   int durationSeconds = 60,
   String difficulty = 'Easy',
   String movementName = 'Hand Stall',
 }) {
+  final scores = <int>[0, 0, 0, 0];
+  var remaining = rubricTotal.clamp(0, 12);
+  for (var i = 0; i < scores.length && remaining > 0; i++) {
+    final value = remaining >= 3 ? 3 : remaining;
+    scores[i] = value;
+    remaining -= value;
+  }
+
   return Session(
     userId: _userId,
     movementName: movementName,
     difficulty: difficulty,
-    score: score,
+    rubric: RubricAssessment(
+      technique: scores[0],
+      stability: scores[1],
+      completion: scores[2],
+      propPositioning: scores[3],
+    ),
+    assessmentVersion: 2,
     durationSeconds: durationSeconds,
     createdAt: createdAt,
   );
@@ -252,8 +268,8 @@ void main() {
     await pumpCalendar(
       tester,
       sessionsLoader: (_) async => [
-        _session(createdAt: stamp, score: 90),
-        _session(createdAt: stamp, score: 70),
+        _session(createdAt: stamp, rubricTotal: 11),
+        _session(createdAt: stamp, rubricTotal: 7),
       ],
     );
     await tester.pumpAndSettle();
@@ -272,7 +288,7 @@ void main() {
         _session(
           createdAt: '2026-08-01T10:00:00.000',
           movementName: 'Flair',
-          score: 88,
+          rubricTotal: 10,
         ),
       ],
     );
@@ -280,6 +296,9 @@ void main() {
 
     expect(find.text('Flair'), findsOneWidget);
     expect(find.text('No practice recorded'), findsNothing);
+    expect(find.text('10 / 12'), findsWidgets);
+    expect(find.text('Proficient'), findsOneWidget);
+    expect(find.text('Average Rubric'), findsOneWidget);
   });
 
   testWidgets('selecting an empty date shows empty state', (tester) async {

@@ -30,7 +30,8 @@ from assessment.rule_engine import (
     movement_requires_hands,
     movement_requires_pose,
 )
-from assessment.scoring import SessionScorer
+from assessment.scoring import RubricTracker
+from assessment.hold_validator import HoldSnapshot
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D, PoseLandmarks
 
 
@@ -340,11 +341,13 @@ def test_pinch_grip_success():
     assert result.feedback_type == "positive"
 
 
-def test_scorer_clamps():
-    scorer = SessionScorer(window=10, base=70)
-    for _ in range(15):
-        scorer.record("error")
-    assert scorer.score == 0
+def test_rubric_tracker_bounds():
+    tracker = RubricTracker(min_observed_seconds=0.5)
+    tracker.activate()
+    assessment = tracker.snapshot(HoldSnapshot())
+    assert assessment.total == 0
+    assert 0 <= assessment.technique.score <= 3
+    assert assessment.performance_level.value == "beginning"
 
 
 @pytest.mark.parametrize(

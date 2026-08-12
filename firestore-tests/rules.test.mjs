@@ -215,13 +215,47 @@ async function seedBypassingRules(fn) {
   });
 }
 
+function rubricSessionFields({
+  technique = 3,
+  stability = 2,
+  completion = 3,
+  propPositioning = 2,
+} = {}) {
+  const total = technique + stability + completion + propPositioning;
+  const performanceLevel =
+    total <= 3
+      ? 'beginning'
+      : total <= 6
+        ? 'developing'
+        : total <= 9
+          ? 'competent'
+          : total <= 11
+            ? 'proficient'
+            : 'mastered';
+  return {
+    assessment_version: 2,
+    rubric: {
+      technique,
+      stability,
+      completion,
+      prop_positioning: propPositioning,
+    },
+    rubric_total: total,
+    performance_level: performanceLevel,
+  };
+}
+
 describe('session authoritative timestamps', () => {
   test('session create accepts a server timestamp and rejects a client-supplied timestamp', async () => {
     const db = aliceDb();
     await assertSucceeds(
       setDoc(doc(db, 'sessions', 'server-stamped'), {
         user_id: 'alice',
-        score: 82,
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 60,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
         created_at: serverTimestamp(),
       }),
     );
@@ -229,18 +263,26 @@ describe('session authoritative timestamps', () => {
     await assertFails(
       setDoc(doc(db, 'sessions', 'spoofed-time'), {
         user_id: 'alice',
-        score: 82,
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 60,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
         created_at: Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z')),
       }),
     );
   });
 
-  test('session update cannot move created_at or alter the awarded score', async () => {
+  test('session update cannot move created_at or alter the awarded assessment', async () => {
     const db = aliceDb();
     await assertSucceeds(
       setDoc(doc(db, 'sessions', 'immutable-source'), {
         user_id: 'alice',
-        score: 82,
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 60,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
         created_at: serverTimestamp(),
       }),
     );
@@ -253,7 +295,244 @@ describe('session authoritative timestamps', () => {
       ),
     );
     await assertFails(
-      setDoc(doc(db, 'sessions', 'immutable-source'), { score: 100 }, { merge: true }),
+      setDoc(
+        doc(db, 'sessions', 'immutable-source'),
+        { rubric_total: 12, performance_level: 'mastered' },
+        { merge: true },
+      ),
+    );
+  });
+});
+
+describe('assessment v2 rubric sessions', () => {
+  test('valid rubric session create succeeds', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'v2-ok'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('criterion above 3 is rejected', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'v2-high'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        assessment_version: 2,
+        rubric: {
+          technique: 4,
+          stability: 2,
+          completion: 3,
+          prop_positioning: 2,
+        },
+        rubric_total: 11,
+        performance_level: 'proficient',
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('negative criterion is rejected', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'v2-neg'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        assessment_version: 2,
+        rubric: {
+          technique: -1,
+          stability: 2,
+          completion: 3,
+          prop_positioning: 2,
+        },
+        rubric_total: 6,
+        performance_level: 'developing',
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('incorrect rubric_total is rejected', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'v2-bad-total'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        rubric_total: 12,
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('mismatched performance_level is rejected', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'v2-bad-level'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        performance_level: 'beginning',
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('client cannot mutate authoritative completed assessment', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'v2-locked'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        created_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'v2-locked'),
+        {
+          rubric: {
+            technique: 3,
+            stability: 3,
+            completion: 3,
+            prop_positioning: 3,
+          },
+          rubric_total: 12,
+          performance_level: 'mastered',
+        },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('XP award remains idempotent for V2 sessions', async () => {
+    const awardedAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'v2-award'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        created_at: awardedAt,
+      });
+    });
+
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'leaderboard_processed_sessions', 'v2-award'), {
+      session_id: 'v2-award',
+      user_id: 'alice',
+      rubric_total: 10,
+      xp_awarded: 25,
+      processed_at: Timestamp.now(),
+    });
+    batch.set(doc(db, 'leaderboard', 'alice'), {
+      user_id: 'alice',
+      display_name: 'Alice',
+      total_xp: 25,
+      sessions_completed: 1,
+      score_sum: 0,
+      average_score: 0,
+      best_score: 0,
+      last_session_at: awardedAt,
+      updated_at: Timestamp.now(),
+      last_awarded_session_id: 'v2-award',
+      daily_key: manilaDayKeyFor(awardedAt.toDate()),
+      daily_xp: 25,
+      daily_sessions_completed: 1,
+      daily_score_sum: 0,
+      daily_average_score: 0,
+      daily_best_score: 0,
+      monthly_key: manilaMonthKeyFor(awardedAt.toDate()),
+      monthly_xp: 25,
+      monthly_sessions_completed: 1,
+      monthly_score_sum: 0,
+      monthly_average_score: 0,
+      monthly_best_score: 0,
+    });
+    await assertSucceeds(batch.commit());
+
+    // Replay with the same marker session id must fail (marker already exists;
+    // create is the only marker write path and update is denied).
+    await assertFails(
+      setDoc(doc(db, 'leaderboard_processed_sessions', 'v2-award'), {
+        session_id: 'v2-award',
+        user_id: 'alice',
+        rubric_total: 10,
+        xp_awarded: 25,
+        processed_at: Timestamp.now(),
+      }),
+    );
+  });
+
+  test('another user cannot alter the session', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'v2-owned'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        created_at: serverTimestamp(),
+      }),
+    );
+    const bob = bobDb();
+    await assertFails(
+      setDoc(
+        doc(bob, 'sessions', 'v2-owned'),
+        { duration_seconds: 1 },
+        { merge: true },
+      ),
+    );
+    await assertFails(
+      setDoc(doc(bob, 'sessions', 'v2-bob-forged'), {
+        user_id: 'alice',
+        movement_name: 'Hand Stall',
+        difficulty: 'Medium',
+        duration_seconds: 90,
+        prop_type: 'bottle',
+        ...rubricSessionFields(),
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('legacy score create is rejected (V2-only writes)', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'legacy-create'), {
+        user_id: 'alice',
+        score: 82,
+        created_at: serverTimestamp(),
+      }),
     );
   });
 });

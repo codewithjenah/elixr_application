@@ -1,22 +1,28 @@
 import '../../core/constants/movements.dart';
 import '../../data/models/movement.dart';
+import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
 
 /// Mastery tier derived from recent practice performance.
 enum MovementMasteryStatus { notPracticed, learning, improving, mastered }
 
-/// Direction of recent score movement when a prior window is available.
+/// Direction of recent rubric movement when a prior window is available.
 enum ScoreTrend { unknown, stable, improving, declining }
 
 /// Aggregated mastery statistics for a single movement.
+///
+/// Every rubric aggregate is derived only from Assessment V2 sessions on the
+/// 0..12 scale. Legacy percentage sessions still count towards
+/// [completedSessions] but never contribute to a rubric average or best.
 class MovementMastery {
   const MovementMastery({
     required this.movement,
     required this.completedSessions,
-    required this.lifetimeAverageScore,
-    required this.bestScore,
-    required this.recentAverageScore,
-    required this.previousRecentAverageScore,
+    required this.rubricSessionCount,
+    required this.lifetimeAverageRubric,
+    required this.bestRubricTotal,
+    required this.recentAverageRubric,
+    required this.previousRecentAverageRubric,
     required this.scoreTrend,
     required this.lastPracticedAt,
     required this.status,
@@ -25,16 +31,25 @@ class MovementMastery {
 
   final Movement movement;
   final int completedSessions;
-  final double? lifetimeAverageScore;
-  final int? bestScore;
-  final double? recentAverageScore;
-  final double? previousRecentAverageScore;
+
+  /// Sessions with an Assessment V2 rubric, i.e. the aggregate sample size.
+  final int rubricSessionCount;
+
+  final double? lifetimeAverageRubric;
+  final int? bestRubricTotal;
+  final double? recentAverageRubric;
+  final double? previousRecentAverageRubric;
   final ScoreTrend scoreTrend;
   final DateTime? lastPracticedAt;
   final MovementMasteryStatus status;
 
   /// Original index in [movementCatalog] for deterministic tie-breaking.
   final int catalogIndex;
+
+  /// Performance level of the recent rubric window, when rubric data exists.
+  PerformanceLevel? get recentPerformanceLevel => recentAverageRubric == null
+      ? null
+      : PerformanceLevel.fromAverage(recentAverageRubric!);
 }
 
 /// Rule-based training recommendation with per-movement mastery data.
@@ -55,7 +70,9 @@ class TrainingRecommendation {
 const _difficultyOrder = <String, int>{'Easy': 0, 'Medium': 1, 'Hard': 2};
 
 const _recentWindowSize = 5;
-const _scoreTrendEpsilon = 1.0;
+
+/// Trend deadband on the 0..12 rubric scale (a quarter of one criterion point).
+const _rubricTrendEpsilon = 0.25;
 
 /// Builds mastery statistics and a single next-practice recommendation.
 ///
@@ -105,10 +122,11 @@ MovementMastery _buildMovementMastery({
     return MovementMastery(
       movement: movement,
       completedSessions: 0,
-      lifetimeAverageScore: null,
-      bestScore: null,
-      recentAverageScore: null,
-      previousRecentAverageScore: null,
+      rubricSessionCount: 0,
+      lifetimeAverageRubric: null,
+      bestRubricTotal: null,
+      recentAverageRubric: null,
+      previousRecentAverageRubric: null,
       scoreTrend: ScoreTrend.unknown,
       lastPracticedAt: null,
       status: MovementMasteryStatus.notPracticed,
@@ -118,31 +136,54 @@ MovementMastery _buildMovementMastery({
 
   final sorted = List<Session>.from(movementSessions)
     ..sort(_compareSessionsChronologically);
-
-  final clampedScores = sorted.map((s) => _clampScore(s.score)).toList();
   final completedSessions = sorted.length;
-  final lifetimeAverage =
-      clampedScores.reduce((a, b) => a + b) / completedSessions;
-  final bestScore = clampedScores.reduce((a, b) => a > b ? a : b);
+  final lastPracticedAt = _sessionTimestamp(sorted.last);
 
-  final recentScores = clampedScores.length <= _recentWindowSize
-      ? clampedScores
-      : clampedScores.sublist(clampedScores.length - _recentWindowSize);
+  // Only Assessment V2 sessions feed the rubric aggregates; legacy percentage
+  // sessions are on an unrelated 0..100 scale.
+  final rubricTotals = <int>[
+    for (final session in sorted)
+      if (session.isRubricAssessed) _clampRubricTotal(session.rubricTotal!),
+  ];
+
+  if (rubricTotals.isEmpty) {
+    return MovementMastery(
+      movement: movement,
+      completedSessions: completedSessions,
+      rubricSessionCount: 0,
+      lifetimeAverageRubric: null,
+      bestRubricTotal: null,
+      recentAverageRubric: null,
+      previousRecentAverageRubric: null,
+      scoreTrend: ScoreTrend.unknown,
+      lastPracticedAt: lastPracticedAt,
+      status: MovementMasteryStatus.learning,
+      catalogIndex: catalogIndex,
+    );
+  }
+
+  final lifetimeAverage =
+      rubricTotals.reduce((a, b) => a + b) / rubricTotals.length;
+  final bestRubricTotal = rubricTotals.reduce((a, b) => a > b ? a : b);
+
+  final recentTotals = rubricTotals.length <= _recentWindowSize
+      ? rubricTotals
+      : rubricTotals.sublist(rubricTotals.length - _recentWindowSize);
   final recentAverage =
-      recentScores.reduce((a, b) => a + b) / recentScores.length;
+      recentTotals.reduce((a, b) => a + b) / recentTotals.length;
 
   double? previousRecentAverage;
   ScoreTrend scoreTrend = ScoreTrend.unknown;
-  if (sorted.length > _recentWindowSize) {
-    final previousStart = sorted.length - (_recentWindowSize * 2);
+  if (rubricTotals.length > _recentWindowSize) {
+    final previousStart = rubricTotals.length - (_recentWindowSize * 2);
     final safeStart = previousStart < 0 ? 0 : previousStart;
-    final previousEnd = sorted.length - _recentWindowSize;
-    final previousScores = clampedScores.sublist(safeStart, previousEnd);
-    if (previousScores.isNotEmpty) {
+    final previousEnd = rubricTotals.length - _recentWindowSize;
+    final previousTotals = rubricTotals.sublist(safeStart, previousEnd);
+    if (previousTotals.isNotEmpty) {
       previousRecentAverage =
-          previousScores.reduce((a, b) => a + b) / previousScores.length;
+          previousTotals.reduce((a, b) => a + b) / previousTotals.length;
       final delta = recentAverage - previousRecentAverage;
-      if (delta.abs() < _scoreTrendEpsilon) {
+      if (delta.abs() < _rubricTrendEpsilon) {
         scoreTrend = ScoreTrend.stable;
       } else if (delta > 0) {
         scoreTrend = ScoreTrend.improving;
@@ -152,20 +193,19 @@ MovementMastery _buildMovementMastery({
     }
   }
 
-  final lastPracticedAt = _sessionTimestamp(sorted.last);
-
   final status = _resolveStatus(
-    completedSessions: completedSessions,
-    recentAverage: recentAverage,
+    rubricSessionCount: rubricTotals.length,
+    recentAverageRubric: recentAverage,
   );
 
   return MovementMastery(
     movement: movement,
     completedSessions: completedSessions,
-    lifetimeAverageScore: lifetimeAverage,
-    bestScore: bestScore,
-    recentAverageScore: recentAverage,
-    previousRecentAverageScore: previousRecentAverage,
+    rubricSessionCount: rubricTotals.length,
+    lifetimeAverageRubric: lifetimeAverage,
+    bestRubricTotal: bestRubricTotal,
+    recentAverageRubric: recentAverage,
+    previousRecentAverageRubric: previousRecentAverage,
     scoreTrend: scoreTrend,
     lastPracticedAt: lastPracticedAt,
     status: status,
@@ -173,20 +213,27 @@ MovementMastery _buildMovementMastery({
   );
 }
 
+/// Mastery tiers follow the rubric performance levels, never a percentage.
 MovementMasteryStatus _resolveStatus({
-  required int completedSessions,
-  required double recentAverage,
+  required int rubricSessionCount,
+  required double recentAverageRubric,
 }) {
-  if (completedSessions == 0) {
+  if (rubricSessionCount == 0) {
     return MovementMasteryStatus.notPracticed;
   }
-  if (recentAverage >= 85 && completedSessions >= 3) {
-    return MovementMasteryStatus.mastered;
+  final level = PerformanceLevel.fromAverage(recentAverageRubric);
+  switch (level) {
+    case PerformanceLevel.mastered:
+    case PerformanceLevel.proficient:
+      return rubricSessionCount >= 3
+          ? MovementMasteryStatus.mastered
+          : MovementMasteryStatus.improving;
+    case PerformanceLevel.competent:
+      return MovementMasteryStatus.improving;
+    case PerformanceLevel.developing:
+    case PerformanceLevel.beginning:
+      return MovementMasteryStatus.learning;
   }
-  if (recentAverage >= 70) {
-    return MovementMasteryStatus.improving;
-  }
-  return MovementMasteryStatus.learning;
 }
 
 MovementMastery _selectRecommendation(
@@ -239,8 +286,8 @@ int _compareMasteryPriority(MovementMastery a, MovementMastery b) {
 }
 
 int _compareWeakestNonMastered(MovementMastery a, MovementMastery b) {
-  final recentA = a.recentAverageScore ?? double.infinity;
-  final recentB = b.recentAverageScore ?? double.infinity;
+  final recentA = a.recentAverageRubric ?? double.infinity;
+  final recentB = b.recentAverageRubric ?? double.infinity;
   final recentCompare = recentA.compareTo(recentB);
   if (recentCompare != 0) return recentCompare;
 
@@ -299,11 +346,15 @@ String _buildReason(
   }
 
   if (recommended.scoreTrend == ScoreTrend.declining) {
-    return 'Your recent scores are declining, so this movement needs reinforcement.';
+    return 'Your recent rubric totals are declining, so this movement needs reinforcement.';
   }
 
-  final recent = recommended.recentAverageScore?.round() ?? 0;
-  return 'Your recent average of $recent is your lowest current mastery score.';
+  final recent = recommended.recentAverageRubric;
+  if (recent == null) {
+    return 'This movement has no rubric assessment yet, so practice it next.';
+  }
+  return 'Your recent rubric average of ${recent.round()} / 12 is your lowest '
+      'current mastery result.';
 }
 
 int _compareSessionsChronologically(Session a, Session b) {
@@ -316,8 +367,12 @@ int _compareSessionsChronologically(Session a, Session b) {
   if (bTime == null) return 1;
   final compare = aTime.compareTo(bTime);
   if (compare != 0) return compare;
-  return a.score.compareTo(b.score);
+  return _resultForTieBreak(a).compareTo(_resultForTieBreak(b));
 }
+
+/// Stable tie-break value; only used to order same-timestamp sessions.
+int _resultForTieBreak(Session session) =>
+    session.rubricTotal ?? session.legacyScore ?? 0;
 
 DateTime? _sessionTimestamp(Session session) {
   final raw = session.createdAt;
@@ -325,7 +380,7 @@ DateTime? _sessionTimestamp(Session session) {
   return DateTime.tryParse(raw);
 }
 
-int _clampScore(int score) => score.clamp(0, 100);
+int _clampRubricTotal(int total) => total.clamp(0, 12);
 
 /// Human-readable label for a mastery status.
 String masteryStatusLabel(MovementMasteryStatus status) {

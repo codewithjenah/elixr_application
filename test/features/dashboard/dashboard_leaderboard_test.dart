@@ -86,6 +86,7 @@ void main() {
     expect(find.text('Bob'), findsOneWidget);
     expect(find.text('Cara'), findsOneWidget);
     expect(find.text('View leaderboard'), findsOneWidget);
+    expect(find.textContaining('Best '), findsNothing);
   });
 
   testWidgets('YOU badge shows for current user in Top 3', (tester) async {

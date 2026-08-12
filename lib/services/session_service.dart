@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../data/database/firestore_helper.dart';
 import '../data/models/feedback.dart';
 import '../data/models/practice_feedback.dart';
+import '../data/models/rubric_assessment.dart';
 import '../data/models/session.dart';
 import '../data/models/training_prop.dart';
 import '../data/repositories/leaderboard_repository.dart';
@@ -56,7 +57,7 @@ class SessionService extends ChangeNotifier {
     required String displayName,
     required String movementName,
     required String difficulty,
-    required int score,
+    required RubricAssessment rubric,
     required int durationSeconds,
     required List<PracticeFeedback> sessionImprovements,
     TrainingProp prop = TrainingProp.bottle,
@@ -71,7 +72,8 @@ class SessionService extends ChangeNotifier {
       userId: userId,
       movementName: movementName,
       difficulty: difficulty,
-      score: score,
+      rubric: rubric,
+      assessmentVersion: 2,
       durationSeconds: durationSeconds,
       propType: prop,
     );

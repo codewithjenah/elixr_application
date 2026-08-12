@@ -13,31 +13,61 @@ void main() {
       expect(summary.practicedCount, 0);
       expect(summary.totalMovements, movementCatalog.length);
       expect(summary.totalSessions, 0);
-      expect(summary.overallAverage, isNull);
+      expect(summary.rubricSessionCount, 0);
+      expect(summary.overallAverageRubric, isNull);
     });
 
-    test('counts practiced movements and weighted average by sessions', () {
+    test('counts practiced movements and weighted rubric average', () {
       final summary = computeMovementsSummary({
-        'Normal Grip': (count: 2, avgScore: 80),
-        'Hand Stall': (count: 1, avgScore: 90),
-        'Shoulder Stall': (count: 3, avgScore: 70),
+        'Normal Grip': (count: 2, rubricSessionCount: 2, averageRubricTotal: 8),
+        'Hand Stall': (count: 1, rubricSessionCount: 1, averageRubricTotal: 11),
+        'Shoulder Stall': (
+          count: 3,
+          rubricSessionCount: 3,
+          averageRubricTotal: 6,
+        ),
       });
 
-      // Weighted: (80*2 + 90*1 + 70*3) / 6 = 460 / 6
+      // Weighted: (8*2 + 11*1 + 6*3) / 6 = 45 / 6
       expect(summary.practicedCount, 3);
       expect(summary.totalSessions, 6);
-      expect(summary.overallAverage, closeTo(460 / 6, 0.001));
+      expect(summary.rubricSessionCount, 6);
+      expect(summary.overallAverageRubric, closeTo(45 / 6, 0.001));
     });
 
     test('ignores catalog movements with zero sessions', () {
       final summary = computeMovementsSummary({
-        'Normal Grip': (count: 0, avgScore: 0),
-        'Forearm Stall': (count: 4, avgScore: 55),
+        'Normal Grip': (
+          count: 0,
+          rubricSessionCount: 0,
+          averageRubricTotal: null,
+        ),
+        'Forearm Stall': (
+          count: 4,
+          rubricSessionCount: 4,
+          averageRubricTotal: 5,
+        ),
       });
 
       expect(summary.practicedCount, 1);
       expect(summary.totalSessions, 4);
-      expect(summary.overallAverage, 55);
+      expect(summary.overallAverageRubric, 5);
+    });
+
+    test('legacy-only sessions are excluded from the rubric average', () {
+      final summary = computeMovementsSummary({
+        'Normal Grip': (
+          count: 4,
+          rubricSessionCount: 0,
+          averageRubricTotal: null,
+        ),
+        'Hand Stall': (count: 2, rubricSessionCount: 2, averageRubricTotal: 9),
+      });
+
+      expect(summary.practicedCount, 2);
+      expect(summary.totalSessions, 6);
+      expect(summary.rubricSessionCount, 2);
+      expect(summary.overallAverageRubric, 9);
     });
   });
 

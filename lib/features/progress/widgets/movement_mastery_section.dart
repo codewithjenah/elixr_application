@@ -123,11 +123,13 @@ class _MasteryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = difficultyAccentColor(mastery.movement.difficulty);
-    final progress = mastery.recentAverageScore ?? 0;
-    final recentLabel = mastery.recentAverageScore != null
-        ? mastery.recentAverageScore!.round().toString()
+    final recentAverage = mastery.recentAverageRubric;
+    final recentLabel = recentAverage != null
+        ? '${recentAverage.round()} / 12'
         : '—';
-    final bestLabel = mastery.bestScore?.toString() ?? '—';
+    final bestLabel = mastery.bestRubricTotal != null
+        ? '${mastery.bestRubricTotal} / 12'
+        : '—';
     final statusLabel = masteryStatusLabel(mastery.status);
 
     return LayoutBuilder(
@@ -187,7 +189,7 @@ class _MasteryRow extends StatelessWidget {
         );
 
         final progressBar = _MasteryProgressBar(
-          value: progress / 100,
+          rubricAverage: recentAverage,
           accent: accent,
         );
 
@@ -211,14 +213,19 @@ class _MasteryRow extends StatelessWidget {
   }
 }
 
+/// Rubric progress on the 0..12 scale.
 class _MasteryProgressBar extends StatelessWidget {
-  const _MasteryProgressBar({required this.value, required this.accent});
+  const _MasteryProgressBar({
+    required this.rubricAverage,
+    required this.accent,
+  });
 
-  final double value;
+  final double? rubricAverage;
   final Color accent;
 
   @override
   Widget build(BuildContext context) {
+    final value = (rubricAverage ?? 0) / 12;
     return Row(
       children: [
         Expanded(
@@ -251,9 +258,9 @@ class _MasteryProgressBar extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.sm),
         SizedBox(
-          width: 32,
+          width: 44,
           child: Text(
-            '${(value * 100).round()}',
+            rubricAverage == null ? '—' : '${rubricAverage!.round()}/12',
             textAlign: TextAlign.right,
             style: TextStyle(
               fontSize: 11,

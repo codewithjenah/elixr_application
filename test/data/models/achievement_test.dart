@@ -1,13 +1,28 @@
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Spreads [total] (0..12) across the four criteria so the rubric derives
+/// exactly that total.
+RubricAssessment _rubric(int total) {
+  assert(total >= 0 && total <= 12);
+  final base = total ~/ 4;
+  final remainder = total % 4;
+  return RubricAssessment(
+    technique: base + (remainder > 0 ? 1 : 0),
+    stability: base + (remainder > 1 ? 1 : 0),
+    completion: base + (remainder > 2 ? 1 : 0),
+    propPositioning: base,
+  );
+}
+
 Session _session({
   String movement = 'Hand Stall',
   String difficulty = 'Easy',
-  int score = 70,
+  int rubricTotal = 8,
   String? createdAt,
   TrainingProp prop = TrainingProp.bottle,
 }) {
@@ -15,10 +30,21 @@ Session _session({
     userId: 'u1',
     movementName: movement,
     difficulty: difficulty,
-    score: score,
+    rubric: _rubric(rubricTotal),
+    assessmentVersion: 2,
     durationSeconds: 60,
     createdAt: createdAt,
     propType: prop,
+  );
+}
+
+Session _legacySession({int score = 100}) {
+  return Session(
+    userId: 'u1',
+    movementName: 'Hand Stall',
+    difficulty: 'Easy',
+    legacyScore: score,
+    durationSeconds: 60,
   );
 }
 
@@ -112,17 +138,50 @@ void main() {
       },
     );
 
-    test('sharp_pour requires best score >= 90', () {
+    test('sharp_pour requires a rubric total of at least 10', () {
       final def = achievementById('sharp_pour')!;
-      expect(def.evaluator([_session(score: 89)], null).completed, isFalse);
-      expect(def.evaluator([_session(score: 90)], null).completed, isTrue);
-      expect(def.evaluator(const [], _entry(best: 95)).completed, isTrue);
+      expect(def.target, 10);
+      expect(
+        def.evaluator([_session(rubricTotal: 9)], null).completed,
+        isFalse,
+      );
+      expect(def.evaluator([_session(rubricTotal: 9)], null).current, 9);
+      expect(
+        def.evaluator([_session(rubricTotal: 10)], null).completed,
+        isTrue,
+      );
+      expect(def.evaluator([_session(rubricTotal: 12)], null).current, 10);
     });
 
-    test('perfect_serve requires score of 100', () {
+    test('perfect_serve requires a perfect rubric total of 12', () {
       final def = achievementById('perfect_serve')!;
-      expect(def.evaluator([_session(score: 99)], null).completed, isFalse);
-      expect(def.evaluator([_session(score: 100)], null).completed, isTrue);
+      expect(def.target, 12);
+      expect(
+        def.evaluator([_session(rubricTotal: 11)], null).completed,
+        isFalse,
+      );
+      expect(
+        def.evaluator([_session(rubricTotal: 12)], null).completed,
+        isTrue,
+      );
+    });
+
+    test('rubric achievements ignore legacy percentage sessions', () {
+      for (final id in ['sharp_pour', 'perfect_serve']) {
+        final def = achievementById(id)!;
+        final progress = def.evaluator([_legacySession(score: 100)], null);
+        expect(progress.current, 0, reason: id);
+        expect(progress.completed, isFalse, reason: id);
+      }
+    });
+
+    test('rubric achievements ignore the frozen leaderboard best score', () {
+      for (final id in ['sharp_pour', 'perfect_serve']) {
+        final def = achievementById(id)!;
+        final progress = def.evaluator(const [], _entry(best: 100));
+        expect(progress.current, 0, reason: id);
+        expect(progress.completed, isFalse, reason: id);
+      }
     });
 
     test('movement_explorer counts distinct normalized movement names', () {

@@ -141,7 +141,8 @@ void main() {
               practicedCount: 3,
               totalMovements: 9,
               totalSessions: 6,
-              overallAverage: 84,
+              rubricSessionCount: 6,
+              overallAverageRubric: 10.5,
             ),
           ),
         ),
@@ -156,7 +157,8 @@ void main() {
       );
       expect(find.text('3 of 9'), findsOneWidget);
       expect(find.text('6'), findsWidgets);
-      expect(find.text('84%'), findsOneWidget);
+      expect(find.text('Overall rubric average'), findsOneWidget);
+      expect(find.text('10.5 / 12'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
     });
 
@@ -168,13 +170,14 @@ void main() {
               practicedCount: 0,
               totalMovements: 9,
               totalSessions: 0,
-              overallAverage: null,
+              rubricSessionCount: 0,
+              overallAverageRubric: null,
             ),
           ),
         ),
       );
 
-      expect(find.text('No score yet'), findsOneWidget);
+      expect(find.text('No rubric result yet'), findsOneWidget);
       expect(find.text('0'), findsWidgets);
     });
   });
@@ -188,7 +191,7 @@ void main() {
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 0,
-              avgScore: 0,
+              averageRubricTotal: null,
             ),
           ),
         ),
@@ -199,10 +202,10 @@ void main() {
       expect(find.text('Start practice'), findsOneWidget);
       expect(find.text('Hands tracking'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
-      expect(find.textContaining('Average score'), findsNothing);
+      expect(find.textContaining('Average rubric'), findsNothing);
     });
 
-    testWidgets('shows average score and practice-again for practiced', (
+    testWidgets('shows average rubric and practice-again for practiced', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -212,7 +215,7 @@ void main() {
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 2,
-              avgScore: 84.4,
+              averageRubricTotal: 8.4,
             ),
           ),
         ),
@@ -220,9 +223,30 @@ void main() {
 
       expect(find.text('Practiced'), findsOneWidget);
       expect(find.text('2 sessions'), findsOneWidget);
-      expect(find.text('Average score 84%'), findsOneWidget);
+      expect(find.text('Average rubric 8 / 12'), findsOneWidget);
+      expect(find.textContaining('%'), findsNothing);
       expect(find.text('Practice again'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
+    });
+
+    testWidgets('legacy-only movement shows no rubric result', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 3,
+              averageRubricTotal: null,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Practiced'), findsOneWidget);
+      expect(find.text('3 sessions'), findsOneWidget);
+      expect(find.text('No rubric result yet'), findsOneWidget);
+      expect(find.textContaining('Average rubric'), findsNothing);
     });
 
     testWidgets('wide desktop layout does not overflow', (tester) async {
@@ -234,7 +258,7 @@ void main() {
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 2,
-              avgScore: 100,
+              averageRubricTotal: 12,
             ),
           ),
         ),
@@ -253,7 +277,7 @@ void main() {
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 2,
-              avgScore: 100,
+              averageRubricTotal: 12,
             ),
           ),
         ),
@@ -273,7 +297,7 @@ void main() {
             child: MovementCard(
               movement: disabledMovement,
               sessionCount: 0,
-              avgScore: 0,
+              averageRubricTotal: null,
             ),
           ),
         ),
@@ -295,7 +319,7 @@ void main() {
             child: MovementCard(
               movement: mediumMovement,
               sessionCount: 0,
-              avgScore: 0,
+              averageRubricTotal: null,
             ),
           ),
         ),
@@ -325,7 +349,7 @@ void main() {
             child: MovementCard(
               movement: mediumMovement,
               sessionCount: 0,
-              avgScore: 0,
+              averageRubricTotal: null,
             ),
           ),
         ),
@@ -367,7 +391,7 @@ void main() {
             child: MovementCard(
               movement: mediumMovement,
               sessionCount: 1,
-              avgScore: 70,
+              averageRubricTotal: 8,
             ),
           ),
         ),
@@ -401,7 +425,7 @@ void main() {
             child: MovementCard(
               movement: bottleInATinMovement,
               sessionCount: 0,
-              avgScore: 0,
+              averageRubricTotal: null,
             ),
           ),
         ),
@@ -426,7 +450,7 @@ void main() {
             child: MovementCard(
               movement: bottleInATinMovement,
               sessionCount: 1,
-              avgScore: 90,
+              averageRubricTotal: 11,
             ),
           ),
         ),
@@ -459,7 +483,7 @@ void main() {
                 child: MovementCard(
                   movement: easyMovement,
                   sessionCount: 0,
-                  avgScore: 0,
+                  averageRubricTotal: null,
                 ),
               ),
               SizedBox(
@@ -467,7 +491,7 @@ void main() {
                 child: MovementCard(
                   movement: hardMovement,
                   sessionCount: 2,
-                  avgScore: 88,
+                  averageRubricTotal: 10,
                 ),
               ),
             ],
@@ -493,7 +517,7 @@ void main() {
             child: MovementCard(
               movement: mediumMovement,
               sessionCount: 2,
-              avgScore: 80,
+              averageRubricTotal: 9,
             ),
           ),
         ),
@@ -521,7 +545,13 @@ void main() {
                 thirdEasyMovement,
                 fourthEasyMovement,
               ],
-              stats: {'Normal Grip': (count: 1, avgScore: 70)},
+              stats: {
+                'Normal Grip': (
+                  count: 1,
+                  rubricSessionCount: 1,
+                  averageRubricTotal: 8,
+                ),
+              },
             ),
           ),
         ),
@@ -585,8 +615,16 @@ void main() {
             difficulty: 'Medium',
             movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
             stats: {
-              'Normal Grip': (count: 2, avgScore: 80),
-              "Bartender's Grip": (count: 1, avgScore: 70),
+              'Normal Grip': (
+                count: 2,
+                rubricSessionCount: 2,
+                averageRubricTotal: 9,
+              ),
+              "Bartender's Grip": (
+                count: 1,
+                rubricSessionCount: 1,
+                averageRubricTotal: 8,
+              ),
             },
           ),
         ),
@@ -609,7 +647,8 @@ void main() {
                   practicedCount: 1,
                   totalMovements: 9,
                   totalSessions: 2,
-                  overallAverage: 75,
+                  rubricSessionCount: 2,
+                  overallAverageRubric: 9,
                 ),
               ),
               SizedBox(
@@ -617,7 +656,7 @@ void main() {
                 child: MovementCard(
                   movement: easyMovement,
                   sessionCount: 2,
-                  avgScore: 75,
+                  averageRubricTotal: 9,
                 ),
               ),
             ],
@@ -625,8 +664,8 @@ void main() {
         ),
       );
 
-      expect(find.text('75%'), findsOneWidget);
-      expect(find.text('Average score 75%'), findsOneWidget);
+      expect(find.text('9.0 / 12'), findsOneWidget);
+      expect(find.text('Average rubric 9 / 12'), findsOneWidget);
     });
 
     testWidgets('header and cards render in dark theme', (tester) async {
@@ -640,7 +679,8 @@ void main() {
                   practicedCount: 1,
                   totalMovements: 9,
                   totalSessions: 2,
-                  overallAverage: 75,
+                  rubricSessionCount: 2,
+                  overallAverageRubric: 9,
                 ),
               ),
               SizedBox(
@@ -648,7 +688,7 @@ void main() {
                 child: MovementCard(
                   movement: easyMovement,
                   sessionCount: 2,
-                  avgScore: 75,
+                  averageRubricTotal: 9,
                 ),
               ),
             ],
@@ -656,8 +696,8 @@ void main() {
         ),
       );
 
-      expect(find.text('75%'), findsOneWidget);
-      expect(find.text('Average score 75%'), findsOneWidget);
+      expect(find.text('9.0 / 12'), findsOneWidget);
+      expect(find.text('Average rubric 9 / 12'), findsOneWidget);
     });
   });
 }

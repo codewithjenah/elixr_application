@@ -224,8 +224,17 @@ service cloud.firestore {
         && (oldList.size() < 10 || oldList[9] in newList);
     }
 
-    function markerKeys() {
+    function markerKeysV1() {
       return ['session_id', 'user_id', 'score', 'xp_awarded', 'processed_at'];
+    }
+
+    function markerKeysV2() {
+      return ['session_id', 'user_id', 'rubric_total', 'xp_awarded', 'processed_at'];
+    }
+
+    // Legacy alias — V1-only callers; prefer markerKeysV1/V2.
+    function markerKeys() {
+      return markerKeysV1();
     }
 
     function boardKeys() {
@@ -246,6 +255,61 @@ service cloud.firestore {
         && value >= 0
         && value <= 100
         && value == int(value);
+    }
+
+    function isRubricCriterion(value) {
+      return value is int && value >= 0 && value <= 3;
+    }
+
+    function isRubricTotal(value) {
+      return value is int && value >= 0 && value <= 12;
+    }
+
+    // Authoritative thresholds: 0–3 / 4–6 / 7–9 / 10–11 / 12.
+    function performanceLevelFor(total) {
+      return total <= 3 ? 'beginning'
+        : total <= 6 ? 'developing'
+        : total <= 9 ? 'competent'
+        : total <= 11 ? 'proficient'
+        : 'mastered';
+    }
+
+    function validRubricMap(rubric) {
+      return rubric.keys().hasOnly([
+          'technique', 'stability', 'completion', 'prop_positioning'
+        ])
+        && rubric.keys().hasAll([
+          'technique', 'stability', 'completion', 'prop_positioning'
+        ])
+        && isRubricCriterion(rubric.technique)
+        && isRubricCriterion(rubric.stability)
+        && isRubricCriterion(rubric.completion)
+        && isRubricCriterion(rubric.prop_positioning);
+    }
+
+    function validRubricSession(data) {
+      return data.assessment_version == 2
+        && data.keys().hasAll([
+          'user_id',
+          'movement_name',
+          'difficulty',
+          'duration_seconds',
+          'prop_type',
+          'created_at',
+          'assessment_version',
+          'rubric',
+          'rubric_total',
+          'performance_level'
+        ])
+        && !data.keys().hasAny(['score'])
+        && validRubricMap(data.rubric)
+        && isRubricTotal(data.rubric_total)
+        && data.rubric_total
+          == data.rubric.technique
+            + data.rubric.stability
+            + data.rubric.completion
+            + data.rubric.prop_positioning
+        && data.performance_level == performanceLevelFor(data.rubric_total);
     }
 
     function isNonNegNumber(value) {
@@ -454,14 +518,31 @@ service cloud.firestore {
       return get(sessionPath(sessionId)).data;
     }
 
-    function markerMatchesSession(sessionId, score) {
+    function markerMatchesLegacySession(sessionId, score) {
       let marker = getAfter(markerPath(sessionId));
       return !exists(markerPath(sessionId))
         && existsAfter(markerPath(sessionId))
+        && marker.data.keys().hasOnly(markerKeysV1())
         && marker.data.user_id == request.auth.uid
         && marker.data.session_id == sessionId
         && marker.data.score == score
         && marker.data.xp_awarded == 25;
+    }
+
+    function markerMatchesRubricSession(sessionId, rubricTotal) {
+      let marker = getAfter(markerPath(sessionId));
+      return !exists(markerPath(sessionId))
+        && existsAfter(markerPath(sessionId))
+        && marker.data.keys().hasOnly(markerKeysV2())
+        && marker.data.user_id == request.auth.uid
+        && marker.data.session_id == sessionId
+        && marker.data.rubric_total == rubricTotal
+        && marker.data.xp_awarded == 25;
+    }
+
+    // Backward-compatible alias used by V1 award paths.
+    function markerMatchesSession(sessionId, score) {
+      return markerMatchesLegacySession(sessionId, score);
     }
 
     function awardSessionId() {
@@ -638,24 +719,138 @@ service cloud.firestore {
       ]);
     }
 
+    function scoreAggregatesUnchanged() {
+      return request.resource.data.score_sum == resource.data.score_sum
+        && request.resource.data.average_score == resource.data.average_score
+        && request.resource.data.best_score == resource.data.best_score;
+    }
+
+    function dailyScoreAggregatesUnchanged() {
+      return request.resource.data.daily_score_sum == resource.data.daily_score_sum
+        && request.resource.data.daily_average_score
+          == resource.data.daily_average_score
+        && request.resource.data.daily_best_score == resource.data.daily_best_score;
+    }
+
+    function monthlyScoreAggregatesUnchanged() {
+      return request.resource.data.monthly_score_sum
+          == resource.data.monthly_score_sum
+        && request.resource.data.monthly_average_score
+          == resource.data.monthly_average_score
+        && request.resource.data.monthly_best_score
+          == resource.data.monthly_best_score;
+    }
+
+    function dailyRubricSessionAggregateReset(createdAt) {
+      return request.resource.data.daily_key == manilaDayKey(createdAt)
+        && request.resource.data.daily_xp == 25
+        && request.resource.data.daily_sessions_completed == 1
+        && request.resource.data.daily_score_sum == 0
+        && request.resource.data.daily_average_score == 0
+        && request.resource.data.daily_best_score == 0;
+    }
+
+    function monthlyRubricSessionAggregateReset(createdAt) {
+      return request.resource.data.monthly_key == manilaMonthKey(createdAt)
+        && request.resource.data.monthly_xp == 25
+        && request.resource.data.monthly_sessions_completed == 1
+        && request.resource.data.monthly_score_sum == 0
+        && request.resource.data.monthly_average_score == 0
+        && request.resource.data.monthly_best_score == 0;
+    }
+
+    function dailyRubricSessionAggregateAccumulates() {
+      return request.resource.data.daily_key == resource.data.daily_key
+        && request.resource.data.daily_xp == resource.data.daily_xp + 25
+        && request.resource.data.daily_sessions_completed
+          == resource.data.daily_sessions_completed + 1
+        && dailyScoreAggregatesUnchanged();
+    }
+
+    function monthlyRubricSessionAggregateAccumulates() {
+      return request.resource.data.monthly_key == resource.data.monthly_key
+        && request.resource.data.monthly_xp == resource.data.monthly_xp + 25
+        && request.resource.data.monthly_sessions_completed
+          == resource.data.monthly_sessions_completed + 1
+        && monthlyScoreAggregatesUnchanged();
+    }
+
+    function validDailyRubricSessionAggregateTransition(createdAt) {
+      let eventKey = manilaDayKey(createdAt);
+      return (
+          eventKey > resource.data.daily_key
+          && dailyRubricSessionAggregateReset(createdAt)
+        )
+        || (
+          eventKey == resource.data.daily_key
+          && dailyRubricSessionAggregateAccumulates()
+        )
+        || (eventKey < resource.data.daily_key && dailyPeriodUnchanged());
+    }
+
+    function validMonthlyRubricSessionAggregateTransition(createdAt) {
+      let eventKey = manilaMonthKey(createdAt);
+      return (
+          eventKey > resource.data.monthly_key
+          && monthlyRubricSessionAggregateReset(createdAt)
+        )
+        || (
+          eventKey == resource.data.monthly_key
+          && monthlyRubricSessionAggregateAccumulates()
+        )
+        || (eventKey < resource.data.monthly_key && monthlyPeriodUnchanged());
+    }
+
+    function validRubricSessionPeriodCreate(createdAt) {
+      return dailyRubricSessionAggregateReset(createdAt)
+        && monthlyRubricSessionAggregateReset(createdAt);
+    }
+
+    function validRubricSessionPeriodUpdate(createdAt) {
+      let initialized = resource.data.keys().hasAny(['daily_key']);
+      return (
+          !initialized
+          && dailyRubricSessionAggregateReset(createdAt)
+          && monthlyRubricSessionAggregateReset(createdAt)
+        )
+        || (
+          initialized
+          && validDailyRubricSessionAggregateTransition(createdAt)
+          && validMonthlyRubricSessionAggregateTransition(createdAt)
+        );
+    }
+
     function validSessionAwardCreate() {
       let sessionId = awardSessionId();
       let session = get(sessionPath(sessionId));
-      let score = session.data.score;
       let createdAt = session.data.created_at;
       return session != null
         && session.data.user_id == request.auth.uid
-        && isScore(score)
         && validAwardSessionTimestamp(createdAt)
         && request.resource.data.sessions_completed == 1
         && questXpOf(request.resource.data) == 0
         && request.resource.data.total_xp == 25
-        && request.resource.data.score_sum == score
-        && request.resource.data.average_score == score
-        && request.resource.data.best_score == score
         && equippedBorderOf(request.resource.data) == ''
-        && validSessionPeriodCreate(score, createdAt)
-        && markerMatchesSession(sessionId, score);
+        && (
+          (
+            session.data.get('assessment_version', 1) == 2
+            && isRubricTotal(session.data.rubric_total)
+            && request.resource.data.score_sum == 0
+            && request.resource.data.average_score == 0
+            && request.resource.data.best_score == 0
+            && validRubricSessionPeriodCreate(createdAt)
+            && markerMatchesRubricSession(sessionId, session.data.rubric_total)
+          )
+          || (
+            session.data.get('assessment_version', 1) != 2
+            && isScore(session.data.score)
+            && request.resource.data.score_sum == session.data.score
+            && request.resource.data.average_score == session.data.score
+            && request.resource.data.best_score == session.data.score
+            && validSessionPeriodCreate(session.data.score, createdAt)
+            && markerMatchesLegacySession(sessionId, session.data.score)
+          )
+        );
     }
 
     function aggregatesUnchanged() {
@@ -675,42 +870,66 @@ service cloud.firestore {
     function validSessionAwardUpdate() {
       let sessionId = awardSessionId();
       let session = get(sessionPath(sessionId));
-      let score = session.data.score;
       let createdAt = session.data.created_at;
       let initializedPeriod = resource.data.keys().hasAny(['daily_key']);
       let fullyOlderPeriod = initializedPeriod
         && manilaMonthKey(createdAt) < resource.data.monthly_key;
+      let isRubric = session.data.get('assessment_version', 1) == 2;
       return request.resource.data.user_id == request.auth.uid
         && request.resource.data.user_id == resource.data.user_id
         && request.resource.data.updated_at is timestamp
         && validLeaderboardPublicMetadata(request.resource.data)
-        && request.resource.data.sessions_completed == resource.data.sessions_completed + 1
+        && request.resource.data.sessions_completed
+          == resource.data.sessions_completed + 1
         && request.resource.data.total_xp == resource.data.total_xp + 25
-        && request.resource.data.score_sum == resource.data.score_sum + score
-        && averageMatches(
-          request.resource.data.average_score,
-          request.resource.data.sessions_completed,
-          request.resource.data.score_sum
-        )
-        && request.resource.data.best_score
-          == (
-            resource.data.best_score >= score
-              ? resource.data.best_score
-              : score
-          )
-        && request.resource.data.last_awarded_session_id != resource.data.last_awarded_session_id
+        && request.resource.data.last_awarded_session_id
+          != resource.data.last_awarded_session_id
         && session.data.user_id == request.auth.uid
-        && isScore(score)
         && validAwardSessionTimestamp(createdAt)
         && (
-          fullyOlderPeriod
-            ? validOlderSessionAwardChanges()
-            : (
-              validCurrentSessionAwardChanges()
-              && validSessionPeriodUpdate(score, createdAt)
+          isRubric
+            ? (
+              isRubricTotal(session.data.rubric_total)
+              && scoreAggregatesUnchanged()
+              && (
+                fullyOlderPeriod
+                  ? validOlderSessionAwardChanges()
+                  : (
+                    validCurrentSessionAwardChanges()
+                    && validRubricSessionPeriodUpdate(createdAt)
+                  )
+              )
+              && markerMatchesRubricSession(
+                sessionId,
+                session.data.rubric_total
+              )
             )
-        )
-        && markerMatchesSession(sessionId, score);
+            : (
+              isScore(session.data.score)
+              && request.resource.data.score_sum
+                == resource.data.score_sum + session.data.score
+              && averageMatches(
+                request.resource.data.average_score,
+                request.resource.data.sessions_completed,
+                request.resource.data.score_sum
+              )
+              && request.resource.data.best_score
+                == (
+                  resource.data.best_score >= session.data.score
+                    ? resource.data.best_score
+                    : session.data.score
+                )
+              && (
+                fullyOlderPeriod
+                  ? validOlderSessionAwardChanges()
+                  : (
+                    validCurrentSessionAwardChanges()
+                    && validSessionPeriodUpdate(session.data.score, createdAt)
+                  )
+              )
+              && markerMatchesLegacySession(sessionId, session.data.score)
+            )
+        );
     }
 
     function validPublicProfileMetadataUpdate() {
@@ -912,20 +1131,39 @@ service cloud.firestore {
 
     match /sessions/{sessionId} {
       allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      // created_at is the authoritative event timestamp used by period
-      // leaderboard attribution. Requiring the server transform on create and
-      // preserving it (plus ownership/score) on update prevents a modified
-      // client from moving an award between Manila periods after the fact.
+      // Assessment V2 sessions write rubric fields and omit `score`.
+      // Legacy V1 documents remain readable; new creates require V2.
       allow create: if isSignedIn()
         && request.resource.data.user_id == request.auth.uid
-        && isScore(request.resource.data.score)
+        && validRubricSession(request.resource.data)
         && request.resource.data.created_at is timestamp
         && request.resource.data.created_at == request.time;
       allow update: if isSignedIn()
         && resource.data.user_id == request.auth.uid
         && request.resource.data.user_id == resource.data.user_id
-        && request.resource.data.score == resource.data.score
-        && request.resource.data.created_at == resource.data.created_at;
+        && request.resource.data.created_at == resource.data.created_at
+        && (
+          (
+            resource.data.keys().hasAny(['score'])
+            && request.resource.data.score == resource.data.score
+          )
+          || (
+            resource.data.get('assessment_version', 1) == 2
+            && request.resource.data.assessment_version
+              == resource.data.assessment_version
+            && request.resource.data.rubric_total == resource.data.rubric_total
+            && request.resource.data.performance_level
+              == resource.data.performance_level
+            && request.resource.data.rubric.technique
+              == resource.data.rubric.technique
+            && request.resource.data.rubric.stability
+              == resource.data.rubric.stability
+            && request.resource.data.rubric.completion
+              == resource.data.rubric.completion
+            && request.resource.data.rubric.prop_positioning
+              == resource.data.rubric.prop_positioning
+          )
+        );
       allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
@@ -996,14 +1234,26 @@ service cloud.firestore {
         && resource.data.user_id == request.auth.uid;
 
       allow create: if isSignedIn()
-        && request.resource.data.keys().hasOnly(markerKeys())
         && request.resource.data.user_id == request.auth.uid
         && request.resource.data.session_id == sessionId
         && request.resource.data.xp_awarded == 25
-        && isScore(request.resource.data.score)
         && exists(sessionPath(sessionId))
         && sourceSession(sessionId).user_id == request.auth.uid
-        && request.resource.data.score == sourceSession(sessionId).score;
+        && (
+          (
+            request.resource.data.keys().hasOnly(markerKeysV1())
+            && isScore(request.resource.data.score)
+            && sourceSession(sessionId).get('assessment_version', 1) != 2
+            && request.resource.data.score == sourceSession(sessionId).score
+          )
+          || (
+            request.resource.data.keys().hasOnly(markerKeysV2())
+            && isRubricTotal(request.resource.data.rubric_total)
+            && sourceSession(sessionId).get('assessment_version', 1) == 2
+            && request.resource.data.rubric_total
+              == sourceSession(sessionId).rubric_total
+          )
+        );
 
       allow update: if false;
       // Self-erasure only (RA 10173 account deletion).
@@ -1235,7 +1485,40 @@ service cloud.firestore {
         'score',
         'duration_seconds',
         'prop_type',
+        'created_at',
+        'assessment_version',
+        'rubric',
+        'rubric_total',
+        'performance_level'
+      ];
+    }
+
+    function publicProfileSessionKeysV1() {
+      return [
+        'session_id',
+        'user_id',
+        'movement_name',
+        'difficulty',
+        'score',
+        'duration_seconds',
+        'prop_type',
         'created_at'
+      ];
+    }
+
+    function publicProfileSessionKeysV2() {
+      return [
+        'session_id',
+        'user_id',
+        'movement_name',
+        'difficulty',
+        'duration_seconds',
+        'prop_type',
+        'created_at',
+        'assessment_version',
+        'rubric',
+        'rubric_total',
+        'performance_level'
       ];
     }
 
@@ -1289,16 +1572,24 @@ service cloud.firestore {
     }
 
     function validPublicProfileSession(data, userId, sessionId) {
-      return data.keys().hasOnly(publicProfileSessionKeys())
-        && data.session_id == sessionId
+      return data.session_id == sessionId
         && data.user_id == userId
         && data.movement_name is string
         && data.difficulty is string
-        && isScore(data.score)
         && isNonNegInt(data.duration_seconds)
         && data.prop_type is string
         && exists(sessionPath(sessionId))
-        && get(sessionPath(sessionId)).data.user_id == userId;
+        && get(sessionPath(sessionId)).data.user_id == userId
+        && (
+          (
+            data.keys().hasOnly(publicProfileSessionKeysV1())
+            && isScore(data.score)
+          )
+          || (
+            data.keys().hasOnly(publicProfileSessionKeysV2())
+            && validRubricSession(data)
+          )
+        );
     }
 
     function validPublicProfileAchievement(data, userId, achievementId) {

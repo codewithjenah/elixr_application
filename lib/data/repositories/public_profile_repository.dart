@@ -574,16 +574,26 @@ class PublicProfileRepository {
     }
 
     final userId = session.userId;
-    await _sessionRef(userId, sessionId).set({
+    final payload = <String, dynamic>{
       'session_id': sessionId,
       'user_id': userId,
       'movement_name': session.movementName,
       'difficulty': session.difficulty,
-      'score': session.score,
       'duration_seconds': session.durationSeconds,
       'prop_type': session.propType.protocolValue,
       'created_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+    if (session.isRubricAssessed && session.rubric != null) {
+      payload.addAll(session.rubric!.toFirestoreFields());
+    } else if (session.legacyScore != null) {
+      payload['score'] = session.legacyScore;
+      payload['assessment_version'] = 1;
+    } else {
+      throw ArgumentError(
+        'Session projection requires Assessment V2 rubric or legacy score',
+      );
+    }
+    await _sessionRef(userId, sessionId).set(payload, SetOptions(merge: true));
 
     await _updateSummaryAfterSession(userId: userId, session: session);
   }

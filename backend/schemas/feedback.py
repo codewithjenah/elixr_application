@@ -1,9 +1,87 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from schemas.commands import PROTOCOL_VERSION, PropType
 from schemas.readiness import ReadinessItem
+
+_CRITERION_KEYS = frozenset(
+    {"technique", "stability", "completion", "prop_positioning"}
+)
+_PERFORMANCE_LEVELS = frozenset(
+    {"beginning", "developing", "competent", "proficient", "mastered"}
+)
+
+
+class CriterionScorePayload(BaseModel):
+    score: int
+    reason_code: str
+    explanation: Optional[str] = None
+
+    @field_validator("score")
+    @classmethod
+    def _score_in_range(cls, value: int) -> int:
+        if value < 0 or value > 3:
+            raise ValueError("criterion score must be 0..3")
+        return value
+
+    @field_validator("reason_code")
+    @classmethod
+    def _reason_required(cls, value: str) -> str:
+        if not value:
+            raise ValueError("reason_code is required")
+        return value
+
+
+class AssessmentPayload(BaseModel):
+    version: Literal[2] = 2
+    criteria: dict[str, CriterionScorePayload]
+    total: int
+    performance_level: str
+
+    @field_validator("criteria")
+    @classmethod
+    def _criteria_keys(cls, value: dict[str, CriterionScorePayload]):
+        if set(value.keys()) != _CRITERION_KEYS:
+            raise ValueError(
+                "criteria must contain technique, stability, completion, "
+                "and prop_positioning"
+            )
+        return value
+
+    @field_validator("performance_level")
+    @classmethod
+    def _level_known(cls, value: str) -> str:
+        if value not in _PERFORMANCE_LEVELS:
+            raise ValueError(f"unknown performance_level: {value}")
+        return value
+
+    @model_validator(mode="after")
+    def _total_matches_criteria(self) -> "AssessmentPayload":
+        expected = sum(c.score for c in self.criteria.values())
+        if self.total != expected:
+            raise ValueError(
+                f"total {self.total} does not equal criteria sum {expected}"
+            )
+        if self.total < 0 or self.total > 12:
+            raise ValueError("total must be 0..12")
+        # Derive expected level from total (same thresholds as rubric.py).
+        if self.total <= 3:
+            expected_level = "beginning"
+        elif self.total <= 6:
+            expected_level = "developing"
+        elif self.total <= 9:
+            expected_level = "competent"
+        elif self.total <= 11:
+            expected_level = "proficient"
+        else:
+            expected_level = "mastered"
+        if self.performance_level != expected_level:
+            raise ValueError(
+                f"performance_level {self.performance_level!r} does not match "
+                f"total {self.total} (expected {expected_level!r})"
+            )
+        return self
 
 
 class FeedbackMessage(BaseModel):
@@ -11,7 +89,6 @@ class FeedbackMessage(BaseModel):
     bottle_count: int = 0
     prop_type: Optional[PropType] = None
     movement: str
-    score: int
     feedback: str
     feedback_type: str
     posture_status: str
@@ -30,6 +107,8 @@ class FeedbackMessage(BaseModel):
     # Optional coaching identity (category is registry-derived on the producer).
     feedback_code: Optional[str] = None
     feedback_category: Optional[str] = None
+    # Assessment V2 rubric payload (active scored sessions only).
+    assessment: Optional[AssessmentPayload] = None
     # Protocol v1 envelope (optional for legacy compatibility).
     protocol_version: Optional[Literal[1]] = None
     message_type: Optional[Literal["feedback"]] = None

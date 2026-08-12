@@ -1,6 +1,7 @@
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/movement.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_hero.dart';
 import 'package:elixr_application/features/dashboard/widgets/recommended_practice_card.dart';
@@ -16,16 +17,31 @@ TrainingRecommendation _recommendationFor(List<Session> sessions) {
   );
 }
 
+/// Assessment V2 fixture; distributes a 0..12 total across the four criteria.
 Session _session({
   required String movementName,
-  int score = 70,
+  int rubricTotal = 8,
   String? createdAt,
 }) {
+  final scores = <int>[0, 0, 0, 0];
+  var remaining = rubricTotal.clamp(0, 12);
+  for (var i = 0; i < scores.length && remaining > 0; i++) {
+    final value = remaining >= 3 ? 3 : remaining;
+    scores[i] = value;
+    remaining -= value;
+  }
+
   return Session(
     userId: 'user-1',
     movementName: movementName,
     difficulty: 'Easy',
-    score: score,
+    rubric: RubricAssessment(
+      technique: scores[0],
+      stability: scores[1],
+      completion: scores[2],
+      propPositioning: scores[3],
+    ),
+    assessmentVersion: 2,
     durationSeconds: 60,
     createdAt: createdAt,
   );
@@ -91,7 +107,7 @@ void main() {
       expect(find.text('Practice this'), findsOneWidget);
     });
 
-    testWidgets('recommended practiced movement shows recent average', (
+    testWidgets('recommended practiced movement shows recent rubric average', (
       tester,
     ) async {
       await _setSurface(tester, const Size(900, 600));
@@ -116,12 +132,12 @@ void main() {
           for (var i = 1; i <= 3; i++)
             _session(
               movementName: 'Mastered A',
-              score: 90,
+              rubricTotal: 11,
               createdAt: DateTime(2026, 1, i).toUtc().toIso8601String(),
             ),
           _session(
             movementName: 'Weak Move',
-            score: 64,
+            rubricTotal: 6,
             createdAt: DateTime(2026, 2, 1).toUtc().toIso8601String(),
           ),
         ],
@@ -142,7 +158,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Weak Move'), findsOneWidget);
-      expect(find.textContaining('Recent: 64'), findsOneWidget);
+      expect(find.textContaining('Recent: 6 / 12'), findsOneWidget);
     });
 
     testWidgets('Practice this navigates with encoded query parameters', (

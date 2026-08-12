@@ -8,8 +8,8 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 
 - Email/password authentication with Firebase Authentication.
 - User profiles, completed sessions, and feedback history stored in Cloud Firestore.
-- Guided practice with a pre-practice readiness check, countdown, live annotated video, movement feedback, score, combo tracking, hold confirmation, music, and an optional session save flow.
-- Free-practice camera mode with live detection overlays and no score or saved session.
+- Guided practice with a pre-practice readiness check, countdown, live annotated video, movement feedback, Assessment V2 rubric, combo tracking, hold confirmation, music, and an optional session save flow.
+- Free-practice camera mode with live detection overlays and no rubric assessment or saved session.
 - Dashboard, session history, and progress statistics derived from Firestore data.
 - Global leaderboard with XP awards for completed sessions, live top-player rankings, and paginated player lists.
 - Local computer vision for twelve movements:
@@ -41,7 +41,7 @@ FastAPI backend
   │  bottle and shaker classes)
   ├─ MediaPipe Hands and Pose landmarks
   ├─ Movement-specific rule engine
-  ├─ Rolling session score
+  ├─ Rubric assessment (Assessment V2)
   └─ Annotated JPEG frames returned as base64
 ```
 
@@ -70,7 +70,7 @@ Camera labels shown in Settings come from backend discovery metadata (`display_n
 │  ├─ assessment/
 │  │  ├─ rules/             # One movement evaluator per module
 │  │  ├─ rule_engine.py     # Movement registry and dispatch
-│  │  └─ scoring.py         # Bounded rolling score
+│  │  └─ scoring.py         # RubricTracker (Assessment V2)
 │  ├─ models/               # YOLO prop and bundled MediaPipe model assets
 │  ├─ schemas/              # Pydantic WebSocket payloads
 │  ├─ tests/                # Pytest rule-engine, camera, and session-lifecycle tests
@@ -307,10 +307,13 @@ Firestore uses nine top-level collections:
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 
-Current session persistence stores the final score, duration, selected movement,
-difficulty, selected prop (`prop_type`, defaulting to `bottle` for old records),
-and deduplicated feedback messages. Camera frames are not written to Firestore
-by the current implementation.
+Current session persistence stores Assessment V2 rubric fields
+(`assessment_version`, `rubric`, `rubric_total`, `performance_level`), duration,
+selected movement, difficulty, selected prop (`prop_type`, defaulting to
+`bottle` for old records), and deduplicated feedback messages. Legacy sessions
+may still contain a percentage `score` (0–100) and are displayed as
+"Legacy Score" without inventing rubric criteria. Camera frames are not written
+to Firestore by the current implementation.
 
 ### Leaderboard
 
@@ -318,8 +321,8 @@ Each eligible completed session awards **25 XP** (`GamificationRules.xpPerSessio
 
 1. Read the source `sessions/{sessionId}` document and verify `user_id` matches the authenticated user.
 2. Check `leaderboard_processed_sessions/{sessionId}`; if a marker already exists, skip the award.
-3. Create the processed-session marker with `session_id`, `user_id`, `score`, `xp_awarded` (25), and `processed_at`.
-4. Merge aggregate fields into `leaderboard/{userId}`.
+3. Create the processed-session marker with `session_id`, `user_id`, `xp_awarded` (25), `processed_at`, and either legacy `score` or Assessment V2 `rubric_total`.
+4. Merge aggregate fields into `leaderboard/{userId}`. Assessment V2 awards advance XP and session counts while freezing the legacy percentage aggregates (`score_sum` / `average_score` / `best_score` and period mirrors).
 
 Leaderboard documents store `user_id`, `display_name`, `total_xp`, `sessions_completed`, `score_sum`, `average_score`, `best_score`, `last_session_at`, `updated_at`, `last_awarded_session_id`, (since the daily quest system) `quest_xp` and `last_claim_id`, and (since Phase 2 achievements) optional `equipped_border_id`. They may also contain the latest Asia/Manila daily aggregate (`daily_key`, `daily_xp`, `daily_sessions_completed`, `daily_score_sum`, `daily_average_score`, `daily_best_score`) and monthly aggregate (`monthly_key`, `monthly_xp`, `monthly_sessions_completed`, `monthly_score_sum`, `monthly_average_score`, `monthly_best_score`). Display-name-only updates do not change XP or score aggregates. Session awards and quest claims preserve `equipped_border_id`. **`total_xp == sessions_completed * 25 + quest_xp`**; legacy documents without optional quest, cosmetic, or period fields remain valid and require no schema migration for continued operation.
 
@@ -355,8 +358,8 @@ Initial catalog (`lib/data/models/achievement.dart` / `profile_border.dart`):
 | `getting_started`          | 10 sessions                           | `bronze_ember`   |
 | `flair_regular`            | 50 sessions                           | `violet_flow`    |
 | `century_club`             | 100 sessions                          | `gold_mastery`   |
-| `sharp_pour`               | session score ≥ 90                    | `cyan_orbit`     |
-| `perfect_serve`            | session score 100                     | `perfect_serve`  |
+| `sharp_pour`               | rubric total ≥ 10 (Proficient)        | `cyan_orbit`     |
+| `perfect_serve`            | rubric total == 12 (Mastered)         | `perfect_serve`  |
 | `movement_explorer`        | 5 distinct movements                  | `prismatic_arc`  |
 | `versatility_master`       | Easy + Medium + Hard                  | `triad_frame`    |
 | `week_warrior`             | 7 consecutive days                    | `week_warrior`   |
@@ -516,7 +519,7 @@ bottle_detected
 bottle_count
 prop_type
 movement
-score
+assessment
 feedback
 feedback_type
 posture_status

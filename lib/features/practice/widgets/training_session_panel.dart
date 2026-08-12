@@ -128,7 +128,12 @@ class TrainingSessionPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: expandVertically ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          if (expandVertically) Expanded(child: scrollable) else scrollable,
+          // Rubric metrics can exceed the available height, so the scroll area
+          // must never claim the space reserved for the pinned action area.
+          if (expandVertically)
+            Expanded(child: scrollable)
+          else
+            Flexible(child: scrollable),
           Container(
             decoration: BoxDecoration(
               border: Border(
@@ -273,18 +278,22 @@ class _SetupSurface extends StatelessWidget {
   }
 }
 
-/// Compact elapsed / score metric tiles for the session panel.
+/// Compact elapsed / rubric metric tiles for the session panel.
 class SessionMetricTiles extends StatelessWidget {
   const SessionMetricTiles({
     super.key,
     required this.elapsedDisplay,
-    required this.scoreChild,
+    required this.rubricChild,
     this.performanceBar,
+    this.rubricBreakdown,
   });
 
   final String elapsedDisplay;
-  final Widget scoreChild;
+  final Widget rubricChild;
   final Widget? performanceBar;
+
+  /// Per-criterion rubric breakdown shown below the performance bar.
+  final Widget? rubricBreakdown;
 
   @override
   Widget build(BuildContext context) {
@@ -315,10 +324,10 @@ class SessionMetricTiles extends StatelessWidget {
               child: _MetricTile(
                 key: const ValueKey('session-score-metric'),
                 icon: FluentIcons.trophy,
-                label: 'SCORE',
+                label: 'RUBRIC',
                 accent: AppColors.primary,
                 emphasized: true,
-                child: scoreChild,
+                child: rubricChild,
               ),
             ),
           ],
@@ -326,6 +335,10 @@ class SessionMetricTiles extends StatelessWidget {
         if (performanceBar != null) ...[
           const SizedBox(height: AppSpacing.md),
           performanceBar!,
+        ],
+        if (rubricBreakdown != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          rubricBreakdown!,
         ],
       ],
     );

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/practice_feedback_controller.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -10,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _headerKey = ValueKey<String>('rebuild-header');
 const _panelKey = ValueKey<String>('rebuild-panel');
-const _scoreKey = ValueKey<String>('rebuild-score');
+const _totalKey = ValueKey<String>('rebuild-rubric-total');
 const _holdKey = ValueKey<String>('rebuild-hold');
 const _comboKey = ValueKey<String>('rebuild-combo');
 const _bestComboKey = ValueKey<String>('rebuild-best-combo');
@@ -30,10 +31,27 @@ final _jpegB = Uint8List.fromList(
   ),
 );
 
+/// Spreads a 0..12 rubric total deterministically across the four criteria.
+RubricAssessment rubricWithTotal(int total) {
+  assert(total >= 0 && total <= 12);
+  final scores = <int>[0, 0, 0, 0];
+  var remaining = total;
+  for (var i = 0; i < scores.length && remaining > 0; i++) {
+    scores[i] = remaining >= 3 ? 3 : remaining;
+    remaining -= scores[i];
+  }
+  return RubricAssessment(
+    technique: scores[0],
+    stability: scores[1],
+    completion: scores[2],
+    propPositioning: scores[3],
+  );
+}
+
 PracticeFeedback _base({
   bool bottleDetected = true,
   String movement = 'Hand Stall',
-  int score = 70,
+  int? rubricTotal = 7,
   String feedback = 'Hold steady',
   String feedbackType = 'warning',
   String postureStatus = 'stable',
@@ -48,7 +66,7 @@ PracticeFeedback _base({
   return PracticeFeedback(
     bottleDetected: bottleDetected,
     movement: movement,
-    score: score,
+    assessment: rubricTotal == null ? null : rubricWithTotal(rubricTotal),
     feedback: feedback,
     feedbackType: feedbackType,
     postureStatus: postureStatus,
@@ -77,7 +95,7 @@ class _ScoredPracticeFeedbackHarnessState
     extends State<_ScoredPracticeFeedbackHarness> {
   final controller = PracticeFeedbackController();
   final frameBytes = ValueNotifier<Uint8List?>(null);
-  final scoreNotifier = ValueNotifier<int?>(null);
+  final totalNotifier = ValueNotifier<int?>(null);
   final holdNotifier = ValueNotifier<double>(0);
   final comboNotifier = ValueNotifier<ComboState>(const ComboState());
   final scorePopupNotifier = ValueNotifier<ScorePopupState>(
@@ -86,7 +104,7 @@ class _ScoredPracticeFeedbackHarnessState
 
   int headerBuilds = 0;
   int panelBuilds = 0;
-  int scoreBuilds = 0;
+  int totalBuilds = 0;
   int holdBuilds = 0;
   int comboBuilds = 0;
   int bestComboBuilds = 0;
@@ -102,7 +120,7 @@ class _ScoredPracticeFeedbackHarnessState
   @override
   void dispose() {
     frameBytes.dispose();
-    scoreNotifier.dispose();
+    totalNotifier.dispose();
     holdNotifier.dispose();
     comboNotifier.dispose();
     scorePopupNotifier.dispose();
@@ -115,7 +133,7 @@ class _ScoredPracticeFeedbackHarnessState
     }
 
     final result = controller.applyActiveFeedback(feedback);
-    scoreNotifier.value = feedback.score;
+    totalNotifier.value = feedback.assessment?.total;
     holdNotifier.value = feedback.holdProgress;
 
     if (result.comboChanged) {
@@ -158,10 +176,10 @@ class _ScoredPracticeFeedbackHarnessState
           },
         ),
         ValueListenableBuilder<int?>(
-          valueListenable: scoreNotifier,
-          builder: (context, score, _) {
-            scoreBuilds++;
-            return Text('score=$score', key: _scoreKey);
+          valueListenable: totalNotifier,
+          builder: (context, total, _) {
+            totalBuilds++;
+            return Text('total=$total', key: _totalKey);
           },
         ),
         ValueListenableBuilder<double>(
@@ -299,17 +317,17 @@ void main() {
     test('positive frames increment combo without chrome rebuild', () {
       final controller = PracticeFeedbackController();
       controller.applyActiveFeedback(
-        _base(feedbackType: 'positive', score: 70),
+        _base(feedbackType: 'positive', rubricTotal: 7),
       );
       final first = controller.applyActiveFeedback(
-        _base(feedbackType: 'positive', score: 70),
+        _base(feedbackType: 'positive', rubricTotal: 7),
       );
       expect(first.comboChanged, isTrue);
       expect(first.chromeChanged, isFalse);
       expect(controller.comboState.combo, 2);
 
       final second = controller.applyActiveFeedback(
-        _base(feedbackType: 'positive', score: 72),
+        _base(feedbackType: 'positive', rubricTotal: 9),
       );
       expect(second.comboChanged, isTrue);
       expect(second.chromeChanged, isFalse);
@@ -328,7 +346,7 @@ void main() {
       final assessment = controller.buildSessionAssessment(
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
-        finalScore: 80,
+        rubric: rubricWithTotal(8),
         heldSteady: false,
       );
       expect(assessment.totalApplicableSamples, 0);
@@ -351,7 +369,7 @@ void main() {
       final assessment = controller.buildSessionAssessment(
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
-        finalScore: 88,
+        rubric: rubricWithTotal(11),
         heldSteady: false,
       );
 
@@ -364,16 +382,24 @@ void main() {
   });
 
   group('PracticeFeedback rebuild equality', () {
-    test('freePracticeVisibleEquals ignores score and hold fields', () {
-      final a = _base(score: 10, holdProgress: 0.1, holdDurationMs: 50);
-      final b = _base(score: 99, holdProgress: 0.9, holdDurationMs: 900);
+    test('freePracticeVisibleEquals ignores rubric and hold fields', () {
+      final a = _base(rubricTotal: 1, holdProgress: 0.1, holdDurationMs: 50);
+      final b = _base(rubricTotal: 12, holdProgress: 0.9, holdDurationMs: 900);
       expect(a.freePracticeVisibleEquals(b), isTrue);
       expect(a.semanticEquals(b), isFalse);
     });
 
-    test('scoredPracticeChromeEquals ignores score and hold progress', () {
-      final a = _base(score: 10, holdProgress: 0.1, positiveFrameRatio: 0.5);
-      final b = _base(score: 80, holdProgress: 0.8, positiveFrameRatio: 0.99);
+    test('scoredPracticeChromeEquals ignores rubric and hold progress', () {
+      final a = _base(
+        rubricTotal: 1,
+        holdProgress: 0.1,
+        positiveFrameRatio: 0.5,
+      );
+      final b = _base(
+        rubricTotal: 11,
+        holdProgress: 0.8,
+        positiveFrameRatio: 0.99,
+      );
       expect(a.scoredPracticeChromeEquals(b), isTrue);
       expect(a.semanticEquals(b), isFalse);
     });
@@ -396,7 +422,9 @@ void main() {
       final state = tester.state<_FreePracticeFeedbackHarnessState>(
         find.byType(_FreePracticeFeedbackHarness),
       );
-      apply(_base(movement: 'Free Practice', score: 0, holdProgress: 0));
+      apply(
+        _base(movement: 'Free Practice', rubricTotal: null, holdProgress: 0),
+      );
       await tester.pump();
       final headersAfterFirst = state.headerBuilds;
       final panelsAfterFirst = state.panelBuilds;
@@ -404,7 +432,7 @@ void main() {
       apply(
         _base(
           movement: 'Free Practice',
-          score: 55,
+          rubricTotal: 6,
           holdProgress: 0.7,
           holdDurationMs: 1200,
           positiveFrameRatio: 0.4,
@@ -421,7 +449,7 @@ void main() {
         _base(
           movement: 'Free Practice',
           bottleDetected: false,
-          score: 55,
+          rubricTotal: 6,
           jpeg: _jpegA,
         ),
       );
@@ -432,7 +460,7 @@ void main() {
   });
 
   group('Scored Practice feedback handling path', () {
-    testWidgets('score and hold updates rebuild only scoped listeners', (
+    testWidgets('rubric and hold updates rebuild only scoped listeners', (
       tester,
     ) async {
       late void Function(PracticeFeedback) apply;
@@ -448,17 +476,17 @@ void main() {
       final state = tester.state<_ScoredPracticeFeedbackHarnessState>(
         find.byType(_ScoredPracticeFeedbackHarness),
       );
-      apply(_base(score: 70, holdProgress: 0.2));
+      apply(_base(rubricTotal: 7, holdProgress: 0.2));
       await tester.pump();
       final headersAfterFirst = state.headerBuilds;
       final panelsAfterFirst = state.panelBuilds;
-      final scoreAfterFirst = state.scoreBuilds;
+      final totalAfterFirst = state.totalBuilds;
       final holdAfterFirst = state.holdBuilds;
       final comboAfterFirst = state.comboBuilds;
 
       apply(
         _base(
-          score: 84,
+          rubricTotal: 11,
           holdProgress: 0.65,
           holdDurationMs: 800,
           positiveFrameRatio: 0.95,
@@ -470,12 +498,12 @@ void main() {
       expect(state.headerBuilds, headersAfterFirst);
       expect(state.panelBuilds, panelsAfterFirst);
       expect(state.comboBuilds, comboAfterFirst);
-      expect(state.scoreBuilds, greaterThan(scoreAfterFirst));
+      expect(state.totalBuilds, greaterThan(totalAfterFirst));
       expect(state.holdBuilds, greaterThan(holdAfterFirst));
-      expect(find.text('score=84'), findsOneWidget);
+      expect(find.text('total=11'), findsOneWidget);
       expect(find.text('hold=0.65'), findsOneWidget);
 
-      apply(_base(score: 84, holdProgress: 0.65, feedback: 'New tip'));
+      apply(_base(rubricTotal: 11, holdProgress: 0.65, feedback: 'New tip'));
       await tester.pump();
       expect(state.headerBuilds, greaterThan(headersAfterFirst));
       expect(find.textContaining('history=2'), findsOneWidget);
@@ -497,13 +525,13 @@ void main() {
       final state = tester.state<_ScoredPracticeFeedbackHarnessState>(
         find.byType(_ScoredPracticeFeedbackHarness),
       );
-      apply(_base(feedbackType: 'positive', score: 70));
+      apply(_base(feedbackType: 'positive', rubricTotal: 7));
       await tester.pump();
       final headersAfterFirst = state.headerBuilds;
       final panelsAfterFirst = state.panelBuilds;
       final comboAfterFirst = state.comboBuilds;
 
-      apply(_base(feedbackType: 'positive', score: 72));
+      apply(_base(feedbackType: 'positive', rubricTotal: 9));
       await tester.pump();
 
       expect(state.headerBuilds, headersAfterFirst);
@@ -525,15 +553,15 @@ void main() {
 
       apply(_base(feedback: 'Keep steady'));
       await tester.pump();
-      apply(_base(feedback: 'Keep steady', score: 71));
+      apply(_base(feedback: 'Keep steady', rubricTotal: 8));
       await tester.pump();
       expect(find.textContaining('history=1'), findsOneWidget);
 
-      apply(_base(feedback: 'Lower elbow', score: 72));
+      apply(_base(feedback: 'Lower elbow', rubricTotal: 9));
       await tester.pump();
       expect(find.textContaining('history=2'), findsOneWidget);
 
-      apply(_base(feedback: 'Lower elbow', score: 73));
+      apply(_base(feedback: 'Lower elbow', rubricTotal: 10));
       await tester.pump();
       expect(find.textContaining('history=2'), findsOneWidget);
     });
@@ -584,14 +612,14 @@ void main() {
       final state = tester.state<_ScoredPracticeFeedbackHarnessState>(
         find.byType(_ScoredPracticeFeedbackHarness),
       );
-      apply(_base(feedback: 'Issue A', score: 70));
+      apply(_base(feedback: 'Issue A', rubricTotal: 7));
       await tester.pump();
       final headersAfterFirst = state.headerBuilds;
       final panelsAfterFirst = state.panelBuilds;
 
-      apply(_base(feedback: 'Issue A', score: 71));
+      apply(_base(feedback: 'Issue A', rubricTotal: 8));
       await tester.pump();
-      apply(_base(feedback: 'Issue A', score: 72));
+      apply(_base(feedback: 'Issue A', rubricTotal: 9));
       await tester.pump();
 
       expect(state.headerBuilds, headersAfterFirst);
@@ -600,19 +628,19 @@ void main() {
       final assessment = state.controller.buildSessionAssessment(
         movement: 'Normal Grip',
         prop: TrainingProp.bottle,
-        finalScore: 72,
+        rubric: rubricWithTotal(9),
         heldSteady: false,
       );
       expect(assessment.totalApplicableSamples, 3);
     });
 
     test('hold target and duration changes do not trigger chrome rebuild', () {
-      final first = _base(holdProgress: 0.2, score: 70);
+      final first = _base(holdProgress: 0.2, rubricTotal: 7);
       final second = PracticeFeedback(
         bottleDetected: first.bottleDetected,
         bottleCount: first.bottleCount,
         movement: first.movement,
-        score: first.score,
+        assessment: first.assessment,
         feedback: first.feedback,
         feedbackType: first.feedbackType,
         postureStatus: first.postureStatus,
@@ -635,7 +663,7 @@ void main() {
         final baseline = PracticeFeedback(
           bottleDetected: true,
           movement: 'Normal Grip',
-          score: 70,
+          assessment: rubricWithTotal(7),
           feedback: 'Issue A',
           feedbackType: 'warning',
           postureStatus: 'unstable',
@@ -649,7 +677,7 @@ void main() {
           final frame = PracticeFeedback(
             bottleDetected: true,
             movement: 'Normal Grip',
-            score: 70 + i,
+            assessment: rubricWithTotal(7 + i),
             feedback: 'Issue A',
             feedbackType: 'warning',
             postureStatus: 'unstable',
@@ -663,7 +691,7 @@ void main() {
         final assessment = controller.buildSessionAssessment(
           movement: 'Normal Grip',
           prop: TrainingProp.bottle,
-          finalScore: 73,
+          rubric: rubricWithTotal(10),
           heldSteady: false,
         );
         expect(assessment.totalApplicableSamples, 4);

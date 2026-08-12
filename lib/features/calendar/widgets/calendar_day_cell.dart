@@ -57,7 +57,13 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
   Widget build(BuildContext context) {
     final summary = widget.summary;
     final count = summary?.sessionCount ?? 0;
-    final average = summary?.averageScore;
+    final average = summary?.preferredAverage;
+    // V2 days read as `X/12`; legacy-only days keep the bare percentage.
+    final averageLabel = average == null
+        ? null
+        : summary!.hasRubricData
+        ? '${average.toStringAsFixed(0)}/12'
+        : average.toStringAsFixed(0);
     final difficulties = summary?.difficulties ?? const <String>{};
 
     final borderColor = widget.isSelected
@@ -125,9 +131,9 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
                 ],
               ),
               const SizedBox(height: 4),
-              if (average != null)
+              if (averageLabel != null)
                 Text(
-                  average.toStringAsFixed(0),
+                  averageLabel,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,

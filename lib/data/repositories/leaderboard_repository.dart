@@ -6,6 +6,7 @@ import '../database/firestore_helper.dart';
 import '../models/leaderboard_award_plan.dart';
 import '../models/leaderboard_entry.dart';
 import '../models/leaderboard_period.dart';
+import '../models/rubric_assessment.dart';
 
 /// Opaque pagination cursor. UI stores and returns it; never unwraps it.
 abstract class LeaderboardPageCursor {
@@ -259,7 +260,11 @@ class LeaderboardRepository {
           );
         }
 
-        final score = _readScore(sessionData['score']);
+        final assessment = readSessionAssessment(
+          sessionData,
+          sessionId: sessionId,
+          userId: userId,
+        );
         final markerSnap = await tx.get(markerRef);
         final leaderboardSnap = await tx.get(leaderboardRef);
         if (markerSnap.exists) {
@@ -274,7 +279,7 @@ class LeaderboardRepository {
         final plan = LeaderboardAwardPlan.fromExisting(
           markerExists: false,
           existing: leaderboardSnap.data(),
-          score: score,
+          score: assessment.legacyScore,
           sessionCreatedAtUtc: sessionCreatedAtUtc,
         );
 
@@ -287,7 +292,7 @@ class LeaderboardRepository {
         tx.set(markerRef, {
           'session_id': sessionId,
           'user_id': userId,
-          'score': score,
+          ...assessment.markerScoreField,
           'xp_awarded': GamificationRules.xpPerSession,
           'processed_at': FieldValue.serverTimestamp(),
         });
@@ -627,10 +632,45 @@ class LeaderboardRepository {
     return false;
   }
 
-  static int _readScore(dynamic value) {
+  /// Resolves which assessment a stored session carries, so the award path can
+  /// choose between the legacy percentage aggregates (V1) and the frozen
+  /// aggregates plus `rubric_total` marker (V2).
+  ///
+  /// A session that declares `assessment_version: 2` must carry a rubric that
+  /// re-derives to its stored total; a malformed one is rejected rather than
+  /// silently falling back to a legacy `score`.
+  @visibleForTesting
+  static SessionAwardAssessment readSessionAssessment(
+    Map<String, dynamic> sessionData, {
+    String? sessionId,
+    String? userId,
+  }) {
+    final rawVersion = sessionData['assessment_version'];
+    final version = rawVersion is num ? rawVersion.toInt() : 1;
+    if (version == 2) {
+      final rubric = RubricAssessment.tryFromFirestore(sessionData);
+      if (rubric == null) {
+        throw LeaderboardAwardException(
+          'Session rubric is missing or invalid',
+          sessionId: sessionId,
+          userId: userId,
+        );
+      }
+      return SessionAwardAssessment.rubric(rubric.total);
+    }
+    return SessionAwardAssessment.legacy(
+      _readScore(sessionData['score'], sessionId: sessionId, userId: userId),
+    );
+  }
+
+  static int _readScore(dynamic value, {String? sessionId, String? userId}) {
     if (value is int) return value;
     if (value is num) return value.round();
-    throw LeaderboardAwardException('Session score is missing or invalid');
+    throw LeaderboardAwardException(
+      'Session score is missing or invalid',
+      sessionId: sessionId,
+      userId: userId,
+    );
   }
 
   static DateTime _readSessionCreatedAtUtc(
@@ -682,6 +722,31 @@ class LeaderboardRepository {
     );
     debugPrint('$stackTrace');
   }
+}
+
+/// Which assessment an awarded session carries.
+///
+/// Exactly one of [legacyScore] (Assessment V1, 0..100) and [rubricTotal]
+/// (Assessment V2, 0..12) is non-null. The two are never mixed: a V2 award
+/// freezes every percentage aggregate and records `rubric_total` on the
+/// processed-session marker instead of `score`.
+class SessionAwardAssessment {
+  const SessionAwardAssessment.legacy(int score)
+    : legacyScore = score,
+      rubricTotal = null;
+
+  const SessionAwardAssessment.rubric(int total)
+    : legacyScore = null,
+      rubricTotal = total;
+
+  final int? legacyScore;
+  final int? rubricTotal;
+
+  bool get isRubric => rubricTotal != null;
+
+  /// The single score-like field written to the processed-session marker.
+  Map<String, dynamic> get markerScoreField =>
+      isRubric ? {'rubric_total': rubricTotal} : {'score': legacyScore};
 }
 
 class LeaderboardAwardException implements Exception {

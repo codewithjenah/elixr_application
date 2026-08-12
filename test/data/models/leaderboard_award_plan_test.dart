@@ -135,6 +135,134 @@ void main() {
     });
   });
 
+  group('LeaderboardAwardPlan Assessment V2 (null score)', () {
+    test('awards XP and a session while freezing legacy score aggregates', () {
+      final plan = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: {
+          'total_xp': 50,
+          'sessions_completed': 2,
+          'score_sum': 170.0,
+          'average_score': 85.0,
+          'best_score': 90,
+          'daily_key': '20260810',
+          'daily_xp': 50,
+          'daily_sessions_completed': 2,
+          'daily_score_sum': 170.0,
+          'daily_average_score': 85.0,
+          'daily_best_score': 90,
+          'monthly_key': '202608',
+          'monthly_xp': 50,
+          'monthly_sessions_completed': 2,
+          'monthly_score_sum': 170.0,
+          'monthly_average_score': 85.0,
+          'monthly_best_score': 90,
+        },
+        score: null,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10, 3),
+      );
+
+      expect(plan.alreadyProcessed, isFalse);
+      expect(plan.totalXp, 75);
+      expect(plan.sessionsCompleted, 3);
+      expect(plan.scoreSum, 170.0);
+      expect(plan.averageScore, 85.0);
+      expect(plan.bestScore, 90);
+
+      expect(plan.daily.xp, 75);
+      expect(plan.daily.sessionsCompleted, 3);
+      expect(plan.daily.scoreSum, 170.0);
+      expect(plan.daily.averageScore, 85.0);
+      expect(plan.daily.bestScore, 90);
+
+      expect(plan.monthly.xp, 75);
+      expect(plan.monthly.sessionsCompleted, 3);
+      expect(plan.monthly.scoreSum, 170.0);
+      expect(plan.monthly.averageScore, 85.0);
+      expect(plan.monthly.bestScore, 90);
+    });
+
+    test('first-ever V2 award leaves every score aggregate at zero', () {
+      final plan = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: null,
+        score: null,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
+      );
+
+      expect(plan.totalXp, 25);
+      expect(plan.sessionsCompleted, 1);
+      expect(plan.scoreSum, 0);
+      expect(plan.averageScore, 0);
+      expect(plan.bestScore, 0);
+      expect(plan.daily.key, '20260810');
+      expect(plan.daily.sessionsCompleted, 1);
+      expect(plan.daily.bestScore, 0);
+      expect(plan.monthly.key, '202608');
+      expect(plan.monthly.sessionsCompleted, 1);
+    });
+
+    test('V2 award preserves quest XP and stays idempotent on a marker', () {
+      final existing = {
+        'total_xp': 65,
+        'sessions_completed': 2,
+        'score_sum': 160.0,
+        'average_score': 80.0,
+        'best_score': 90,
+        'quest_xp': 15,
+      };
+      final plan = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: existing,
+        score: null,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
+      );
+      expect(plan.questXp, 15);
+      expect(plan.totalXp, 90);
+
+      final replay = LeaderboardAwardPlan.fromExisting(
+        markerExists: true,
+        existing: existing,
+        score: null,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
+      );
+      expect(replay.alreadyProcessed, isTrue);
+      expect(replay.totalXp, 0);
+    });
+
+    test('a later V1 award still accumulates on top of frozen V2 state', () {
+      final v2 = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: {
+          'total_xp': 25,
+          'sessions_completed': 1,
+          'score_sum': 80.0,
+          'average_score': 80.0,
+          'best_score': 80,
+        },
+        score: null,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10),
+      );
+      final v1 = LeaderboardAwardPlan.fromExisting(
+        markerExists: false,
+        existing: {
+          'total_xp': v2.totalXp,
+          'sessions_completed': v2.sessionsCompleted,
+          'score_sum': v2.scoreSum,
+          'average_score': v2.averageScore,
+          'best_score': v2.bestScore,
+        },
+        score: 100,
+        sessionCreatedAtUtc: DateTime.utc(2026, 8, 10, 2),
+      );
+
+      expect(v1.sessionsCompleted, 3);
+      expect(v1.totalXp, 75);
+      expect(v1.scoreSum, 180.0);
+      expect(v1.bestScore, 100);
+    });
+  });
+
   group('LeaderboardSyncPlanner', () {
     test('returns only missing sessions in chronological order', () {
       final missing = LeaderboardSyncPlanner.sessionsMissingAwards(

@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
@@ -82,11 +83,56 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }
   }
 
-  /// Sessions oldest-first with a valid score, for the trend line.
-  List<Session> get _chronological {
-    final list = _sessions.where((s) => s.createdAt != null).toList()
-      ..sort((a, b) => a.createdAt!.compareTo(b.createdAt!));
+  /// Assessment V2 sessions oldest-first, for the 0..12 rubric trend line.
+  ///
+  /// Legacy percentage sessions are excluded: a 0..100 score cannot share an
+  /// axis with a rubric total.
+  List<Session> get _rubricChronological {
+    final list =
+        _sessions
+            .where((s) => s.createdAt != null && s.isRubricAssessed)
+            .toList()
+          ..sort((a, b) => a.createdAt!.compareTo(b.createdAt!));
     return list;
+  }
+
+  /// Rubric performance level for the V2 cohort, or a legacy fallback.
+  String get _overallPerformanceLabel {
+    final stats = _stats;
+    if (stats == null) return '—';
+    final average = stats.averageRubricTotal;
+    if (stats.hasRubricData && average != null) {
+      return PerformanceLevel.fromAverage(average.clamp(0, 12)).label;
+    }
+    return stats.hasLegacyOnly ? 'Legacy scoring' : '—';
+  }
+
+  String get _averageLabel =>
+      _stats?.hasRubricData == true ? 'Average Rubric' : 'Average Legacy Score';
+
+  String get _averageValue {
+    final stats = _stats;
+    if (stats == null) return '—';
+    if (stats.hasRubricData) {
+      final average = stats.averageRubricTotal;
+      return average == null ? '—' : '${average.toStringAsFixed(1)} / 12';
+    }
+    final legacy = stats.averageLegacyScore;
+    return legacy == null ? '—' : '${legacy.toStringAsFixed(0)} / 100';
+  }
+
+  String get _bestLabel =>
+      _stats?.hasRubricData == true ? 'Best Rubric' : 'Best Legacy Score';
+
+  String get _bestValue {
+    final stats = _stats;
+    if (stats == null) return '—';
+    if (stats.hasRubricData) {
+      final best = stats.bestRubricTotal;
+      return best == null ? '—' : '$best / 12';
+    }
+    final legacy = stats.bestLegacyScore;
+    return legacy == null ? '—' : '$legacy / 100';
   }
 
   Map<String, int> get _difficultyBreakdown {
@@ -158,19 +204,43 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     if (_stats!.totalSessions == 0)
                       _EmptyState()
                     else ...[
-                      // ── 2×2 stat grid ──────────────────────────────────
+                      // ── Stat grid ──────────────────────────────────────
                       IntrinsicHeight(
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Expanded(
                               child: _StatCard(
-                                label: 'Avg Score',
-                                value:
-                                    _stats!.averageScore?.toStringAsFixed(0) ??
-                                    '—',
+                                label: 'Overall Performance',
+                                value: _overallPerformanceLabel,
                                 icon: FluentIcons.favorite_star_fill,
                                 accent: _pink,
+                                smallValue: true,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: _StatCard(
+                                label: _averageLabel,
+                                value: _averageValue,
+                                icon: FluentIcons.chart_template,
+                                accent: _violet,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: _StatCard(
+                                label: _bestLabel,
+                                value: _bestValue,
+                                icon: FluentIcons.trophy2_solid,
+                                accent: _amber,
                               ),
                             ),
                             const SizedBox(width: AppSpacing.md),
@@ -186,38 +256,20 @@ class _ProgressScreenState extends State<ProgressScreen> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: 'Best Score',
-                                value: _stats!.bestScore?.toString() ?? '—',
-                                icon: FluentIcons.trophy2_solid,
-                                accent: _amber,
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: _StatCard(
-                                label: 'Most Practiced',
-                                value: _stats!.mostPracticedMovement ?? '—',
-                                icon: FluentIcons.crown_solid,
-                                accent: _cyan,
-                                smallValue: true,
-                              ),
-                            ),
-                          ],
-                        ),
+                      _StatCard(
+                        label: 'Most Practiced',
+                        value: _stats!.mostPracticedMovement ?? '—',
+                        icon: FluentIcons.crown_solid,
+                        accent: _cyan,
+                        smallValue: true,
                       ),
                       const SizedBox(height: AppSpacing.xl),
 
-                      // ── Score trend ─────────────────────────────────────
-                      if (_chronological.length >= 2) ...[
+                      // ── Rubric trend (Assessment V2 only) ───────────────
+                      if (_rubricChronological.length >= 2) ...[
                         const _SectionHeader(
                           icon: FluentIcons.line_chart,
-                          title: 'Score Trend',
+                          title: 'Rubric Trend',
                           accent: _pink,
                         ),
                         const SizedBox(height: AppSpacing.md),
@@ -231,7 +283,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
                           ),
                           child: SizedBox(
                             height: 200,
-                            child: _ScoreTrendChart(sessions: _chronological),
+                            child: _RubricTrendChart(
+                              sessions: _rubricChronological,
+                            ),
                           ),
                         ),
                         const SizedBox(height: AppSpacing.xl),
@@ -474,10 +528,11 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ── Score trend line chart (interactive tooltip) ─────────────────────────────
+// ── Rubric trend line chart (interactive tooltip) ────────────────────────────
 
-class _ScoreTrendChart extends StatelessWidget {
-  const _ScoreTrendChart({required this.sessions});
+/// Assessment V2 rubric totals over time. Every session must be V2.
+class _RubricTrendChart extends StatelessWidget {
+  const _RubricTrendChart({required this.sessions});
 
   final List<Session> sessions;
 
@@ -485,17 +540,17 @@ class _ScoreTrendChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final spots = <FlSpot>[
       for (var i = 0; i < sessions.length; i++)
-        FlSpot(i.toDouble(), sessions[i].score.toDouble()),
+        FlSpot(i.toDouble(), (sessions[i].rubricTotal ?? 0).toDouble()),
     ];
 
     return LineChart(
       LineChartData(
         minY: 0,
-        maxY: 100,
+        maxY: 12,
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          horizontalInterval: 25,
+          horizontalInterval: 3,
           getDrawingHorizontalLine: (_) => FlLine(
             color: context.elixBorder.withValues(alpha: 0.5),
             strokeWidth: 1,
@@ -516,7 +571,7 @@ class _ScoreTrendChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 28,
-              interval: 25,
+              interval: 3,
               getTitlesWidget: (value, _) => Text(
                 value.toInt().toString(),
                 style: TextStyle(
@@ -538,8 +593,10 @@ class _ScoreTrendChart extends StatelessWidget {
                       DateTime.parse(s.createdAt!).toLocal(),
                     )
                   : '';
+              final total = s.rubricTotal ?? 0;
+              final level = s.performanceLevel?.label ?? '';
               return LineTooltipItem(
-                '${s.score}\n',
+                '$total / 12\n',
                 const TextStyle(
                   color: AppColors.primarySoft,
                   fontWeight: FontWeight.w800,
@@ -547,7 +604,7 @@ class _ScoreTrendChart extends StatelessWidget {
                 ),
                 children: [
                   TextSpan(
-                    text: '${s.movementName}\n$date',
+                    text: '$level\n${s.movementName}\n$date',
                     style: TextStyle(
                       color: context.elixTextSecondary,
                       fontWeight: FontWeight.w400,

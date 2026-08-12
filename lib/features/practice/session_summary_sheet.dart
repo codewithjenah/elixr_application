@@ -8,8 +8,10 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/movement.dart';
+import '../../data/models/rubric_assessment.dart';
 import 'practice_game_widgets.dart';
 import 'session_assessment.dart';
+import 'widgets/training_performance.dart';
 
 enum SessionSummaryResult { saved, discarded, tryAgain, next }
 
@@ -56,9 +58,15 @@ class SessionSummarySheet extends StatelessWidget {
   final String? saveError;
   final String? nextMovementName;
 
-  int get _score => assessment.finalScore;
+  RubricAssessment get _rubric => assessment.rubric;
+
+  PerformanceLevel get _level => assessment.performanceLevel;
 
   bool get _heldSteady => assessment.heldSteady;
+
+  /// Celebration threshold: Proficient (10) or better.
+  static bool celebrates(PerformanceLevel level) =>
+      level.index >= PerformanceLevel.proficient.index;
 
   static Future<SessionSummaryResult?> show(
     BuildContext context, {
@@ -109,7 +117,7 @@ class SessionSummarySheet extends StatelessWidget {
 
             return Stack(
               children: [
-                if (assessment.finalScore >= 60)
+                if (celebrates(assessment.performanceLevel))
                   const Positioned.fill(child: ConfettiOverlay()),
                 SafeArea(
                   child: Center(
@@ -166,52 +174,47 @@ class SessionSummarySheet extends StatelessWidget {
     return s > 0 ? '${m}m ${s}s' : '${m}m';
   }
 
-  static String _tierMessage(int score, {required bool hasImprovements}) {
-    if (score >= 80) {
-      return hasImprovements
-          ? 'Strong finish — review recurring technique notes below.'
-          : 'Solid execution. Keep the consistency going.';
-    }
-    if (score >= 60) {
-      return hasImprovements
-          ? 'Good progress. A few things to fine-tune below.'
-          : 'Good effort. Keep practicing to build consistency.';
-    }
-    if (score >= 40) {
-      return hasImprovements
-          ? 'Getting there. Focus on the tips below.'
-          : 'You are making progress. Keep practicing to raise your score.';
-    }
-    return hasImprovements
-        ? 'Early stages — review the tips below and try again.'
-        : 'Keep going — regular practice will help your score improve.';
+  static String _tierMessage(
+    PerformanceLevel level, {
+    required bool hasImprovements,
+  }) {
+    return switch (level) {
+      PerformanceLevel.mastered || PerformanceLevel.proficient =>
+        hasImprovements
+            ? 'Strong finish — review recurring technique notes below.'
+            : 'Solid execution. Keep the consistency going.',
+      PerformanceLevel.competent =>
+        hasImprovements
+            ? 'Good progress. A few things to fine-tune below.'
+            : 'Good effort. Keep practicing to build consistency.',
+      PerformanceLevel.developing =>
+        hasImprovements
+            ? 'Getting there. Focus on the tips below.'
+            : 'You are making progress. Keep practicing to raise your rubric '
+                  'score.',
+      PerformanceLevel.beginning =>
+        hasImprovements
+            ? 'Early stages — review the tips below and try again.'
+            : 'Keep going — regular practice will help your rubric score '
+                  'improve.',
+    };
   }
 
-  static String _performanceMessage(int score) {
-    if (score >= 80) {
+  static String _performanceMessage(PerformanceLevel level) {
+    if (celebrates(level)) {
       return 'No recurring technique issue met the session threshold.';
     }
     return 'No recurring technique issue was detected. '
-        'Keep practicing to improve your overall score.';
+        'Keep practicing to improve your rubric score.';
   }
 
-  static Color _scoreColor(int value) {
-    if (value >= 80) return AppColors.success;
-    if (value >= 50) return AppColors.warning;
-    return AppColors.error;
-  }
-
-  static ({String label, Color color}) _tier(int score) {
-    if (score >= 80) return (label: 'Excellent', color: AppColors.success);
-    if (score >= 60) return (label: 'Good', color: AppColors.warning);
-    if (score >= 40) return (label: 'Fair', color: AppColors.warning);
-    return (label: 'Needs Practice', color: AppColors.error);
-  }
+  static ({String label, Color color}) _tier(PerformanceLevel level) =>
+      (label: level.label, color: performanceLevelColor(level));
 
   @override
   Widget build(BuildContext context) {
-    final scoreClr = _scoreColor(_score);
-    final tier = _tier(_score);
+    final levelColor = performanceLevelColor(_level);
+    final tier = _tier(_level);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -259,23 +262,23 @@ class SessionSummarySheet extends StatelessWidget {
                   _SummaryHeader(
                     movement: movement,
                     heldSteady: _heldSteady,
-                    score: _score,
+                    level: _level,
                   ),
                   Flexible(
                     fit: FlexFit.loose,
                     child: _SummaryBody(
-                      score: _score,
-                      scoreColor: scoreClr,
+                      rubric: _rubric,
+                      levelColor: levelColor,
                       tier: tier,
                       durationSeconds: durationSeconds,
                       assessment: assessment,
                       performanceMessage: _tierMessage(
-                        _score,
+                        _level,
                         hasImprovements: assessment.hasImprovements,
                       ),
                       emptyImprovementsMessage:
                           assessment.coaching.cleanSessionMessage ??
-                          _performanceMessage(_score),
+                          _performanceMessage(_level),
                       emptyStrengthsMessage: _heldSteady
                           ? 'Hold confirmed — keep reinforcing clean technique.'
                           : 'No standout technique strength met the session '
@@ -306,12 +309,12 @@ class _SummaryHeader extends StatelessWidget {
   const _SummaryHeader({
     required this.movement,
     required this.heldSteady,
-    required this.score,
+    required this.level,
   });
 
   final String movement;
   final bool heldSteady;
-  final int score;
+  final PerformanceLevel level;
 
   @override
   Widget build(BuildContext context) {
@@ -380,7 +383,7 @@ class _SummaryHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          RankBadge(score: score),
+          RankBadge(level: level),
         ],
       ),
     );
@@ -389,8 +392,8 @@ class _SummaryHeader extends StatelessWidget {
 
 class _SummaryBody extends StatelessWidget {
   const _SummaryBody({
-    required this.score,
-    required this.scoreColor,
+    required this.rubric,
+    required this.levelColor,
     required this.tier,
     required this.durationSeconds,
     required this.assessment,
@@ -399,8 +402,8 @@ class _SummaryBody extends StatelessWidget {
     required this.emptyStrengthsMessage,
   });
 
-  final int score;
-  final Color scoreColor;
+  final RubricAssessment rubric;
+  final Color levelColor;
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final SessionAssessment assessment;
@@ -425,8 +428,8 @@ class _SummaryBody extends StatelessWidget {
           ),
           child: useTwoColumn
               ? _RegularBody(
-                  score: score,
-                  scoreColor: scoreColor,
+                  rubric: rubric,
+                  levelColor: levelColor,
                   tier: tier,
                   durationSeconds: durationSeconds,
                   assessment: assessment,
@@ -435,8 +438,8 @@ class _SummaryBody extends StatelessWidget {
                   emptyStrengthsMessage: emptyStrengthsMessage,
                 )
               : _CompactBody(
-                  score: score,
-                  scoreColor: scoreColor,
+                  rubric: rubric,
+                  levelColor: levelColor,
                   tier: tier,
                   durationSeconds: durationSeconds,
                   assessment: assessment,
@@ -452,8 +455,8 @@ class _SummaryBody extends StatelessWidget {
 
 class _RegularBody extends StatelessWidget {
   const _RegularBody({
-    required this.score,
-    required this.scoreColor,
+    required this.rubric,
+    required this.levelColor,
     required this.tier,
     required this.durationSeconds,
     required this.assessment,
@@ -462,8 +465,8 @@ class _RegularBody extends StatelessWidget {
     required this.emptyStrengthsMessage,
   });
 
-  final int score;
-  final Color scoreColor;
+  final RubricAssessment rubric;
+  final Color levelColor;
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final SessionAssessment assessment;
@@ -479,8 +482,8 @@ class _RegularBody extends StatelessWidget {
         SizedBox(
           width: _SummaryLayout.performanceColumnWidth,
           child: _PerformanceColumn(
-            score: score,
-            scoreColor: scoreColor,
+            rubric: rubric,
+            levelColor: levelColor,
             tier: tier,
             durationSeconds: durationSeconds,
             performanceMessage: performanceMessage,
@@ -503,8 +506,8 @@ class _RegularBody extends StatelessWidget {
 
 class _CompactBody extends StatelessWidget {
   const _CompactBody({
-    required this.score,
-    required this.scoreColor,
+    required this.rubric,
+    required this.levelColor,
     required this.tier,
     required this.durationSeconds,
     required this.assessment,
@@ -513,8 +516,8 @@ class _CompactBody extends StatelessWidget {
     required this.emptyStrengthsMessage,
   });
 
-  final int score;
-  final Color scoreColor;
+  final RubricAssessment rubric;
+  final Color levelColor;
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final SessionAssessment assessment;
@@ -529,8 +532,8 @@ class _CompactBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _PerformanceColumn(
-          score: score,
-          scoreColor: scoreColor,
+          rubric: rubric,
+          levelColor: levelColor,
           tier: tier,
           durationSeconds: durationSeconds,
           performanceMessage: performanceMessage,
@@ -550,16 +553,16 @@ class _CompactBody extends StatelessWidget {
 
 class _PerformanceColumn extends StatelessWidget {
   const _PerformanceColumn({
-    required this.score,
-    required this.scoreColor,
+    required this.rubric,
+    required this.levelColor,
     required this.tier,
     required this.durationSeconds,
     required this.performanceMessage,
     required this.compact,
   });
 
-  final int score;
-  final Color scoreColor;
+  final RubricAssessment rubric;
+  final Color levelColor;
   final ({String label, Color color}) tier;
   final int durationSeconds;
   final String performanceMessage;
@@ -567,40 +570,48 @@ class _PerformanceColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ring = _ScoreRing(score: score, color: scoreColor);
+    final ring = _RubricRing(total: rubric.total, color: levelColor);
     final tierBadge = _TierBadge(label: tier.label, color: tier.color);
     final durationPill = _DurationPill(
       label: SessionSummarySheet._formatDuration(durationSeconds),
     );
+    final criteria = _CriteriaCard(rubric: rubric, accent: levelColor);
 
     if (compact) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ring,
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.xs,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [tierBadge, durationPill],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ring,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [tierBadge, durationPill],
+                    ),
+                    const SizedBox(height: AppSpacing.xs + 2),
+                    Text(
+                      performanceMessage,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: AppSpacing.xs + 2),
-                Text(
-                  performanceMessage,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: AppColors.textSecondary,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+          const SizedBox(height: AppSpacing.sm + 2),
+          criteria,
         ],
       );
     }
@@ -625,15 +636,17 @@ class _PerformanceColumn extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.sm + 2),
         durationPill,
+        const SizedBox(height: AppSpacing.sm + 2),
+        criteria,
       ],
     );
   }
 }
 
-class _ScoreRing extends StatelessWidget {
-  const _ScoreRing({required this.score, required this.color});
+class _RubricRing extends StatelessWidget {
+  const _RubricRing({required this.total, required this.color});
 
-  final int score;
+  final int total;
   final Color color;
 
   @override
@@ -642,13 +655,13 @@ class _ScoreRing extends StatelessWidget {
     return TweenAnimationBuilder<double>(
       duration: const Duration(milliseconds: 1200),
       curve: Curves.easeOutCubic,
-      tween: Tween(begin: 0, end: score.toDouble()),
-      builder: (context, animatedScore, _) => SizedBox(
+      tween: Tween(begin: 0, end: total.toDouble()),
+      builder: (context, animatedTotal, _) => SizedBox(
         width: size,
         height: size,
         child: CustomPaint(
           painter: _ScoreRingPainter(
-            progress: (animatedScore / 100).clamp(0.0, 1.0),
+            progress: (animatedTotal / RubricScale.maxTotal).clamp(0.0, 1.0),
             color: color,
           ),
           child: Center(
@@ -656,7 +669,7 @@ class _ScoreRing extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '${animatedScore.round()}',
+                  '${animatedTotal.round()}',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
@@ -666,7 +679,7 @@ class _ScoreRing extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'Score',
+                  'of ${RubricScale.maxTotal}',
                   style: TextStyle(
                     fontSize: 10,
                     color: AppColors.textSecondary,
@@ -677,6 +690,85 @@ class _ScoreRing extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Rubric total plus the four criterion scores for the completed session.
+class _CriteriaCard extends StatelessWidget {
+  const _CriteriaCard({required this.rubric, required this.accent});
+
+  final RubricAssessment rubric;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('session-summary-rubric'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.sm + 2),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Rubric Score',
+                  style: AppTheme.caption.copyWith(
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.w700,
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ),
+              Text(
+                '${rubric.total} / ${RubricScale.maxTotal}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: accent,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final criterion in RubricCriterion.values)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      criterion.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    '${rubric.scoreFor(criterion)} / '
+                    '${RubricScale.maxCriterion}',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }

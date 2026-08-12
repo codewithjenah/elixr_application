@@ -1,4 +1,5 @@
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
 import 'coaching/coaching_config.dart';
 import 'coaching/session_coaching_models.dart';
@@ -9,7 +10,7 @@ export 'coaching/session_coaching_models.dart';
 /// Immutable completed-session assessment snapshot.
 class SessionAssessment {
   const SessionAssessment({
-    required this.finalScore,
+    required this.rubric,
     required this.heldSteady,
     required this.totalApplicableSamples,
     required this.positiveSampleCount,
@@ -22,7 +23,8 @@ class SessionAssessment {
     this.coaching = const SessionCoachingSummary.empty(),
   });
 
-  final int finalScore;
+  /// Assessment V2 rubric for the completed session (0..12).
+  final RubricAssessment rubric;
   final bool heldSteady;
   final int totalApplicableSamples;
   final int positiveSampleCount;
@@ -33,6 +35,8 @@ class SessionAssessment {
   final double maxHoldProgress;
   final int holdTargetMs;
   final SessionCoachingSummary coaching;
+
+  PerformanceLevel get performanceLevel => rubric.performanceLevel;
 
   bool get hasImprovements => improvements.isNotEmpty;
 
@@ -165,7 +169,7 @@ class SessionAssessmentAccumulator {
   SessionAssessment buildAssessment({
     required String movement,
     required TrainingProp prop,
-    required int finalScore,
+    required RubricAssessment rubric,
     required bool heldSteady,
     PracticeFeedback? latestFeedback,
   }) {
@@ -178,7 +182,6 @@ class SessionAssessmentAccumulator {
       movement: movement,
       prop: prop,
       heldSteady: heldSteady,
-      finalScore: finalScore,
       positiveRatio: positiveRatio,
       totalApplicableSamples: _totalApplicableSamples,
       improvements: improvements,
@@ -194,7 +197,7 @@ class SessionAssessmentAccumulator {
     );
 
     return SessionAssessment(
-      finalScore: finalScore,
+      rubric: rubric,
       heldSteady: heldSteady,
       totalApplicableSamples: _totalApplicableSamples,
       positiveSampleCount: _positiveSampleCount,

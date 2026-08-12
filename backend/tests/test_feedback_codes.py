@@ -111,7 +111,6 @@ def test_category_values_serialize_as_strings():
         message = FeedbackMessage(
             bottle_detected=True,
             movement="Hand Stall",
-            score=70,
             feedback="test",
             feedback_type="warning",
             posture_status="unstable",
@@ -319,7 +318,6 @@ def test_feedback_message_optional_coaching_fields_serialize():
     message = FeedbackMessage(
         bottle_detected=True,
         movement="Hand Stall",
-        score=80,
         feedback="Hand stall locked in.",
         feedback_type="positive",
         posture_status="stable",
@@ -337,7 +335,6 @@ def test_legacy_feedback_message_without_codes_remains_valid():
     message = FeedbackMessage(
         bottle_detected=True,
         movement="Hand Stall",
-        score=70,
         feedback="Keep steady",
         feedback_type="warning",
         posture_status="unstable",

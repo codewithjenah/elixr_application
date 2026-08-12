@@ -97,10 +97,7 @@ class ProfileAvatarWidget extends StatelessWidget {
           if (progress == null) return child;
           return Stack(
             alignment: Alignment.center,
-            children: [
-              _initialsFallback(),
-              const ProgressRing(strokeWidth: 2),
-            ],
+            children: [_initialsFallback(), const ProgressRing(strokeWidth: 2)],
           );
         },
         errorBuilder: (context, error, stackTrace) => _legacyOrFallback(),

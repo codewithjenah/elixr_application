@@ -14,6 +14,16 @@ class DashboardTopPerformance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final session = bestSession;
+    final rubricTotal = session?.rubricTotal;
+    final isRubric = session != null && session.isRubricAssessed;
+    final recordValue = isRubric
+        ? '$rubricTotal'
+        : (session?.legacyScore?.toString() ?? '—');
+    final recordLabel = isRubric ? 'Best Rubric' : 'Best Legacy Score';
+    final recordScale = isRubric ? ' / 12' : ' / 100';
+    final levelLabel = session?.performanceLevel?.label;
+
     return DashboardPanelCard(
       accent: AppColors.warning,
       showAccentBar: bestSession != null,
@@ -39,7 +49,7 @@ class DashboardTopPerformance extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          if (bestSession == null)
+          if (session == null)
             Text(
               'Complete a session to set your first record.',
               style: TextStyle(fontSize: 12, color: context.elixTextSecondary),
@@ -51,18 +61,34 @@ class DashboardTopPerformance extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '${bestSession!.score}',
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.warning,
-                          height: 1,
+                      RichText(
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: recordValue,
+                              style: const TextStyle(
+                                fontSize: 36,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.warning,
+                                height: 1,
+                              ),
+                            ),
+                            TextSpan(
+                              text: recordScale,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: context.elixTextSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Best Score',
+                        levelLabel == null
+                            ? recordLabel
+                            : '$recordLabel · $levelLabel',
                         style: TextStyle(
                           fontSize: 11,
                           color: context.elixTextSecondary,
@@ -70,7 +96,7 @@ class DashboardTopPerformance extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        bestSession!.movementName,
+                        session.movementName,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -83,7 +109,7 @@ class DashboardTopPerformance extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
-                _RecordBadge(score: bestSession!.score),
+                _RecordBadge(isPerfect: isRubric && rubricTotal == 12),
               ],
             ),
         ],
@@ -93,9 +119,10 @@ class DashboardTopPerformance extends StatelessWidget {
 }
 
 class _RecordBadge extends StatelessWidget {
-  const _RecordBadge({required this.score});
+  const _RecordBadge({required this.isPerfect});
 
-  final int score;
+  /// True for a full 12/12 rubric result.
+  final bool isPerfect;
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +147,7 @@ class _RecordBadge extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            score >= 100 ? 'PR' : 'Best',
+            isPerfect ? 'PR' : 'Best',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w800,

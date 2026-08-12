@@ -115,8 +115,10 @@ int monthlyActiveDayCount(
 
 /// Best training day within the visible month.
 ///
-/// Tie-break order: highest daily average score, then highest individual
-/// session score, then highest session count, then most recent date.
+/// Days assessed with the V2 rubric rank ahead of legacy-only days, because a
+/// rubric total (0..12) is never compared against a legacy score (0..100).
+/// Within a cohort the tie-break order is: highest daily average, then highest
+/// individual result, then highest session count, then most recent date.
 CalendarDaySummary? bestTrainingDay(
   Map<DateTime, CalendarDaySummary> byDate, {
   required int year,
@@ -129,10 +131,12 @@ CalendarDaySummary? bestTrainingDay(
   if (candidates.isEmpty) return null;
 
   candidates.sort((a, b) {
-    final avgCmp = (b.averageScore ?? 0).compareTo(a.averageScore ?? 0);
+    if (a.hasRubricData != b.hasRubricData) return a.hasRubricData ? -1 : 1;
+
+    final avgCmp = (b.preferredAverage ?? 0).compareTo(a.preferredAverage ?? 0);
     if (avgCmp != 0) return avgCmp;
 
-    final bestCmp = (b.bestScore ?? 0).compareTo(a.bestScore ?? 0);
+    final bestCmp = (b.preferredBest ?? 0).compareTo(a.preferredBest ?? 0);
     if (bestCmp != 0) return bestCmp;
 
     final countCmp = b.sessionCount.compareTo(a.sessionCount);

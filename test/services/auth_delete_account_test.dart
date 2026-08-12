@@ -100,41 +100,47 @@ void main() {
     email: 'ada@example.com',
   );
 
-  test('deleteAccount clears local auth and exposes one-shot message', () async {
-    final repo = _TrackingDeleteAccountRepository();
-    final service = AuthService(repository: repo);
-    service.seedAuthenticatedUser(sampleUser);
+  test(
+    'deleteAccount clears local auth and exposes one-shot message',
+    () async {
+      final repo = _TrackingDeleteAccountRepository();
+      final service = AuthService(repository: repo);
+      service.seedAuthenticatedUser(sampleUser);
 
-    await service.deleteAccount(password: 'secret');
+      await service.deleteAccount(password: 'secret');
 
-    expect(repo.deleteAccountCallCount, 1);
-    expect(repo.lastPassword, 'secret');
-    expect(repo.clearCurrentUserCallCount, 1);
-    expect(service.isAuthenticated, isFalse);
-    expect(service.currentUser, isNull);
-    expect(
-      service.takeAccountDeletedMessage(),
-      'Your account and associated data have been permanently deleted.',
-    );
-    expect(service.takeAccountDeletedMessage(), isNull);
-  });
+      expect(repo.deleteAccountCallCount, 1);
+      expect(repo.lastPassword, 'secret');
+      expect(repo.clearCurrentUserCallCount, 1);
+      expect(service.isAuthenticated, isFalse);
+      expect(service.currentUser, isNull);
+      expect(
+        service.takeAccountDeletedMessage(),
+        'Your account and associated data have been permanently deleted.',
+      );
+      expect(service.takeAccountDeletedMessage(), isNull);
+    },
+  );
 
-  test('deleteAccount failure leaves auth state and does not set message', () async {
-    final repo = _TrackingDeleteAccountRepository()
-      ..errorToThrow = Exception('purge failed');
-    final service = AuthService(repository: repo);
-    service.seedAuthenticatedUser(sampleUser);
+  test(
+    'deleteAccount failure leaves auth state and does not set message',
+    () async {
+      final repo = _TrackingDeleteAccountRepository()
+        ..errorToThrow = Exception('purge failed');
+      final service = AuthService(repository: repo);
+      service.seedAuthenticatedUser(sampleUser);
 
-    await expectLater(
-      () => service.deleteAccount(password: 'secret'),
-      throwsA(isA<Exception>()),
-    );
+      await expectLater(
+        () => service.deleteAccount(password: 'secret'),
+        throwsA(isA<Exception>()),
+      );
 
-    expect(service.isAuthenticated, isTrue);
-    expect(service.currentUser?.id, 'uid-1');
-    expect(repo.clearCurrentUserCallCount, 0);
-    expect(service.takeAccountDeletedMessage(), isNull);
-  });
+      expect(service.isAuthenticated, isTrue);
+      expect(service.currentUser?.id, 'uid-1');
+      expect(repo.clearCurrentUserCallCount, 0);
+      expect(service.takeAccountDeletedMessage(), isNull);
+    },
+  );
 
   // Storage-list failure → Auth.delete skipped is covered at repository level in
   // test/data/repositories/auth_account_deletion_storage_test.dart.

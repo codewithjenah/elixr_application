@@ -60,17 +60,25 @@ class LeaderboardPeriodAggregate {
   final double averageScore;
   final int bestScore;
 
+  /// Applies one completed session to this period.
+  ///
+  /// [score] is the legacy Assessment V1 percentage. Pass `null` for an
+  /// Assessment V2 (rubric) session: the period still counts the session and
+  /// its XP, but `scoreSum` / `averageScore` / `bestScore` are frozen at their
+  /// current values because a 0..12 rubric total must never be mixed into a
+  /// 0..100 percentage aggregate.
   LeaderboardPeriodTransition applySession({
     required String eventKey,
     required int xpAwarded,
-    required int score,
+    required int? score,
   }) {
-    if (score < 0) {
+    if (score != null && score < 0) {
       throw ArgumentError.value(score, 'score', 'must be non-negative');
     }
     return _applyEvent(
       eventKey: eventKey,
       xpAwarded: xpAwarded,
+      countsSession: true,
       sessionScore: score,
     );
   }
@@ -79,12 +87,17 @@ class LeaderboardPeriodAggregate {
     required String eventKey,
     required int xpAwarded,
   }) {
-    return _applyEvent(eventKey: eventKey, xpAwarded: xpAwarded);
+    return _applyEvent(
+      eventKey: eventKey,
+      xpAwarded: xpAwarded,
+      countsSession: false,
+    );
   }
 
   LeaderboardPeriodTransition _applyEvent({
     required String eventKey,
     required int xpAwarded,
+    required bool countsSession,
     int? sessionScore,
   }) {
     if (!period.isValidKey(eventKey)) {
@@ -109,16 +122,21 @@ class LeaderboardPeriodAggregate {
     final baseAverage = resets ? 0.0 : averageScore;
     final baseBest = resets ? 0 : bestScore;
 
+    final kind = resets
+        ? LeaderboardPeriodTransitionKind.reset
+        : LeaderboardPeriodTransitionKind.accumulate;
+
+    // Quest awards (no session) and Assessment V2 sessions (rubric-scored)
+    // both leave the legacy score aggregates untouched; only V2 also bumps
+    // the session counter.
     if (sessionScore == null) {
       return LeaderboardPeriodTransition(
-        kind: resets
-            ? LeaderboardPeriodTransitionKind.reset
-            : LeaderboardPeriodTransitionKind.accumulate,
+        kind: kind,
         aggregate: LeaderboardPeriodAggregate(
           period: period,
           key: eventKey,
           xp: baseXp + xpAwarded,
-          sessionsCompleted: baseSessions,
+          sessionsCompleted: countsSession ? baseSessions + 1 : baseSessions,
           scoreSum: baseScoreSum,
           averageScore: baseAverage,
           bestScore: baseBest,
@@ -129,9 +147,7 @@ class LeaderboardPeriodAggregate {
     final nextSessions = baseSessions + 1;
     final nextScoreSum = baseScoreSum + sessionScore;
     return LeaderboardPeriodTransition(
-      kind: resets
-          ? LeaderboardPeriodTransitionKind.reset
-          : LeaderboardPeriodTransitionKind.accumulate,
+      kind: kind,
       aggregate: LeaderboardPeriodAggregate(
         period: period,
         key: eventKey,

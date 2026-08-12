@@ -9,22 +9,52 @@ class HistorySummarySection extends StatelessWidget {
   const HistorySummarySection({
     super.key,
     required this.totalSessions,
-    required this.averageScore,
-    required this.bestScore,
+    required this.rubricSessionCount,
+    required this.averageRubricTotal,
+    required this.bestRubricTotal,
+    required this.legacySessionCount,
+    required this.averageLegacyScore,
+    required this.bestLegacyScore,
     required this.totalDurationSeconds,
     this.matchingCount,
   });
 
   final int totalSessions;
-  final int averageScore;
-  final int bestScore;
+
+  /// Assessment V2 cohort (rubric totals 0..12).
+  final int rubricSessionCount;
+  final double? averageRubricTotal;
+  final int? bestRubricTotal;
+
+  /// Legacy Assessment V1 cohort (percentages 0..100).
+  final int legacySessionCount;
+  final double? averageLegacyScore;
+  final int? bestLegacyScore;
+
   final int totalDurationSeconds;
 
   /// When non-null, a filter/search is active and this is the result size.
   final int? matchingCount;
 
+  bool get _hasRubricData => rubricSessionCount > 0;
+
   @override
   Widget build(BuildContext context) {
+    // Rubric totals and legacy percentages are reported separately; they are
+    // never averaged together.
+    final averageLabel = _hasRubricData ? 'Average Rubric' : 'Average Score';
+    final averageValue = _hasRubricData
+        ? (averageRubricTotal == null
+              ? '—'
+              : rubricAverageLabel(averageRubricTotal!))
+        : (averageLegacyScore == null
+              ? '—'
+              : averageLegacyScore!.toStringAsFixed(0));
+    final bestLabel = _hasRubricData ? 'Best Rubric' : 'Best Score';
+    final bestValue = _hasRubricData
+        ? (bestRubricTotal == null ? '—' : rubricTotalLabel(bestRubricTotal!))
+        : (bestLegacyScore?.toString() ?? '—');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -51,15 +81,15 @@ class HistorySummarySection extends StatelessWidget {
               ),
               _SummaryCard(
                 icon: FluentIcons.chart_template,
-                label: 'Average Score',
-                value: '$averageScore',
+                label: averageLabel,
+                value: averageValue,
                 accent: AppColors.primary,
                 width: cardWidth,
               ),
               _SummaryCard(
                 icon: FluentIcons.trophy2_solid,
-                label: 'Best Score',
-                value: '$bestScore',
+                label: bestLabel,
+                value: bestValue,
                 accent: AppColors.warning,
                 width: cardWidth,
               ),
@@ -75,6 +105,18 @@ class HistorySummarySection extends StatelessWidget {
             return Wrap(spacing: gap, runSpacing: gap, children: cards);
           },
         ),
+        if (_hasRubricData && legacySessionCount > 0) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            '$legacySessionCount legacy session'
+            '${legacySessionCount == 1 ? '' : 's'} scored 0–100'
+            '${averageLegacyScore == null ? '' : ' • average ${averageLegacyScore!.toStringAsFixed(0)}/100'}',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
         if (matchingCount != null) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(

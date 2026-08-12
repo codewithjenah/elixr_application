@@ -127,10 +127,7 @@ class SecuritySectionState extends State<SecuritySection> {
       context.go('/login');
     } catch (e) {
       if (mounted) {
-        await ElixDialog.error(
-          context,
-          _messageForDeleteAccountFailure(e),
-        );
+        await ElixDialog.error(context, _messageForDeleteAccountFailure(e));
       }
     } finally {
       if (mounted) setState(() => _deletingAccount = false);
@@ -677,8 +674,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
     super.dispose();
   }
 
-  bool get _canSubmit =>
-      _passwordController.text.isNotEmpty && _confirmed;
+  bool get _canSubmit => _passwordController.text.isNotEmpty && _confirmed;
 
   @override
   Widget build(BuildContext context) {

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../data/models/rubric_assessment.dart';
 
 /// Formats a duration for summary cards and session rows.
 ///
@@ -22,17 +23,41 @@ String formatTrainingDuration(int totalSeconds) {
   return '${minutes}m ${remSeconds}s';
 }
 
-String scoreQualityLabel(int score) {
-  if (score >= 80) return 'Excellent';
-  if (score >= 50) return 'Developing';
+/// Quality label for a legacy Assessment V1 percentage (0..100).
+///
+/// Never pass a rubric total to this function; the two scales are unrelated.
+String scoreQualityLabel(int legacyScore) {
+  if (legacyScore >= 80) return 'Excellent';
+  if (legacyScore >= 50) return 'Developing';
   return 'Needs Practice';
 }
 
-Color scoreQualityColor(int score) {
-  if (score >= 80) return AppColors.success;
-  if (score >= 50) return AppColors.warning;
+/// Quality color for a legacy Assessment V1 percentage (0..100).
+Color scoreQualityColor(int legacyScore) {
+  if (legacyScore >= 80) return AppColors.success;
+  if (legacyScore >= 50) return AppColors.warning;
   return AppColors.error;
 }
+
+/// Explicit legacy read-out so a 0..100 value is never mistaken for a rubric.
+String legacyScoreLabel(int legacyScore) => 'Legacy Score: $legacyScore/100';
+
+/// Assessment V2 rubric total read-out (0..12).
+String rubricTotalLabel(int rubricTotal) => '$rubricTotal / 12';
+
+/// Assessment V2 rubric average read-out (0..12).
+String rubricAverageLabel(double averageRubricTotal) =>
+    '${averageRubricTotal.toStringAsFixed(1)} / 12';
+
+/// Performance level for a rubric total, using the model's thresholds.
+PerformanceLevel rubricPerformanceLevel(int rubricTotal) =>
+    PerformanceLevel.fromTotal(rubricTotal);
+
+Color performanceLevelColor(PerformanceLevel level) => switch (level) {
+  PerformanceLevel.mastered || PerformanceLevel.proficient => AppColors.success,
+  PerformanceLevel.competent => AppColors.warning,
+  PerformanceLevel.developing || PerformanceLevel.beginning => AppColors.error,
+};
 
 Color difficultyColor(String difficulty) {
   switch (difficulty) {

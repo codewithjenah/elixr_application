@@ -1,4 +1,5 @@
 import '../../data/models/practice_feedback.dart';
+import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
 import 'session_assessment.dart';
 
@@ -20,7 +21,7 @@ class ComboState {
   int get hashCode => Object.hash(combo, bestCombo);
 }
 
-/// Score popup animation trigger state.
+/// Rubric-total popup animation trigger state.
 class ScorePopupState {
   const ScorePopupState({this.trigger = 0, this.delta = 0});
 
@@ -43,7 +44,7 @@ class PracticeFeedbackApplyResult {
   const PracticeFeedbackApplyResult({
     required this.chromeChanged,
     required this.historyChanged,
-    required this.scoreChanged,
+    required this.assessmentChanged,
     required this.holdChanged,
     required this.comboChanged,
     required this.scorePopupChanged,
@@ -56,7 +57,7 @@ class PracticeFeedbackApplyResult {
 
   final bool chromeChanged;
   final bool historyChanged;
-  final bool scoreChanged;
+  final bool assessmentChanged;
   final bool holdChanged;
   final bool comboChanged;
   final bool scorePopupChanged;
@@ -81,10 +82,11 @@ class PracticeFeedbackController {
   PracticeFeedbackApplyResult applyActiveFeedback(PracticeFeedback feedback) {
     _assessmentAccumulator.record(feedback);
     final previous = latestFeedback;
-    final previousScore = previous?.score;
+    final previousTotal = previous?.assessment?.total;
+    final currentTotal = feedback.assessment?.total;
     final previousHold = previous?.holdProgress ?? 0;
 
-    final scoreChanged = previousScore != feedback.score;
+    final assessmentChanged = previous?.assessment != feedback.assessment;
     final holdChanged = previousHold != feedback.holdProgress;
     final chromeChanged = !feedback.scoredPracticeChromeEquals(previous);
     final historyChanged =
@@ -112,8 +114,10 @@ class PracticeFeedbackController {
     var scorePopupTrigger = scorePopupState.trigger;
     var scorePopupDelta = scorePopupState.delta;
     var scorePopupChanged = false;
-    if (previousScore != null && feedback.score > previousScore) {
-      scorePopupDelta = feedback.score - previousScore;
+    if (previousTotal != null &&
+        currentTotal != null &&
+        currentTotal > previousTotal) {
+      scorePopupDelta = currentTotal - previousTotal;
       scorePopupTrigger++;
       scorePopupChanged = true;
     }
@@ -142,7 +146,7 @@ class PracticeFeedbackController {
     return PracticeFeedbackApplyResult(
       chromeChanged: chromeChanged,
       historyChanged: historyChanged,
-      scoreChanged: scoreChanged,
+      assessmentChanged: assessmentChanged,
       holdChanged: holdChanged,
       comboChanged: comboChanged,
       scorePopupChanged: scorePopupChanged,
@@ -154,7 +158,7 @@ class PracticeFeedbackController {
     );
   }
 
-  /// Free Practice prop-detection path (no score/combo/hold).
+  /// Free Practice prop-detection path (no rubric/combo/hold).
   bool applyFreePracticeFeedback(PracticeFeedback feedback) {
     final visibleChanged =
         latestFeedback?.bottleDetected != feedback.bottleDetected ||
@@ -166,13 +170,13 @@ class PracticeFeedbackController {
   SessionAssessment buildSessionAssessment({
     required String movement,
     required TrainingProp prop,
-    required int finalScore,
+    required RubricAssessment rubric,
     required bool heldSteady,
   }) {
     return _assessmentAccumulator.buildAssessment(
       movement: movement,
       prop: prop,
-      finalScore: finalScore,
+      rubric: rubric,
       heldSteady: heldSteady,
       latestFeedback: latestFeedback,
     );

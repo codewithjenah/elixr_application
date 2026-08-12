@@ -39,7 +39,7 @@ typedef QuestEvaluator = QuestProgress Function(List<Session> sessionsToday);
 
 /// One catalog entry. Immutable and stateless — all "did the user complete
 /// this" logic lives in [evaluate], which only reads [Session] fields that
-/// already exist (score, durationSeconds, movementName, difficulty,
+/// already exist (rubric, durationSeconds, movementName, difficulty,
 /// propType).
 class QuestDefinition {
   const QuestDefinition({
@@ -65,10 +65,17 @@ String _normalizedDifficulty(Session session) =>
 int _totalDurationSeconds(List<Session> sessions) =>
     sessions.fold<int>(0, (total, session) => total + session.durationSeconds);
 
-int _bestScore(List<Session> sessions) {
+/// Highest Assessment V2 rubric total (0..12) among [sessions].
+///
+/// Legacy Assessment V1 sessions carry a 0..100 percentage that is not
+/// comparable to a rubric total, so they are ignored entirely rather than
+/// rescaled.
+int _bestRubricTotal(List<Session> sessions) {
   var best = 0;
   for (final session in sessions) {
-    if (session.score > best) best = session.score;
+    if (!session.isRubricAssessed) continue;
+    final total = session.rubricTotal;
+    if (total != null && total > best) best = total;
   }
   return best;
 }
@@ -87,8 +94,14 @@ int _distinctPropCount(List<Session> sessions) {
   return sessions.map((session) => session.propType).toSet().length;
 }
 
-int _sessionsAtOrAboveScore(List<Session> sessions, int threshold) =>
-    sessions.where((session) => session.score >= threshold).length;
+/// Count of Assessment V2 sessions whose rubric total reaches [threshold].
+/// Legacy sessions never count.
+int _sessionsAtOrAboveRubricTotal(List<Session> sessions, int threshold) =>
+    sessions.where((session) {
+      if (!session.isRubricAssessed) return false;
+      final total = session.rubricTotal;
+      return total != null && total >= threshold;
+    }).length;
 
 int _sessionsWithDifficulty(List<Session> sessions, String difficulty) =>
     sessions
@@ -126,11 +139,11 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'score_70',
-    title: 'Score 70+ in a Session',
+    title: 'Reach Competent in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.easy,
     evaluate: (sessions) =>
-        QuestProgress(current: _bestScore(sessions), target: 70),
+        QuestProgress(current: _bestRubricTotal(sessions), target: 7),
   ),
   QuestDefinition(
     id: 'two_movements',
@@ -175,19 +188,19 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'score_85',
-    title: 'Score 85+ in a Session',
+    title: 'Reach Proficient in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.medium,
     evaluate: (sessions) =>
-        QuestProgress(current: _bestScore(sessions), target: 85),
+        QuestProgress(current: _bestRubricTotal(sessions), target: 10),
   ),
   QuestDefinition(
     id: 'sessions_above_70_x2',
-    title: 'Score 70+ in 2 Sessions',
+    title: 'Competent in 2 Sessions',
     category: QuestCategory.scoreCount,
     tier: QuestTier.medium,
     evaluate: (sessions) => QuestProgress(
-      current: _sessionsAtOrAboveScore(sessions, 70),
+      current: _sessionsAtOrAboveRubricTotal(sessions, 7),
       target: 2,
     ),
   ),
@@ -234,11 +247,11 @@ final List<QuestDefinition> questCatalog = [
   ),
   QuestDefinition(
     id: 'score_95',
-    title: 'Score 95+ in a Session',
+    title: 'Reach Mastered in a Session',
     category: QuestCategory.scoreThreshold,
     tier: QuestTier.hard,
     evaluate: (sessions) =>
-        QuestProgress(current: _bestScore(sessions), target: 95),
+        QuestProgress(current: _bestRubricTotal(sessions), target: 12),
   ),
   QuestDefinition(
     id: 'practice_hard_movement',

@@ -35,7 +35,7 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 - `backend/vision/`: camera ownership, detectors, landmark extraction, types, and frame annotation.
 - `backend/assessment/rules/`: movement-specific evaluation.
 - `backend/assessment/rule_engine.py`: movement registry and dispatch.
-- `backend/assessment/scoring.py`: rolling bounded score.
+- `backend/assessment/scoring.py`: Assessment V2 rubric tracker.
 - `backend/schemas/`: outbound API/WebSocket contracts.
 
 ### External services
@@ -52,7 +52,7 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 4. **Release resources deterministically.** Cameras, model wrappers, MediaPipe detectors, WebSockets, stream subscriptions, timers, animation controllers, scroll controllers, and audio players must have clear cleanup paths.
 5. **Do not weaken authentication or Firestore authorization.** UI checks are not security controls; Firestore rules remain authoritative.
 6. **Do not silently change persisted field names.** Firestore documents use snake_case fields and require compatibility consideration.
-7. **Scoring stays bounded from 0 to 100.** Changes to weights, windows, or feedback classification require tests.
+7. **Rubric assessment stays bounded 0..3 per criterion and 0..12 total.** Performance level is always derived from total. Changes to thresholds or criterion mapping require tests. Never mix legacy 0–100 scores with rubric totals in the same average.
 8. **Movement names are cross-layer identifiers.** Keep Flutter's catalog, Python `MOVEMENT_CONFIG`, and rule registry aligned.
 9. **Do not commit secrets.** Never add service-account keys, tokens, passwords, personal Firebase credentials, or local environment files.
 10. **Do not claim verification that was not performed.** Separate passed checks from unverified behavior.
@@ -175,7 +175,7 @@ Do not deploy, publish, or modify production data unless the user explicitly req
 ## Test strategy
 
 - Assessment rules: synthetic `BottleDetection`, hand landmarks, pose landmarks, and movement state.
-- Scoring: positive/warning/error windows, lower/upper bounds, reset behavior.
+- Rubric assessment: criterion bounds 0..3, total derivation, performance-level boundaries, readiness/camera immunity, FPS independence.
 - WebSocket schema: required fields, defaults, malformed payload behavior, fatal error codes.
 - Flutter services/models: parsing, state transitions, deduplication, cleanup, and error handling.
 - Firestore: mapping compatibility, null timestamps, user ownership, query/index alignment.

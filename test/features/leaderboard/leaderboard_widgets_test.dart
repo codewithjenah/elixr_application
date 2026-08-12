@@ -604,7 +604,9 @@ void main() {
   });
 
   group('LeaderboardRankRow', () {
-    testWidgets('wide layout shows labeled metric columns', (tester) async {
+    testWidgets('wide layout shows XP columns without score columns', (
+      tester,
+    ) async {
       await setSurface(tester, const Size(1200, 800));
       final rowEntry = entry(id: '4', name: 'Fourth', xp: 180);
       await tester.pumpWidget(
@@ -624,8 +626,8 @@ void main() {
       expect(find.text('Level'), findsNothing);
       expect(find.textContaining('Lv. '), findsOneWidget);
       expect(find.text('Sessions'), findsOneWidget);
-      expect(find.text('Avg score'), findsOneWidget);
-      expect(find.text('Best score'), findsOneWidget);
+      expect(find.text('Avg score'), findsNothing);
+      expect(find.text('Best score'), findsNothing);
       expect(find.text('Total XP'), findsOneWidget);
       expect(find.text('Fourth'), findsOneWidget);
       expect(find.text('#4'), findsOneWidget);
@@ -692,12 +694,15 @@ void main() {
       expect(find.text('YOU'), findsOneWidget);
       expect(find.textContaining('Lv. '), findsOneWidget);
       expect(find.textContaining('sessions'), findsOneWidget);
-      expect(find.textContaining('avg'), findsOneWidget);
+      expect(find.textContaining('avg'), findsNothing);
+      expect(find.textContaining('best'), findsNothing);
       expect(find.text('Best score'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('medium width hides Best score column', (tester) async {
+    testWidgets('medium width keeps Sessions and drops score columns', (
+      tester,
+    ) async {
       await setSurface(tester, const Size(800, 600));
       final rowEntry = entry(id: '4', name: 'Fourth', xp: 180);
       await tester.pumpWidget(
@@ -712,6 +717,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Sessions'), findsOneWidget);
+      expect(find.text('Avg score'), findsNothing);
       expect(find.text('Best score'), findsNothing);
     });
 
@@ -825,7 +831,7 @@ void main() {
         find.byType(ProfileBorderFrame),
       );
       expect(frameState.debugIsAnimating, isFalse);
-      expect(find.text('FO'), findsOneWidget);
+      expect(find.text('F'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -860,10 +866,12 @@ void main() {
       expect(find.text('XP this month'), findsOneWidget);
       expect(find.text('125 XP'), findsOneWidget);
       expect(find.text('5'), findsOneWidget);
-      expect(find.text('82'), findsOneWidget);
-      expect(find.text('91'), findsOneWidget);
       expect(find.text('950 XP'), findsNothing);
       expect(find.text('38'), findsNothing);
+      // Percentage score mirrors are frozen legacy aggregates and are no
+      // longer surfaced anywhere in the ranking table.
+      expect(find.text('82'), findsNothing);
+      expect(find.text('91'), findsNothing);
     });
 
     testWidgets('long row name exposes full tooltip without overflow', (

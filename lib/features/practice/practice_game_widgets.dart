@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../data/models/rubric_assessment.dart';
 
 /// Falling confetti rendered with a custom painter (no extra dependencies).
 class ConfettiOverlay extends StatefulWidget {
@@ -375,24 +376,24 @@ class _ScorePopupState extends State<ScorePopup>
   }
 }
 
-/// Letter rank (S/A/B/C/D) derived from the current score.
+/// Compact performance-level badge (Beg/Dev/Cmp/Pro/Mst).
 class RankBadge extends StatelessWidget {
-  const RankBadge({super.key, required this.score});
+  const RankBadge({super.key, required this.level});
 
-  final int? score;
+  final PerformanceLevel? level;
 
-  static (String, Color) rankFor(int? score) {
-    if (score == null) return ('—', AppColors.textSecondary);
-    if (score >= 90) return ('S', AppColors.warning);
-    if (score >= 75) return ('A', AppColors.success);
-    if (score >= 60) return ('B', AppColors.primary);
-    if (score >= 40) return ('C', AppColors.primarySoft);
-    return ('D', AppColors.textSecondary);
-  }
+  static (String, Color) rankFor(PerformanceLevel? level) => switch (level) {
+    null => ('—', AppColors.textSecondary),
+    PerformanceLevel.mastered => (level.shortLabel, AppColors.warning),
+    PerformanceLevel.proficient => (level.shortLabel, AppColors.success),
+    PerformanceLevel.competent => (level.shortLabel, AppColors.primary),
+    PerformanceLevel.developing => (level.shortLabel, AppColors.primarySoft),
+    PerformanceLevel.beginning => (level.shortLabel, AppColors.textSecondary),
+  };
 
   @override
   Widget build(BuildContext context) {
-    final (rank, color) = rankFor(score);
+    final (rank, color) = rankFor(level);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       width: 52,
@@ -409,7 +410,7 @@ class RankBadge extends StatelessWidget {
         child: Text(
           rank,
           style: TextStyle(
-            fontSize: 24,
+            fontSize: 17,
             fontWeight: FontWeight.w900,
             color: color,
           ),

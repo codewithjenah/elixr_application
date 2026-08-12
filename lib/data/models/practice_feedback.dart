@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'rubric_assessment.dart';
 import 'training_prop.dart';
 
 /// Typed status for a single readiness checklist item.
@@ -66,7 +67,7 @@ class PracticeFeedback {
     required this.bottleDetected,
     this.bottleCount = 0,
     required this.movement,
-    required this.score,
+    this.assessment,
     required this.feedback,
     required this.feedbackType,
     required this.postureStatus,
@@ -94,7 +95,10 @@ class PracticeFeedback {
   final bool bottleDetected;
   final int bottleCount;
   final String movement;
-  final int score;
+
+  /// Assessment V2 rubric snapshot (active scored sessions only).
+  final RubricAssessment? assessment;
+
   final String feedback;
   final String feedbackType;
   final String postureStatus;
@@ -156,7 +160,7 @@ class PracticeFeedback {
     return bottleDetected == other.bottleDetected &&
         bottleCount == other.bottleCount &&
         movement == other.movement &&
-        score == other.score &&
+        assessment == other.assessment &&
         feedback == other.feedback &&
         feedbackType == other.feedbackType &&
         postureStatus == other.postureStatus &&
@@ -180,7 +184,7 @@ class PracticeFeedback {
         _readinessItemsEqual(readinessItems, other.readinessItems);
   }
 
-  /// Fields Free Practice actually displays (excludes score/hold/hidden metrics).
+  /// Fields Free Practice actually displays (excludes assessment/hold/hidden metrics).
   bool freePracticeVisibleEquals(PracticeFeedback? other) {
     if (identical(this, other)) return true;
     if (other == null) return false;
@@ -194,7 +198,7 @@ class PracticeFeedback {
 
   /// Scored-practice chrome fields that require a full screen rebuild.
   ///
-  /// Score, hold progress, hold duration/target, feedback codes/categories,
+  /// Rubric totals, hold progress, hold duration/target, feedback codes/categories,
   /// and JPEG bytes are intentionally excluded so high-frequency updates can
   /// use narrowly scoped [ValueNotifier]s / the session accumulator instead.
   bool scoredPracticeChromeEquals(PracticeFeedback? other) {
@@ -238,7 +242,7 @@ class PracticeFeedback {
       bottleDetected: json['bottle_detected'] as bool? ?? false,
       bottleCount: (json['bottle_count'] as num?)?.toInt() ?? 0,
       movement: json['movement'] as String? ?? '',
-      score: json['score'] as int? ?? 0,
+      assessment: RubricAssessment.tryFromJson(json['assessment']),
       feedback: json['feedback'] as String? ?? '',
       feedbackType: json['feedback_type'] as String? ?? 'positive',
       postureStatus: json['posture_status'] as String? ?? 'unknown',

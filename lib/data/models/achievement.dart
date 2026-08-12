@@ -144,20 +144,23 @@ AchievementProgress _sessionsMilestone(
   return _countProgress(_sessionCount(sessions, entry), target);
 }
 
-AchievementProgress _bestScoreAtLeast(
+/// Best Assessment V2 rubric total (0..12) reached in [sessions].
+///
+/// Deliberately ignores [LeaderboardEntry.bestScore]: that aggregate is a
+/// frozen legacy 0..100 percentage and is not comparable to a rubric total.
+/// Legacy V1 sessions are ignored for the same reason.
+AchievementProgress _bestRubricTotalAtLeast(
   List<Session> sessions,
-  LeaderboardEntry? entry,
   int threshold,
 ) {
   var best = 0;
   for (final session in sessions) {
-    if (session.score > best) best = session.score;
+    if (!session.isRubricAssessed) continue;
+    final total = session.rubricTotal;
+    if (total != null && total > best) best = total;
   }
-  final boardBest = entry?.bestScore ?? 0;
-  if (boardBest > best) best = boardBest;
-  final display = best > threshold ? threshold : best;
   return AchievementProgress(
-    current: display < 0 ? 0 : display,
+    current: best > threshold ? threshold : best,
     target: threshold,
     completed: best >= threshold,
   );
@@ -246,22 +249,22 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'sharp_pour',
       title: 'Sharp Pour',
-      description: 'Achieve a session score of at least 90.',
+      description: 'Reach Proficient (10 of 12) in a session.',
       category: AchievementCategory.score,
       rewardBorderId: achievementRewardBorderIds['sharp_pour']!,
-      target: 90,
+      target: 10,
       progressionOrder: 4,
-      evaluator: (sessions, entry) => _bestScoreAtLeast(sessions, entry, 90),
+      evaluator: (sessions, entry) => _bestRubricTotalAtLeast(sessions, 10),
     ),
     AchievementDefinition(
       id: 'perfect_serve',
       title: 'Perfect Serve',
-      description: 'Achieve a session score of 100.',
+      description: 'Reach Mastered with a perfect 12 of 12 in a session.',
       category: AchievementCategory.score,
       rewardBorderId: achievementRewardBorderIds['perfect_serve']!,
-      target: 100,
+      target: 12,
       progressionOrder: 9,
-      evaluator: (sessions, entry) => _bestScoreAtLeast(sessions, entry, 100),
+      evaluator: (sessions, entry) => _bestRubricTotalAtLeast(sessions, 12),
     ),
     AchievementDefinition(
       id: 'movement_explorer',

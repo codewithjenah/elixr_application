@@ -1,14 +1,33 @@
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/movement.dart';
+import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/features/progress/training_recommendation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _userId = 'user-1';
 
+/// Distributes a 0..12 total across the four criteria (each 0..3).
+RubricAssessment _rubric(int total) {
+  final scores = <int>[0, 0, 0, 0];
+  var remaining = total.clamp(0, 12);
+  for (var i = 0; i < scores.length && remaining > 0; i++) {
+    final value = remaining >= 3 ? 3 : remaining;
+    scores[i] = value;
+    remaining -= value;
+  }
+  return RubricAssessment(
+    technique: scores[0],
+    stability: scores[1],
+    completion: scores[2],
+    propPositioning: scores[3],
+  );
+}
+
+/// Assessment V2 fixture.
 Session _session({
   required String movementName,
-  int score = 70,
+  int rubricTotal = 8,
   String? createdAt,
   String difficulty = 'Easy',
 }) {
@@ -16,7 +35,25 @@ Session _session({
     userId: _userId,
     movementName: movementName,
     difficulty: difficulty,
-    score: score,
+    rubric: _rubric(rubricTotal),
+    assessmentVersion: 2,
+    durationSeconds: 60,
+    createdAt: createdAt,
+  );
+}
+
+/// Legacy Assessment V1 fixture (0..100 percentage).
+Session _legacySession({
+  required String movementName,
+  int legacyScore = 80,
+  String? createdAt,
+  String difficulty = 'Easy',
+}) {
+  return Session(
+    userId: _userId,
+    movementName: movementName,
+    difficulty: difficulty,
+    legacyScore: legacyScore,
     durationSeconds: 60,
     createdAt: createdAt,
   );
@@ -43,7 +80,7 @@ void main() {
       final sessions = [
         _session(
           movementName: 'Normal Grip',
-          score: 80,
+          rubricTotal: 10,
           createdAt: _iso(2026, 1, 1),
         ),
       ];
@@ -57,11 +94,11 @@ void main() {
       expect(result.reason, 'You have not practiced this movement yet.');
     });
 
-    test('one high-scoring session does not mark a movement mastered', () {
+    test('one proficient session does not mark a movement mastered', () {
       final sessions = [
         _session(
           movementName: 'Normal Grip',
-          score: 90,
+          rubricTotal: 11,
           createdAt: _iso(2026, 1, 1),
         ),
       ];
@@ -75,45 +112,16 @@ void main() {
         (m) => m.movement.name == 'Normal Grip',
       );
       expect(mastery.status, MovementMasteryStatus.improving);
-      expect(mastery.recentAverageScore, 90);
+      expect(mastery.recentAverageRubric, 11);
+      expect(mastery.recentPerformanceLevel, PerformanceLevel.proficient);
     });
 
-    test('three recent scores of at least 85 mark a movement mastered', () {
+    test('three proficient rubric totals mark a movement mastered', () {
       final sessions = [
-        _session(
-          movementName: 'Normal Grip',
-          score: 85,
-          createdAt: _iso(2026, 1, 1),
-        ),
-        _session(
-          movementName: 'Normal Grip',
-          score: 88,
-          createdAt: _iso(2026, 1, 2),
-        ),
-        _session(
-          movementName: 'Normal Grip',
-          score: 90,
-          createdAt: _iso(2026, 1, 3),
-        ),
-      ];
-
-      final result = buildTrainingRecommendation(
-        sessions: sessions,
-        movements: movementCatalog,
-      );
-
-      final mastery = result.masteries.firstWhere(
-        (m) => m.movement.name == 'Normal Grip',
-      );
-      expect(mastery.status, MovementMasteryStatus.mastered);
-    });
-
-    test('recent average uses no more than five sessions', () {
-      final sessions = <Session>[
-        for (var i = 1; i <= 7; i++)
+        for (var i = 1; i <= 3; i++)
           _session(
             movementName: 'Normal Grip',
-            score: i == 7 ? 100 : 50,
+            rubricTotal: 9 + i,
             createdAt: _iso(2026, 1, i),
           ),
       ];
@@ -126,7 +134,138 @@ void main() {
       final mastery = result.masteries.firstWhere(
         (m) => m.movement.name == 'Normal Grip',
       );
-      expect(mastery.recentAverageScore, 60);
+      expect(mastery.status, MovementMasteryStatus.mastered);
+      expect(mastery.bestRubricTotal, 12);
+    });
+
+    test('mastery tiers follow rubric performance levels', () {
+      const movements = <Movement>[
+        Movement(
+          name: 'Competent Move',
+          difficulty: 'Easy',
+          description: 'A',
+          requiresHandsDetection: true,
+          enabled: true,
+        ),
+        Movement(
+          name: 'Beginning Move',
+          difficulty: 'Easy',
+          description: 'B',
+          requiresHandsDetection: true,
+          enabled: true,
+        ),
+      ];
+
+      final result = buildTrainingRecommendation(
+        sessions: [
+          for (var i = 1; i <= 3; i++)
+            _session(
+              movementName: 'Competent Move',
+              rubricTotal: 8,
+              createdAt: _iso(2026, 1, i),
+            ),
+          for (var i = 1; i <= 3; i++)
+            _session(
+              movementName: 'Beginning Move',
+              rubricTotal: 3,
+              createdAt: _iso(2026, 2, i),
+            ),
+        ],
+        movements: movements,
+      );
+
+      final competent = result.masteries.firstWhere(
+        (m) => m.movement.name == 'Competent Move',
+      );
+      final beginning = result.masteries.firstWhere(
+        (m) => m.movement.name == 'Beginning Move',
+      );
+      expect(competent.status, MovementMasteryStatus.improving);
+      expect(beginning.status, MovementMasteryStatus.learning);
+      expect(result.recommended.movement.name, 'Beginning Move');
+    });
+
+    test('recent average uses no more than five sessions', () {
+      final sessions = <Session>[
+        for (var i = 1; i <= 7; i++)
+          _session(
+            movementName: 'Normal Grip',
+            rubricTotal: i == 7 ? 12 : 6,
+            createdAt: _iso(2026, 1, i),
+          ),
+      ];
+
+      final result = buildTrainingRecommendation(
+        sessions: sessions,
+        movements: movementCatalog,
+      );
+
+      final mastery = result.masteries.firstWhere(
+        (m) => m.movement.name == 'Normal Grip',
+      );
+      // Last five totals: 6, 6, 6, 6, 12.
+      expect(mastery.recentAverageRubric, closeTo(36 / 5, 0.0001));
+      expect(mastery.rubricSessionCount, 7);
+    });
+
+    test('legacy sessions are excluded from rubric aggregates', () {
+      final sessions = [
+        for (var i = 1; i <= 3; i++)
+          _legacySession(
+            movementName: 'Normal Grip',
+            legacyScore: 90,
+            createdAt: _iso(2026, 1, i),
+          ),
+      ];
+
+      final result = buildTrainingRecommendation(
+        sessions: sessions,
+        movements: movementCatalog,
+      );
+
+      final mastery = result.masteries.firstWhere(
+        (m) => m.movement.name == 'Normal Grip',
+      );
+      expect(mastery.completedSessions, 3);
+      expect(mastery.rubricSessionCount, 0);
+      expect(mastery.recentAverageRubric, isNull);
+      expect(mastery.lifetimeAverageRubric, isNull);
+      expect(mastery.bestRubricTotal, isNull);
+      // Practiced, but a legacy percentage is not rubric evidence of mastery.
+      expect(mastery.status, MovementMasteryStatus.learning);
+    });
+
+    test('mixed cohorts average only the rubric sessions', () {
+      final sessions = [
+        _legacySession(
+          movementName: 'Normal Grip',
+          legacyScore: 100,
+          createdAt: _iso(2026, 1, 1),
+        ),
+        _session(
+          movementName: 'Normal Grip',
+          rubricTotal: 6,
+          createdAt: _iso(2026, 1, 2),
+        ),
+        _session(
+          movementName: 'Normal Grip',
+          rubricTotal: 8,
+          createdAt: _iso(2026, 1, 3),
+        ),
+      ];
+
+      final result = buildTrainingRecommendation(
+        sessions: sessions,
+        movements: movementCatalog,
+      );
+
+      final mastery = result.masteries.firstWhere(
+        (m) => m.movement.name == 'Normal Grip',
+      );
+      expect(mastery.completedSessions, 3);
+      expect(mastery.rubricSessionCount, 2);
+      expect(mastery.recentAverageRubric, 7);
+      expect(mastery.bestRubricTotal, 8);
     });
 
     test('the weakest non-mastered movement is recommended', () {
@@ -158,18 +297,18 @@ void main() {
         for (var i = 1; i <= 3; i++)
           _session(
             movementName: 'Mastered A',
-            score: 90,
+            rubricTotal: 11,
             createdAt: _iso(2026, 1, i),
           ),
         for (var i = 1; i <= 3; i++)
           _session(
             movementName: 'Mastered B',
-            score: 90,
+            rubricTotal: 11,
             createdAt: _iso(2026, 2, i),
           ),
         _session(
           movementName: 'Weak Move',
-          score: 64,
+          rubricTotal: 6,
           createdAt: _iso(2026, 3, 1),
         ),
       ];
@@ -182,11 +321,12 @@ void main() {
       expect(result.recommended.movement.name, 'Weak Move');
       expect(
         result.reason,
-        'Your recent average of 64 is your lowest current mastery score.',
+        'Your recent rubric average of 6 / 12 is your lowest current mastery '
+        'result.',
       );
     });
 
-    test('oldest practice date resolves equal-score ties', () {
+    test('oldest practice date resolves equal-total ties', () {
       const movements = <Movement>[
         Movement(
           name: 'Move A',
@@ -214,17 +354,17 @@ void main() {
       final sessions = [
         _session(
           movementName: 'Move A',
-          score: 60,
+          rubricTotal: 6,
           createdAt: _iso(2026, 1, 10),
         ),
         _session(
           movementName: 'Move B',
-          score: 60,
+          rubricTotal: 6,
           createdAt: _iso(2026, 1, 1),
         ),
         _session(
           movementName: 'Move C',
-          score: 60,
+          rubricTotal: 6,
           createdAt: _iso(2026, 1, 5),
         ),
       ];
@@ -239,15 +379,15 @@ void main() {
 
     test('malformed and null dates do not throw', () {
       final sessions = [
-        _session(movementName: 'Normal Grip', score: 70, createdAt: null),
+        _session(movementName: 'Normal Grip', rubricTotal: 8, createdAt: null),
         _session(
           movementName: 'Normal Grip',
-          score: 75,
+          rubricTotal: 9,
           createdAt: 'not-a-date',
         ),
         _session(
           movementName: 'Normal Grip',
-          score: 80,
+          rubricTotal: 10,
           createdAt: _iso(2026, 2, 1),
         ),
       ];
@@ -268,7 +408,7 @@ void main() {
         (m) => m.movement.name == 'Normal Grip',
       );
       expect(mastery.completedSessions, 3);
-      expect(mastery.recentAverageScore, isNotNull);
+      expect(mastery.recentAverageRubric, isNotNull);
     });
 
     test('disabled movements are excluded', () {
@@ -306,7 +446,7 @@ void main() {
           sessions.add(
             _session(
               movementName: movement.name,
-              score: 90,
+              rubricTotal: 11,
               createdAt: _iso(2026, 1, i + movementCatalog.indexOf(movement)),
             ),
           );
@@ -336,17 +476,17 @@ void main() {
         final sessions = [
           _session(
             movementName: 'Reverse Grip',
-            score: 55,
+            rubricTotal: 5,
             createdAt: _iso(2026, 1, 3),
           ),
           _session(
             movementName: 'Normal Grip',
-            score: 80,
+            rubricTotal: 10,
             createdAt: _iso(2026, 1, 1),
           ),
           _session(
             movementName: "Bartender's Grip",
-            score: 72,
+            rubricTotal: 8,
             createdAt: _iso(2026, 1, 2),
           ),
         ];
@@ -367,22 +507,22 @@ void main() {
         );
         expect(ordered.reason, reversed.reason);
         expect(
-          ordered.masteries.map((m) => m.recentAverageScore),
-          reversed.masteries.map((m) => m.recentAverageScore),
+          ordered.masteries.map((m) => m.recentAverageRubric),
+          reversed.masteries.map((m) => m.recentAverageRubric),
         );
       },
     );
 
-    test('scores outside 0–100 are clamped safely', () {
+    test('rubric aggregates stay inside 0..12', () {
       final sessions = [
         _session(
           movementName: 'Normal Grip',
-          score: 150,
+          rubricTotal: 12,
           createdAt: _iso(2026, 1, 1),
         ),
         _session(
           movementName: 'Normal Grip',
-          score: -20,
+          rubricTotal: 0,
           createdAt: _iso(2026, 1, 2),
         ),
       ];
@@ -395,9 +535,10 @@ void main() {
       final mastery = result.masteries.firstWhere(
         (m) => m.movement.name == 'Normal Grip',
       );
-      expect(mastery.bestScore, 100);
-      expect(mastery.recentAverageScore, 50);
-      expect(mastery.lifetimeAverageScore, 50);
+      expect(mastery.bestRubricTotal, 12);
+      expect(mastery.recentAverageRubric, 6);
+      expect(mastery.lifetimeAverageRubric, 6);
+      expect(mastery.recentAverageRubric, inInclusiveRange(0, 12));
     });
   });
 }

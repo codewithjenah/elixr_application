@@ -33,7 +33,6 @@ SessionRecommendation buildSessionRecommendation({
   required String movement,
   required TrainingProp prop,
   required bool heldSteady,
-  required int finalScore,
   required double positiveRatio,
   required int totalApplicableSamples,
   required List<SessionImprovement> improvements,

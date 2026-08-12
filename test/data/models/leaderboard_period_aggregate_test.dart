@@ -84,6 +84,72 @@ void main() {
     });
   });
 
+  group('LeaderboardPeriodAggregate Assessment V2 session transitions', () {
+    test('null score counts the session but freezes score metrics', () {
+      final transition = LeaderboardPeriodAggregate.fromExisting(
+        period: LeaderboardPeriod.today,
+        existing: {
+          'daily_key': '20260810',
+          'daily_xp': 50,
+          'daily_sessions_completed': 2,
+          'daily_score_sum': 170,
+          'daily_average_score': 85,
+          'daily_best_score': 90,
+        },
+      ).applySession(eventKey: '20260810', xpAwarded: 25, score: null);
+
+      expect(transition.kind, LeaderboardPeriodTransitionKind.accumulate);
+      expect(transition.aggregate.xp, 75);
+      expect(transition.aggregate.sessionsCompleted, 3);
+      expect(transition.aggregate.scoreSum, 170);
+      expect(transition.aggregate.averageScore, 85);
+      expect(transition.aggregate.bestScore, 90);
+    });
+
+    test('null score in a newer period resets score metrics to zero', () {
+      final transition = LeaderboardPeriodAggregate.fromExisting(
+        period: LeaderboardPeriod.thisMonth,
+        existing: {
+          'monthly_key': '202607',
+          'monthly_xp': 125,
+          'monthly_sessions_completed': 4,
+          'monthly_score_sum': 320,
+          'monthly_average_score': 80,
+          'monthly_best_score': 95,
+        },
+      ).applySession(eventKey: '202608', xpAwarded: 25, score: null);
+
+      expect(transition.kind, LeaderboardPeriodTransitionKind.reset);
+      expect(transition.aggregate.xp, 25);
+      expect(transition.aggregate.sessionsCompleted, 1);
+      expect(transition.aggregate.scoreSum, 0);
+      expect(transition.aggregate.averageScore, 0);
+      expect(transition.aggregate.bestScore, 0);
+    });
+
+    test('an older V2 backfill still cannot roll a newer period back', () {
+      final aggregate = LeaderboardPeriodAggregate.fromExisting(
+        period: LeaderboardPeriod.today,
+        existing: {
+          'daily_key': '20260810',
+          'daily_xp': 50,
+          'daily_sessions_completed': 2,
+          'daily_score_sum': 170,
+          'daily_average_score': 85,
+          'daily_best_score': 90,
+        },
+      );
+      final transition = aggregate.applySession(
+        eventKey: '20260809',
+        xpAwarded: 25,
+        score: null,
+      );
+
+      expect(transition.kind, LeaderboardPeriodTransitionKind.preserve);
+      expect(identical(transition.aggregate, aggregate), isTrue);
+    });
+  });
+
   group('LeaderboardPeriodAggregate quest transitions', () {
     test('equal-period quest adds XP without changing session metrics', () {
       final transition = LeaderboardPeriodAggregate.fromExisting(

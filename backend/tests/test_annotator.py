@@ -85,7 +85,6 @@ def _call_annotate(
         "Good",
         "positive",
         "Hand Stall",
-        80,
         pose=pose,
         prop_label=prop_label,
     )

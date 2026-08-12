@@ -55,21 +55,30 @@ class _MovementsScreenState extends State<MovementsScreen> {
     setState(() => _movementStats = _computeStats(sessions));
   }
 
+  /// Aggregates per movement, averaging only Assessment V2 rubric totals.
   Map<String, MovementStats> _computeStats(List<Session> sessions) {
-    final result = <String, MovementStats>{};
+    final counts = <String, int>{};
+    final rubricCounts = <String, int>{};
+    final rubricSums = <String, int>{};
+
     for (final s in sessions) {
-      final prev = result[s.movementName];
-      if (prev == null) {
-        result[s.movementName] = (count: 1, avgScore: s.score.toDouble());
-      } else {
-        final total = prev.avgScore * prev.count + s.score;
-        result[s.movementName] = (
-          count: prev.count + 1,
-          avgScore: total / (prev.count + 1),
-        );
-      }
+      counts[s.movementName] = (counts[s.movementName] ?? 0) + 1;
+      if (!s.isRubricAssessed) continue;
+      rubricCounts[s.movementName] = (rubricCounts[s.movementName] ?? 0) + 1;
+      rubricSums[s.movementName] =
+          (rubricSums[s.movementName] ?? 0) + s.rubricTotal!;
     }
-    return result;
+
+    return {
+      for (final entry in counts.entries)
+        entry.key: (
+          count: entry.value,
+          rubricSessionCount: rubricCounts[entry.key] ?? 0,
+          averageRubricTotal: (rubricCounts[entry.key] ?? 0) == 0
+              ? null
+              : rubricSums[entry.key]! / rubricCounts[entry.key]!,
+        ),
+    };
   }
 
   @override
