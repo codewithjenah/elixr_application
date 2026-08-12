@@ -171,28 +171,32 @@ def _bartender_hand(
     overrides: dict[int, Point2D] | None = None,
     missing: tuple[int, ...] = (),
 ) -> HandLandmarks:
+    # Real-world bartender's grip: sideways hand, thumb/index pinch lower
+    # on the neck near the shoulder junction, index alongside the neck
+    # (not fully extended past the tip), and remaining fingers wrapped
+    # lower on the shoulder/body.
     points = {
-        0: Point2D(0.32, 0.48),
-        1: Point2D(0.37, 0.47),
-        2: Point2D(0.40, 0.46),
-        3: Point2D(0.44, 0.455),
-        4: Point2D(0.465, 0.455),
-        5: Point2D(0.45, 0.45),
-        6: Point2D(0.478, 0.453),
-        7: Point2D(0.507, 0.456),
-        8: Point2D(0.535, 0.46),
-        9: Point2D(0.49, 0.47),
-        10: Point2D(0.495, 0.475),
-        11: Point2D(0.505, 0.482),
-        12: Point2D(0.51, 0.49),
-        13: Point2D(0.485, 0.485),
-        14: Point2D(0.50, 0.495),
-        15: Point2D(0.51, 0.503),
-        16: Point2D(0.52, 0.51),
-        17: Point2D(0.48, 0.50),
-        18: Point2D(0.49, 0.51),
-        19: Point2D(0.51, 0.52),
-        20: Point2D(0.53, 0.53),
+        0: Point2D(0.30, 0.49),
+        1: Point2D(0.36, 0.485),
+        2: Point2D(0.40, 0.482),
+        3: Point2D(0.445, 0.485),
+        4: Point2D(0.47, 0.488),
+        5: Point2D(0.46, 0.478),
+        6: Point2D(0.495, 0.472),
+        7: Point2D(0.515, 0.485),
+        8: Point2D(0.505, 0.502),
+        9: Point2D(0.485, 0.485),
+        10: Point2D(0.50, 0.505),
+        11: Point2D(0.51, 0.525),
+        12: Point2D(0.515, 0.540),
+        13: Point2D(0.48, 0.505),
+        14: Point2D(0.50, 0.525),
+        15: Point2D(0.515, 0.545),
+        16: Point2D(0.525, 0.555),
+        17: Point2D(0.475, 0.520),
+        18: Point2D(0.495, 0.540),
+        19: Point2D(0.51, 0.555),
+        20: Point2D(0.52, 0.560),
     }
 
     if mirrored:
@@ -363,7 +367,9 @@ def test_bartenders_grip_accepts_reference_like_side_hold(hand):
 
 def test_bartenders_grip_prefers_in_zone_recovered_hand_over_nearer_outsider():
     valid_recovered_hand = _bartender_hand(x_offset=0.032)
-    unrelated_primary_hand = _bartender_hand(y_offset=0.0601667)
+    # Just outside the contact zone bottom, but closer to the control anchor
+    # than the recovered in-zone hand after the lateral offset.
+    unrelated_primary_hand = _bartender_hand(y_offset=0.045)
 
     result, _, _ = evaluate_movement(
         "Bartender's Grip",
@@ -407,9 +413,9 @@ def test_bartenders_grip_rejects_off_bottle_pinch():
 def test_bartenders_grip_rejects_overly_open_thumb_index_control():
     hand = _bartender_hand(
         overrides={
-            4: Point2D(0.43, 0.455),
-            7: Point2D(0.53, 0.456),
-            8: Point2D(0.57, 0.46),
+            4: Point2D(0.43, 0.488),
+            7: Point2D(0.545, 0.490),
+            8: Point2D(0.575, 0.502),
         }
     )
 
@@ -425,10 +431,10 @@ def test_bartenders_grip_rejects_overly_open_thumb_index_control():
 def test_bartenders_grip_rejects_normal_clenched_index():
     hand = _bartender_hand(
         overrides={
-            4: Point2D(0.49, 0.455),
-            6: Point2D(0.50, 0.45),
-            7: Point2D(0.48, 0.46),
-            8: Point2D(0.49, 0.455),
+            4: Point2D(0.49, 0.488),
+            6: Point2D(0.50, 0.478),
+            7: Point2D(0.48, 0.492),
+            8: Point2D(0.47, 0.488),
         }
     )
 
@@ -445,8 +451,8 @@ def test_bartenders_grip_rejects_vertical_normal_grip():
     hand = _bartender_hand(
         overrides={
             0: Point2D(0.49, 0.56),
-            4: Point2D(0.49, 0.455),
-            8: Point2D(0.51, 0.46),
+            4: Point2D(0.49, 0.488),
+            8: Point2D(0.51, 0.502),
             9: Point2D(0.50, 0.47),
         }
     )
@@ -463,8 +469,8 @@ def test_bartenders_grip_rejects_vertical_normal_grip():
 def test_bartenders_grip_rejects_sideways_underhand_hold():
     hand = _bartender_hand(
         overrides={
-            0: Point2D(0.32, 0.54),
-            9: Point2D(0.49, 0.52),
+            0: Point2D(0.30, 0.55),
+            9: Point2D(0.485, 0.54),
         }
     )
 
