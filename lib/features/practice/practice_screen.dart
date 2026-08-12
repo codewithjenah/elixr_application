@@ -741,8 +741,8 @@ class _PracticeScreenState extends State<PracticeScreen>
       }
 
       if (result == SessionSummaryResult.next && nextMovement != null) {
-        // Don't block navigation on SFX teardown — Next skips save and should
-        // move immediately to the next catalog movement.
+        // Session was already persisted by the summary primary action.
+        // Don't block navigation on SFX teardown.
         unawaited(_sfx.stop());
         _clearSessionState();
         _run.cancelToIdle();

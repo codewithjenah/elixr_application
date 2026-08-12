@@ -188,7 +188,7 @@ Future<void> _openSummary(
   await tester.pump(const Duration(milliseconds: 900));
 }
 
-Finder get _saveButton => find.byType(GameActionButton);
+Finder get _primaryButton => find.byType(GameActionButton);
 
 Finder get _scrollView => find.byKey(const Key('session-summary-scroll'));
 
@@ -196,6 +196,9 @@ Finder get _actions => find.byKey(const Key('session-summary-actions'));
 
 Finder get _recommendation =>
     find.byKey(const Key('session-summary-recommendation'));
+
+Finder _primaryButtonLabeled(String label) =>
+    find.widgetWithText(GameActionButton, label);
 
 const _nextMovementFixture = Movement(
   name: "Bartender's Grip",
@@ -475,12 +478,14 @@ void main() {
       expect(_recommendation, findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
       expect(find.text('Discard without saving'), findsOneWidget);
-      expect(_saveButton, findsOneWidget);
+      expect(find.text('Finish'), findsOneWidget);
+      expect(find.text('Save & Continue'), findsNothing);
+      expect(_primaryButton, findsOneWidget);
 
       expect(_isFullyVisible(tester, _recommendation, size), isTrue);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
       expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
-      expect(_isFullyVisible(tester, _saveButton, size), isTrue);
+      expect(_isFullyVisible(tester, _primaryButton, size), isTrue);
     });
 
     testWidgets('1366x768 uses regular layout with zero scroll extent', (
@@ -517,7 +522,7 @@ void main() {
         _isFullyVisible(tester, find.text('Discard without saving'), size),
         isTrue,
       );
-      expect(_isFullyVisible(tester, _saveButton, size), isTrue);
+      expect(_isFullyVisible(tester, _primaryButton, size), isTrue);
     });
 
     testWidgets('1280x720 standard summary is fully visible without overflow', (
@@ -555,7 +560,7 @@ void main() {
         expect(_maxScrollExtent(tester), greaterThan(0));
         expect(_isFullyVisible(tester, _actions, size), isTrue);
         expect(_isFullyVisible(tester, find.text('Try Again'), size), isTrue);
-        expect(_isFullyVisible(tester, _saveButton, size), isTrue);
+        expect(_isFullyVisible(tester, _primaryButton, size), isTrue);
 
         await tester.drag(_scrollView, const Offset(0, -400));
         await tester.pumpAndSettle();
@@ -623,7 +628,7 @@ void main() {
       expect(find.text('Try Again'), findsOneWidget);
       expect(find.text('Discard without saving'), findsOneWidget);
       expect(_isFullyVisible(tester, _actions, size), isTrue);
-      expect(_saveButton, findsOneWidget);
+      expect(_primaryButton, findsOneWidget);
       expect(find.text('What Went Well'), findsOneWidget);
       expect(find.text('Needs Improvement'), findsOneWidget);
       if (expectRecommendation) {
@@ -730,7 +735,7 @@ void main() {
         },
       );
 
-      await tester.tap(_saveButton, warnIfMissed: false);
+      await tester.tap(_primaryButton, warnIfMissed: false);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       tester.takeException();
@@ -746,7 +751,7 @@ void main() {
     });
   });
 
-  testWidgets('duplicate save clicks issue one persistence operation', (
+  testWidgets('duplicate primary clicks issue one persistence operation', (
     tester,
   ) async {
     var saveCalls = 0;
@@ -764,9 +769,9 @@ void main() {
       },
     );
 
-    await tester.tap(_saveButton, warnIfMissed: false);
+    await tester.tap(_primaryButton, warnIfMissed: false);
     await tester.pump();
-    await tester.tap(_saveButton, warnIfMissed: false);
+    await tester.tap(_primaryButton, warnIfMissed: false);
     await tester.pump(const Duration(milliseconds: 60));
     expect(saveCalls, 1);
     await tester.pump(const Duration(milliseconds: 200));
@@ -787,7 +792,7 @@ void main() {
       },
     );
 
-    await tester.tap(_saveButton, warnIfMissed: false);
+    await tester.tap(_primaryButton, warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     tester.takeException();
@@ -795,7 +800,7 @@ void main() {
     expect(find.textContaining('Could not save your session'), findsOneWidget);
     expect(find.text('Try Again'), findsOneWidget);
     expect(find.text('Discard without saving'), findsOneWidget);
-    expect(_saveButton, findsOneWidget);
+    expect(_primaryButton, findsOneWidget);
   });
 
   testWidgets('successful retry closes the dialog once', (tester) async {
@@ -845,13 +850,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 900));
     tester.takeException();
 
-    await tester.tap(_saveButton, warnIfMissed: false);
+    await tester.tap(_primaryButton, warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     tester.takeException();
     expect(find.textContaining('Could not save your session'), findsOneWidget);
 
-    await tester.tap(_saveButton, warnIfMissed: false);
+    await tester.tap(_primaryButton, warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     tester.takeException();
@@ -863,6 +868,7 @@ void main() {
   testWidgets('discard without saving returns discarded result', (
     tester,
   ) async {
+    var saveCalls = 0;
     SessionSummaryResult? result;
 
     tester.view.physicalSize = const Size(1200, 900);
@@ -880,7 +886,10 @@ void main() {
                     movement: 'Hand Stall',
                     durationSeconds: 45,
                     assessment: _standardSummaryAssessment(),
-                    onSave: (_) async => 'unused',
+                    onSave: (_) async {
+                      saveCalls++;
+                      return 'unused';
+                    },
                   );
                 },
                 child: const Text('Open'),
@@ -897,10 +906,12 @@ void main() {
 
     await tester.tap(find.text('Discard without saving'));
     await tester.pumpAndSettle();
+    expect(saveCalls, 0);
     expect(result, SessionSummaryResult.discarded);
   });
 
   testWidgets('try again returns tryAgain result', (tester) async {
+    var saveCalls = 0;
     SessionSummaryResult? result;
 
     tester.view.physicalSize = const Size(1200, 900);
@@ -918,7 +929,10 @@ void main() {
                     movement: 'Hand Stall',
                     durationSeconds: 45,
                     assessment: _standardSummaryAssessment(),
-                    onSave: (_) async => 'unused',
+                    onSave: (_) async {
+                      saveCalls++;
+                      return 'unused';
+                    },
                   );
                 },
                 child: const Text('Open'),
@@ -935,22 +949,12 @@ void main() {
 
     await tester.tap(find.text('Try Again'));
     await tester.pumpAndSettle();
+    expect(saveCalls, 0);
     expect(result, SessionSummaryResult.tryAgain);
   });
 
-  group('Next button', () {
-    testWidgets('is absent when nextMovement is not provided', (tester) async {
-      await _openSummary(
-        tester,
-        assessment: _standardSummaryAssessment(),
-        onSave: (_) async => 'session-no-next',
-      );
-
-      expect(find.textContaining('Next:'), findsNothing);
-      expect(_saveButton, findsOneWidget);
-    });
-
-    testWidgets('appears with Next: <name> label when provided', (
+  group('primary action persistence', () {
+    testWidgets('with next movement shows Next and no Save & Continue', (
       tester,
     ) async {
       await _openSummary(
@@ -961,13 +965,31 @@ void main() {
       );
 
       expect(find.text("Next: Bartender's Grip"), findsOneWidget);
-      expect(find.byType(GameActionButton), findsNWidgets(2));
+      expect(find.text('Save & Continue'), findsNothing);
+      expect(find.text('Finish'), findsNothing);
+      expect(_primaryButton, findsOneWidget);
     });
 
-    testWidgets('pops SessionSummaryResult.next without saving', (
+    testWidgets('without next movement shows Finish and no Save & Continue', (
+      tester,
+    ) async {
+      await _openSummary(
+        tester,
+        assessment: _standardSummaryAssessment(),
+        onSave: (_) async => 'session-no-next',
+      );
+
+      expect(find.textContaining('Next:'), findsNothing);
+      expect(find.text('Finish'), findsOneWidget);
+      expect(find.text('Save & Continue'), findsNothing);
+      expect(_primaryButton, findsOneWidget);
+    });
+
+    testWidgets('Next awaits save then returns SessionSummaryResult.next', (
       tester,
     ) async {
       var saveCalls = 0;
+      var saveCompleted = false;
       SessionSummaryResult? result;
 
       tester.view.physicalSize = const Size(1200, 900);
@@ -988,6 +1010,10 @@ void main() {
                       nextMovement: _nextMovementFixture,
                       onSave: (existingSessionId) async {
                         saveCalls++;
+                        await Future<void>.delayed(
+                          const Duration(milliseconds: 80),
+                        );
+                        saveCompleted = true;
                         return existingSessionId ?? 'session-next';
                       },
                     );
@@ -1004,14 +1030,21 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 900));
 
-      await tester.tap(find.text("Next: Bartender's Grip"));
-      await tester.pumpAndSettle();
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.pump();
+      expect(saveCalls, 1);
+      expect(saveCompleted, isFalse);
+      expect(result, isNull);
 
-      expect(saveCalls, 0);
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.takeException();
+      expect(saveCompleted, isTrue);
       expect(result, SessionSummaryResult.next);
     });
 
-    testWidgets('tap while a save is in flight is a no-op', (tester) async {
+    testWidgets('in-flight Next disables secondary actions and blocks re-tap', (
+      tester,
+    ) async {
       var saveCalls = 0;
       SessionSummaryResult? result;
 
@@ -1052,21 +1085,148 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 900));
 
-      // Start a Save & Continue so Next is disabled while saving.
-      await tester.tap(
-        find.widgetWithText(GameActionButton, 'Save & Continue'),
-        warnIfMissed: false,
-      );
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
       await tester.pump();
+
+      final primary = tester.widget<GameActionButton>(_primaryButton);
+      expect(primary.isLoading, isTrue);
+      expect(primary.onPressed, isNull);
+
+      await tester.tap(_primaryButton, warnIfMissed: false);
+      await tester.tap(find.text('Try Again'), warnIfMissed: false);
       await tester.tap(
-        find.widgetWithText(GameActionButton, "Next: Bartender's Grip"),
+        find.text('Discard without saving'),
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 60));
+
       expect(saveCalls, 1);
       expect(result, isNull);
+
       await tester.pump(const Duration(milliseconds: 200));
       tester.takeException();
+      expect(result, SessionSummaryResult.next);
+    });
+
+    testWidgets('Next save failure keeps dialog open and allows retry', (
+      tester,
+    ) async {
+      var saveCalls = 0;
+      SessionSummaryResult? result;
+
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        FluentApp(
+          home: Builder(
+            builder: (context) {
+              return Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    result = await SessionSummarySheet.show(
+                      context,
+                      movement: 'Hand Stall',
+                      durationSeconds: 45,
+                      assessment: _standardSummaryAssessment(),
+                      nextMovement: _nextMovementFixture,
+                      onSave: (existingSessionId) async {
+                        saveCalls++;
+                        if (saveCalls == 1) {
+                          throw FirebaseException(
+                            plugin: 'cloud_firestore',
+                            code: 'unavailable',
+                          );
+                        }
+                        return existingSessionId ?? 'session-next-retry';
+                      },
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.takeException();
+
+      expect(
+        find.textContaining('Could not save your session'),
+        findsOneWidget,
+      );
+      expect(result, isNull);
+      expect(find.text("Next: Bartender's Grip"), findsOneWidget);
+
+      final primaryAfterFailure = tester.widget<GameActionButton>(
+        _primaryButton,
+      );
+      expect(primaryAfterFailure.isLoading, isFalse);
+      expect(primaryAfterFailure.onPressed, isNotNull);
+
+      await tester.tap(_primaryButtonLabeled("Next: Bartender's Grip"));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.takeException();
+
+      expect(saveCalls, 2);
+      expect(result, SessionSummaryResult.next);
+    });
+
+    testWidgets('Finish awaits save then returns SessionSummaryResult.saved', (
+      tester,
+    ) async {
+      var saveCalls = 0;
+      SessionSummaryResult? result;
+
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        FluentApp(
+          home: Builder(
+            builder: (context) {
+              return Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    result = await SessionSummarySheet.show(
+                      context,
+                      movement: 'Hand Stall',
+                      durationSeconds: 45,
+                      assessment: _standardSummaryAssessment(),
+                      onSave: (existingSessionId) async {
+                        saveCalls++;
+                        return existingSessionId ?? 'session-finish';
+                      },
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+
+      expect(find.text('Save & Continue'), findsNothing);
+      expect(find.text('Finish'), findsOneWidget);
+
+      await tester.tap(_primaryButtonLabeled('Finish'));
+      await tester.pumpAndSettle();
+
+      expect(saveCalls, 1);
       expect(result, SessionSummaryResult.saved);
     });
   });
