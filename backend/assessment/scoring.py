@@ -19,6 +19,7 @@ from config import (
     RUBRIC_FULL_RATIO,
     RUBRIC_MAX_FRAME_GAP_SECONDS,
     RUBRIC_MIN_OBSERVED_SECONDS,
+    RUBRIC_PARTIAL_MIN_OBSERVED_SECONDS,
     RUBRIC_PARTIAL_RATIO,
 )
 
@@ -40,12 +41,14 @@ class RubricTracker:
         full_ratio: float = RUBRIC_FULL_RATIO,
         partial_ratio: float = RUBRIC_PARTIAL_RATIO,
         min_observed_seconds: float = RUBRIC_MIN_OBSERVED_SECONDS,
+        partial_min_observed_seconds: float = RUBRIC_PARTIAL_MIN_OBSERVED_SECONDS,
         completion_partial_progress: float = RUBRIC_COMPLETION_PARTIAL_PROGRESS,
     ) -> None:
         self._max_frame_gap_seconds = max_frame_gap_seconds
         self._full_ratio = full_ratio
         self._partial_ratio = partial_ratio
         self._min_observed_seconds = min_observed_seconds
+        self._partial_min_observed_seconds = partial_min_observed_seconds
         self._completion_partial_progress = completion_partial_progress
         self._activated = False
         self._last_timestamp: float | None = None
@@ -149,7 +152,10 @@ class RubricTracker:
                 score=3,
                 reason_code=reason if satisfied > 0 else "full_consistency",
             )
-        if ratio >= self._partial_ratio:
+        if (
+            ratio >= self._partial_ratio
+            and observed >= self._partial_min_observed_seconds
+        ):
             return CriterionScore(
                 score=2,
                 reason_code=reason if reason != "not_observed" else "partial_consistency",

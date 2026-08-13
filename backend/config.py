@@ -175,6 +175,13 @@ RUBRIC_MAX_FRAME_GAP_SECONDS = float(
 RUBRIC_FULL_RATIO = float(os.getenv("RUBRIC_FULL_RATIO", "0.90"))
 RUBRIC_PARTIAL_RATIO = float(os.getenv("RUBRIC_PARTIAL_RATIO", "0.65"))
 RUBRIC_MIN_OBSERVED_SECONDS = float(os.getenv("RUBRIC_MIN_OBSERVED_SECONDS", "1.0"))
+# Partial (score=2) floor defaults to half the full floor; override independently.
+RUBRIC_PARTIAL_MIN_OBSERVED_SECONDS = float(
+    os.getenv(
+        "RUBRIC_PARTIAL_MIN_OBSERVED_SECONDS",
+        str(RUBRIC_MIN_OBSERVED_SECONDS / 2.0),
+    )
+)
 RUBRIC_COMPLETION_PARTIAL_PROGRESS = float(
     os.getenv("RUBRIC_COMPLETION_PARTIAL_PROGRESS", "0.66")
 )

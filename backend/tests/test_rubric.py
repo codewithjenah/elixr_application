@@ -275,6 +275,112 @@ def test_partial_then_locked_yields_partial_or_full():
     assert assessment.completion.score == 3
 
 
+def test_brief_high_ratio_below_partial_floor_does_not_score_two():
+    """A flicker of locked evidence must not reach the partial tier."""
+    tracker = RubricTracker(
+        min_observed_seconds=1.0,
+        partial_min_observed_seconds=0.5,
+    )
+    tracker.activate()
+    # ~0.2s of 100% locked evidence — above partial_ratio, below partial floor.
+    tracker.record(
+        feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+        feedback_type="positive",
+        posture_status="stable",
+        timestamp=1.0,
+    )
+    tracker.record(
+        feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+        feedback_type="positive",
+        posture_status="stable",
+        timestamp=1.2,
+    )
+    assessment = tracker.snapshot(HoldSnapshot())
+    assert assessment.technique.score == 1
+    assert assessment.stability.score == 1
+    assert assessment.prop_positioning.score == 1
+    assert assessment.technique.reason_code == "brief_demonstration"
+
+
+def test_partial_consistency_at_or_above_floor_still_scores_two():
+    """Sustained partial consistency (>= floor, 65–90%) still scores 2."""
+    tracker = RubricTracker(
+        min_observed_seconds=1.0,
+        partial_min_observed_seconds=0.5,
+        partial_ratio=0.65,
+        full_ratio=0.90,
+    )
+    tracker.activate()
+    t = 0.0
+    # 0.4s unsatisfied + 0.8s locked = 1.2s observed, ratio 0.667 => partial.
+    for _ in range(2):
+        t += 0.2
+        tracker.record(
+            feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+            feedback_type="warning",
+            posture_status="unstable",
+            timestamp=t,
+        )
+    for _ in range(4):
+        t += 0.2
+        tracker.record(
+            feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+            feedback_type="positive",
+            posture_status="stable",
+            timestamp=t,
+        )
+    assessment = tracker.snapshot(HoldSnapshot())
+    assert assessment.stability.score == 2
+
+
+def test_full_consistency_branch_unchanged_by_partial_floor():
+    """Score=3 still requires full_ratio and the full min_observed_seconds floor."""
+    tracker = RubricTracker(
+        min_observed_seconds=1.0,
+        partial_min_observed_seconds=0.5,
+        full_ratio=0.90,
+    )
+    tracker.activate()
+    t = 0.0
+    # Six samples → five 0.2s deltas = 1.0s locked (at the full floor).
+    for _ in range(6):
+        t += 0.2
+        tracker.record(
+            feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+            feedback_type="positive",
+            posture_status="stable",
+            timestamp=t,
+        )
+    full = tracker.snapshot(HoldSnapshot())
+    assert full.technique.score == 3
+    assert full.stability.score == 3
+    assert full.prop_positioning.score == 3
+
+    # Below the full floor but above the partial floor: 100% ratio still
+    # cannot reach score 3 (partial floor alone is not enough for full).
+    brief = RubricTracker(
+        min_observed_seconds=1.0,
+        partial_min_observed_seconds=0.5,
+        full_ratio=0.90,
+    )
+    brief.activate()
+    t = 0.0
+    # Four samples → three 0.2s deltas = 0.6s observed.
+    for _ in range(4):
+        t += 0.2
+        brief.record(
+            feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+            feedback_type="positive",
+            posture_status="stable",
+            timestamp=t,
+        )
+    mid = brief.snapshot(HoldSnapshot())
+    # 0.6s observed, 100% ratio: not full (below 1.0s), but partial (>= 0.5s).
+    assert mid.technique.score == 2
+    assert mid.stability.score == 2
+    assert mid.prop_positioning.score == 2
+
+
 def test_inactive_tracker_ignores_records():
     tracker = RubricTracker()
     tracker.record(
