@@ -117,6 +117,17 @@ void main() {
     expect(find.text('No students linked yet'), findsOneWidget);
   });
 
+  testWidgets('missing profile cannot enter Teacher shell', (tester) async {
+    repository.authSessionWithoutProfile = true;
+    await controller.initialize();
+    await setPhoneSurface(tester);
+    await pumpRoutedApp(tester, controller: controller);
+
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byType(RosterScreen), findsNothing);
+    expect(find.text(TeacherAuthMessages.notATeacher), findsNothing);
+  });
+
   testWidgets('logout returns to Login', (tester) async {
     repository.persistedUser = fakeTeacher();
     repository.emailVerified = true;

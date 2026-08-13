@@ -228,6 +228,17 @@ Future<void> finishAccountDeletionAfterPurge({
   await deleteAuthUser();
 }
 
+/// Thrown when a Firebase Auth session has no Firestore `users/{uid}` document
+/// and the client is not allowed to synthesize a Trainee profile.
+class MissingUserProfileException implements Exception {
+  const MissingUserProfileException();
+
+  static const message = 'Account profile not found. Please register first.';
+
+  @override
+  String toString() => message;
+}
+
 class AuthRepository implements AuthRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
@@ -236,6 +247,7 @@ class AuthRepository implements AuthRepositoryBase {
     ProfileImageRepositoryBase? profileImageRepository,
     FirebaseStorage? storage,
     Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
+    this.createMissingProfile = true,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
        _db =
@@ -259,6 +271,11 @@ class AuthRepository implements AuthRepositoryBase {
   final FirebaseStorage _storage;
   final Future<List<String>> Function(String userId)?
   _listProfileStorageObjectPaths;
+
+  /// When false, a Firebase session without a Firestore profile is signed out
+  /// instead of synthesizing a Trainee document. Teacher clients pass false
+  /// so a missing profile cannot become a Trainee user written from this app.
+  final bool createMissingProfile;
 
   @override
   Future<User> register({
@@ -302,9 +319,12 @@ class AuthRepository implements AuthRepositoryBase {
         email: email,
         password: password,
       );
-      return _loadUserProfile(credential.user!);
+      return await _loadUserProfile(credential.user!);
     } on fb.FirebaseAuthException catch (e) {
       throw Exception(_messageForAuthError(e));
+    } on MissingUserProfileException {
+      await _signOutIgnoringErrors();
+      rethrow;
     }
   }
 
@@ -337,16 +357,29 @@ class AuthRepository implements AuthRepositoryBase {
   Future<User?> loadPersistedUser() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) return null;
-    return _loadUserProfile(
-      firebaseUser,
-      reload: true,
-      tolerateReloadFailure: true,
-    );
+    try {
+      return await _loadUserProfile(
+        firebaseUser,
+        reload: true,
+        tolerateReloadFailure: true,
+      );
+    } on MissingUserProfileException {
+      await _signOutIgnoringErrors();
+      return null;
+    }
   }
 
   @override
   Future<void> clearCurrentUser() {
     return _auth.signOut();
+  }
+
+  Future<void> _signOutIgnoringErrors() async {
+    try {
+      await _auth.signOut();
+    } catch (_) {
+      // Best-effort: the caller still treats the session as unusable.
+    }
   }
 
   @override
@@ -539,7 +572,12 @@ class AuthRepository implements AuthRepositoryBase {
   Future<User?> refreshAuthenticatedUser() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) return null;
-    return _loadUserProfile(firebaseUser, reload: true);
+    try {
+      return await _loadUserProfile(firebaseUser, reload: true);
+    } on MissingUserProfileException {
+      await _signOutIgnoringErrors();
+      return null;
+    }
   }
 
   @override
@@ -960,6 +998,9 @@ class AuthRepository implements AuthRepositoryBase {
 
     var profile = await _db.getUserById(firebaseUser.uid);
     if (profile == null) {
+      if (!createMissingProfile) {
+        throw const MissingUserProfileException();
+      }
       final parsed = parseLegacyFullName(firebaseUser.displayName ?? 'Trainee');
       final user = User(
         id: firebaseUser.uid,

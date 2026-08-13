@@ -50,6 +50,17 @@ void main() {
       expect(controller.canEnterTeacherShell, isFalse);
     });
 
+    test('persisted reload failure stays off the Teacher shell', () async {
+      repository.persistedUser = fakeTeacher();
+      repository.emailVerified = true;
+      repository.emailVerifiedError = Exception('Account refresh timed out');
+
+      await controller.initialize();
+
+      expect(controller.status, TeacherAuthStatus.unverifiedTeacher);
+      expect(controller.canEnterTeacherShell, isFalse);
+    });
+
     test('persisted Trainee is signed out of the Teacher app', () async {
       repository.persistedUser = fakeTrainee();
 
@@ -70,6 +81,21 @@ void main() {
       expect(repository.clearCurrentUserCallCount, 1);
       expect(controller.errorMessage, TeacherAuthMessages.notATeacher);
     });
+
+    test(
+      'missing Firestore profile signs out without claiming a role',
+      () async {
+        repository.authSessionWithoutProfile = true;
+
+        await controller.initialize();
+
+        expect(controller.status, TeacherAuthStatus.signedOut);
+        expect(controller.currentUser, isNull);
+        expect(repository.clearCurrentUserCallCount, 1);
+        expect(controller.errorMessage, isNull);
+        expect(controller.canEnterTeacherShell, isFalse);
+      },
+    );
 
     test('load failure is a recoverable signed-out error', () async {
       repository.loadError = Exception(
@@ -324,6 +350,45 @@ void main() {
       expect(controller.status, TeacherAuthStatus.signedOut);
       expect(controller.errorMessage, 'Invalid email or password');
     });
+
+    test('missing profile after sign-in is signed out safely', () async {
+      repository.authSessionWithoutProfile = true;
+
+      final ok = await controller.login(
+        email: 'teacher@example.com',
+        password: 'secret1',
+      );
+
+      expect(ok, isFalse);
+      expect(controller.status, TeacherAuthStatus.signedOut);
+      expect(controller.currentUser, isNull);
+      expect(controller.errorMessage, TeacherAuthMessages.missingProfile);
+      expect(repository.clearCurrentUserCallCount, greaterThanOrEqualTo(1));
+    });
+
+    test('prevents double submission while login is running', () async {
+      repository.loginResult = fakeTeacher();
+      repository.emailVerified = true;
+      repository.loginGate = Completer<void>();
+
+      final first = controller.login(
+        email: 'teacher@example.com',
+        password: 'secret1',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final second = await controller.login(
+        email: 'teacher@example.com',
+        password: 'secret1',
+      );
+
+      expect(second, isFalse);
+      expect(repository.loginCallCount, 1);
+
+      repository.loginGate!.complete();
+      expect(await first, isTrue);
+      expect(repository.loginCallCount, 1);
+    });
   });
 
   group('email verification', () {
@@ -364,6 +429,37 @@ void main() {
       expect(ok, isFalse);
       expect(controller.status, TeacherAuthStatus.signedOut);
       expect(controller.errorMessage, TeacherAuthMessages.notATeacher);
+    });
+
+    test(
+      'resend surfaces the verification error without signing out',
+      () async {
+        repository.persistedUser = fakeTeacher();
+        repository.emailVerified = false;
+        await controller.initialize();
+
+        repository.verificationError = Exception(
+          'Too many attempts. Try again later',
+        );
+        final ok = await controller.resendVerificationEmail();
+
+        expect(ok, isFalse);
+        expect(controller.status, TeacherAuthStatus.unverifiedTeacher);
+        expect(controller.errorMessage, 'Too many attempts. Try again later');
+      },
+    );
+
+    test('check failure from reload stays on verify-email', () async {
+      repository.persistedUser = fakeTeacher();
+      repository.emailVerified = false;
+      await controller.initialize();
+
+      repository.emailVerifiedError = Exception('Account refresh timed out');
+      final ok = await controller.checkEmailVerification();
+
+      expect(ok, isFalse);
+      expect(controller.status, TeacherAuthStatus.unverifiedTeacher);
+      expect(controller.errorMessage, 'Account refresh timed out');
     });
   });
 
@@ -411,6 +507,20 @@ void main() {
         'Network error. Check your connection and try again.',
       );
     });
+
+    test('user-not-found is treated as generic success', () async {
+      repository.passwordResetError = Exception(
+        '[firebase_auth/user-not-found] There is no user record',
+      );
+
+      final ok = await controller.sendPasswordResetEmail(
+        email: 'anyone@example.com',
+      );
+
+      expect(ok, isTrue);
+      expect(controller.infoMessage, TeacherAuthMessages.resetEmailSent);
+      expect(controller.errorMessage, isNull);
+    });
   });
 
   group('sign out', () {
@@ -424,6 +534,24 @@ void main() {
       expect(controller.status, TeacherAuthStatus.signedOut);
       expect(controller.currentUser, isNull);
       expect(repository.clearCurrentUserCallCount, 1);
+    });
+
+    test('local sign-out proceeds when Firebase sign-out fails', () async {
+      repository.persistedUser = fakeTeacher();
+      repository.emailVerified = true;
+      await controller.initialize();
+
+      repository.signOutError = Exception(
+        'Network error. Check your connection and try again.',
+      );
+      await controller.signOut();
+
+      expect(controller.status, TeacherAuthStatus.signedOut);
+      expect(controller.currentUser, isNull);
+      expect(
+        controller.errorMessage,
+        'Network error. Check your connection and try again.',
+      );
     });
   });
 

@@ -11,6 +11,10 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final paragraphs = ElixrLegalDocuments.privacyPolicyParagraphsFor(
+      ElixrLegalClient.traineeWindows,
+    );
+
     return AuthScaffold(
       title: 'Privacy Policy',
       subtitle: 'How ELIXR handles your personal data',
@@ -19,14 +23,10 @@ class PrivacyPolicyScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (
-            var i = 0;
-            i < ElixrLegalDocuments.privacyPolicyParagraphs.length;
-            i++
-          ) ...[
+          for (var i = 0; i < paragraphs.length; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.md),
             Text(
-              ElixrLegalDocuments.privacyPolicyParagraphs[i],
+              paragraphs[i],
               style: AppTheme.body.copyWith(
                 color: context.elixTextSecondary,
                 height: 1.45,

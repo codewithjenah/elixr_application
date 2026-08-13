@@ -19,6 +19,7 @@ abstract final class TeacherAuthMessages {
   static const emailEmpty = 'Email cannot be empty.';
   static const invalidEmail = 'Invalid email address';
   static const resetEmailSent = 'Check your email for a reset link';
+  static const missingProfile = MissingUserProfileException.message;
   static const emailNotVerifiedYet =
       'Email is not verified yet. Check your inbox and try again.';
   static const verificationSent = 'Verification email sent.';
@@ -160,9 +161,8 @@ class TeacherAuthController extends ChangeNotifier {
           : TeacherAuthStatus.unverifiedTeacher;
       return true;
     } catch (error) {
-      _currentUser = null;
-      _status = TeacherAuthStatus.signedOut;
-      _errorMessage = sanitizeAuthError(error);
+      await _abandonRemoteSession();
+      _errorMessage = _failureMessage(error);
       return false;
     } finally {
       _isBusy = false;
@@ -194,9 +194,8 @@ class TeacherAuthController extends ChangeNotifier {
       );
       return _applyAuthenticatedUser(user, fromPersistedSession: false);
     } catch (error) {
-      _currentUser = null;
-      _status = TeacherAuthStatus.signedOut;
-      _errorMessage = sanitizeAuthError(error);
+      await _abandonRemoteSession();
+      _errorMessage = _failureMessage(error);
       return false;
     } finally {
       _isBusy = false;
@@ -222,6 +221,10 @@ class TeacherAuthController extends ChangeNotifier {
       _infoMessage = TeacherAuthMessages.resetEmailSent;
       return true;
     } catch (error) {
+      if (isAccountEnumerationResetError(error)) {
+        _infoMessage = TeacherAuthMessages.resetEmailSent;
+        return true;
+      }
       _errorMessage = sanitizeAuthError(error);
       return false;
     } finally {
@@ -346,6 +349,11 @@ class TeacherAuthController extends ChangeNotifier {
   }
 
   Future<void> _rejectNonTeacherSession() async {
+    await _abandonRemoteSession();
+    _errorMessage = TeacherAuthMessages.notATeacher;
+  }
+
+  Future<void> _abandonRemoteSession() async {
     try {
       await repository.clearCurrentUser();
     } catch (_) {
@@ -353,7 +361,13 @@ class TeacherAuthController extends ChangeNotifier {
     }
     _currentUser = null;
     _status = TeacherAuthStatus.signedOut;
-    _errorMessage = TeacherAuthMessages.notATeacher;
+  }
+
+  String _failureMessage(Object error) {
+    if (error is MissingUserProfileException) {
+      return TeacherAuthMessages.missingProfile;
+    }
+    return sanitizeAuthError(error);
   }
 
   Future<bool> _readEmailVerified({required bool failClosed}) async {
@@ -384,6 +398,14 @@ class TeacherAuthController extends ChangeNotifier {
   void _emit() {
     if (!_disposed) notifyListeners();
   }
+}
+
+@visibleForTesting
+bool isAccountEnumerationResetError(Object error) {
+  final lower = error.toString().toLowerCase();
+  return lower.contains('user-not-found') ||
+      lower.contains('user not found') ||
+      lower.contains('no user record');
 }
 
 @visibleForTesting

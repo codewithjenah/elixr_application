@@ -11,6 +11,10 @@ class TermsOfServiceScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final paragraphs = ElixrLegalDocuments.termsOfServiceParagraphsFor(
+      ElixrLegalClient.traineeWindows,
+    );
+
     return AuthScaffold(
       title: 'Terms of Service',
       subtitle: 'Rules for using ELIXR',
@@ -19,14 +23,10 @@ class TermsOfServiceScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (
-            var i = 0;
-            i < ElixrLegalDocuments.termsOfServiceParagraphs.length;
-            i++
-          ) ...[
+          for (var i = 0; i < paragraphs.length; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.md),
             Text(
-              ElixrLegalDocuments.termsOfServiceParagraphs[i],
+              paragraphs[i],
               style: AppTheme.body.copyWith(
                 color: context.elixTextSecondary,
                 height: 1.45,

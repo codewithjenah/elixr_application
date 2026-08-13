@@ -29,6 +29,42 @@ void main() {
     }
   });
 
+  test('initializing never redirects', () {
+    for (final location in locations) {
+      expect(
+        resolveTeacherRedirect(
+          status: TeacherAuthStatus.initializing,
+          location: location,
+        ),
+        isNull,
+      );
+    }
+  });
+
+  test('legal routes stay reachable while signed out or unverified', () {
+    expect(
+      resolveTeacherRedirect(
+        status: TeacherAuthStatus.signedOut,
+        location: TeacherRoutes.privacyPolicy,
+      ),
+      isNull,
+    );
+    expect(
+      resolveTeacherRedirect(
+        status: TeacherAuthStatus.unverifiedTeacher,
+        location: TeacherRoutes.termsOfService,
+      ),
+      isNull,
+    );
+    expect(
+      resolveTeacherRedirect(
+        status: TeacherAuthStatus.authenticatedTeacher,
+        location: TeacherRoutes.privacyPolicy,
+      ),
+      isNull,
+    );
+  });
+
   test('signed-out users are sent to login from protected routes', () {
     expect(
       resolveTeacherRedirect(

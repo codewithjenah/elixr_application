@@ -13,7 +13,9 @@ class PrivacyPolicyScreen extends StatelessWidget {
     return _LegalDocumentScreen(
       title: ElixrLegalDocuments.privacyPolicyTitle,
       subtitle: ElixrLegalDocuments.privacyPolicySubtitle,
-      paragraphs: ElixrLegalDocuments.privacyPolicyParagraphs,
+      paragraphs: ElixrLegalDocuments.privacyPolicyParagraphsFor(
+        ElixrLegalClient.teacherAndroid,
+      ),
     );
   }
 }
@@ -26,7 +28,9 @@ class TermsOfServiceScreen extends StatelessWidget {
     return _LegalDocumentScreen(
       title: ElixrLegalDocuments.termsOfServiceTitle,
       subtitle: ElixrLegalDocuments.termsOfServiceSubtitle,
-      paragraphs: ElixrLegalDocuments.termsOfServiceParagraphs,
+      paragraphs: ElixrLegalDocuments.termsOfServiceParagraphsFor(
+        ElixrLegalClient.teacherAndroid,
+      ),
     );
   }
 }
@@ -58,27 +62,30 @@ class _LegalDocumentScreen extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: ListView(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          children: [
-            Text(
-              subtitle,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: TeacherColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < paragraphs.length; i++) ...[
-              if (i > 0) const SizedBox(height: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                paragraphs[i],
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                subtitle,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: TeacherColors.textSecondary,
-                  height: 1.45,
                 ),
               ),
+              const SizedBox(height: 16),
+              for (var i = 0; i < paragraphs.length; i++) ...[
+                if (i > 0) const SizedBox(height: 16),
+                Text(
+                  paragraphs[i],
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: TeacherColors.textSecondary,
+                    height: 1.45,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

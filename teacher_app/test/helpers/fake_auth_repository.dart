@@ -13,7 +13,9 @@ class FakeAuthRepository implements AuthRepositoryBase {
   Object? loadError;
   Object? refreshError;
   Object? signOutError;
+  Object? emailVerifiedError;
   User? loginResult;
+  bool authSessionWithoutProfile = false;
   Completer<void>? registerGate;
   Completer<void>? loginGate;
 
@@ -69,6 +71,10 @@ class FakeAuthRepository implements AuthRepositoryBase {
     final gate = loginGate;
     if (gate != null) await gate.future;
     if (loginError != null) throw loginError!;
+    if (authSessionWithoutProfile) {
+      await clearCurrentUser();
+      throw const MissingUserProfileException();
+    }
     final user = loginResult ?? persistedUser;
     if (user == null) {
       throw Exception('Invalid email or password');
@@ -87,6 +93,10 @@ class FakeAuthRepository implements AuthRepositoryBase {
   @override
   Future<User?> loadPersistedUser() async {
     if (loadError != null) throw loadError!;
+    if (authSessionWithoutProfile) {
+      await clearCurrentUser();
+      return null;
+    }
     return persistedUser;
   }
 
@@ -100,6 +110,7 @@ class FakeAuthRepository implements AuthRepositoryBase {
   @override
   Future<bool> isCurrentEmailVerified() async {
     isCurrentEmailVerifiedCallCount++;
+    if (emailVerifiedError != null) throw emailVerifiedError!;
     return emailVerified;
   }
 
@@ -113,6 +124,10 @@ class FakeAuthRepository implements AuthRepositoryBase {
   Future<User?> refreshAuthenticatedUser() async {
     refreshAuthenticatedUserCallCount++;
     if (refreshError != null) throw refreshError!;
+    if (authSessionWithoutProfile) {
+      await clearCurrentUser();
+      return null;
+    }
     return persistedUser;
   }
 

@@ -12,7 +12,7 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   final authController = TeacherAuthController(
-    repository: AuthRepository(),
+    repository: AuthRepository(createMissingProfile: false),
     awaitInitialAuthState: () => FirebaseAuth.instance.authStateChanges().first,
   );
 
