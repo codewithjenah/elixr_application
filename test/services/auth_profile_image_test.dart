@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
-import 'package:elixr_application/data/models/user.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -105,6 +105,7 @@ class _FakeAuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     throw UnimplementedError();
   }
@@ -411,22 +412,25 @@ void main() {
       expect(imageRepository.deletedPaths, ['users/u1/profile/avatar_1.jpg']);
     });
 
-    test('clears a legacy-only profile without deleting a local file', () async {
-      final user = User(
-        id: 'u1',
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'user@example.com',
-        profilePicturePath: r'C:\Users\ada\Pictures\avatar.png',
-      );
-      authRepository.user = user;
-      authService.seedAuthenticatedUser(user);
+    test(
+      'clears a legacy-only profile without deleting a local file',
+      () async {
+        final user = User(
+          id: 'u1',
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'user@example.com',
+          profilePicturePath: r'C:\Users\ada\Pictures\avatar.png',
+        );
+        authRepository.user = user;
+        authService.seedAuthenticatedUser(user);
 
-      await authService.removeProfilePicture();
+        await authService.removeProfilePicture();
 
-      expect(authService.currentUser?.profilePicturePath, isNull);
-      expect(imageRepository.deleteCallCount, 0);
-    });
+        expect(authService.currentUser?.profilePicturePath, isNull);
+        expect(imageRepository.deleteCallCount, 0);
+      },
+    );
 
     test('keeps the profile when there is nothing to remove', () async {
       final user = _testUser();

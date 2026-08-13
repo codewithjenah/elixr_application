@@ -1,3 +1,4 @@
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +8,6 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_primary_button.dart';
-import '../../../data/repositories/auth_repository.dart';
 import '../../../services/auth_service.dart';
 import '../widgets/settings_components.dart';
 

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,10 +19,8 @@ import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/achievement_claim.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/models/profile_border.dart';
-import '../../../data/models/user.dart';
 import '../../../data/models/user_cosmetics.dart';
 import '../../../data/repositories/achievement_repository.dart';
-import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../data/repositories/profile_image_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';

@@ -1,4 +1,4 @@
-import 'package:elixr_application/data/models/user.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:elixr_application/data/privacy_consent.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,10 +9,7 @@ void main() {
 
       expect(
         RegistrationPrivacyConsent.documentFields(consentTimestamp: marker),
-        {
-          'privacy_consent_at': marker,
-          'privacy_policy_version': 'v1',
-        },
+        {'privacy_consent_at': marker, 'privacy_policy_version': 'v1'},
       );
       expect(RegistrationPrivacyConsent.policyVersion, 'v1');
     });

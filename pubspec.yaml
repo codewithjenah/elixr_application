@@ -46,6 +46,8 @@ dependencies:
   fluent_ui: 4.9.2
   audioplayers: ^6.7.1
   path_provider: ^2.1.5
+  elixr_core:
+    path: packages/elixr_core
 
 dev_dependencies:
   flutter_test:

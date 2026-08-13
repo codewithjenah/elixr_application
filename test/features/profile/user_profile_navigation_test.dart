@@ -6,8 +6,8 @@ import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:elixr_application/data/models/profile_visit.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/models/public_profile_summary.dart';
-import 'package:elixr_application/data/models/user.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/data/repositories/profile_visit_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
@@ -84,6 +84,7 @@ class _NavFakeAuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     throw UnimplementedError();
   }

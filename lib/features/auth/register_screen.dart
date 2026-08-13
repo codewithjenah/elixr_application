@@ -190,10 +190,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 }
 
 class _RegisterLegalConsent extends StatelessWidget {
-  const _RegisterLegalConsent({
-    required this.agreed,
-    required this.onChanged,
-  });
+  const _RegisterLegalConsent({required this.agreed, required this.onChanged});
 
   final bool agreed;
   final ValueChanged<bool> onChanged;

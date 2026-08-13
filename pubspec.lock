@@ -177,6 +177,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  elixr_core:
+    dependency: "direct main"
+    description:
+      path: "packages/elixr_core"
+      relative: true
+    source: path
+    version: "0.0.1"
   equatable:
     dependency: transitive
     description:

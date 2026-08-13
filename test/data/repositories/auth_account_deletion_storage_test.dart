@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,41 +68,38 @@ void main() {
     },
   );
 
-  test(
-    'Storage purge failure prevents Auth.delete from running',
-    () async {
-      var authDeleteCalls = 0;
+  test('Storage purge failure prevents Auth.delete from running', () async {
+    var authDeleteCalls = 0;
 
-      await expectLater(
-        () => finishAccountDeletionAfterPurge(
-          purgeUserData: () => deleteProfileStorageObjects(
-            uid: 'uid-1',
-            storagePath: null,
-            profileImages: _NoopProfileImages(),
-            listObjectPaths: (_) async {
-              throw FirebaseException(
-                plugin: 'firebase_storage',
-                code: 'deadline-exceeded',
-                message: 'timed out',
-              );
-            },
-          ),
-          deleteAuthUser: () async {
-            authDeleteCalls++;
+    await expectLater(
+      () => finishAccountDeletionAfterPurge(
+        purgeUserData: () => deleteProfileStorageObjects(
+          uid: 'uid-1',
+          storagePath: null,
+          profileImages: _NoopProfileImages(),
+          listObjectPaths: (_) async {
+            throw FirebaseException(
+              plugin: 'firebase_storage',
+              code: 'deadline-exceeded',
+              message: 'timed out',
+            );
           },
         ),
-        throwsA(
-          isA<Exception>().having(
-            (e) => e.toString(),
-            'message',
-            equals('Exception: $accountErasurePurgeFailedMessage'),
-          ),
+        deleteAuthUser: () async {
+          authDeleteCalls++;
+        },
+      ),
+      throwsA(
+        isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          equals('Exception: $accountErasurePurgeFailedMessage'),
         ),
-      );
+      ),
+    );
 
-      expect(authDeleteCalls, 0);
-    },
-  );
+    expect(authDeleteCalls, 0);
+  });
 
   test(
     'purge failure message does not embed raw Firebase plugin details',

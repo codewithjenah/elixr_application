@@ -22,6 +22,7 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 
 ### Flutter client
 
+- `packages/elixr_core/`: shared User model and Firebase auth repository for reuse by other ELIXR clients.
 - `lib/features/`: feature UI and screen-level interaction.
 - `lib/services/`: app state and runtime orchestration using `ChangeNotifier` or focused service objects.
 - `lib/data/repositories/`: persistence and authentication access.

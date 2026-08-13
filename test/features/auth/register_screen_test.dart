@@ -1,8 +1,9 @@
+import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
-import 'package:elixr_application/data/models/user.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/auth/register_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -16,6 +17,7 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   String? lastMiddleName;
   String? lastLastName;
   String? lastEmail;
+  String? lastDefaultRole;
 
   @override
   Future<User> register({
@@ -24,12 +26,14 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     registerCallCount++;
     lastFirstName = firstName;
     lastMiddleName = middleName;
     lastLastName = lastName;
     lastEmail = email;
+    lastDefaultRole = defaultRole;
     return User(
       id: 'new-user',
       firstName: firstName,
@@ -313,6 +317,7 @@ void main() {
         expect(repository.lastMiddleName, 'Augusta');
         expect(repository.lastLastName, 'Lovelace');
         expect(repository.lastEmail, 'ada@example.com');
+        expect(repository.lastDefaultRole, AppConstants.defaultRole);
       },
     );
 

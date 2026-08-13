@@ -18,6 +18,7 @@ import {
   collection,
   collectionGroup,
   deleteDoc,
+  updateDoc,
   query,
   where,
   writeBatch,
@@ -2638,5 +2639,68 @@ describe('account self-erasure deletes', () => {
     const alice = aliceDb();
     const q = query(collectionGroup(alice, 'visitors'), where('viewer_id', '==', 'alice'));
     await assertSucceeds(getDocs(q));
+  });
+});
+
+describe('users role constraints', () => {
+  function userProfile(role) {
+    return {
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      full_name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      role,
+    };
+  }
+
+  test('owner can create a Trainee profile', async () => {
+    const alice = aliceDb();
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), userProfile('Trainee')));
+  });
+
+  test('owner can create a Teacher profile', async () => {
+    const bob = bobDb();
+    await assertSucceeds(setDoc(doc(bob, 'users', 'bob'), userProfile('Teacher')));
+  });
+
+  test('owner cannot create an Admin profile', async () => {
+    const carol = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(setDoc(doc(carol, 'users', 'carol'), userProfile('Admin')));
+  });
+
+  test('non-owner cannot create another user document', async () => {
+    const alice = aliceDb();
+    await assertFails(setDoc(doc(alice, 'users', 'bob'), userProfile('Trainee')));
+  });
+
+  test('owner can update other fields while role stays unchanged', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'alice'), userProfile('Trainee'));
+    });
+
+    const alice = aliceDb();
+    await assertSucceeds(
+      updateDoc(doc(alice, 'users', 'alice'), { first_name: 'Augusta' }),
+    );
+  });
+
+  test('owner cannot change role on update, including to Admin or Teacher', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'alice'), userProfile('Trainee'));
+    });
+
+    const alice = aliceDb();
+    await assertFails(updateDoc(doc(alice, 'users', 'alice'), { role: 'Teacher' }));
+    await assertFails(updateDoc(doc(alice, 'users', 'alice'), { role: 'Admin' }));
+  });
+
+  test('non-owner cannot read or update a user document', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'alice'), userProfile('Trainee'));
+    });
+
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'users', 'alice')));
+    await assertFails(updateDoc(doc(bob, 'users', 'alice'), { first_name: 'Eve' }));
   });
 });

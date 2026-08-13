@@ -1,7 +1,7 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
-import 'package:elixr_application/data/models/user.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/settings/sections/privacy_section.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -70,6 +70,7 @@ class _StubAuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     throw UnimplementedError();
   }

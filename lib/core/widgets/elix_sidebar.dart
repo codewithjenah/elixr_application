@@ -1,12 +1,12 @@
 import 'dart:async';
 
+import 'package:elixr_core/models/user.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
 import '../../data/models/leaderboard_entry.dart';
-import '../../data/models/user.dart';
 import '../../data/repositories/leaderboard_repository.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';

@@ -6,12 +6,12 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
-import '../database/firestore_helper.dart';
+import '../database/firestore_collections.dart';
+import '../database/user_profile_store.dart';
 import '../models/user.dart';
+import '../utils/manila_day.dart';
+import '../utils/user_name.dart';
 import 'profile_image_repository.dart';
-import '../../core/constants/app_constants.dart';
-import '../../core/utils/manila_day.dart';
-import '../../core/utils/user_name.dart';
 
 /// A profile-picture mutation to persist alongside a profile update.
 class ProfilePictureUpdate {
@@ -82,6 +82,7 @@ abstract class AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    required String defaultRole,
   });
 
   Future<User> login({required String email, required String password});
@@ -206,7 +207,9 @@ String _describeAccountPurgeError(Object error) {
 
 void _logAccountPurgeFailure(Object error) {
   if (!kDebugMode) return;
-  debugPrint('Account erasure purge failed: ${_describeAccountPurgeError(error)}');
+  debugPrint(
+    'Account erasure purge failed: ${_describeAccountPurgeError(error)}',
+  );
 }
 
 /// Purges account data then deletes Auth. Auth deletion runs only after a
@@ -228,14 +231,18 @@ Future<void> finishAccountDeletionAfterPurge({
 class AuthRepository implements AuthRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
-    FirestoreHelper? db,
+    UserProfileStore? db,
     FirebaseFirestore? firestore,
     ProfileImageRepositoryBase? profileImageRepository,
     FirebaseStorage? storage,
     Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
-       _db = db ?? FirestoreHelper.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
+       _db =
+           db ??
+           FirebaseUserProfileStore(
+             firestore: firestore ?? FirebaseFirestore.instance,
+           ),
        _profileImages = profileImageRepository ?? ProfileImageRepository(),
        _storage = storage ?? FirebaseStorage.instance,
        _listProfileStorageObjectPaths = listProfileStorageObjectPaths;
@@ -246,7 +253,7 @@ class AuthRepository implements AuthRepositoryBase {
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   final fb.FirebaseAuth _auth;
-  final FirestoreHelper _db;
+  final UserProfileStore _db;
   final FirebaseFirestore _firestore;
   final ProfileImageRepositoryBase _profileImages;
   final FirebaseStorage _storage;
@@ -260,6 +267,7 @@ class AuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    required String defaultRole,
   }) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
@@ -278,7 +286,7 @@ class AuthRepository implements AuthRepositoryBase {
         middleName: normalized.middleName,
         lastName: normalized.lastName,
         email: email,
-        role: AppConstants.defaultRole,
+        role: defaultRole,
       );
       await _db.upsertUserProfile(user, includePrivacyConsent: true);
       return user;
@@ -376,7 +384,8 @@ class AuthRepository implements AuthRepositoryBase {
         fields['profile_picture_path'] = FieldValue.delete();
       } else {
         fields['profile_picture_url'] = profilePictureUpdate.url;
-        fields['profile_picture_storage_path'] = profilePictureUpdate.storagePath;
+        fields['profile_picture_storage_path'] =
+            profilePictureUpdate.storagePath;
         // Retire the legacy local-path field now that a cross-device URL exists.
         fields['profile_picture_path'] = FieldValue.delete();
       }
@@ -856,10 +865,7 @@ class AuthRepository implements AuthRepositoryBase {
     });
   }
 
-  Future<T> _runPurgeStage<T>(
-    String stage,
-    Future<T> Function() action,
-  ) async {
+  Future<T> _runPurgeStage<T>(String stage, Future<T> Function() action) async {
     try {
       return await action();
     } catch (e, st) {
@@ -961,7 +967,7 @@ class AuthRepository implements AuthRepositoryBase {
         middleName: parsed.middleName,
         lastName: parsed.lastName,
         email: authEmail,
-        role: AppConstants.defaultRole,
+        role: User.roleTrainee,
       );
       await _db.upsertUserProfile(user);
       return user;

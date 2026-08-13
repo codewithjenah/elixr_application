@@ -1126,7 +1126,21 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.role in ['Trainee', 'Teacher'];
+      allow update: if isOwner(userId)
+        && (
+          (
+            !resource.data.keys().hasAny(['role'])
+            && !request.resource.data.keys().hasAny(['role'])
+          )
+          || (
+            resource.data.keys().hasAny(['role'])
+            && request.resource.data.role == resource.data.role
+          )
+        );
+      allow delete: if isOwner(userId);
     }
 
     match /sessions/{sessionId} {

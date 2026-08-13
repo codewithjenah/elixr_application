@@ -1,5 +1,5 @@
 import 'package:elixr_application/core/utils/user_name.dart';
-import 'package:elixr_application/data/models/user.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Firestore introduced `profile_picture_url` / `profile_picture_storage_path`
@@ -211,6 +211,46 @@ void main() {
 
       expect(map['profile_picture_path'], r'C:\old\path.png');
       expect(map.containsKey('profile_picture_url'), isFalse);
+    });
+  });
+
+  group('User role helpers', () {
+    test('exposes Trainee, Teacher, and Admin constants', () {
+      expect(User.roleTrainee, 'Trainee');
+      expect(User.roleTeacher, 'Teacher');
+      expect(User.roleAdmin, 'Admin');
+    });
+
+    test('isTrainee / isTeacher / isAdmin follow the role field', () {
+      const trainee = User(
+        firstName: 'A',
+        lastName: 'B',
+        email: 'a@example.com',
+      );
+      const teacher = User(
+        firstName: 'A',
+        lastName: 'B',
+        email: 'a@example.com',
+        role: User.roleTeacher,
+      );
+      const admin = User(
+        firstName: 'A',
+        lastName: 'B',
+        email: 'a@example.com',
+        role: User.roleAdmin,
+      );
+
+      expect(trainee.isTrainee, isTrue);
+      expect(trainee.isTeacher, isFalse);
+      expect(trainee.isAdmin, isFalse);
+
+      expect(teacher.isTeacher, isTrue);
+      expect(teacher.isTrainee, isFalse);
+      expect(teacher.isAdmin, isFalse);
+
+      expect(admin.isAdmin, isTrue);
+      expect(admin.isTrainee, isFalse);
+      expect(admin.isTeacher, isFalse);
     });
   });
 }

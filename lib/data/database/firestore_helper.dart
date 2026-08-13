@@ -1,23 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/database/firestore_collections.dart';
+import 'package:elixr_core/database/user_profile_store.dart';
+import 'package:elixr_core/models/user.dart';
 
 import '../models/feedback.dart';
 import '../models/session.dart';
-import '../models/user.dart';
-import '../privacy_consent.dart';
 
-abstract final class FirestoreCollections {
-  static const users = 'users';
-  static const sessions = 'sessions';
-  static const feedbacks = 'feedbacks';
-  static const leaderboard = 'leaderboard';
-  static const leaderboardProcessedSessions = 'leaderboard_processed_sessions';
-  static const dailyQuestBoards = 'daily_quest_boards';
-  static const dailyQuestClaims = 'daily_quest_claims';
-  static const achievementClaims = 'achievement_claims';
-  static const userCosmetics = 'user_cosmetics';
-  static const publicProfiles = 'public_profiles';
-  static const profileVisits = 'profile_visits';
-}
+export 'package:elixr_core/database/firestore_collections.dart';
+export 'package:elixr_core/database/user_profile_store.dart';
 
 /// Partitioned session assessment aggregates. V1 and V2 are never mixed.
 class SessionAssessmentStats {
@@ -38,40 +28,23 @@ class SessionAssessmentStats {
   final int? bestLegacyScore;
 }
 
-class FirestoreHelper {
+class FirestoreHelper implements UserProfileStore {
   FirestoreHelper._({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      _userProfiles = FirebaseUserProfileStore(
+        firestore: firestore ?? FirebaseFirestore.instance,
+      );
 
   static final FirestoreHelper instance = FirestoreHelper._();
 
   final FirebaseFirestore _firestore;
+  final FirebaseUserProfileStore _userProfiles;
 
   static String? _readCreatedAt(dynamic value) {
     if (value == null) return null;
     if (value is Timestamp) return value.toDate().toIso8601String();
     if (value is String) return value;
     return null;
-  }
-
-  Map<String, dynamic> _userFromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final data = doc.data()!;
-    return {
-      'id': doc.id,
-      'first_name': data['first_name'],
-      'middle_name': data['middle_name'],
-      'last_name': data['last_name'],
-      'full_name': data['full_name'],
-      'email': data['email'],
-      'role': data['role'],
-      'created_at': _readCreatedAt(data['created_at']),
-      'profile_picture_path': data['profile_picture_path'],
-      'profile_picture_url': data['profile_picture_url'],
-      'profile_picture_storage_path': data['profile_picture_storage_path'],
-      'privacy_consent_at': _readCreatedAt(data['privacy_consent_at']),
-      'privacy_policy_version': data['privacy_policy_version'],
-    };
   }
 
   Map<String, dynamic> _sessionFromDoc(
@@ -116,65 +89,35 @@ class FirestoreHelper {
     bool includePrivacyConsent = false,
     Object Function()? serverTimestamp,
   }) {
-    final timestamp = serverTimestamp ?? () => FieldValue.serverTimestamp();
-    return {
-      'first_name': user.firstName,
-      if (user.middleName != null && user.middleName!.isNotEmpty)
-        'middle_name': user.middleName,
-      'last_name': user.lastName,
-      'full_name': user.fullName,
-      'email': user.email,
-      'role': user.role,
-      'created_at': timestamp(),
-      if (user.profilePictureUrl != null)
-        'profile_picture_url': user.profilePictureUrl,
-      if (user.profilePictureStoragePath != null)
-        'profile_picture_storage_path': user.profilePictureStoragePath,
-      if (user.profilePictureUrl == null && user.profilePicturePath != null)
-        'profile_picture_path': user.profilePicturePath,
-      if (includePrivacyConsent)
-        ...RegistrationPrivacyConsent.documentFields(
-          consentTimestamp: timestamp(),
-        ),
-    };
+    return FirebaseUserProfileStore.userProfileWriteData(
+      user,
+      includePrivacyConsent: includePrivacyConsent,
+      serverTimestamp: serverTimestamp,
+    );
   }
 
+  @override
   Future<void> upsertUserProfile(
     User user, {
     bool includePrivacyConsent = false,
-  }) async {
-    if (user.id == null) {
-      throw ArgumentError('User id is required');
-    }
-    await _firestore
-        .collection(FirestoreCollections.users)
-        .doc(user.id)
-        .set(
-          userProfileWriteData(
-            user,
-            includePrivacyConsent: includePrivacyConsent,
-          ),
-          SetOptions(merge: true),
-        );
+  }) {
+    return _userProfiles.upsertUserProfile(
+      user,
+      includePrivacyConsent: includePrivacyConsent,
+    );
   }
 
+  @override
   Future<void> updateUserProfileField(
     String userId,
     Map<String, dynamic> fields,
-  ) async {
-    await _firestore
-        .collection(FirestoreCollections.users)
-        .doc(userId)
-        .update(fields);
+  ) {
+    return _userProfiles.updateUserProfileField(userId, fields);
   }
 
-  Future<User?> getUserById(String id) async {
-    final doc = await _firestore
-        .collection(FirestoreCollections.users)
-        .doc(id)
-        .get();
-    if (!doc.exists) return null;
-    return User.fromMap(_userFromDoc(doc));
+  @override
+  Future<User?> getUserById(String id) {
+    return _userProfiles.getUserById(id);
   }
 
   /// Allocates a Firestore document ID without writing. Safe to reuse on retry.

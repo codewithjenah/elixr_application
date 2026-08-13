@@ -1,10 +1,11 @@
 import 'dart:async';
 
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 
-import '../data/models/user.dart';
-import '../data/repositories/auth_repository.dart';
+import '../core/constants/app_constants.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
@@ -141,6 +142,7 @@ class AuthService extends ChangeNotifier {
       lastName: lastName,
       email: email,
       password: password,
+      defaultRole: AppConstants.defaultRole,
     );
     _currentUser = user;
     notifyListeners();

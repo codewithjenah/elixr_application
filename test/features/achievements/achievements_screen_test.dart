@@ -6,11 +6,11 @@ import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/session.dart';
-import 'package:elixr_application/data/models/user.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/models/profile_border.dart';
 import 'package:elixr_application/data/repositories/achievement_repository.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/data/repositories/session_repository.dart';
@@ -74,6 +74,7 @@ class _StubAuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     throw UnimplementedError();
   }

@@ -1,13 +1,17 @@
-import '../../core/utils/user_name.dart';
+import '../utils/user_name.dart';
 
 class User {
+  static const roleTrainee = 'Trainee';
+  static const roleTeacher = 'Teacher';
+  static const roleAdmin = 'Admin';
+
   const User({
     this.id,
     required this.firstName,
     this.middleName,
     required this.lastName,
     required this.email,
-    this.role = 'Trainee',
+    this.role = roleTrainee,
     this.createdAt,
     this.profilePicturePath,
     this.profilePictureUrl,
@@ -42,6 +46,10 @@ class User {
 
   /// Privacy Policy version acknowledged at registration (e.g. `v1`).
   final String? privacyPolicyVersion;
+
+  bool get isTrainee => role == roleTrainee;
+  bool get isTeacher => role == roleTeacher;
+  bool get isAdmin => role == roleAdmin;
 
   String get fullName => composeUserFullName(
     firstName: firstName,
@@ -132,7 +140,7 @@ class User {
             : null,
         lastName: structuredLast,
         email: map['email'] as String,
-        role: map['role'] as String? ?? 'Trainee',
+        role: map['role'] as String? ?? roleTrainee,
         createdAt: map['created_at'] as String?,
         profilePicturePath: map['profile_picture_path'] as String?,
         profilePictureUrl: map['profile_picture_url'] as String?,
@@ -152,7 +160,7 @@ class User {
       middleName: parsed.middleName,
       lastName: parsed.lastName,
       email: map['email'] as String,
-      role: map['role'] as String? ?? 'Trainee',
+      role: map['role'] as String? ?? roleTrainee,
       createdAt: map['created_at'] as String?,
       profilePicturePath: map['profile_picture_path'] as String?,
       profilePictureUrl: map['profile_picture_url'] as String?,

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:elixr_application/data/models/user.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +62,7 @@ class _FakeAuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     return registerUser ?? _user(first: firstName, last: lastName);
   }

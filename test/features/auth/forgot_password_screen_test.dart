@@ -1,8 +1,8 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
-import 'package:elixr_application/data/models/user.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/auth/forgot_password_screen.dart';
 import 'package:elixr_application/features/auth/login_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -52,6 +52,7 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     throw UnimplementedError();
   }

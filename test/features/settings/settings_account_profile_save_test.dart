@@ -6,10 +6,10 @@ import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
-import 'package:elixr_application/data/models/user.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
-import 'package:elixr_application/data/repositories/auth_repository.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
 import 'package:elixr_application/features/settings/models/pending_profile_crop.dart';
 import 'package:elixr_application/features/settings/sections/account_profile_section.dart';
@@ -143,6 +143,7 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
     required String lastName,
     required String email,
     required String password,
+    String defaultRole = User.roleTrainee,
   }) async {
     throw UnimplementedError();
   }
