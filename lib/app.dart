@@ -1,3 +1,5 @@
+import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +27,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final SettingsService _settingsService;
   late final CameraDeviceService _cameraDeviceService;
   late final PublicProfileRepository _publicProfileRepository;
+  late final TeacherRelationshipRepository _teacherRelationshipRepository;
   late final GoRouter _router;
   bool _splashFinished = false;
 
@@ -32,6 +35,7 @@ class _ElixrAppState extends State<ElixrApp> {
   void initState() {
     super.initState();
     _publicProfileRepository = PublicProfileRepository();
+    _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
     _authService = AuthService(
       leaderboardRepository: LeaderboardRepository(),
       publicProfileRepository: _publicProfileRepository,
@@ -61,6 +65,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<PublicProfileRepository>.value(
           value: _publicProfileRepository,
+        ),
+        Provider<TeacherRelationshipRepository>.value(
+          value: _teacherRelationshipRepository,
         ),
       ],
       child: Consumer<SettingsService>(

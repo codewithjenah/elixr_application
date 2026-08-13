@@ -1681,5 +1681,216 @@ service cloud.firestore {
       allow list: if isSignedIn()
         && resource.data.viewer_id == request.auth.uid;
     }
+
+    // ---- Teacher ↔ Trainee roster (Phase 2A) -------------------------------
+    // Relationship authorization is independent of the self-declared
+    // users.role field. Coach codes are bearer tokens (exact get only).
+    function hasVerifiedEmail() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email.size() > 0
+        && request.auth.token.email_verified == true;
+    }
+
+    function isNormalizedCoachCode(code) {
+      return code is string
+        && code.matches('^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$');
+    }
+
+    function isDisplayName(value) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= 80;
+    }
+
+    function isParticipantId(value) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= 128;
+    }
+
+    function userPath(userId) {
+      return /databases/$(database)/documents/users/$(userId);
+    }
+
+    function invitePath(code) {
+      return /databases/$(database)/documents/teacher_invites/$(code);
+    }
+
+    function userFullName(userId) {
+      return get(userPath(userId)).data.full_name;
+    }
+
+    function inviteKeys() {
+      return ['trainee_id', 'trainee_display_name', 'created_at', 'expires_at'];
+    }
+
+    function validInviteExpiry(createdAt, expiresAt) {
+      return expiresAt is timestamp
+        && expiresAt >= createdAt + duration.value(7, 'd') - duration.value(1, 'h')
+        && expiresAt <= createdAt + duration.value(7, 'd') + duration.value(1, 'h');
+    }
+
+    function validInviteCreate(data, inviteId) {
+      return isNormalizedCoachCode(inviteId)
+        && data.keys().hasOnly(inviteKeys())
+        && data.keys().hasAll(inviteKeys())
+        && data.trainee_id == request.auth.uid
+        && isParticipantId(data.trainee_id)
+        && isDisplayName(data.trainee_display_name)
+        && exists(userPath(request.auth.uid))
+        && data.trainee_display_name == userFullName(request.auth.uid)
+        && data.created_at == request.time
+        && validInviteExpiry(data.created_at, data.expires_at);
+    }
+
+    function linkKeys() {
+      return [
+        'teacher_id',
+        'trainee_id',
+        'teacher_display_name',
+        'trainee_display_name',
+        'status',
+        'invite_id',
+        'created_at',
+        'updated_at'
+      ];
+    }
+
+    function isLinkStatus(value) {
+      return value in ['pending', 'approved', 'rejected', 'cancelled', 'revoked'];
+    }
+
+    function isLinkParticipant() {
+      return isSignedIn()
+        && (
+          resource.data.teacher_id == request.auth.uid
+          || resource.data.trainee_id == request.auth.uid
+        );
+    }
+
+    function linkIdsMatchDocument(data, linkId) {
+      return isParticipantId(data.teacher_id)
+        && isParticipantId(data.trainee_id)
+        && data.teacher_id != data.trainee_id
+        && linkId == data.teacher_id + '_' + data.trainee_id;
+    }
+
+    function liveInviteMatchesTrainee(data) {
+      return isNormalizedCoachCode(data.invite_id)
+        && exists(invitePath(data.invite_id))
+        && get(invitePath(data.invite_id)).data.trainee_id == data.trainee_id
+        && get(invitePath(data.invite_id)).data.expires_at > request.time
+        && data.trainee_display_name
+          == get(invitePath(data.invite_id)).data.trainee_display_name;
+    }
+
+    function validPendingLinkCreate(data, linkId) {
+      return hasVerifiedEmail()
+        && data.keys().hasOnly(linkKeys())
+        && data.keys().hasAll(linkKeys())
+        && data.teacher_id == request.auth.uid
+        && data.status == 'pending'
+        && linkIdsMatchDocument(data, linkId)
+        && isDisplayName(data.teacher_display_name)
+        && isDisplayName(data.trainee_display_name)
+        && exists(userPath(request.auth.uid))
+        && data.teacher_display_name == userFullName(request.auth.uid)
+        && liveInviteMatchesTrainee(data)
+        && data.created_at == request.time
+        && data.updated_at == request.time;
+    }
+
+    function linkParticipantsUnchanged() {
+      return request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.trainee_id == resource.data.trainee_id
+        && request.resource.data.created_at == resource.data.created_at;
+    }
+
+    function linkIdentitySnapshotsUnchanged() {
+      return request.resource.data.teacher_display_name
+          == resource.data.teacher_display_name
+        && request.resource.data.trainee_display_name
+          == resource.data.trainee_display_name
+        && request.resource.data.invite_id == resource.data.invite_id;
+    }
+
+    function validLinkUpdateShape(data) {
+      return data.keys().hasOnly(linkKeys())
+        && data.keys().hasAll(linkKeys())
+        && isLinkStatus(data.status)
+        && data.updated_at == request.time;
+    }
+
+    function validTraineeLinkTransition() {
+      return resource.data.trainee_id == request.auth.uid
+        && linkParticipantsUnchanged()
+        && linkIdentitySnapshotsUnchanged()
+        && (
+          (
+            resource.data.status == 'pending'
+            && request.resource.data.status in ['approved', 'rejected']
+          )
+          || (
+            resource.data.status == 'approved'
+            && request.resource.data.status == 'revoked'
+          )
+        );
+    }
+
+    function validTeacherCancelTransition() {
+      return resource.data.teacher_id == request.auth.uid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'cancelled'
+        && linkParticipantsUnchanged()
+        && linkIdentitySnapshotsUnchanged();
+    }
+
+    function validTeacherRerequestTransition() {
+      return hasVerifiedEmail()
+        && resource.data.teacher_id == request.auth.uid
+        && resource.data.status in ['rejected', 'cancelled', 'revoked']
+        && request.resource.data.status == 'pending'
+        && linkParticipantsUnchanged()
+        && isDisplayName(request.resource.data.teacher_display_name)
+        && isDisplayName(request.resource.data.trainee_display_name)
+        && exists(userPath(request.auth.uid))
+        && request.resource.data.teacher_display_name
+          == userFullName(request.auth.uid)
+        && liveInviteMatchesTrainee(request.resource.data);
+    }
+
+    match /teacher_invites/{inviteId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create: if isSignedIn() && validInviteCreate(request.resource.data, inviteId);
+      allow update: if false;
+      allow delete: if isSignedIn()
+        && (resource == null || resource.data.trainee_id == request.auth.uid);
+    }
+
+    match /teacher_student_links/{linkId} {
+      allow get: if isLinkParticipant();
+      // Split OR into separate allows so queries constrained to teacher_id or
+      // trainee_id can be proven by the rules engine.
+      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
+
+      allow create: if validPendingLinkCreate(request.resource.data, linkId);
+
+      allow update: if isSignedIn()
+        && validLinkUpdateShape(request.resource.data)
+        && (
+          validTraineeLinkTransition()
+          || validTeacherCancelTransition()
+          || validTeacherRerequestTransition()
+        );
+
+      // Participant delete supports account erasure; UI does not delete
+      // approved history (Trainee revoke uses status instead).
+      allow delete: if isSignedIn()
+        && (resource == null || isLinkParticipant());
+    }
   }
 }

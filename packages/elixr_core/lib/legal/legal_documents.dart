@@ -66,6 +66,12 @@ abstract final class ElixrLegalDocuments {
     'Training and session data are kept while your account is active. If you '
         'delete your account via Settings > Security, we permanently remove '
         'all associated data.',
+    'Teacher Access: you can generate a short-lived coach code in Settings > '
+        'Teacher Access and approve or reject a Teacher who requests to link '
+        'with you. Approving that request authorizes only this Teacher↔Trainee '
+        'relationship. It does not share your practice sessions, scores, '
+        'movement mastery, achievements, or feedback with that Teacher in this '
+        'version. You can revoke an approved Teacher at any time.',
     'Use Settings > Security > Delete Account to exercise your right to '
         'erasure.',
   ];
@@ -77,9 +83,12 @@ abstract final class ElixrLegalDocuments {
         'webcam video, run computer-vision processing, store practice-session '
         'data, publish a public player profile, or maintain a leaderboard in '
         'this application.',
-    'Linked-student and roster data are not collected or stored in this '
-        'version. Features for linking trainees to a Teacher roster are not '
-        'yet active.',
+    'Roster linking: the Teacher application may store Teacher↔Trainee '
+        'relationship records after you enter a coach code that a Trainee '
+        'intentionally shared. You only see Trainees who explicitly approve '
+        'your request. A Trainee may revoke that relationship at any time. '
+        'Private training and session data are not exposed to Teachers in this '
+        'version.',
     'The Teacher application does not currently include in-app account '
         'deletion. You retain the right under RA 10173 to request access, '
         'correction, or erasure of your Teacher account data.',
@@ -103,7 +112,8 @@ abstract final class ElixrLegalDocuments {
 
   static const teacherTermsOfServiceParagraphs = <String>[
     'Teacher accounts are for instructor use of the Teacher application. '
-        'Trainee roster linking, student progress, teacher notes, and '
-        'assignments are not yet active in this version.',
+        'A Teacher roster lists only Trainees who approve a relationship. '
+        'Student progress review, teacher notes, and assignments are not yet '
+        'active in this version.',
   ];
 }

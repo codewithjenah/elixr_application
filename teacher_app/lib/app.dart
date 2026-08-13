@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -10,9 +12,14 @@ import 'core/widgets/teacher_auth_widgets.dart';
 import 'features/auth/teacher_auth_controller.dart';
 
 class ElixrTeacherApp extends StatefulWidget {
-  const ElixrTeacherApp({super.key, required this.authController});
+  const ElixrTeacherApp({
+    super.key,
+    required this.authController,
+    this.relationshipRepository,
+  });
 
   final TeacherAuthController authController;
+  final TeacherRelationshipRepository? relationshipRepository;
 
   @override
   State<ElixrTeacherApp> createState() => _ElixrTeacherAppState();
@@ -20,11 +27,15 @@ class ElixrTeacherApp extends StatefulWidget {
 
 class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
   late final GoRouter _router;
+  late final TeacherRelationshipRepository _relationshipRepository;
 
   @override
   void initState() {
     super.initState();
     _router = createTeacherRouter(widget.authController);
+    _relationshipRepository =
+        widget.relationshipRepository ??
+        FirebaseTeacherRelationshipRepository();
     unawaited(widget.authController.initialize());
   }
 
@@ -38,21 +49,24 @@ class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<TeacherAuthController>.value(
       value: widget.authController,
-      child: MaterialApp.router(
-        title: 'ELIXR Teacher',
-        theme: buildTeacherTheme(),
-        routerConfig: _router,
-        debugShowCheckedModeBanner: false,
-        builder: (context, child) {
-          return Consumer<TeacherAuthController>(
-            builder: (context, auth, _) {
-              if (auth.isInitializing) {
-                return const TeacherStartupScreen();
-              }
-              return child ?? const SizedBox.shrink();
-            },
-          );
-        },
+      child: Provider<TeacherRelationshipRepository>.value(
+        value: _relationshipRepository,
+        child: MaterialApp.router(
+          title: 'ELIXR Teacher',
+          theme: buildTeacherTheme(),
+          routerConfig: _router,
+          debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            return Consumer<TeacherAuthController>(
+              builder: (context, auth, _) {
+                if (auth.isInitializing) {
+                  return const TeacherStartupScreen();
+                }
+                return child ?? const SizedBox.shrink();
+              },
+            );
+          },
+        ),
       ),
     );
   }

@@ -892,6 +892,34 @@ class AuthRepository implements AuthRepositoryBase {
       );
     });
 
+    await _runPurgeStage('teacher invite purge', () async {
+      final userSnap = await _firestore
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .get();
+      final code = userSnap.data()?['teacher_invite_code'];
+      if (code is String && code.isNotEmpty) {
+        await _commitDeletes([
+          _firestore.collection(FirestoreCollections.teacherInvites).doc(code),
+        ]);
+      }
+    });
+
+    await _runPurgeStage('teacher-student link purge', () async {
+      final asTrainee = await _firestore
+          .collection(FirestoreCollections.teacherStudentLinks)
+          .where('trainee_id', isEqualTo: uid)
+          .get();
+      final asTeacher = await _firestore
+          .collection(FirestoreCollections.teacherStudentLinks)
+          .where('teacher_id', isEqualTo: uid)
+          .get();
+      await _commitDeletes([
+        ...asTrainee.docs.map((d) => d.reference),
+        ...asTeacher.docs.map((d) => d.reference),
+      ]);
+    });
+
     await _runPurgeStage('users document purge', () {
       return _commitDeletes([
         _firestore.collection(FirestoreCollections.users).doc(uid),

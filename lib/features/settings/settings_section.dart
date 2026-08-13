@@ -1,7 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 /// Top-level Settings navigation sections.
-enum SettingsSection { accountProfile, security, appearance, practice, privacy }
+enum SettingsSection {
+  accountProfile,
+  security,
+  appearance,
+  practice,
+  privacy,
+  teacherAccess,
+}
 
 extension SettingsSectionX on SettingsSection {
   String get title => switch (this) {
@@ -10,6 +17,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => 'Appearance',
     SettingsSection.practice => 'Practice',
     SettingsSection.privacy => 'Privacy',
+    SettingsSection.teacherAccess => 'Teacher Access',
   };
 
   String get description => switch (this) {
@@ -22,6 +30,8 @@ extension SettingsSectionX on SettingsSection {
       'Camera, mirroring, Live Practice setlist, pace, and music.',
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
+    SettingsSection.teacherAccess =>
+      'Generate a coach code and manage Teachers who request to link with you.',
   };
 
   IconData get icon => switch (this) {
@@ -30,5 +40,6 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => FluentIcons.color,
     SettingsSection.practice => FluentIcons.video,
     SettingsSection.privacy => FluentIcons.shield,
+    SettingsSection.teacherAccess => FluentIcons.people,
   };
 }

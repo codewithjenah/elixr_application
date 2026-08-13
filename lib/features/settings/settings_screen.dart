@@ -1,3 +1,4 @@
+import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
@@ -7,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/settings_service.dart';
+import '../teacher_access/teacher_access_section.dart';
 import 'sections/account_profile_section.dart';
 import 'sections/appearance_section.dart';
 import 'sections/practice_section.dart';
@@ -27,6 +29,7 @@ class SettingsScreen extends StatefulWidget {
     this.pickProfileImage,
     this.cropProfileImage,
     this.publicProfileRepository,
+    this.teacherRelationshipRepository,
   });
 
   final SettingsSection initialSection;
@@ -50,11 +53,21 @@ class SettingsScreen extends StatefulWidget {
   /// Optional public profile repository override for [PrivacySection].
   final PublicProfileRepository? publicProfileRepository;
 
+  /// Optional relationship repository override for [TeacherAccessSection].
+  final TeacherRelationshipRepository? teacherRelationshipRepository;
+
   static Future<void> show(
     BuildContext context, {
     SettingsSection initialSection = SettingsSection.appearance,
   }) {
     final publicProfileRepository = context.read<PublicProfileRepository>();
+    TeacherRelationshipRepository? teacherRelationshipRepository;
+    try {
+      teacherRelationshipRepository = context
+          .read<TeacherRelationshipRepository>();
+    } catch (_) {
+      teacherRelationshipRepository = null;
+    }
     return showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -62,6 +75,7 @@ class SettingsScreen extends StatefulWidget {
       builder: (_) => SettingsScreen(
         initialSection: initialSection,
         publicProfileRepository: publicProfileRepository,
+        teacherRelationshipRepository: teacherRelationshipRepository,
       ),
     );
   }
@@ -376,6 +390,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: PrivacySection(
                     isActive: _section == SettingsSection.privacy,
                     publicProfileRepository: widget.publicProfileRepository,
+                  ),
+                ),
+              ),
+              TickerMode(
+                enabled: _section == SettingsSection.teacherAccess,
+                child: _scrollableSection(
+                  isWide: isWide,
+                  child: TeacherAccessSection(
+                    isActive: _section == SettingsSection.teacherAccess,
+                    repository: widget.teacherRelationshipRepository,
                   ),
                 ),
               ),

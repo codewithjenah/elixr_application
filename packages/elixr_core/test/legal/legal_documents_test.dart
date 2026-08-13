@@ -30,6 +30,9 @@ void main() {
       expect(text, contains('leaderboard identity'));
       expect(text, contains('Settings > Security'));
       expect(text, contains('Delete Account'));
+      expect(text, contains('Teacher Access'));
+      expect(text, contains('coach code'));
+      expect(text, contains('does not share your practice sessions'));
     });
   });
 
@@ -40,13 +43,20 @@ void main() {
       ),
     );
 
-    test('discloses Teacher account and Firebase auth use', () {
-      expect(text, contains('Firebase Authentication'));
-      expect(text, contains('Teacher-account'));
-      expect(text, contains('email verification'));
-      expect(text, contains('password reset'));
-      expect(text, contains('not yet active'));
-    });
+    test(
+      'discloses Teacher account, Firebase auth, and roster linking limits',
+      () {
+        expect(text, contains('Firebase Authentication'));
+        expect(text, contains('Teacher-account'));
+        expect(text, contains('email verification'));
+        expect(text, contains('password reset'));
+        expect(text, contains('Teacher↔Trainee relationship records'));
+        expect(text, contains('explicitly approve'));
+        expect(text, contains('revoke'));
+        expect(text, contains('not exposed to Teachers in this version'));
+        expect(text, isNot(contains('not yet active')));
+      },
+    );
 
     test('does not present Trainee-only processing as Teacher behavior', () {
       expect(text, isNot(contains('pose/hand landmark')));
@@ -69,15 +79,19 @@ void main() {
       expect(text, contains('educational and training purposes'));
     });
 
-    test('Teacher terms do not claim leaderboard or active roster linking', () {
-      final text = joined(
-        ElixrLegalDocuments.termsOfServiceParagraphsFor(
-          ElixrLegalClient.teacherAndroid,
-        ),
-      );
-      expect(text, contains('not yet active'));
-      expect(text, isNot(contains('Leaderboard scores')));
-    });
+    test(
+      'Teacher terms describe approved roster linking without progress access',
+      () {
+        final text = joined(
+          ElixrLegalDocuments.termsOfServiceParagraphsFor(
+            ElixrLegalClient.teacherAndroid,
+          ),
+        );
+        expect(text, contains('approve a relationship'));
+        expect(text, contains('not yet active in this version'));
+        expect(text, isNot(contains('Leaderboard scores')));
+      },
+    );
   });
 
   test('registration privacy consent version remains v1', () {

@@ -11,4 +11,6 @@ abstract final class FirestoreCollections {
   static const userCosmetics = 'user_cosmetics';
   static const publicProfiles = 'public_profiles';
   static const profileVisits = 'profile_visits';
+  static const teacherInvites = 'teacher_invites';
+  static const teacherStudentLinks = 'teacher_student_links';
 }

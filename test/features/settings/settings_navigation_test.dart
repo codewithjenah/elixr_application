@@ -206,6 +206,7 @@ void main() {
     expect(find.text('Account & Profile'), findsOneWidget);
     expect(find.text('Security'), findsWidgets);
     expect(find.text('Practice'), findsOneWidget);
+    expect(find.text('Teacher Access'), findsOneWidget);
   });
 
   testWidgets('compact layout uses ComboBox navigation', (tester) async {

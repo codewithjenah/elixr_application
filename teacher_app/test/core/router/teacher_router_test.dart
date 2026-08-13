@@ -1,3 +1,5 @@
+import 'package:elixr_core/repositories/in_memory_teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_teacher/app.dart';
 import 'package:elixr_teacher/core/router/teacher_router.dart';
 import 'package:elixr_teacher/core/router/teacher_routes.dart';
@@ -34,9 +36,12 @@ Future<void> pumpRoutedApp(
   await tester.pumpWidget(
     ChangeNotifierProvider<TeacherAuthController>.value(
       value: controller,
-      child: MaterialApp.router(
-        theme: buildTeacherTheme(),
-        routerConfig: router,
+      child: Provider<TeacherRelationshipRepository>.value(
+        value: InMemoryTeacherRelationshipRepository(),
+        child: MaterialApp.router(
+          theme: buildTeacherTheme(),
+          routerConfig: router,
+        ),
       ),
     ),
   );
@@ -181,7 +186,12 @@ void main() {
   ) async {
     await controller.initialize();
     await setPhoneSurface(tester);
-    await tester.pumpWidget(ElixrTeacherApp(authController: controller));
+    await tester.pumpWidget(
+      ElixrTeacherApp(
+        authController: controller,
+        relationshipRepository: InMemoryTeacherRelationshipRepository(),
+      ),
+    );
     await tester.pump();
 
     expect(find.byType(LoginScreen), findsOneWidget);

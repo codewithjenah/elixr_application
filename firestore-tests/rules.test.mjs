@@ -2704,3 +2704,366 @@ describe('users role constraints', () => {
     await assertFails(updateDoc(doc(bob, 'users', 'alice'), { first_name: 'Eve' }));
   });
 });
+
+describe('teacher invites and student links (Phase 2A)', () => {
+  const INVITE_ID = '7KPMXR4DQ2WT';
+  const LINK_ID = 'bob_alice';
+
+  function verifiedUser(uid, email = `${uid}@school.edu`) {
+    return testEnv.authenticatedContext(uid, {
+      email,
+      email_verified: true,
+    }).firestore();
+  }
+
+  function unverifiedUser(uid) {
+    return testEnv.authenticatedContext(uid, {
+      email: `${uid}@school.edu`,
+      email_verified: false,
+    }).firestore();
+  }
+
+  function traineeProfile(overrides = {}) {
+    return {
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      full_name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      role: 'Trainee',
+      ...overrides,
+    };
+  }
+
+  function teacherProfile(overrides = {}) {
+    return {
+      first_name: 'Grace',
+      last_name: 'Hopper',
+      full_name: 'Grace Hopper',
+      email: 'grace@example.com',
+      role: 'Teacher',
+      ...overrides,
+    };
+  }
+
+  function inviteData(overrides = {}) {
+    const created = new Date();
+    return {
+      trainee_id: 'alice',
+      trainee_display_name: 'Ada Lovelace',
+      created_at: Timestamp.fromDate(created),
+      expires_at: Timestamp.fromDate(new Date(created.getTime() + 7 * 24 * 60 * 60 * 1000)),
+      ...overrides,
+    };
+  }
+
+  function linkData(overrides = {}) {
+    const created = new Date();
+    return {
+      teacher_id: 'bob',
+      trainee_id: 'alice',
+      teacher_display_name: 'Grace Hopper',
+      trainee_display_name: 'Ada Lovelace',
+      status: 'pending',
+      invite_id: INVITE_ID,
+      created_at: Timestamp.fromDate(created),
+      updated_at: Timestamp.fromDate(created),
+      ...overrides,
+    };
+  }
+
+  async function seedRoster({
+    invite = true,
+    inviteOverrides = {},
+    link = false,
+    linkOverrides = {},
+    session = false,
+  } = {}) {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'alice'), traineeProfile());
+      await setDoc(doc(adminDb, 'users', 'bob'), teacherProfile());
+      await setDoc(doc(adminDb, 'users', 'carol'), traineeProfile({
+        first_name: 'Carol',
+        last_name: 'Shaw',
+        full_name: 'Carol Shaw',
+        email: 'carol@example.com',
+      }));
+      if (invite) {
+        await setDoc(doc(adminDb, 'teacher_invites', INVITE_ID), inviteData(inviteOverrides));
+      }
+      if (link) {
+        await setDoc(doc(adminDb, 'teacher_student_links', LINK_ID), linkData(linkOverrides));
+      }
+      if (session) {
+        await setDoc(doc(adminDb, 'sessions', 'alice-session'), {
+          user_id: 'alice',
+          movement_name: 'Hand Stall',
+          difficulty: 'Easy',
+          duration_seconds: 60,
+          prop_type: 'bottle',
+          created_at: Timestamp.now(),
+          assessment_version: 2,
+          rubric: {
+            technique: 2,
+            stability: 2,
+            completion: 2,
+            prop_positioning: 2,
+          },
+          rubric_total: 8,
+          performance_level: 'competent',
+        });
+      }
+    });
+  }
+
+  test('trainee can create own invite with matching profile snapshot', async () => {
+    await seedRoster({ invite: false });
+    const alice = aliceDb();
+    const created = new Date();
+    await assertSucceeds(setDoc(doc(alice, 'teacher_invites', INVITE_ID), {
+      trainee_id: 'alice',
+      trainee_display_name: 'Ada Lovelace',
+      created_at: serverTimestamp(),
+      expires_at: Timestamp.fromDate(new Date(created.getTime() + 7 * 24 * 60 * 60 * 1000)),
+    }));
+  });
+
+  test('trainee cannot create invite for another trainee', async () => {
+    await seedRoster({ invite: false });
+    const alice = aliceDb();
+    const created = new Date();
+    await assertFails(setDoc(doc(alice, 'teacher_invites', INVITE_ID), {
+      trainee_id: 'carol',
+      trainee_display_name: 'Carol Shaw',
+      created_at: serverTimestamp(),
+      expires_at: Timestamp.fromDate(new Date(created.getTime() + 7 * 24 * 60 * 60 * 1000)),
+    }));
+  });
+
+  test('trainee cannot invent another person display name on own invite', async () => {
+    await seedRoster({ invite: false });
+    const alice = aliceDb();
+    const created = new Date();
+    await assertFails(setDoc(doc(alice, 'teacher_invites', INVITE_ID), {
+      trainee_id: 'alice',
+      trainee_display_name: 'Carol Shaw',
+      created_at: serverTimestamp(),
+      expires_at: Timestamp.fromDate(new Date(created.getTime() + 7 * 24 * 60 * 60 * 1000)),
+    }));
+  });
+
+  test('another account cannot modify or revoke the invite', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    await assertFails(updateDoc(doc(bob, 'teacher_invites', INVITE_ID), {
+      trainee_id: 'bob',
+    }));
+    await assertFails(deleteDoc(doc(bob, 'teacher_invites', INVITE_ID)));
+    const alice = aliceDb();
+    await assertSucceeds(deleteDoc(doc(alice, 'teacher_invites', INVITE_ID)));
+  });
+
+  test('invite collection cannot be listed', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    await assertFails(getDocs(collection(bob, 'teacher_invites')));
+    const alice = aliceDb();
+    await assertFails(getDocs(collection(alice, 'teacher_invites')));
+  });
+
+  test('exact valid invite can be resolved by a signed-in user', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    await assertSucceeds(getDoc(doc(bob, 'teacher_invites', INVITE_ID)));
+  });
+
+  test('expired invite cannot create a request', async () => {
+    const expired = new Date(Date.now() - 60 * 1000);
+    await seedRoster({
+      inviteOverrides: {
+        created_at: Timestamp.fromDate(new Date(expired.getTime() - 7 * 24 * 60 * 60 * 1000)),
+        expires_at: Timestamp.fromDate(expired),
+      },
+    });
+    const bob = verifiedUser('bob');
+    await assertFails(setDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      ...linkData(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('verified teacher can create pending relationship with a valid invite', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    await assertSucceeds(setDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      ...linkData(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('unverified email cannot create a pending relationship', async () => {
+    await seedRoster();
+    const bob = unverifiedUser('bob');
+    await assertFails(setDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      ...linkData(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('arbitrary trainee_id cannot be targeted', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    await assertFails(setDoc(doc(bob, 'teacher_student_links', 'bob_carol'), {
+      ...linkData(),
+      trainee_id: 'carol',
+      trainee_display_name: 'Carol Shaw',
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('duplicate Teacher/Trainee relationship cannot bypass deterministic ID', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    await assertFails(setDoc(doc(bob, 'teacher_student_links', 'bob-alice'), {
+      ...linkData(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('teacher cannot approve their own request', async () => {
+    await seedRoster({ link: true });
+    const bob = verifiedUser('bob');
+    await assertFails(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      status: 'approved',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('correct trainee can approve and later revoke', async () => {
+    await seedRoster({ link: true });
+    const alice = aliceDb();
+    await assertSucceeds(updateDoc(doc(alice, 'teacher_student_links', LINK_ID), {
+      status: 'approved',
+      updated_at: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(alice, 'teacher_student_links', LINK_ID), {
+      status: 'revoked',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('correct trainee can reject', async () => {
+    await seedRoster({ link: true });
+    const alice = aliceDb();
+    await assertSucceeds(updateDoc(doc(alice, 'teacher_student_links', LINK_ID), {
+      status: 'rejected',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('teacher can cancel their own pending request', async () => {
+    await seedRoster({ link: true });
+    const bob = verifiedUser('bob');
+    await assertSucceeds(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      status: 'cancelled',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('third party cannot read the relationship', async () => {
+    await seedRoster({ link: true });
+    const carol = verifiedUser('carol');
+    await assertFails(getDoc(doc(carol, 'teacher_student_links', LINK_ID)));
+  });
+
+  test('teacher can list own relationships', async () => {
+    await seedRoster({ link: true });
+    const bob = verifiedUser('bob');
+    await assertSucceeds(getDocs(query(
+      collection(bob, 'teacher_student_links'),
+      where('teacher_id', '==', 'bob'),
+    )));
+  });
+
+  test('trainee can list own relationships', async () => {
+    await seedRoster({ link: true });
+    const alice = aliceDb();
+    await assertSucceeds(getDocs(query(
+      collection(alice, 'teacher_student_links'),
+      where('trainee_id', '==', 'alice'),
+    )));
+  });
+
+  test('teacher cannot read another teacher roster', async () => {
+    await seedRoster({ link: true });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'dana'), teacherProfile({
+        first_name: 'Dana',
+        last_name: 'Scully',
+        full_name: 'Dana Scully',
+        email: 'dana@example.com',
+      }));
+    });
+    const dana = verifiedUser('dana');
+    await assertFails(getDoc(doc(dana, 'teacher_student_links', LINK_ID)));
+    await assertFails(getDocs(query(
+      collection(dana, 'teacher_student_links'),
+      where('teacher_id', '==', 'bob'),
+    )));
+  });
+
+  test('trainee cannot read another trainee requests', async () => {
+    await seedRoster({ link: true });
+    const carol = verifiedUser('carol');
+    await assertFails(getDocs(query(
+      collection(carol, 'teacher_student_links'),
+      where('trainee_id', '==', 'alice'),
+    )));
+  });
+
+  test('participant IDs cannot be mutated', async () => {
+    await seedRoster({ link: true });
+    const alice = aliceDb();
+    await assertFails(updateDoc(doc(alice, 'teacher_student_links', LINK_ID), {
+      trainee_id: 'carol',
+      status: 'approved',
+      updated_at: serverTimestamp(),
+    }));
+    const bob = verifiedUser('bob');
+    await assertFails(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      teacher_id: 'dana',
+      status: 'cancelled',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  test('approved relationship does not grant session reads', async () => {
+    await seedRoster({
+      link: true,
+      session: true,
+      linkOverrides: { status: 'approved' },
+    });
+    const bob = verifiedUser('bob');
+    await assertFails(getDoc(doc(bob, 'sessions', 'alice-session')));
+    const alice = aliceDb();
+    await assertSucceeds(getDoc(doc(alice, 'sessions', 'alice-session')));
+  });
+
+  test('users.role Teacher is not enough to browse links', async () => {
+    await seedRoster({ link: true });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'eve'), teacherProfile({
+        first_name: 'Eve',
+        last_name: 'Agent',
+        full_name: 'Eve Agent',
+        email: 'eve@school.edu',
+      }));
+    });
+    const eve = verifiedUser('eve');
+    await assertFails(getDocs(collection(eve, 'teacher_student_links')));
+  });
+});
