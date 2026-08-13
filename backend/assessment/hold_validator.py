@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 from config import (
@@ -22,7 +23,12 @@ class HoldSnapshot:
 
 
 class HoldValidator:
-    """Accumulates continuous positive/stable hold time during active sessions."""
+    """Accumulates hold time during active sessions with ratio tolerance.
+
+    Isolated non-positive/non-stable frames pause accumulation and count
+    against ``HOLD_MIN_POSITIVE_RATIO`` over a rolling window. A sustained
+    invalid stretch longer than the dropout budget resets the attempt.
+    """
 
     def __init__(
         self,
@@ -38,8 +44,9 @@ class HoldValidator:
         self._confirmed = False
         self._accumulated_seconds = 0.0
         self._last_timestamp: float | None = None
-        self._segment_positive_frames = 0
-        self._segment_total_frames = 0
+        self._last_was_valid = False
+        self._consecutive_invalid_seconds = 0.0
+        self._samples: deque[tuple[float, bool]] = deque()
 
     @property
     def is_confirmed(self) -> bool:
@@ -54,8 +61,9 @@ class HoldValidator:
         self._confirmed = False
         self._accumulated_seconds = 0.0
         self._last_timestamp = None
-        self._segment_positive_frames = 0
-        self._segment_total_frames = 0
+        self._last_was_valid = False
+        self._consecutive_invalid_seconds = 0.0
+        self._samples.clear()
 
     def update(
         self,
@@ -78,16 +86,29 @@ class HoldValidator:
         ):
             self._reset_segment()
             self._last_timestamp = None
+            self._last_was_valid = False
 
         is_valid = feedback_type == "positive" and posture_status == "stable"
         if not is_valid:
-            self._reset_segment()
-            self._last_timestamp = None
+            if self._last_timestamp is not None:
+                delta = timestamp - self._last_timestamp
+                if delta > 0:
+                    self._consecutive_invalid_seconds += min(
+                        delta,
+                        self._max_frame_gap_seconds,
+                    )
+            self._last_timestamp = timestamp
+            self._last_was_valid = False
+            if self._consecutive_invalid_seconds > self._dropout_budget_seconds():
+                self._reset_segment()
+                self._last_timestamp = None
+                return self._build_snapshot()
+            self._record_sample(timestamp, False)
             return self._build_snapshot()
 
-        self._segment_total_frames += 1
-        self._segment_positive_frames += 1
-        if self._last_timestamp is not None:
+        self._consecutive_invalid_seconds = 0.0
+        self._record_sample(timestamp, True)
+        if self._last_timestamp is not None and self._last_was_valid:
             delta = timestamp - self._last_timestamp
             if delta > 0:
                 self._accumulated_seconds += min(
@@ -96,6 +117,7 @@ class HoldValidator:
                 )
 
         self._last_timestamp = timestamp
+        self._last_was_valid = True
 
         ratio = self._positive_frame_ratio()
         if (
@@ -106,15 +128,26 @@ class HoldValidator:
 
         return self._build_snapshot()
 
+    def _dropout_budget_seconds(self) -> float:
+        return (1.0 - self._min_positive_ratio) * self._confirmation_seconds
+
+    def _record_sample(self, timestamp: float, is_valid: bool) -> None:
+        self._samples.append((timestamp, is_valid))
+        cutoff = timestamp - self._confirmation_seconds
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.popleft()
+
     def _reset_segment(self) -> None:
         self._accumulated_seconds = 0.0
-        self._segment_positive_frames = 0
-        self._segment_total_frames = 0
+        self._consecutive_invalid_seconds = 0.0
+        self._last_was_valid = False
+        self._samples.clear()
 
     def _positive_frame_ratio(self) -> float:
-        if self._segment_total_frames == 0:
+        if not self._samples:
             return 0.0
-        return self._segment_positive_frames / self._segment_total_frames
+        positive = sum(1 for _, is_valid in self._samples if is_valid)
+        return positive / len(self._samples)
 
     def _hold_target_ms(self) -> int:
         return int(round(self._confirmation_seconds * 1000))

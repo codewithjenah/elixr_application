@@ -54,41 +54,94 @@ def test_confirmation_at_or_after_configured_duration():
     assert snapshot.hold_duration_ms >= 2500
 
 
-def test_warning_feedback_resets_hold():
-    validator = HoldValidator(confirmation_seconds=2.5, max_frame_gap_seconds=0.5)
+def _invalid(
+    validator: HoldValidator,
+    timestamp: float,
+    *,
+    feedback_type: str = "warning",
+    posture_status: str = "stable",
+):
+    return validator.update(
+        feedback_type=feedback_type,
+        posture_status=posture_status,
+        session_active=True,
+        timestamp=timestamp,
+    )
+
+
+def test_isolated_invalid_frame_does_not_zero_multi_second_progress():
+    """A single warning/error surrounded by valid frames must not wipe hold time."""
+    validator = HoldValidator(
+        confirmation_seconds=2.5,
+        max_frame_gap_seconds=0.5,
+        min_positive_ratio=0.85,
+    )
+    validator.activate()
+
+    snapshot = None
+    for i in range(21):
+        snapshot = _valid(validator, i * 0.1)
+    assert snapshot is not None
+    assert snapshot.hold_confirmed is False
+    assert snapshot.hold_duration_ms >= 1900
+
+    dropped = _invalid(validator, 2.1)
+    assert dropped.hold_confirmed is False
+    assert dropped.hold_progress > 0.5
+    assert dropped.hold_duration_ms >= 1900
+    assert 0.0 < dropped.positive_frame_ratio < 1.0
+
+    # Resume valid frames; accumulated progress must continue, not restart.
+    resumed = _valid(validator, 2.2)
+    assert resumed.hold_duration_ms >= dropped.hold_duration_ms
+    assert resumed.hold_progress > 0.5
+
+
+def test_sustained_warning_stretch_resets_hold():
+    validator = HoldValidator(
+        confirmation_seconds=2.5,
+        max_frame_gap_seconds=0.5,
+        min_positive_ratio=0.85,
+    )
     validator.activate()
 
     for i in range(20):
         _valid(validator, i * 0.1)
 
-    mid = validator.update(
-        feedback_type="warning",
-        posture_status="stable",
-        session_active=True,
-        timestamp=2.0,
-    )
-    assert mid.hold_confirmed is False
-    assert mid.hold_progress == 0.0
-    assert mid.hold_duration_ms == 0
-
-    snapshot = _valid(validator, 2.1)
+    # Dropout budget is (1 - 0.85) * 2.5s = 0.375s. Five 0.1s warnings exceed it.
+    snapshot = None
+    for i in range(5):
+        snapshot = _invalid(validator, 2.0 + i * 0.1)
+    assert snapshot is not None
     assert snapshot.hold_confirmed is False
+    assert snapshot.hold_progress == 0.0
     assert snapshot.hold_duration_ms == 0
 
+    restarted = _valid(validator, 2.5)
+    assert restarted.hold_confirmed is False
+    assert restarted.hold_duration_ms == 0
 
-def test_error_feedback_resets_hold():
-    validator = HoldValidator(confirmation_seconds=2.5, max_frame_gap_seconds=0.5)
+
+def test_sustained_error_stretch_resets_hold():
+    validator = HoldValidator(
+        confirmation_seconds=2.5,
+        max_frame_gap_seconds=0.5,
+        min_positive_ratio=0.85,
+    )
     validator.activate()
 
     for i in range(15):
         _valid(validator, i * 0.1)
 
-    snapshot = validator.update(
-        feedback_type="error",
-        posture_status="unstable",
-        session_active=True,
-        timestamp=1.5,
-    )
+    snapshot = None
+    for i in range(5):
+        snapshot = _invalid(
+            validator,
+            1.5 + i * 0.1,
+            feedback_type="error",
+            posture_status="unstable",
+        )
+    assert snapshot is not None
     assert snapshot.hold_confirmed is False
     assert snapshot.hold_progress == 0.0
 
@@ -224,7 +277,7 @@ def test_preview_processing_does_not_update_hold():
     assert active.hold_confirmed is False
 
 
-def test_positive_frame_ratio_tracks_current_segment():
+def test_positive_frame_ratio_tracks_rolling_window():
     validator = HoldValidator(confirmation_seconds=2.5, max_frame_gap_seconds=0.5)
     validator.activate()
 
@@ -232,11 +285,30 @@ def test_positive_frame_ratio_tracks_current_segment():
     snapshot = _valid(validator, 0.1)
     assert snapshot.positive_frame_ratio == 1.0
 
-    validator.update(
-        feedback_type="warning",
-        posture_status="stable",
-        session_active=True,
-        timestamp=0.2,
+    _invalid(validator, 0.2)
+    mixed = _valid(validator, 0.3)
+    assert 0.0 < mixed.positive_frame_ratio < 1.0
+
+
+def test_positive_ratio_below_threshold_delays_confirmation():
+    """HOLD_MIN_POSITIVE_RATIO must actually gate confirmation over the window."""
+    validator = HoldValidator(
+        confirmation_seconds=1.0,
+        max_frame_gap_seconds=0.5,
+        min_positive_ratio=0.85,
     )
-    reset = _valid(validator, 0.3)
-    assert reset.positive_frame_ratio == 1.0
+    validator.activate()
+
+    t = 0.0
+    snapshot = None
+    # 3 valid + 1 invalid (~75% positive) for well past the 1.0s target.
+    for i in range(24):
+        if i % 4 == 3:
+            snapshot = _invalid(validator, t)
+        else:
+            snapshot = _valid(validator, t)
+        t += 0.1
+
+    assert snapshot is not None
+    assert snapshot.hold_confirmed is False
+    assert snapshot.positive_frame_ratio < 0.85

@@ -11,7 +11,11 @@ from assessment.feedback_codes import (
 )
 from assessment.hold_validator import HoldValidator
 from assessment.rule_engine import evaluate_movement
-from assessment.rules.common_checks import check_bottle_visible, check_hands_visible
+from assessment.rules.common_checks import (
+    check_bottle_visible,
+    check_hands_visible,
+    track_bottle_stability,
+)
 from schemas.feedback import FeedbackMessage
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D
 
@@ -157,6 +161,53 @@ def test_hand_stall_closed_palm_emits_palm_not_open():
     assert result.feedback_type == "warning"
     assert result.feedback == "Open your palm and extend your fingers."
     assert result.feedback_code == FeedbackCode.PALM_NOT_OPEN.value
+
+
+def test_hand_stall_stability_failure_still_reports_other_criteria():
+    bottle = _bottle_on_palm(0.55, 0.55)
+    hands = HandsResult(hands=[_open_palm_hand(0.55, 0.55)])
+    state = None
+    for index in range(6):
+        moving = _bottle_on_palm(0.55 + index * 0.05, 0.55)
+        state, _ = track_bottle_stability(state, moving)
+    result, _, _ = evaluate_movement(
+        "Hand Stall", bottle, None, hands, None, state
+    )
+    assert result.feedback_code == FeedbackCode.PROP_NOT_STEADY.value
+    assert result.feedback == "Hold the bottle steady on your open palm."
+    assert result.criterion_results is not None
+    assert result.criterion_results["technique"].satisfied is True
+    assert result.criterion_results["prop_positioning"].satisfied is True
+    assert result.criterion_results["stability"].satisfied is False
+    assert (
+        result.criterion_results["stability"].reason_code
+        == FeedbackCode.PROP_NOT_STEADY.value
+    )
+
+
+def test_hand_stall_closed_palm_still_evaluates_other_criteria():
+    bottle = _bottle_on_palm(0.50, 0.55)
+    hands = HandsResult(hands=[_open_palm_hand(0.50, 0.55, closed=True)])
+    result, _, _ = evaluate_movement(
+        "Hand Stall", bottle, None, hands, None, _stable_state(bottle)
+    )
+    assert result.feedback_code == FeedbackCode.PALM_NOT_OPEN.value
+    assert result.criterion_results is not None
+    assert result.criterion_results["technique"].satisfied is False
+    assert result.criterion_results["prop_positioning"].observed is True
+    assert result.criterion_results["stability"].observed is True
+
+
+def test_hand_stall_missing_bottle_does_not_claim_criteria():
+    result, _, _ = evaluate_movement(
+        "Hand Stall",
+        None,
+        None,
+        HandsResult(hands=[_open_palm_hand()]),
+        None,
+    )
+    assert result.feedback_code == FeedbackCode.PROP_NOT_DETECTED.value
+    assert not result.criterion_results
 
 
 def test_hand_stall_missing_bottle_uses_shared_code():

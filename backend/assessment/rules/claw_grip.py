@@ -1,8 +1,8 @@
 import math
 from typing import Optional
 
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
@@ -333,12 +333,25 @@ def _warning(
     feedback: str,
     posture_status: str,
     feedback_code: str,
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
 ) -> RuleResult:
-    return RuleResult(
+    result = RuleResult(
         feedback=feedback,
         feedback_type="warning",
         posture_status=posture_status,
         feedback_code=feedback_code,
+    )
+    if technique_fail is None and positioning_fail is None:
+        return result
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            locked_code=FeedbackCode.CLAW_GRIP_LOCKED.value,
+        ),
     )
 
 
@@ -360,26 +373,16 @@ def evaluate(
     assert bottle is not None
     assert hands is not None
 
-    if not _is_upright(bottle):
-        return (
-            _warning(
-                "Hold the bottle upright for a claw grip.",
-                "unstable",
-                FeedbackCode.PROP_NOT_UPRIGHT.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
     contact_zone = _upper_neck_contact_zone(bottle)
     neck_anchor = _upper_neck_anchor(bottle)
     hand, palm = _nearest_hand_to_anchor(hands, neck_anchor, contact_zone)
     if hand is None or palm is None:
         return (
-            _warning(
-                "Keep your full hand visible above the bottle neck.",
-                "unknown",
-                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            RuleResult(
+                feedback="Keep your full hand visible above the bottle neck.",
+                feedback_type="warning",
+                posture_status="unknown",
+                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -391,10 +394,11 @@ def evaluate(
     index = hand.points.get(8)
     if wrist is None or middle_mcp is None or thumb is None or index is None:
         return (
-            _warning(
-                "Keep your full hand visible above the bottle neck.",
-                "unknown",
-                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            RuleResult(
+                feedback="Keep your full hand visible above the bottle neck.",
+                feedback_type="warning",
+                posture_status="unknown",
+                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -403,10 +407,11 @@ def evaluate(
     hand_scale = _hand_scale(hand)
     if hand_scale is None or hand_scale <= 0:
         return (
-            _warning(
-                "Keep your full hand visible above the bottle neck.",
-                "unknown",
-                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            RuleResult(
+                feedback="Keep your full hand visible above the bottle neck.",
+                feedback_type="warning",
+                posture_status="unknown",
+                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -421,128 +426,197 @@ def evaluate(
         _MIN_WRIST_ABOVE_NECK,
         _normalized_distance(wrist, neck_anchor) * _WRIST_ABOVE_NECK_RATIO,
     )
+
+    technique_fail = None
+    if not _is_upright(bottle):
+        technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
+    elif _fingers_extended_upward(hand, hand_scale=hand_scale):
+        technique_fail = FeedbackCode.CLAW_FINGERS_NOT_CURLED.value
+    elif _looks_like_bartenders_grip(hand, hand_scale):
+        technique_fail = FeedbackCode.CLAW_NOT_PINCH_GRIP.value
+    elif _looks_like_normal_overhand(hand, contact_zone, palm):
+        technique_fail = FeedbackCode.CLAW_NOT_SIDE_OVERHAND.value
+    elif _looks_like_reverse_grip(hand, contact_zone):
+        technique_fail = FeedbackCode.CLAW_NOT_REVERSE_HOLD.value
+    elif not _is_in_zone(thumb, contact_zone):
+        technique_fail = FeedbackCode.CLAW_THUMB_SUPPORT.value
+    else:
+        curled_contacting = _curled_contacting_fingers(
+            hand,
+            contact_zone,
+            hand_scale=hand_scale,
+        )
+        if curled_contacting < _MIN_CURLED_FINGERS:
+            technique_fail = FeedbackCode.CLAW_FINGERS_NOT_CURLED.value
+        elif curled_contacting < _REQUIRED_CURLED_CONTACTING:
+            technique_fail = FeedbackCode.CLAW_MORE_FINGERS_CURLED.value
+
+    positioning_fail = None
     if wrist.y > neck_anchor.y - required_wrist_above:
+        positioning_fail = FeedbackCode.CLAW_WRIST_ABOVE_NECK.value
+    elif palm.y > body_grip_y:
+        positioning_fail = FeedbackCode.CLAW_REACH_FROM_ABOVE.value
+    elif palm.y >= zone_top:
+        positioning_fail = FeedbackCode.CLAW_PALM_OVER_MOUTH.value
+
+    if technique_fail == FeedbackCode.PROP_NOT_UPRIGHT.value:
         return (
             _warning(
-                "Place your wrist above the bottle mouth and upper neck.",
+                "Hold the bottle upright for a claw grip.",
                 "unstable",
-                FeedbackCode.CLAW_WRIST_ABOVE_NECK.value,
+                FeedbackCode.PROP_NOT_UPRIGHT.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if palm.y > body_grip_y:
+    if positioning_fail == FeedbackCode.CLAW_WRIST_ABOVE_NECK.value:
+        return (
+            _warning(
+                "Place your wrist above the bottle mouth and upper neck.",
+                "unstable",
+                FeedbackCode.CLAW_WRIST_ABOVE_NECK.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    if positioning_fail == FeedbackCode.CLAW_REACH_FROM_ABOVE.value:
         return (
             _warning(
                 "Reach down from above onto the upper neck, "
                 "not the bottle body.",
                 "unstable",
                 FeedbackCode.CLAW_REACH_FROM_ABOVE.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if _fingers_extended_upward(hand, hand_scale=hand_scale):
+    if technique_fail == FeedbackCode.CLAW_FINGERS_NOT_CURLED.value and (
+        _fingers_extended_upward(hand, hand_scale=hand_scale)
+    ):
         return (
             _warning(
                 "Curl your fingers downward around the upper neck.",
                 "unstable",
                 FeedbackCode.CLAW_FINGERS_NOT_CURLED.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if _looks_like_bartenders_grip(hand, hand_scale):
+    if technique_fail == FeedbackCode.CLAW_NOT_PINCH_GRIP.value:
         return (
             _warning(
                 "Curl multiple fingers around the neck; "
                 "do not pinch with thumb and index.",
                 "unstable",
                 FeedbackCode.CLAW_NOT_PINCH_GRIP.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if _looks_like_normal_overhand(hand, contact_zone, palm):
+    if technique_fail == FeedbackCode.CLAW_NOT_SIDE_OVERHAND.value:
         return (
             _warning(
                 "Use a top-down claw grip, not a side overhand wrap.",
                 "unstable",
                 FeedbackCode.CLAW_NOT_SIDE_OVERHAND.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if _looks_like_reverse_grip(hand, contact_zone):
+    if technique_fail == FeedbackCode.CLAW_NOT_REVERSE_HOLD.value:
         return (
             _warning(
                 "Use a top-down claw grip, not a reverse underhand hold.",
                 "unstable",
                 FeedbackCode.CLAW_NOT_REVERSE_HOLD.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if palm.y >= zone_top:
+    if positioning_fail == FeedbackCode.CLAW_PALM_OVER_MOUTH.value:
         return (
             _warning(
                 "Reach down from above with your palm over the bottle mouth.",
                 "unstable",
                 FeedbackCode.CLAW_PALM_OVER_MOUTH.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if not _is_in_zone(thumb, contact_zone):
+    if technique_fail == FeedbackCode.CLAW_THUMB_SUPPORT.value:
         return (
             _warning(
                 "Support the opposite side of the neck with your thumb.",
                 "unstable",
                 FeedbackCode.CLAW_THUMB_SUPPORT.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    curled_contacting = _curled_contacting_fingers(
-        hand,
-        contact_zone,
-        hand_scale=hand_scale,
-    )
-    if curled_contacting < _MIN_CURLED_FINGERS:
+    if technique_fail == FeedbackCode.CLAW_FINGERS_NOT_CURLED.value:
         return (
             _warning(
                 "Curl at least two fingers downward around the upper neck.",
                 "unstable",
                 FeedbackCode.CLAW_FINGERS_NOT_CURLED.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
-    if curled_contacting < _REQUIRED_CURLED_CONTACTING:
+
+    if technique_fail == FeedbackCode.CLAW_MORE_FINGERS_CURLED.value:
         return (
             _warning(
                 "Curl more fingers around the bottle mouth and upper neck.",
                 "unstable",
                 FeedbackCode.CLAW_MORE_FINGERS_CURLED.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
     return (
-        RuleResult(
-            feedback="Good claw grip curled over the upper neck.",
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.CLAW_GRIP_LOCKED.value,
+        attach_criteria(
+            RuleResult(
+                feedback="Good claw grip curled over the upper neck.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.CLAW_GRIP_LOCKED.value,
+            ),
+            evaluable_criterion_results(
+                locked_code=FeedbackCode.CLAW_GRIP_LOCKED.value,
+            ),
         ),
         prev_hip_center,
         movement_state,

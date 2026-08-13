@@ -1095,6 +1095,7 @@ class VisionSession:
             feedback_type=rule_result.feedback_type,
             posture_status=rule_result.posture_status,
             timestamp=hold_ts,
+            criterion_results=rule_result.criterion_results,
         )
 
         hold = self._hold_validator.update(

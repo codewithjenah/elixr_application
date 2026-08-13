@@ -8,8 +8,8 @@ from config import (
     HAND_STALL_OPEN_PALM_EXTENSION_RATIO,
     HAND_STALL_UPRIGHT_ASPECT_RATIO,
 )
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     is_open_palm,
@@ -48,6 +48,24 @@ def _nearest_hand_to_bottle_base(
     return best_hand, best_palm
 
 
+def _with_criteria(
+    result: RuleResult,
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
+    stability_fail: str | None = None,
+) -> RuleResult:
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
+            locked_code=FeedbackCode.HAND_STALL_LOCKED.value,
+        ),
+    )
+
+
 def evaluate(
     bottle: Optional[BottleDetection],
     pose: Optional[PoseLandmarks],
@@ -82,95 +100,141 @@ def evaluate(
     bottle_base = bottle.bottom_center_normalized(640, 480)
     hand, palm = _nearest_hand_to_bottle_base(usable, bottle_base)
 
+    technique_fail = None
     if not is_open_palm(
         hand,
         extension_ratio=HAND_STALL_OPEN_PALM_EXTENSION_RATIO,
         min_extended=HAND_STALL_MIN_EXTENDED_FINGERS,
     ):
-        return (
-            RuleResult(
-                feedback="Open your palm and extend your fingers.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PALM_NOT_OPEN.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+        technique_fail = FeedbackCode.PALM_NOT_OPEN.value
+    elif not _is_upright(bottle):
+        technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
 
-    if not _is_upright(bottle):
-        return (
-            RuleResult(
-                feedback=f"Keep the {prop_name_lower} upright on your palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    # Image y increases downward: bottom clearly below the palm is not a stall.
+    positioning_fail = None
     if bottle_base.y > palm.y + HAND_STALL_BELOW_PALM_REJECT:
-        return (
-            RuleResult(
-                feedback=(
-                    f"Place the {prop_name_lower} base directly on your open palm."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_BASE_NOT_ON_PALM.value,
-            ),
-            prev_hip_center,
-            movement_state,
+        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_PALM.value
+    elif abs(bottle_base.x - palm.x) > HAND_STALL_MAX_HORIZONTAL_OFFSET:
+        positioning_fail = FeedbackCode.PROP_NOT_ABOVE_PALM.value
+    elif _dist(bottle_base, palm) > HAND_STALL_BASE_TO_PALM:
+        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_PALM.value
+
+    if technique_fail is None and positioning_fail is None:
+        state, stable = track_bottle_stability(movement_state, bottle)
+    else:
+        _, stable = track_bottle_stability(
+            dict(movement_state) if movement_state else None,
+            bottle,
+        )
+        state = movement_state
+    stability_fail = None if stable else FeedbackCode.PROP_NOT_STEADY.value
+
+    def _credited(result: RuleResult) -> RuleResult:
+        return _with_criteria(
+            result,
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
         )
 
-    if abs(bottle_base.x - palm.x) > HAND_STALL_MAX_HORIZONTAL_OFFSET:
+    # Headline coaching still uses the original first-failure order.
+    if technique_fail == FeedbackCode.PALM_NOT_OPEN.value:
         return (
-            RuleResult(
-                feedback=f"Move the {prop_name_lower} directly above your palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_ABOVE_PALM.value,
+            _credited(
+                RuleResult(
+                    feedback="Open your palm and extend your fingers.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PALM_NOT_OPEN.value,
+                )
             ),
             prev_hip_center,
-            movement_state,
+            state,
         )
 
-    if _dist(bottle_base, palm) > HAND_STALL_BASE_TO_PALM:
+    if technique_fail == FeedbackCode.PROP_NOT_UPRIGHT.value:
         return (
-            RuleResult(
-                feedback=(
-                    f"Place the {prop_name_lower} base directly on your open palm."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_BASE_NOT_ON_PALM.value,
+            _credited(
+                RuleResult(
+                    feedback=f"Keep the {prop_name_lower} upright on your palm.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
+                )
             ),
             prev_hip_center,
-            movement_state,
+            state,
         )
 
-    # Geometry is valid — only then update stability history for this movement.
-    state, stable = track_bottle_stability(movement_state, bottle)
-    if not stable:
+    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_PALM.value and (
+        bottle_base.y > palm.y + HAND_STALL_BELOW_PALM_REJECT
+    ):
         return (
-            RuleResult(
-                feedback=f"Hold the {prop_name_lower} steady on your open palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+            _credited(
+                RuleResult(
+                    feedback=(
+                        f"Place the {prop_name_lower} base directly on your open palm."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_PALM.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if positioning_fail == FeedbackCode.PROP_NOT_ABOVE_PALM.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=f"Move the {prop_name_lower} directly above your palm.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_ABOVE_PALM.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_PALM.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=(
+                        f"Place the {prop_name_lower} base directly on your open palm."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_PALM.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if stability_fail is not None:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=f"Hold the {prop_name_lower} steady on your open palm.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+                )
             ),
             prev_hip_center,
             state,
         )
 
     return (
-        RuleResult(
-            feedback="Hand stall locked in.",
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+        _credited(
+            RuleResult(
+                feedback="Hand stall locked in.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+            )
         ),
         prev_hip_center,
         state,

@@ -1,8 +1,8 @@
 import math
 from typing import Optional
 
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
@@ -87,12 +87,25 @@ def _warning(
     feedback: str,
     posture_status: str,
     feedback_code: str,
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
 ) -> RuleResult:
-    return RuleResult(
+    result = RuleResult(
         feedback=feedback,
         feedback_type="warning",
         posture_status=posture_status,
         feedback_code=feedback_code,
+    )
+    if technique_fail is None and positioning_fail is None:
+        return result
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            locked_code=FeedbackCode.BARTENDER_GRIP_LOCKED.value,
+        ),
     )
 
 
@@ -184,47 +197,80 @@ def evaluate(
     control = bartender_control_point(hand)
     assert control is not None
 
+    positioning_fail = None
     if not point_in_zone(control, contact_zone):
+        positioning_fail = FeedbackCode.BARTENDER_GRIP_POSITION.value
+    else:
+        palm = hand.palm_center()
+        assert palm is not None
+        bottle_center = bottle.center_normalized(FRAME_WIDTH, FRAME_HEIGHT)
+        if palm.y > bottle_center.y:
+            positioning_fail = FeedbackCode.BARTENDER_PALM_TOO_LOW.value
+
+    technique_fail = None
+    if _pixel_distance(thumb, index) > (hand_scale * _MAX_CONTROL_GAP_RATIO):
+        technique_fail = FeedbackCode.BARTENDER_PINCH_REQUIRED.value
+    else:
+        horizontal = abs(middle_mcp.x - wrist.x) * FRAME_WIDTH
+        vertical = abs(middle_mcp.y - wrist.y) * FRAME_HEIGHT
+        if horizontal < vertical * _MIN_SIDEWAYS_RATIO:
+            technique_fail = FeedbackCode.BARTENDER_HAND_ORIENTATION.value
+        elif index_extension < _MIN_INDEX_EXTENSION:
+            technique_fail = FeedbackCode.BARTENDER_INDEX_EXTENSION.value
+        else:
+            wrap_zone = bartender_contact_zone(
+                bottle,
+                frame_width=FRAME_WIDTH,
+                frame_height=FRAME_HEIGHT,
+                bottom_fraction=BARTENDER_WRAP_BOTTOM_FRACTION,
+            )
+            wrapped_fingers = sum(
+                point_in_zone(point, wrap_zone)
+                for point in other_tips
+            )
+            if wrapped_fingers < _REQUIRED_OTHER_FINGERTIPS:
+                technique_fail = FeedbackCode.BARTENDER_WRAP_FINGERS.value
+
+    if positioning_fail == FeedbackCode.BARTENDER_GRIP_POSITION.value:
         return (
             _warning(
                 "Grip the bottle at the upper neck and shoulder.",
                 "unstable",
                 FeedbackCode.BARTENDER_GRIP_POSITION.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if _pixel_distance(thumb, index) > (
-        hand_scale * _MAX_CONTROL_GAP_RATIO
-    ):
+    if technique_fail == FeedbackCode.BARTENDER_PINCH_REQUIRED.value:
         return (
             _warning(
                 "Secure the neck between your thumb and index finger.",
                 "unstable",
                 FeedbackCode.BARTENDER_PINCH_REQUIRED.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    horizontal = abs(middle_mcp.x - wrist.x) * FRAME_WIDTH
-    vertical = abs(middle_mcp.y - wrist.y) * FRAME_HEIGHT
-    if horizontal < vertical * _MIN_SIDEWAYS_RATIO:
+    if technique_fail == FeedbackCode.BARTENDER_HAND_ORIENTATION.value:
         return (
             _warning(
                 "Turn your hand sideways for a bartender's grip.",
                 "unstable",
                 FeedbackCode.BARTENDER_HAND_ORIENTATION.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    palm = hand.palm_center()
-    assert palm is not None
-    bottle_center = bottle.center_normalized(FRAME_WIDTH, FRAME_HEIGHT)
-    if palm.y > bottle_center.y:
+    if positioning_fail == FeedbackCode.BARTENDER_PALM_TOO_LOW.value:
         return (
             _warning(
                 (
@@ -233,49 +279,50 @@ def evaluate(
                 ),
                 "unstable",
                 FeedbackCode.BARTENDER_PALM_TOO_LOW.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    if index_extension < _MIN_INDEX_EXTENSION:
+    if technique_fail == FeedbackCode.BARTENDER_INDEX_EXTENSION.value:
         return (
             _warning(
                 "Extend your index finger along the bottle neck.",
                 "unstable",
                 FeedbackCode.BARTENDER_INDEX_EXTENSION.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
-    wrap_zone = bartender_contact_zone(
-        bottle,
-        frame_width=FRAME_WIDTH,
-        frame_height=FRAME_HEIGHT,
-        bottom_fraction=BARTENDER_WRAP_BOTTOM_FRACTION,
-    )
-    wrapped_fingers = sum(
-        point_in_zone(point, wrap_zone)
-        for point in other_tips
-    )
-    if wrapped_fingers < _REQUIRED_OTHER_FINGERTIPS:
+    if technique_fail == FeedbackCode.BARTENDER_WRAP_FINGERS.value:
         return (
             _warning(
                 "Wrap your other fingers around the bottle shoulder.",
                 "unstable",
                 FeedbackCode.BARTENDER_WRAP_FINGERS.value,
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
             ),
             prev_hip_center,
             movement_state,
         )
 
     return (
-        RuleResult(
-            feedback="Good bartender's grip on the neck and shoulder.",
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.BARTENDER_GRIP_LOCKED.value,
+        attach_criteria(
+            RuleResult(
+                feedback="Good bartender's grip on the neck and shoulder.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.BARTENDER_GRIP_LOCKED.value,
+            ),
+            evaluable_criterion_results(
+                locked_code=FeedbackCode.BARTENDER_GRIP_LOCKED.value,
+            ),
         ),
         prev_hip_center,
         movement_state,

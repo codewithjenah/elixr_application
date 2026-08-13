@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from assessment.feedback_codes import (
     FeedbackCode,
     criterion_for,
+    evaluable_criterion_results,
     is_locked_code,
     registered_codes,
 )
@@ -218,10 +219,61 @@ def test_hold_completion_affects_completion_criterion():
 
 
 def test_rule_feedback_maps_to_intended_criteria():
+    """A failing headline criterion must not hide other evaluable criteria."""
     tracker = RubricTracker(min_observed_seconds=0.5, partial_ratio=0.65)
     tracker.activate()
     t = 0.0
-    # Technique issue for 1s
+    criteria = evaluable_criterion_results(
+        stability_fail=FeedbackCode.PROP_NOT_STEADY.value,
+        locked_code=FeedbackCode.HAND_STALL_LOCKED.value,
+    )
+    for _ in range(10):
+        t += 0.2
+        tracker.record(
+            feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+            feedback_type="warning",
+            posture_status="unstable",
+            timestamp=t,
+            criterion_results=criteria,
+        )
+    assessment = tracker.snapshot(HoldSnapshot())
+    assert assessment.stability.score == 0
+    assert assessment.stability.reason_code == FeedbackCode.PROP_NOT_STEADY.value
+    assert assessment.technique.score == 3
+    assert assessment.prop_positioning.score == 3
+    assert assessment.technique.reason_code != "not_observed"
+    assert assessment.prop_positioning.reason_code != "not_observed"
+
+
+def test_unevaluable_criteria_stay_not_observed():
+    tracker = RubricTracker(min_observed_seconds=0.5)
+    tracker.activate()
+    t = 0.0
+    for _ in range(5):
+        t += 0.2
+        tracker.record(
+            feedback_code=FeedbackCode.PALM_NOT_OPEN.value,
+            feedback_type="warning",
+            posture_status="unstable",
+            timestamp=t,
+            criterion_results=evaluable_criterion_results(
+                technique_fail=FeedbackCode.PALM_NOT_OPEN.value,
+                locked_code=FeedbackCode.HAND_STALL_LOCKED.value,
+                positioning_observed=False,
+                stability_observed=False,
+            ),
+        )
+    assessment = tracker.snapshot(HoldSnapshot())
+    assert assessment.technique.score == 0
+    assert assessment.technique.reason_code == FeedbackCode.PALM_NOT_OPEN.value
+    assert assessment.stability.reason_code == "not_observed"
+    assert assessment.prop_positioning.reason_code == "not_observed"
+
+
+def test_legacy_single_code_record_still_maps_one_criterion():
+    tracker = RubricTracker(min_observed_seconds=0.5, partial_ratio=0.65)
+    tracker.activate()
+    t = 0.0
     for _ in range(5):
         t += 0.2
         tracker.record(
@@ -230,7 +282,6 @@ def test_rule_feedback_maps_to_intended_criteria():
             posture_status="unstable",
             timestamp=t,
         )
-    # Stability issue for 1s
     for _ in range(5):
         t += 0.2
         tracker.record(

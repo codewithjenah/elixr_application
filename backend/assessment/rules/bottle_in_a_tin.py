@@ -15,8 +15,8 @@ from config import (
     BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE,
     BOTTLE_IN_A_TIN_SHAKER_HORIZONTAL_ASPECT_RATIO,
 )
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     track_bottle_stability,
     usable_hands_with_palms,
@@ -41,6 +41,24 @@ def _is_shaker_horizontal(shaker: BottleDetection) -> bool:
     height = max(1, shaker.y2 - shaker.y1)
     width = max(0, shaker.x2 - shaker.x1)
     return (width / height) >= BOTTLE_IN_A_TIN_SHAKER_HORIZONTAL_ASPECT_RATIO
+
+
+def _credited(
+    result: RuleResult,
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
+    stability_fail: str | None = None,
+) -> RuleResult:
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
+            locked_code=FeedbackCode.BOTTLE_IN_TIN_LOCKED.value,
+        ),
+    )
 
 
 def evaluate(
@@ -89,31 +107,13 @@ def evaluate(
             movement_state,
         )
 
-    # B. Orientation.
+    # B–E. Independent technique, positioning, support, and stability checks.
+    technique_fail = None
     if not _is_bottle_upright(bottle):
-        return (
-            RuleResult(
-                feedback="Keep the bottle upright.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-    if not _is_shaker_horizontal(shaker):
-        return (
-            RuleResult(
-                feedback="Hold the cocktail shaker horizontally.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.SHAKER_NOT_HORIZONTAL.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+        technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
+    elif not _is_shaker_horizontal(shaker):
+        technique_fail = FeedbackCode.SHAKER_NOT_HORIZONTAL.value
 
-    # C. Bottle-on-shaker contact geometry (normalized frame coordinates).
     bottle_base = bottle.bottom_center_normalized(_FRAME_W, _FRAME_H)
     shaker_x1 = shaker.x1 / _FRAME_W
     shaker_x2 = shaker.x2 / _FRAME_W
@@ -123,65 +123,27 @@ def evaluate(
     usable_left = shaker_x1 + margin
     usable_right = shaker_x2 - margin
 
+    positioning_fail = None
     if bottle_base.x < usable_left or bottle_base.x > usable_right:
-        return (
-            RuleResult(
-                feedback="Center the bottle over the shaker.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+        positioning_fail = FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER.value
+    elif abs(bottle_base.y - shaker_top_y) > BOTTLE_IN_A_TIN_CONTACT_VERTICAL_TOLERANCE:
+        positioning_fail = FeedbackCode.BOTTLE_NOT_ON_SHAKER.value
 
-    if abs(bottle_base.y - shaker_top_y) > BOTTLE_IN_A_TIN_CONTACT_VERTICAL_TOLERANCE:
-        return (
-            RuleResult(
-                feedback="Place the bottle on top of the shaker.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLE_NOT_ON_SHAKER.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    # D. Hand support: at least one hand reasonably near the shaker's
-    # center/lower-half (the grip that holds the shaker), not an open-palm check.
     usable = usable_hands_with_palms(hands)
+    support_visible = True
     if not usable:
-        return (
-            RuleResult(
-                feedback="Keep one hand visible while supporting the shaker.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.HAND_NOT_SUPPORTING_SHAKER.value,
-            ),
-            prev_hip_center,
-            movement_state,
+        support_visible = False
+    else:
+        shaker_center = shaker.center_normalized(_FRAME_W, _FRAME_H)
+        shaker_bottom_y = shaker.y2 / _FRAME_H
+        grip_target = Point2D(
+            x=shaker_center.x,
+            y=(shaker_center.y + shaker_bottom_y) / 2.0,
         )
+        nearest_palm_dist = min(_dist(palm, grip_target) for _hand, palm in usable)
+        if nearest_palm_dist > BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE:
+            support_visible = False
 
-    shaker_center = shaker.center_normalized(_FRAME_W, _FRAME_H)
-    shaker_bottom_y = shaker.y2 / _FRAME_H
-    grip_target = Point2D(
-        x=shaker_center.x,
-        y=(shaker_center.y + shaker_bottom_y) / 2.0,
-    )
-    nearest_palm_dist = min(_dist(palm, grip_target) for _hand, palm in usable)
-    if nearest_palm_dist > BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE:
-        return (
-            RuleResult(
-                feedback="Keep one hand visible while supporting the shaker.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.HAND_NOT_SUPPORTING_SHAKER.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    # E. Stability: bottle and shaker tracked independently.
     current = dict(movement_state or {})
     bottle_sub, bottle_stable = track_bottle_stability(
         current.get("bottle"), bottle
@@ -191,25 +153,122 @@ def evaluate(
     )
     current["bottle"] = bottle_sub
     current["shaker"] = shaker_sub
+    stability_fail = (
+        None
+        if bottle_stable and shaker_stable
+        else FeedbackCode.BOTH_PROPS_NOT_STEADY.value
+    )
 
-    if not bottle_stable or not shaker_stable:
+    if technique_fail == FeedbackCode.PROP_NOT_UPRIGHT.value:
         return (
-            RuleResult(
-                feedback="Hold the bottle and shaker steady.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTH_PROPS_NOT_STEADY.value,
+            _credited(
+                RuleResult(
+                    feedback="Keep the bottle upright.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+    if technique_fail == FeedbackCode.SHAKER_NOT_HORIZONTAL.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Hold the cocktail shaker horizontally.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.SHAKER_NOT_HORIZONTAL.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if positioning_fail == FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Center the bottle over the shaker.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if positioning_fail == FeedbackCode.BOTTLE_NOT_ON_SHAKER.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Place the bottle on top of the shaker.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTTLE_NOT_ON_SHAKER.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if not support_visible:
+        # Visibility headline, but technique/positioning were already evaluable.
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Keep one hand visible while supporting the shaker.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.HAND_NOT_SUPPORTING_SHAKER.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if stability_fail is not None:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Hold the bottle and shaker steady.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTH_PROPS_NOT_STEADY.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
             ),
             prev_hip_center,
             current,
         )
 
     return (
-        RuleResult(
-            feedback="Bottle in a tin locked in.",
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.BOTTLE_IN_TIN_LOCKED.value,
+        _credited(
+            RuleResult(
+                feedback="Bottle in a tin locked in.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.BOTTLE_IN_TIN_LOCKED.value,
+            )
         ),
         prev_hip_center,
         current,

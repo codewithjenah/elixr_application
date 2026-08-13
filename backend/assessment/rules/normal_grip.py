@@ -1,8 +1,8 @@
 import math
 from typing import Optional
 
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
@@ -145,17 +145,9 @@ def evaluate(
         )
 
     contact_zone = _neck_contact_zone(bottle)
+    positioning_fail = None
     if not _is_in_zone(palm, contact_zone):
-        return (
-            RuleResult(
-                feedback="Move your hand to the upper bottle neck.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.HAND_NOT_AT_NECK.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+        positioning_fail = FeedbackCode.HAND_NOT_AT_NECK.value
 
     overhand = _is_overhand(hand)
     if overhand is None:
@@ -169,44 +161,82 @@ def evaluate(
             prev_hip_center,
             movement_state,
         )
+
+    technique_fail = None
     if not overhand:
+        technique_fail = FeedbackCode.OVERHAND_GRIP_REQUIRED.value
+    else:
+        engaged_fingertips = sum(
+            _is_in_zone(hand.points.get(index), contact_zone)
+            for index in _FINGERTIP_INDICES
+        )
+        if engaged_fingertips < _REQUIRED_FINGERTIPS:
+            technique_fail = FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP.value
+
+    def _credited(result: RuleResult) -> RuleResult:
+        return attach_criteria(
+            result,
+            evaluable_criterion_results(
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                locked_code=FeedbackCode.NORMAL_GRIP_LOCKED.value,
+            ),
+        )
+
+    if positioning_fail == FeedbackCode.HAND_NOT_AT_NECK.value:
         return (
-            RuleResult(
-                feedback="Rotate your wrist into an overhand grip.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.OVERHAND_GRIP_REQUIRED.value,
+            _credited(
+                RuleResult(
+                    feedback="Move your hand to the upper bottle neck.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.HAND_NOT_AT_NECK.value,
+                )
             ),
             prev_hip_center,
             movement_state,
         )
 
-    engaged_fingertips = sum(
-        _is_in_zone(hand.points.get(index), contact_zone)
-        for index in _FINGERTIP_INDICES
-    )
-    if engaged_fingertips < _REQUIRED_FINGERTIPS:
+    if technique_fail == FeedbackCode.OVERHAND_GRIP_REQUIRED.value:
         return (
-            RuleResult(
-                feedback=(
-                    "Wrap at least three fingers around the bottle neck."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP.value,
+            _credited(
+                RuleResult(
+                    feedback="Rotate your wrist into an overhand grip.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.OVERHAND_GRIP_REQUIRED.value,
+                )
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    if technique_fail == FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=(
+                        "Wrap at least three fingers around the bottle neck."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP.value,
+                )
             ),
             prev_hip_center,
             movement_state,
         )
 
     return (
-        RuleResult(
-            feedback=(
-                "Bottle held securely with a full overhand neck grip."
-            ),
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.NORMAL_GRIP_LOCKED.value,
+        _credited(
+            RuleResult(
+                feedback=(
+                    "Bottle held securely with a full overhand neck grip."
+                ),
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.NORMAL_GRIP_LOCKED.value,
+            )
         ),
         prev_hip_center,
         movement_state,

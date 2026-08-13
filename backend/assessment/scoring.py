@@ -14,6 +14,7 @@ from assessment.rubric import (
     RubricAssessment,
     RubricCriterion,
 )
+from assessment.rules.base import CriterionCheck
 from config import (
     RUBRIC_COMPLETION_PARTIAL_PROGRESS,
     RUBRIC_FULL_RATIO,
@@ -83,11 +84,13 @@ class RubricTracker:
         feedback_type: str,
         posture_status: str,
         timestamp: float,
+        criterion_results: dict[str, CriterionCheck] | None = None,
     ) -> None:
         """Record one evaluated active frame.
 
         Visibility/environment/system codes and unknown codes contribute to
-        neither satisfied nor observed durations. Locked frames satisfy
+        neither satisfied nor observed durations unless the rule supplied an
+        explicit per-criterion map. Locked frames without a map satisfy
         technique, stability, and prop_positioning simultaneously.
         """
         _ = feedback_type, posture_status  # retained for call-site symmetry
@@ -102,6 +105,10 @@ class RubricTracker:
         self._last_timestamp = timestamp
 
         if delta <= 0:
+            return
+
+        if criterion_results:
+            self._record_criterion_results(criterion_results, delta)
             return
 
         if is_locked_code(feedback_code):
@@ -120,6 +127,21 @@ class RubricTracker:
 
         self._observed[criterion] += delta
         self._last_reason[criterion] = feedback_code or criterion.value
+
+    def _record_criterion_results(
+        self,
+        criterion_results: dict[str, CriterionCheck],
+        delta: float,
+    ) -> None:
+        for criterion in _TRACKED_CRITERIA:
+            check = criterion_results.get(criterion.value)
+            if check is None or not check.observed:
+                continue
+            self._observed[criterion] += delta
+            if check.satisfied:
+                self._satisfied[criterion] += delta
+            if check.reason_code:
+                self._last_reason[criterion] = check.reason_code
 
     def snapshot(self, hold: HoldSnapshot) -> RubricAssessment:
         """Build the current RubricAssessment from accumulated evidence."""

@@ -8,8 +8,8 @@ from config import (
     DOUBLE_HAND_MIN_PALM_SEPARATION,
     DOUBLE_HAND_UPRIGHT_ASPECT_RATIO,
 )
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     is_open_palm,
     track_bottle_stability,
@@ -44,6 +44,24 @@ def _pair_bottles_to_palms(
     if assignment_a <= assignment_b:
         return b0, b1
     return b1, b0
+
+
+def _credited(
+    result: RuleResult,
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
+    stability_fail: str | None = None,
+) -> RuleResult:
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
+            locked_code=FeedbackCode.DOUBLE_HAND_STALL_LOCKED.value,
+        ),
+    )
 
 
 def evaluate(
@@ -107,44 +125,6 @@ def evaluate(
     left_hand, left_palm = ordered[0]
     right_hand, right_palm = ordered[-1]
 
-    if not is_open_palm(left_hand) or not is_open_palm(right_hand):
-        return (
-            RuleResult(
-                feedback="Open both palms and extend your fingers.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTH_PALMS_NOT_OPEN.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    separation = _dist(left_palm, right_palm)
-    if separation < DOUBLE_HAND_MIN_PALM_SEPARATION:
-        return (
-            RuleResult(
-                feedback="Position one bottle directly above each palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    height_diff = abs(left_palm.y - right_palm.y)
-    if height_diff > DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF:
-        return (
-            RuleResult(
-                feedback="Keep both palms at the same height.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTH_PALMS_HEIGHT_MISMATCH.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
     left_bottle, right_bottle = _pair_bottles_to_palms(
         bottle_list, left_palm, right_palm
     )
@@ -157,71 +137,32 @@ def evaluate(
     right_to_right = _dist(right_base, right_palm)
     both_prefer_left = left_to_left < left_to_right and right_to_left < right_to_right
     both_prefer_right = left_to_right < left_to_left and right_to_right < right_to_left
-    if both_prefer_left or both_prefer_right:
-        return (
-            RuleResult(
-                feedback="Position one bottle directly above each palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
 
-    if not _is_upright(left_bottle) or not _is_upright(right_bottle):
-        return (
-            RuleResult(
-                feedback="Keep both bottles upright.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+    technique_fail = None
+    if not is_open_palm(left_hand) or not is_open_palm(right_hand):
+        technique_fail = FeedbackCode.BOTH_PALMS_NOT_OPEN.value
+    elif abs(left_palm.y - right_palm.y) > DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF:
+        technique_fail = FeedbackCode.BOTH_PALMS_HEIGHT_MISMATCH.value
+    elif not _is_upright(left_bottle) or not _is_upright(right_bottle):
+        technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
 
-    if abs(left_base.y - right_base.y) > DOUBLE_HAND_MAX_BOTTLE_HEIGHT_DIFF:
-        return (
-            RuleResult(
-                feedback="Position one bottle directly above each palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    if (
+    positioning_fail = None
+    if _dist(left_palm, right_palm) < DOUBLE_HAND_MIN_PALM_SEPARATION:
+        positioning_fail = FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value
+    elif both_prefer_left or both_prefer_right:
+        positioning_fail = FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value
+    elif abs(left_base.y - right_base.y) > DOUBLE_HAND_MAX_BOTTLE_HEIGHT_DIFF:
+        positioning_fail = FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value
+    elif (
         left_base.y > left_palm.y + DOUBLE_HAND_BELOW_REJECT
         or right_base.y > right_palm.y + DOUBLE_HAND_BELOW_REJECT
     ):
-        return (
-            RuleResult(
-                feedback="Position one bottle directly above each palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    if (
+        positioning_fail = FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value
+    elif (
         left_to_left > DOUBLE_HAND_BOTTLE_BASE_TO_PALM
         or right_to_right > DOUBLE_HAND_BOTTLE_BASE_TO_PALM
     ):
-        return (
-            RuleResult(
-                feedback="Position one bottle directly above each palm.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+        positioning_fail = FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value
 
     current = dict(movement_state or {})
     left_sub, left_stable = track_bottle_stability(
@@ -234,25 +175,141 @@ def evaluate(
     )
     current["left_palm"] = left_sub
     current["right_palm"] = right_sub
+    stability_fail = (
+        None
+        if left_stable and right_stable
+        else FeedbackCode.BOTH_PROPS_NOT_STEADY.value
+    )
 
-    if not left_stable or not right_stable:
+    if technique_fail == FeedbackCode.BOTH_PALMS_NOT_OPEN.value:
         return (
-            RuleResult(
-                feedback="Hold both bottles and hands steady.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.BOTH_PROPS_NOT_STEADY.value,
+            _credited(
+                RuleResult(
+                    feedback="Open both palms and extend your fingers.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTH_PALMS_NOT_OPEN.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if positioning_fail is not None and _dist(
+        left_palm, right_palm
+    ) < DOUBLE_HAND_MIN_PALM_SEPARATION:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Position one bottle directly above each palm.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if technique_fail == FeedbackCode.BOTH_PALMS_HEIGHT_MISMATCH.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Keep both palms at the same height.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTH_PALMS_HEIGHT_MISMATCH.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if technique_fail == FeedbackCode.PROP_NOT_UPRIGHT.value:
+        # Keep original headline order: pairing/height mismatches before upright.
+        if positioning_fail is not None:
+            return (
+                _credited(
+                    RuleResult(
+                        feedback="Position one bottle directly above each palm.",
+                        feedback_type="warning",
+                        posture_status="unstable",
+                        feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
+                    ),
+                    technique_fail=technique_fail,
+                    positioning_fail=positioning_fail,
+                    stability_fail=stability_fail,
+                ),
+                prev_hip_center,
+                current,
+            )
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Keep both bottles upright.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if positioning_fail is not None:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Position one bottle directly above each palm.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            current,
+        )
+
+    if stability_fail is not None:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Hold both bottles and hands steady.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.BOTH_PROPS_NOT_STEADY.value,
+                ),
+                technique_fail=technique_fail,
+                positioning_fail=positioning_fail,
+                stability_fail=stability_fail,
             ),
             prev_hip_center,
             current,
         )
 
     return (
-        RuleResult(
-            feedback="Double hand stall locked in.",
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.DOUBLE_HAND_STALL_LOCKED.value,
+        _credited(
+            RuleResult(
+                feedback="Double hand stall locked in.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.DOUBLE_HAND_STALL_LOCKED.value,
+            )
         ),
         prev_hip_center,
         current,

@@ -11,8 +11,8 @@ from config import (
     ONE_FINGER_STALL_OTHER_FINGER_EXTENSION_RATIO,
     ONE_FINGER_STALL_UPRIGHT_ASPECT_RATIO,
 )
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     track_bottle_stability,
@@ -126,6 +126,24 @@ def _count_other_extended_fingers(hand: HandLandmarks) -> int:
     return extended
 
 
+def _with_criteria(
+    result: RuleResult,
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
+    stability_fail: str | None = None,
+) -> RuleResult:
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
+            locked_code=FeedbackCode.ONE_FINGER_STALL_LOCKED.value,
+        ),
+    )
+
+
 def evaluate(
     bottle: Optional[BottleDetection],
     pose: Optional[PoseLandmarks],
@@ -160,114 +178,162 @@ def evaluate(
     prop_base = bottle.bottom_center_normalized(640, 480)
     hand, index_tip = _nearest_usable_hand_to_prop_base(usable, prop_base)
 
+    technique_fail = None
     if not _index_is_extended_and_straight(hand):
-        return (
-            RuleResult(
-                feedback="Extend one index finger straight.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.INDEX_FINGER_NOT_EXTENDED.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    if (
+        technique_fail = FeedbackCode.INDEX_FINGER_NOT_EXTENDED.value
+    elif (
         _count_other_extended_fingers(hand)
         > ONE_FINGER_STALL_MAX_OTHER_EXTENDED_FINGERS
     ):
-        return (
-            RuleResult(
-                feedback=(
-                    "Curl your other fingers and keep only the index finger "
-                    "extended."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.OTHER_FINGERS_NOT_CURLED.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
+        technique_fail = FeedbackCode.OTHER_FINGERS_NOT_CURLED.value
+    elif not _is_upright(bottle):
+        technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
 
-    if not _is_upright(bottle):
-        return (
-            RuleResult(
-                feedback=f"Keep the {prop_name_lower} upright on your index finger.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
-            ),
-            prev_hip_center,
-            movement_state,
-        )
-
-    # Image y increases downward: a prop bottom clearly below the fingertip
-    # cannot be resting on the index finger.
+    positioning_fail = None
     if prop_base.y > index_tip.y + ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT:
-        return (
-            RuleResult(
-                feedback=(
-                    f"Place the {prop_name_lower} base on the tip of your "
-                    "index finger."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_BASE_NOT_ON_INDEX.value,
-            ),
-            prev_hip_center,
-            movement_state,
+        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_INDEX.value
+    elif abs(prop_base.x - index_tip.x) > ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET:
+        positioning_fail = FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value
+    elif _dist(prop_base, index_tip) > ONE_FINGER_STALL_BASE_TO_INDEX_TIP:
+        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_INDEX.value
+
+    if technique_fail is None and positioning_fail is None:
+        state, stable = track_bottle_stability(movement_state, bottle)
+    else:
+        _, stable = track_bottle_stability(
+            dict(movement_state) if movement_state else None,
+            bottle,
+        )
+        state = movement_state
+    stability_fail = None if stable else FeedbackCode.PROP_NOT_STEADY.value
+
+    def _credited(result: RuleResult) -> RuleResult:
+        return _with_criteria(
+            result,
+            technique_fail=technique_fail,
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
         )
 
-    if abs(prop_base.x - index_tip.x) > ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET:
+    if technique_fail == FeedbackCode.INDEX_FINGER_NOT_EXTENDED.value:
         return (
-            RuleResult(
-                feedback=(
-                    f"Center the {prop_name_lower} over your index fingertip."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value,
+            _credited(
+                RuleResult(
+                    feedback="Extend one index finger straight.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.INDEX_FINGER_NOT_EXTENDED.value,
+                )
             ),
             prev_hip_center,
-            movement_state,
+            state,
         )
 
-    if _dist(prop_base, index_tip) > ONE_FINGER_STALL_BASE_TO_INDEX_TIP:
+    if technique_fail == FeedbackCode.OTHER_FINGERS_NOT_CURLED.value:
         return (
-            RuleResult(
-                feedback=(
-                    f"Place the {prop_name_lower} base on the tip of your "
-                    "index finger."
-                ),
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_BASE_NOT_ON_INDEX.value,
+            _credited(
+                RuleResult(
+                    feedback=(
+                        "Curl your other fingers and keep only the index finger "
+                        "extended."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.OTHER_FINGERS_NOT_CURLED.value,
+                )
             ),
             prev_hip_center,
-            movement_state,
+            state,
         )
 
-    # Geometry is valid — only then update stability history for this movement.
-    state, stable = track_bottle_stability(movement_state, bottle)
-    if not stable:
+    if technique_fail == FeedbackCode.PROP_NOT_UPRIGHT.value:
         return (
-            RuleResult(
-                feedback=f"Hold the {prop_name_lower} steady on one finger.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+            _credited(
+                RuleResult(
+                    feedback=f"Keep the {prop_name_lower} upright on your index finger.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_INDEX.value and (
+        prop_base.y > index_tip.y + ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT
+    ):
+        return (
+            _credited(
+                RuleResult(
+                    feedback=(
+                        f"Place the {prop_name_lower} base on the tip of your "
+                        "index finger."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_INDEX.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if positioning_fail == FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=(
+                        f"Center the {prop_name_lower} over your index fingertip."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_INDEX.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=(
+                        f"Place the {prop_name_lower} base on the tip of your "
+                        "index finger."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_INDEX.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    if stability_fail is not None:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=f"Hold the {prop_name_lower} steady on one finger.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+                )
             ),
             prev_hip_center,
             state,
         )
 
     return (
-        RuleResult(
-            feedback="One finger stall locked in.",
-            feedback_type="positive",
-            posture_status="stable",
-            feedback_code=FeedbackCode.ONE_FINGER_STALL_LOCKED.value,
+        _credited(
+            RuleResult(
+                feedback="One finger stall locked in.",
+                feedback_type="positive",
+                posture_status="stable",
+                feedback_code=FeedbackCode.ONE_FINGER_STALL_LOCKED.value,
+            )
         ),
         prev_hip_center,
         state,

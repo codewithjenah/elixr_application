@@ -160,20 +160,36 @@ BOTTLE_IN_A_TIN_HORIZONTAL_MARGIN_RATIO = 0.15
 # Max distance from the nearest usable palm to the shaker's center/lower-half.
 BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE = 0.22
 
+def _load_unit_ratio(name: str, default: str) -> float:
+    """Load a ratio that must fall in the closed unit interval [0.0, 1.0]."""
+    raw = os.getenv(name, default)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} must be a number between 0.0 and 1.0 (got {raw!r})"
+        ) from exc
+    if value < 0.0 or value > 1.0:
+        raise ValueError(
+            f"{name} must be between 0.0 and 1.0 (got {value})"
+        )
+    return value
+
+
 # Backend-authoritative hold confirmation (active sessions only).
 HOLD_CONFIRMATION_SECONDS = float(os.getenv("HOLD_CONFIRMATION_SECONDS", "2.5"))
 # Reject hold accumulation when evaluated frames are spaced farther apart.
 HOLD_MAX_FRAME_GAP_SECONDS = float(os.getenv("HOLD_MAX_FRAME_GAP_SECONDS", "0.35"))
-# Minimum share of positive/stable frames in the current hold segment.
-HOLD_MIN_POSITIVE_RATIO = float(os.getenv("HOLD_MIN_POSITIVE_RATIO", "0.85"))
+# Minimum share of positive/stable frames in the current hold window.
+HOLD_MIN_POSITIVE_RATIO = _load_unit_ratio("HOLD_MIN_POSITIVE_RATIO", "0.85")
 
 # Rubric assessment (Assessment V2). Frame-rate independent: durations use
 # wall-clock deltas capped like HoldValidator, never raw frame counts.
 RUBRIC_MAX_FRAME_GAP_SECONDS = float(
     os.getenv("RUBRIC_MAX_FRAME_GAP_SECONDS", str(HOLD_MAX_FRAME_GAP_SECONDS))
 )
-RUBRIC_FULL_RATIO = float(os.getenv("RUBRIC_FULL_RATIO", "0.90"))
-RUBRIC_PARTIAL_RATIO = float(os.getenv("RUBRIC_PARTIAL_RATIO", "0.65"))
+RUBRIC_FULL_RATIO = _load_unit_ratio("RUBRIC_FULL_RATIO", "0.90")
+RUBRIC_PARTIAL_RATIO = _load_unit_ratio("RUBRIC_PARTIAL_RATIO", "0.65")
 RUBRIC_MIN_OBSERVED_SECONDS = float(os.getenv("RUBRIC_MIN_OBSERVED_SECONDS", "1.0"))
 # Partial (score=2) floor defaults to half the full floor; override independently.
 RUBRIC_PARTIAL_MIN_OBSERVED_SECONDS = float(
@@ -182,8 +198,8 @@ RUBRIC_PARTIAL_MIN_OBSERVED_SECONDS = float(
         str(RUBRIC_MIN_OBSERVED_SECONDS / 2.0),
     )
 )
-RUBRIC_COMPLETION_PARTIAL_PROGRESS = float(
-    os.getenv("RUBRIC_COMPLETION_PARTIAL_PROGRESS", "0.66")
+RUBRIC_COMPLETION_PARTIAL_PROGRESS = _load_unit_ratio(
+    "RUBRIC_COMPLETION_PARTIAL_PROGRESS", "0.66"
 )
 
 # Pre-practice readiness gate (observability only — not technique thresholds).

@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Optional
 
 from assessment.rubric import RubricCriterion
+from assessment.rules.base import CriterionCheck
 
 
 class FeedbackCategory(str, Enum):
@@ -373,3 +374,47 @@ def is_registered(code: str | FeedbackCode | None) -> bool:
 
 def registered_codes() -> tuple[FeedbackCode, ...]:
     return tuple(FeedbackCode)
+
+
+def evaluable_criterion_results(
+    *,
+    technique_fail: str | None = None,
+    positioning_fail: str | None = None,
+    stability_fail: str | None = None,
+    locked_code: str,
+    technique_observed: bool = True,
+    positioning_observed: bool = True,
+    stability_observed: bool = True,
+) -> dict[str, CriterionCheck]:
+    """Build a per-criterion map for a frame that could be evaluated.
+
+    A ``None`` fail code means that criterion passed. Set ``*_observed=False``
+    when that criterion genuinely could not be checked on this frame.
+    """
+
+    def _entry(observed: bool, fail: str | None) -> CriterionCheck | None:
+        if not observed:
+            return None
+        if fail is None:
+            return CriterionCheck(
+                observed=True,
+                satisfied=True,
+                reason_code=locked_code,
+            )
+        return CriterionCheck(
+            observed=True,
+            satisfied=False,
+            reason_code=fail,
+        )
+
+    results: dict[str, CriterionCheck] = {}
+    technique = _entry(technique_observed, technique_fail)
+    if technique is not None:
+        results[RubricCriterion.TECHNIQUE.value] = technique
+    stability = _entry(stability_observed, stability_fail)
+    if stability is not None:
+        results[RubricCriterion.STABILITY.value] = stability
+    positioning = _entry(positioning_observed, positioning_fail)
+    if positioning is not None:
+        results[RubricCriterion.PROP_POSITIONING.value] = positioning
+    return results

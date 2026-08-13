@@ -1,8 +1,8 @@
 from typing import Optional
 
 from config import ARM_STALL_PROXIMITY
-from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
+from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
@@ -11,6 +11,22 @@ from assessment.rules.common_checks import (
     track_bottle_stability,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
+
+
+def _credited(
+    result: RuleResult,
+    *,
+    positioning_fail: str | None,
+    stability_fail: str | None,
+) -> RuleResult:
+    return attach_criteria(
+        result,
+        evaluable_criterion_results(
+            positioning_fail=positioning_fail,
+            stability_fail=stability_fail,
+            locked_code=FeedbackCode.ELBOW_STALL_LOCKED.value,
+        ),
+    )
 
 
 def evaluate(
@@ -29,6 +45,7 @@ def evaluate(
         return bottle_check, prev_hip_center, movement_state
 
     state, stable = track_bottle_stability(movement_state, bottle)
+    stability_fail = None if stable else FeedbackCode.PROP_NOT_STEADY.value
 
     # Prefer the pose elbow joint; fall back to the hand palm if pose is missing.
     elbow = pose_elbow_point(pose, bottle)
@@ -54,19 +71,45 @@ def evaluate(
             prop_label=prop_name,
             success_code=FeedbackCode.ELBOW_STALL_LOCKED.value,
         )
-    if stall.feedback_type != "positive":
-        return stall, prev_hip_center, state
 
-    if not stable:
+    if stall.feedback_type != "positive":
+        if stall.feedback_code in {
+            FeedbackCode.HAND_NOT_VISIBLE.value,
+            None,
+        }:
+            return stall, prev_hip_center, state
         return (
-            RuleResult(
-                feedback=f"Hold the {prop_name_lower} steady on your elbow.",
-                feedback_type="warning",
-                posture_status="unstable",
-                feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+            _credited(
+                stall,
+                positioning_fail=stall.feedback_code,
+                stability_fail=stability_fail,
             ),
             prev_hip_center,
             state,
         )
 
-    return stall, prev_hip_center, state
+    if stability_fail is not None:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=f"Hold the {prop_name_lower} steady on your elbow.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.PROP_NOT_STEADY.value,
+                ),
+                positioning_fail=None,
+                stability_fail=stability_fail,
+            ),
+            prev_hip_center,
+            state,
+        )
+
+    return (
+        _credited(
+            stall,
+            positioning_fail=None,
+            stability_fail=None,
+        ),
+        prev_hip_center,
+        state,
+    )
