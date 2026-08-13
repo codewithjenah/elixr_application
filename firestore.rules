@@ -1685,6 +1685,8 @@ service cloud.firestore {
     // ---- Teacher ↔ Trainee roster (Phase 2A) -------------------------------
     // Relationship authorization is independent of the self-declared
     // users.role field. Coach codes are bearer tokens (exact get only).
+    // email_verified comes from the ID token, not User.emailVerified.
+    // Clients must force-refresh the token after email verification.
     function hasVerifiedEmail() {
       return isSignedIn()
         && request.auth.token.email is string

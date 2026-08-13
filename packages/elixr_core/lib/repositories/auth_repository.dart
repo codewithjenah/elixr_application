@@ -119,6 +119,12 @@ abstract class AuthRepositoryBase {
     required String currentPassword,
   });
 
+  /// Reloads the Firebase user and returns whether the current email is verified.
+  ///
+  /// Firestore rules read `request.auth.token.email_verified` from the ID
+  /// token, not `User.emailVerified`. When the user is verified, this also
+  /// force-refreshes a stale token so roster writes are not denied after
+  /// `reload()` alone.
   Future<bool> isCurrentEmailVerified();
 
   Future<void> requestCurrentEmailVerification();
@@ -175,6 +181,31 @@ Future<void> deleteProfileStorageObjects({
     if (e.code == 'object-not-found') return;
     rethrow;
   }
+}
+
+/// Force-refreshes the Firebase ID token when `User.emailVerified` is true but
+/// the cached JWT still has `email_verified: false`.
+///
+/// `User.reload()` updates the User object; Firestore still evaluates
+/// `request.auth.token` until `getIdToken(true)` mints a new token.
+@visibleForTesting
+Future<void> refreshStaleEmailVerifiedIdToken({
+  required bool emailVerified,
+  required Future<Map<String, dynamic>?> Function() readClaims,
+  required Future<void> Function() forceRefreshIdToken,
+}) async {
+  if (!emailVerified) return;
+  var claimVerified = false;
+  try {
+    final claims = await readClaims();
+    claimVerified = claims?['email_verified'] == true;
+  } catch (_) {
+    // Inspecting the cached JWT failed. Force a refresh so Firestore
+    // sees the same verification state as User.emailVerified.
+    claimVerified = false;
+  }
+  if (claimVerified) return;
+  await forceRefreshIdToken();
 }
 
 /// User-facing message when Firestore/Storage purge fails before Auth delete.
@@ -519,12 +550,16 @@ class AuthRepository implements AuthRepositoryBase {
     try {
       await firebaseUser.reload().timeout(_authOperationTimeout);
     } on fb.FirebaseAuthException {
+      await _refreshStaleVerifiedEmailIdToken(firebaseUser);
       return firebaseUser.emailVerified;
     } on TimeoutException {
+      await _refreshStaleVerifiedEmailIdToken(firebaseUser);
       return firebaseUser.emailVerified;
     }
 
-    return _auth.currentUser?.emailVerified ?? firebaseUser.emailVerified;
+    final activeUser = _auth.currentUser ?? firebaseUser;
+    await _refreshStaleVerifiedEmailIdToken(activeUser);
+    return activeUser.emailVerified;
   }
 
   @override
@@ -997,6 +1032,29 @@ class AuthRepository implements AuthRepositoryBase {
     } on TimeoutException {
       throw Exception(
         'Authentication timed out. Check your internet connection and try again.',
+      );
+    }
+  }
+
+  Future<void> _refreshStaleVerifiedEmailIdToken(fb.User firebaseUser) async {
+    try {
+      await refreshStaleEmailVerifiedIdToken(
+        emailVerified: firebaseUser.emailVerified,
+        readClaims: () async {
+          final result = await firebaseUser.getIdTokenResult().timeout(
+            _authOperationTimeout,
+          );
+          return result.claims;
+        },
+        forceRefreshIdToken: () async {
+          await firebaseUser.getIdToken(true).timeout(_authOperationTimeout);
+        },
+      );
+    } on fb.FirebaseAuthException catch (e) {
+      throw Exception(_messageForAuthError(e));
+    } on TimeoutException {
+      throw Exception(
+        'Account refresh timed out. Check your internet connection and try again.',
       );
     }
   }
