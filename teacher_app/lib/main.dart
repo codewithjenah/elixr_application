@@ -1,25 +1,20 @@
-import 'package:flutter/material.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/widgets.dart';
 
-void main() {
-  runApp(const ElixrTeacherApp());
-}
+import 'app.dart';
+import 'features/auth/teacher_auth_controller.dart';
+import 'firebase_options.dart';
 
-class ElixrTeacherApp extends StatelessWidget {
-  const ElixrTeacherApp({super.key});
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Elixr Teacher',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const Scaffold(
-        body: Center(
-          child: Text('Elixr Teacher'),
-        ),
-      ),
-    );
-  }
+  final authController = TeacherAuthController(
+    repository: AuthRepository(),
+    awaitInitialAuthState: () => FirebaseAuth.instance.authStateChanges().first,
+  );
+
+  runApp(ElixrTeacherApp(authController: authController));
 }

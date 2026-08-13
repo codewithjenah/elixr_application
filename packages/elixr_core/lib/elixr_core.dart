@@ -3,6 +3,7 @@ library;
 
 export 'database/firestore_collections.dart';
 export 'database/user_profile_store.dart';
+export 'legal/legal_documents.dart';
 export 'models/user.dart';
 export 'privacy/privacy_consent.dart';
 export 'repositories/auth_repository.dart';
