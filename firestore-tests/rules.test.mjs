@@ -21,6 +21,7 @@ import {
   updateDoc,
   query,
   where,
+  limit,
   writeBatch,
   Timestamp,
   serverTimestamp,
@@ -2876,6 +2877,27 @@ describe('teacher invites and student links (Phase 2A)', () => {
     await assertSucceeds(getDoc(doc(bob, 'teacher_invites', INVITE_ID)));
   });
 
+  test('existing invite cannot be overwritten by a later set', async () => {
+    await seedRoster();
+    const alice = aliceDb();
+    const bob = verifiedUser('bob');
+    const created = new Date();
+    const payload = {
+      trainee_id: 'alice',
+      trainee_display_name: 'Ada Lovelace',
+      created_at: serverTimestamp(),
+      expires_at: Timestamp.fromDate(new Date(created.getTime() + 7 * 24 * 60 * 60 * 1000)),
+    };
+    // set() on an existing invite is an update; updates are denied, which is
+    // the TOCTOU protection for createOrRotateInvite collision retries.
+    await assertFails(setDoc(doc(alice, 'teacher_invites', INVITE_ID), payload));
+    await assertFails(setDoc(doc(bob, 'teacher_invites', INVITE_ID), {
+      ...payload,
+      trainee_id: 'bob',
+      trainee_display_name: 'Grace Hopper',
+    }));
+  });
+
   test('expired invite cannot create a request', async () => {
     const expired = new Date(Date.now() - 60 * 1000);
     await seedRoster({
@@ -3065,5 +3087,127 @@ describe('teacher invites and student links (Phase 2A)', () => {
     });
     const eve = verifiedUser('eve');
     await assertFails(getDocs(collection(eve, 'teacher_student_links')));
+  });
+
+  // requestLink() must discover existing rows with this teacher_id-constrained
+  // query. Exact get of a missing deterministic ID is denied because
+  // isLinkParticipant() requires resource.data.
+  function existingLinkLookup(db, teacherId, traineeId) {
+    return getDocs(query(
+      collection(db, 'teacher_student_links'),
+      where('teacher_id', '==', teacherId),
+      where('trainee_id', '==', traineeId),
+      limit(1),
+    ));
+  }
+
+  function rerequestUpdate() {
+    return {
+      teacher_display_name: 'Grace Hopper',
+      trainee_display_name: 'Ada Lovelace',
+      status: 'pending',
+      invite_id: INVITE_ID,
+      updated_at: serverTimestamp(),
+    };
+  }
+
+  test('teacher with no links can query then create a pending relationship', async () => {
+    await seedRoster();
+    const bob = verifiedUser('bob');
+    const linkRef = doc(bob, 'teacher_student_links', LINK_ID);
+
+    await assertFails(getDoc(linkRef));
+    await assertFails(getDocs(collection(bob, 'teacher_student_links')));
+
+    const lookup = await assertSucceeds(existingLinkLookup(bob, 'bob', 'alice'));
+    assert.equal(lookup.size, 0);
+
+    const ownRoster = await assertSucceeds(getDocs(query(
+      collection(bob, 'teacher_student_links'),
+      where('teacher_id', '==', 'bob'),
+    )));
+    assert.equal(ownRoster.size, 0);
+
+    await assertSucceeds(setDoc(linkRef, {
+      ...linkData(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+
+    await assertSucceeds(getDoc(linkRef));
+    const afterCreate = await assertSucceeds(existingLinkLookup(bob, 'bob', 'alice'));
+    assert.equal(afterCreate.size, 1);
+    assert.equal(afterCreate.docs[0].id, LINK_ID);
+    assert.equal(afterCreate.docs[0].data().status, 'pending');
+  });
+
+  test('unrelated teacher cannot discover another teacher relationship', async () => {
+    await seedRoster({ link: true });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'dana'), teacherProfile({
+        first_name: 'Dana',
+        last_name: 'Scully',
+        full_name: 'Dana Scully',
+        email: 'dana@example.com',
+      }));
+    });
+    const dana = verifiedUser('dana');
+    await assertFails(getDoc(doc(dana, 'teacher_student_links', LINK_ID)));
+    await assertFails(existingLinkLookup(dana, 'bob', 'alice'));
+    const ownLookup = await assertSucceeds(existingLinkLookup(dana, 'dana', 'alice'));
+    assert.equal(ownLookup.size, 0);
+  });
+
+  test('existing pending relationship cannot be duplicated', async () => {
+    await seedRoster({ link: true });
+    const bob = verifiedUser('bob');
+    await assertFails(setDoc(doc(bob, 'teacher_student_links', LINK_ID), {
+      ...linkData(),
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
+  });
+
+  test('approved relationship cannot be reset to pending', async () => {
+    await seedRoster({ link: true, linkOverrides: { status: 'approved' } });
+    const bob = verifiedUser('bob');
+    await assertFails(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
+  });
+
+  test('rejected relationship may be securely re-requested with a current invite', async () => {
+    await seedRoster({ link: true, linkOverrides: { status: 'rejected' } });
+    const bob = verifiedUser('bob');
+    await assertSucceeds(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
+    const snap = await getDoc(doc(bob, 'teacher_student_links', LINK_ID));
+    assert.equal(snap.data().status, 'pending');
+    assert.equal(snap.data().teacher_id, 'bob');
+    assert.equal(snap.data().trainee_id, 'alice');
+  });
+
+  test('cancelled relationship may be securely re-requested', async () => {
+    await seedRoster({ link: true, linkOverrides: { status: 'cancelled' } });
+    const bob = verifiedUser('bob');
+    await assertSucceeds(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
+  });
+
+  test('revoked relationship may be securely re-requested', async () => {
+    await seedRoster({ link: true, linkOverrides: { status: 'revoked' } });
+    const bob = verifiedUser('bob');
+    await assertSucceeds(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
+  });
+
+  test('expired invite cannot be used to re-request a rejected relationship', async () => {
+    const expired = new Date(Date.now() - 60 * 1000);
+    await seedRoster({
+      link: true,
+      linkOverrides: { status: 'rejected' },
+      inviteOverrides: {
+        created_at: Timestamp.fromDate(new Date(expired.getTime() - 7 * 24 * 60 * 60 * 1000)),
+        expires_at: Timestamp.fromDate(expired),
+      },
+    });
+    const bob = verifiedUser('bob');
+    await assertFails(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
   });
 });

@@ -67,7 +67,8 @@ class FirebaseTeacherRelationshipRepository
       try {
         await batch.commit();
       } on FirebaseException {
-        // Exact-doc create is denied when the code is already taken; try again.
+        // Collision or TOCTOU: set() on an existing invite is an update, and
+        // teacher_invites deny updates, so the write cannot overwrite.
         continue;
       }
 
@@ -176,19 +177,18 @@ class FirebaseTeacherRelationshipRepository
       traineeId: invite.traineeId,
     );
     final ref = _links.doc(id);
-    final existingSnap = await ref.get();
-    if (existingSnap.exists) {
-      final existing = TeacherStudentLink.tryFromMap(
-        existingSnap.data() ?? const {},
-        id: existingSnap.id,
-      );
-      if (existing?.isApproved ?? false) {
+    final existing = await _findOwnLink(
+      teacherId: teacherId,
+      traineeId: invite.traineeId,
+    );
+    if (existing != null) {
+      if (existing.isApproved) {
         throw const TeacherRelationshipException(
           TeacherRelationshipError.alreadyLinked,
           'This trainee is already on your roster.',
         );
       }
-      if (existing?.isPending ?? false) {
+      if (existing.isPending) {
         throw const TeacherRelationshipException(
           TeacherRelationshipError.alreadyPending,
           'A request is already waiting for this trainee.',
@@ -302,6 +302,26 @@ class FirebaseTeacherRelationshipRepository
       'status': status.name,
       'updated_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// Authorized existing-row lookup for [requestLink].
+  ///
+  /// Exact get of a missing `teacher_student_links/{teacherId}_{traineeId}`
+  /// document is denied: `isLinkParticipant()` requires `resource.data`.
+  /// A query constrained to the authenticated teacher's `teacher_id` can be
+  /// proven by list rules and returns zero documents when none exist.
+  Future<TeacherStudentLink?> _findOwnLink({
+    required String teacherId,
+    required String traineeId,
+  }) async {
+    final snapshot = await _links
+        .where('teacher_id', isEqualTo: teacherId)
+        .where('trainee_id', isEqualTo: traineeId)
+        .limit(1)
+        .get();
+    if (snapshot.docs.isEmpty) return null;
+    final doc = snapshot.docs.first;
+    return TeacherStudentLink.tryFromMap(doc.data(), id: doc.id);
   }
 
   List<TeacherStudentLink> _linksFromSnapshot(

@@ -199,7 +199,10 @@ class InMemoryTeacherRelationshipRepository
       teacherId: teacherId,
       traineeId: invite.traineeId,
     );
-    final existing = links[id];
+    final existing = _findOwnLink(
+      teacherId: teacherId,
+      traineeId: invite.traineeId,
+    );
     if (existing != null) {
       if (existing.isApproved) {
         throw const TeacherRelationshipException(
@@ -324,6 +327,18 @@ class InMemoryTeacherRelationshipRepository
       updatedAt: now,
     );
     _emit();
+  }
+
+  TeacherStudentLink? _findOwnLink({
+    required String teacherId,
+    required String traineeId,
+  }) {
+    for (final link in links.values) {
+      if (link.teacherId == teacherId && link.traineeId == traineeId) {
+        return link;
+      }
+    }
+    return null;
   }
 
   List<TeacherStudentLink> _linksForTrainee(String traineeId) {

@@ -119,7 +119,19 @@ class RosterController extends ChangeNotifier {
       resetAddStudent();
       return true;
     } on TeacherRelationshipException catch (error) {
-      addStudentError = error.message ?? 'Could not send that request.';
+      addStudentError = switch (error.code) {
+        TeacherRelationshipError.alreadyPending =>
+          'A request is already waiting for this trainee.',
+        TeacherRelationshipError.alreadyLinked =>
+          'This trainee is already on your roster.',
+        TeacherRelationshipError.inviteExpired =>
+          'That coach code has expired.',
+        TeacherRelationshipError.malformedCode =>
+          'That coach code is not valid.',
+        TeacherRelationshipError.inviteNotFound =>
+          'No trainee is using that coach code.',
+        _ => error.message ?? 'Could not send that request.',
+      };
       return false;
     } catch (_) {
       addStudentError = 'Could not send that request.';

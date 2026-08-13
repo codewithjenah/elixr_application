@@ -210,6 +210,113 @@ void main() {
         code: '7KPMXR4DQ2WT',
       );
       expect(again.status, TeacherStudentLinkStatus.pending);
+      expect(again.createdAt, link.createdAt);
+      expect(repo.links.length, 1);
     },
   );
+
+  test(
+    'requestLink discovers an existing row by teacher and trainee ids',
+    () async {
+      await repo.createOrRotateInvite(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+      );
+      repo.seedLink(
+        TeacherStudentLink(
+          id: 'teacher-1_trainee-1',
+          teacherId: 'teacher-1',
+          traineeId: 'trainee-1',
+          teacherDisplayName: 'Old Name',
+          traineeDisplayName: 'Old Trainee',
+          status: TeacherStudentLinkStatus.cancelled,
+          inviteId: 'OLDCODE12AB',
+          createdAt: DateTime.utc(2026, 8, 1),
+        ),
+      );
+
+      final link = await repo.requestLink(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        code: '7KPMXR4DQ2WT',
+      );
+
+      expect(link.id, 'teacher-1_trainee-1');
+      expect(link.status, TeacherStudentLinkStatus.pending);
+      expect(link.createdAt, DateTime.utc(2026, 8, 1));
+      expect(link.teacherDisplayName, 'Grace Hopper');
+      expect(link.traineeDisplayName, 'Ada Lovelace');
+      expect(link.inviteId, '7KPMXR4DQ2WT');
+      expect(repo.links.length, 1);
+    },
+  );
+
+  test('requestLink does not duplicate a pending relationship', () async {
+    await repo.createOrRotateInvite(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+    );
+    await repo.requestLink(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      code: '7KPMXR4DQ2WT',
+    );
+
+    await expectLater(
+      repo.requestLink(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        code: '7KPMXR4DQ2WT',
+      ),
+      throwsA(
+        isA<TeacherRelationshipException>()
+            .having(
+              (e) => e.code,
+              'code',
+              TeacherRelationshipError.alreadyPending,
+            )
+            .having(
+              (e) => e.message,
+              'message',
+              'A request is already waiting for this trainee.',
+            ),
+      ),
+    );
+    expect(repo.links.length, 1);
+  });
+
+  test('requestLink does not mutate an approved relationship', () async {
+    await repo.createOrRotateInvite(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+    );
+    final link = await repo.requestLink(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      code: '7KPMXR4DQ2WT',
+    );
+    await repo.approveLink(linkId: link.id, traineeId: 'trainee-1');
+
+    await expectLater(
+      repo.requestLink(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        code: '7KPMXR4DQ2WT',
+      ),
+      throwsA(
+        isA<TeacherRelationshipException>()
+            .having(
+              (e) => e.code,
+              'code',
+              TeacherRelationshipError.alreadyLinked,
+            )
+            .having(
+              (e) => e.message,
+              'message',
+              'This trainee is already on your roster.',
+            ),
+      ),
+    );
+    expect(repo.links[link.id]!.isApproved, isTrue);
+  });
 }
