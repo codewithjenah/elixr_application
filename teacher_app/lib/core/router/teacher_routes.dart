@@ -27,6 +27,7 @@ String? resolveTeacherRedirect({
 
   switch (status) {
     case TeacherAuthStatus.initializing:
+    case TeacherAuthStatus.initializationFailed:
       return null;
     case TeacherAuthStatus.signedOut:
       if (isAuthRoute || isLegalRoute) return null;

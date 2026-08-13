@@ -18,9 +18,11 @@ class FakeAuthRepository implements AuthRepositoryBase {
   bool authSessionWithoutProfile = false;
   Completer<void>? registerGate;
   Completer<void>? loginGate;
+  Completer<void>? loadPersistedUserGate;
 
   int registerCallCount = 0;
   int loginCallCount = 0;
+  int loadPersistedUserCallCount = 0;
   int clearCurrentUserCallCount = 0;
   int sendPasswordResetEmailCallCount = 0;
   int requestVerificationCallCount = 0;
@@ -92,6 +94,9 @@ class FakeAuthRepository implements AuthRepositoryBase {
 
   @override
   Future<User?> loadPersistedUser() async {
+    loadPersistedUserCallCount++;
+    final gate = loadPersistedUserGate;
+    if (gate != null) await gate.future;
     if (loadError != null) throw loadError!;
     if (authSessionWithoutProfile) {
       await clearCurrentUser();

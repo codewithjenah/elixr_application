@@ -41,6 +41,18 @@ void main() {
     }
   });
 
+  test('initializationFailed never redirects', () {
+    for (final location in locations) {
+      expect(
+        resolveTeacherRedirect(
+          status: TeacherAuthStatus.initializationFailed,
+          location: location,
+        ),
+        isNull,
+      );
+    }
+  });
+
   test('legal routes stay reachable while signed out or unverified', () {
     expect(
       resolveTeacherRedirect(

@@ -59,7 +59,7 @@ class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
           builder: (context, child) {
             return Consumer<TeacherAuthController>(
               builder: (context, auth, _) {
-                if (auth.isInitializing) {
+                if (auth.showsStartupOverlay) {
                   return const TeacherStartupScreen();
                 }
                 return child ?? const SizedBox.shrink();
@@ -77,20 +77,50 @@ class TeacherStartupScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    final auth = context.watch<TeacherAuthController>();
+    final failed = auth.hasInitializationFailed;
+
+    return Scaffold(
       body: SafeArea(
         child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TeacherBrandMark(alignment: CrossAxisAlignment.center),
-              SizedBox(height: 28),
-              SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const TeacherBrandMark(alignment: CrossAxisAlignment.center),
+                const SizedBox(height: 28),
+                if (!failed)
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  )
+                else ...[
+                  TeacherMessageBanner(
+                    message:
+                        auth.errorMessage ??
+                        TeacherAuthMessages.initializationTimeout,
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    key: const Key('startup_retry'),
+                    onPressed: auth.isBusy
+                        ? null
+                        : () => unawaited(auth.retryInitialization()),
+                    child: const Text('Retry'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    key: const Key('startup_sign_out'),
+                    onPressed: auth.isBusy
+                        ? null
+                        : () => unawaited(auth.signOut()),
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),

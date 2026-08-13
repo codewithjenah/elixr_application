@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_core/repositories/in_memory_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_teacher/app.dart';
@@ -195,5 +197,99 @@ void main() {
     await tester.pump();
 
     expect(find.byType(LoginScreen), findsOneWidget);
+  });
+
+  testWidgets('startup overlay dismisses after initialize completes', (
+    tester,
+  ) async {
+    repository.persistedUser = fakeTeacher();
+    repository.emailVerified = true;
+    await setPhoneSurface(tester);
+    await tester.pumpWidget(
+      ElixrTeacherApp(
+        authController: controller,
+        relationshipRepository: InMemoryTeacherRelationshipRepository(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(TeacherStartupScreen), findsNothing);
+    expect(find.byType(RosterScreen), findsOneWidget);
+    expect(find.byType(LoginScreen), findsNothing);
+  });
+
+  testWidgets(
+    'startup timeout shows retry without a redirect loop and can recover',
+    (tester) async {
+      repository.loadPersistedUserGate = Completer<void>();
+      controller.dispose();
+      controller = TeacherAuthController(
+        repository: repository,
+        persistedProfileTimeout: const Duration(milliseconds: 20),
+      );
+      await setPhoneSurface(tester);
+      await tester.pumpWidget(
+        ElixrTeacherApp(
+          authController: controller,
+          relationshipRepository: InMemoryTeacherRelationshipRepository(),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(TeacherStartupScreen), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+      expect(find.byType(RosterScreen), findsNothing);
+
+      await tester.pump(const Duration(milliseconds: 30));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(TeacherStartupScreen), findsOneWidget);
+      expect(find.byKey(const Key('startup_retry')), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+      expect(find.byType(RosterScreen), findsNothing);
+      expect(find.byType(VerifyEmailScreen), findsNothing);
+
+      repository.loadPersistedUserGate = null;
+      repository.persistedUser = fakeTeacher();
+      repository.emailVerified = true;
+
+      await tester.tap(find.byKey(const Key('startup_retry')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(RosterScreen), findsOneWidget);
+      expect(find.byType(TeacherStartupScreen), findsNothing);
+      expect(find.byType(LoginScreen), findsNothing);
+    },
+  );
+
+  testWidgets('startup failure sign-out reaches login', (tester) async {
+    repository.loadPersistedUserGate = Completer<void>();
+    controller.dispose();
+    controller = TeacherAuthController(
+      repository: repository,
+      persistedProfileTimeout: const Duration(milliseconds: 20),
+    );
+    await setPhoneSurface(tester);
+    await tester.pumpWidget(
+      ElixrTeacherApp(
+        authController: controller,
+        relationshipRepository: InMemoryTeacherRelationshipRepository(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('startup_sign_out')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byType(TeacherStartupScreen), findsNothing);
+    expect(find.byType(RosterScreen), findsNothing);
   });
 }

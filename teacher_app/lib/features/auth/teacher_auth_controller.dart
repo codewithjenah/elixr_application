@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
@@ -5,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 enum TeacherAuthStatus {
   initializing,
+  initializationFailed,
   signedOut,
   unverifiedTeacher,
   authenticatedTeacher,
@@ -24,17 +27,31 @@ abstract final class TeacherAuthMessages {
       'Email is not verified yet. Check your inbox and try again.';
   static const verificationSent = 'Verification email sent.';
   static const genericFailure = 'Something went wrong. Please try again.';
+  static const initializationTimeout =
+      "Couldn't restore your Teacher session. Check your connection and try again.";
 }
 
 /// Teacher-app authentication state. Delegates Firebase work to [AuthRepositoryBase].
 class TeacherAuthController extends ChangeNotifier {
-  TeacherAuthController({required this.repository, this.awaitInitialAuthState});
+  TeacherAuthController({
+    required this.repository,
+    this.awaitInitialAuthState,
+    Duration? initialAuthStateTimeout,
+    Duration? persistedProfileTimeout,
+  }) : initialAuthStateTimeout =
+           initialAuthStateTimeout ?? defaultInitialAuthStateTimeout,
+       persistedProfileTimeout =
+           persistedProfileTimeout ?? defaultPersistedProfileTimeout;
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
   static const _minPasswordLength = 6;
+  static const defaultInitialAuthStateTimeout = Duration(seconds: 10);
+  static const defaultPersistedProfileTimeout = Duration(seconds: 20);
 
   final AuthRepositoryBase repository;
   final Future<void> Function()? awaitInitialAuthState;
+  final Duration initialAuthStateTimeout;
+  final Duration persistedProfileTimeout;
 
   TeacherAuthStatus _status = TeacherAuthStatus.initializing;
   User? _currentUser;
@@ -43,6 +60,7 @@ class TeacherAuthController extends ChangeNotifier {
   String? _infoMessage;
   bool _disposed = false;
   Future<void>? _initializeFuture;
+  int _initializeGeneration = 0;
 
   TeacherAuthStatus get status => _status;
   User? get currentUser => _currentUser;
@@ -51,6 +69,9 @@ class TeacherAuthController extends ChangeNotifier {
   String? get infoMessage => _infoMessage;
 
   bool get isInitializing => _status == TeacherAuthStatus.initializing;
+  bool get hasInitializationFailed =>
+      _status == TeacherAuthStatus.initializationFailed;
+  bool get showsStartupOverlay => isInitializing || hasInitializationFailed;
   bool get isSignedOut => _status == TeacherAuthStatus.signedOut;
   bool get needsEmailVerification =>
       _status == TeacherAuthStatus.unverifiedTeacher;
@@ -61,24 +82,76 @@ class TeacherAuthController extends ChangeNotifier {
     return _initializeFuture ??= _doInitialize();
   }
 
+  Future<void> retryInitialization() {
+    if (_status == TeacherAuthStatus.initializing) {
+      return _initializeFuture ?? Future<void>.value();
+    }
+    if (_status != TeacherAuthStatus.initializationFailed) {
+      return Future<void>.value();
+    }
+    _debugLog('retry initialization');
+    _initializeFuture = null;
+    return initialize();
+  }
+
   Future<void> _doInitialize() async {
+    final generation = ++_initializeGeneration;
     _status = TeacherAuthStatus.initializing;
+    _currentUser = null;
     _clearMessages();
     _emit();
+    _debugLog('initialize started');
 
     try {
-      final awaitInitial = awaitInitialAuthState;
-      if (awaitInitial != null) {
-        await awaitInitial();
-      }
+      await _awaitInitialAuthState(generation);
+      if (!_isCurrentGeneration(generation)) return;
 
-      final user = await repository.loadPersistedUser();
-      await _applyAuthenticatedUser(user, fromPersistedSession: true);
+      _debugLog('loading persisted profile');
+      final user = await repository.loadPersistedUser().timeout(
+        persistedProfileTimeout,
+      );
+      if (!_isCurrentGeneration(generation)) return;
+      _debugLog('persisted profile resolved');
+
+      await _applyAuthenticatedUser(
+        user,
+        fromPersistedSession: true,
+        initializeGeneration: generation,
+      );
+    } on TimeoutException {
+      if (!_isCurrentGeneration(generation)) return;
+      _debugLog('persisted profile timed out');
+      _failInitialization(TeacherAuthMessages.initializationTimeout);
     } catch (error) {
-      _currentUser = null;
-      _status = TeacherAuthStatus.signedOut;
-      _errorMessage = sanitizeAuthError(error);
-      _emit();
+      if (!_isCurrentGeneration(generation)) return;
+      _debugLog('initialization failed');
+      _failInitialization(_failureMessage(error));
+    } finally {
+      if (_isCurrentGeneration(generation)) {
+        _debugLog('initialization completed: ${_status.name}');
+        _emit();
+      }
+    }
+  }
+
+  Future<void> _awaitInitialAuthState(int generation) async {
+    final awaitInitial = awaitInitialAuthState;
+    if (awaitInitial == null) return;
+
+    try {
+      await awaitInitial().timeout(initialAuthStateTimeout);
+      if (!_isCurrentGeneration(generation)) return;
+      _debugLog('initial Firebase auth state resolved');
+    } on TimeoutException {
+      if (!_isCurrentGeneration(generation)) return;
+      _debugLog(
+        'initial Firebase auth state timed out; continuing with currentUser',
+      );
+    } catch (_) {
+      if (!_isCurrentGeneration(generation)) return;
+      _debugLog(
+        'initial Firebase auth state failed; continuing with currentUser',
+      );
     }
   }
 
@@ -316,7 +389,9 @@ class TeacherAuthController extends ChangeNotifier {
   }
 
   bool _beginOperation() {
-    if (_isBusy || _status == TeacherAuthStatus.initializing) {
+    if (_isBusy ||
+        _status == TeacherAuthStatus.initializing ||
+        _status == TeacherAuthStatus.initializationFailed) {
       return false;
     }
     _clearMessages();
@@ -326,7 +401,10 @@ class TeacherAuthController extends ChangeNotifier {
   Future<bool> _applyAuthenticatedUser(
     User? user, {
     required bool fromPersistedSession,
+    int? initializeGeneration,
   }) async {
+    if (!_acceptSessionMutation(initializeGeneration)) return false;
+
     if (user == null) {
       _currentUser = null;
       _status = TeacherAuthStatus.signedOut;
@@ -342,6 +420,7 @@ class TeacherAuthController extends ChangeNotifier {
     final verified = await _readEmailVerified(
       failClosed: !fromPersistedSession,
     );
+    if (!_acceptSessionMutation(initializeGeneration)) return false;
     _status = verified
         ? TeacherAuthStatus.authenticatedTeacher
         : TeacherAuthStatus.unverifiedTeacher;
@@ -395,6 +474,30 @@ class TeacherAuthController extends ChangeNotifier {
     _infoMessage = null;
   }
 
+  void _failInitialization(String message) {
+    _currentUser = null;
+    _status = TeacherAuthStatus.initializationFailed;
+    _errorMessage = message;
+    _infoMessage = null;
+  }
+
+  bool _isCurrentGeneration(int generation) {
+    return !_disposed && generation == _initializeGeneration;
+  }
+
+  bool _acceptSessionMutation(int? initializeGeneration) {
+    if (_disposed) return false;
+    if (initializeGeneration == null) return true;
+    return initializeGeneration == _initializeGeneration &&
+        _status == TeacherAuthStatus.initializing;
+  }
+
+  void _debugLog(String checkpoint) {
+    if (kDebugMode) {
+      debugPrint('[TeacherAuth] $checkpoint');
+    }
+  }
+
   void _emit() {
     if (!_disposed) notifyListeners();
   }
@@ -410,6 +513,10 @@ bool isAccountEnumerationResetError(Object error) {
 
 @visibleForTesting
 String sanitizeAuthError(Object error) {
+  if (error is TimeoutException) {
+    return TeacherAuthMessages.initializationTimeout;
+  }
+
   var message = error.toString();
   const prefix = 'Exception: ';
   if (message.startsWith(prefix)) {

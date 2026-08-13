@@ -97,19 +97,152 @@ void main() {
       },
     );
 
-    test('load failure is a recoverable signed-out error', () async {
+    test('auth-state timeout still loads a persisted Teacher', () async {
+      repository.persistedUser = fakeTeacher();
+      repository.emailVerified = true;
+      controller.dispose();
+      controller = TeacherAuthController(
+        repository: repository,
+        awaitInitialAuthState: () => Completer<void>().future,
+        initialAuthStateTimeout: const Duration(milliseconds: 20),
+      );
+
+      await controller.initialize();
+
+      expect(controller.status, TeacherAuthStatus.authenticatedTeacher);
+      expect(controller.canEnterTeacherShell, isTrue);
+    });
+
+    test(
+      'hung initial auth state leaves initializing through the timeout path',
+      () async {
+        controller.dispose();
+        controller = TeacherAuthController(
+          repository: repository,
+          awaitInitialAuthState: () => Completer<void>().future,
+          initialAuthStateTimeout: const Duration(milliseconds: 20),
+          persistedProfileTimeout: const Duration(milliseconds: 20),
+        );
+
+        await controller.initialize();
+
+        expect(controller.isInitializing, isFalse);
+        expect(controller.status, TeacherAuthStatus.signedOut);
+        expect(controller.currentUser, isNull);
+        expect(controller.canEnterTeacherShell, isFalse);
+      },
+    );
+
+    test(
+      'hung persisted-profile load leaves initializing through the timeout path',
+      () async {
+        repository.loadPersistedUserGate = Completer<void>();
+        controller.dispose();
+        controller = TeacherAuthController(
+          repository: repository,
+          persistedProfileTimeout: const Duration(milliseconds: 20),
+        );
+
+        await controller.initialize();
+
+        expect(controller.isInitializing, isFalse);
+        expect(controller.status, TeacherAuthStatus.initializationFailed);
+        expect(controller.hasInitializationFailed, isTrue);
+        expect(controller.showsStartupOverlay, isTrue);
+        expect(controller.currentUser, isNull);
+        expect(controller.canEnterTeacherShell, isFalse);
+        expect(repository.clearCurrentUserCallCount, 0);
+        expect(
+          controller.errorMessage,
+          TeacherAuthMessages.initializationTimeout,
+        );
+      },
+    );
+
+    test('retry after profile timeout can initialize successfully', () async {
+      repository.loadPersistedUserGate = Completer<void>();
+      controller.dispose();
+      controller = TeacherAuthController(
+        repository: repository,
+        persistedProfileTimeout: const Duration(milliseconds: 20),
+      );
+
+      await controller.initialize();
+      expect(controller.status, TeacherAuthStatus.initializationFailed);
+
+      repository.loadPersistedUserGate = null;
+      repository.persistedUser = fakeTeacher();
+      repository.emailVerified = true;
+
+      await controller.retryInitialization();
+
+      expect(controller.status, TeacherAuthStatus.authenticatedTeacher);
+      expect(controller.canEnterTeacherShell, isTrue);
+      expect(controller.hasInitializationFailed, isFalse);
+      expect(controller.showsStartupOverlay, isFalse);
+    });
+
+    test(
+      'initialize cannot run multiple concurrent startup operations',
+      () async {
+        repository.loadPersistedUserGate = Completer<void>();
+
+        final first = controller.initialize();
+        await pumpEventQueue();
+        expect(repository.loadPersistedUserCallCount, 1);
+        expect(controller.isInitializing, isTrue);
+
+        final second = controller.initialize();
+        final retry = controller.retryInitialization();
+        await pumpEventQueue();
+        expect(repository.loadPersistedUserCallCount, 1);
+
+        repository.loadPersistedUserGate!.complete();
+        await first;
+        await second;
+        await retry;
+
+        expect(repository.loadPersistedUserCallCount, 1);
+        expect(controller.status, TeacherAuthStatus.signedOut);
+      },
+    );
+
+    test('load failure is a recoverable initialization error', () async {
       repository.loadError = Exception(
         'Network error. Check your connection and try again.',
       );
 
       await controller.initialize();
 
-      expect(controller.status, TeacherAuthStatus.signedOut);
+      expect(controller.status, TeacherAuthStatus.initializationFailed);
+      expect(controller.currentUser, isNull);
+      expect(controller.canEnterTeacherShell, isFalse);
+      expect(repository.clearCurrentUserCallCount, 0);
       expect(
         controller.errorMessage,
         'Network error. Check your connection and try again.',
       );
     });
+
+    test(
+      'sign out after initialization failure reaches signed-out safely',
+      () async {
+        repository.loadPersistedUserGate = Completer<void>();
+        controller.dispose();
+        controller = TeacherAuthController(
+          repository: repository,
+          persistedProfileTimeout: const Duration(milliseconds: 20),
+        );
+
+        await controller.initialize();
+        await controller.signOut();
+
+        expect(controller.status, TeacherAuthStatus.signedOut);
+        expect(controller.currentUser, isNull);
+        expect(repository.clearCurrentUserCallCount, 1);
+        expect(controller.canEnterTeacherShell, isFalse);
+      },
+    );
   });
 
   group('register', () {
@@ -562,6 +695,15 @@ void main() {
           Exception('FirebaseAuthException ([firebase_auth/internal])'),
         ),
         TeacherAuthMessages.genericFailure,
+      );
+    });
+
+    test('does not display raw timeout exception text', () {
+      expect(
+        sanitizeAuthError(
+          TimeoutException('Future not completed', Duration.zero),
+        ),
+        TeacherAuthMessages.initializationTimeout,
       );
     });
   });
