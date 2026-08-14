@@ -37,6 +37,7 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (widget.controller != null) return;
     _owned ??= StudentProgressController(
       relationships: context.read<TeacherRelationshipRepository>(),
       progress: context.read<TeacherProgressRepository>(),

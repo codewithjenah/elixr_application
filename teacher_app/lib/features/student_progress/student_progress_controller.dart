@@ -37,6 +37,7 @@ class StudentProgressController extends ChangeNotifier {
   StreamSubscription<TeacherStudentLinkSnapshot>? _linkSub;
   StreamSubscription<PublicProfileSummary?>? _summarySub;
   int _accessEpoch = 0;
+  int _dataEpoch = 0;
   int _pageEpoch = 0;
   bool _active = false;
   bool _hadEffectiveAccess = false;
@@ -46,18 +47,27 @@ class StudentProgressController extends ChangeNotifier {
 
   Future<void> start() async {
     final epoch = ++_accessEpoch;
+    _dataEpoch++;
     _pageEpoch++;
     _active = true;
-    await _summarySub?.cancel();
-    await _linkSub?.cancel();
-    if (_disposed || epoch != _accessEpoch || !_active) return;
+    // Detach and clear synchronously. A delayed stream cancellation must never
+    // leave protected progress visible while a fresh relationship is verified.
+    final previousSummarySub = _summarySub;
+    final previousLinkSub = _linkSub;
     _summarySub = null;
+    _linkSub = null;
     _resetData(StudentProgressState.loadingRelationship);
+    await previousSummarySub?.cancel();
+    await previousLinkSub?.cancel();
+    if (_disposed || epoch != _accessEpoch || !_active) return;
     _linkSub = relationships
         .watchLink(teacherId: teacherId, traineeId: traineeId)
         .listen(
           (snapshot) => _onLink(snapshot, epoch),
-          onError: (_) => _clear(StudentProgressState.connectionRequired),
+          onError: (_) {
+            if (!_isCurrentAccess(epoch)) return;
+            _clear(StudentProgressState.connectionRequired);
+          },
         );
   }
 
@@ -89,6 +99,7 @@ class StudentProgressController extends ChangeNotifier {
 
   void _beginLoading(int epoch) {
     if (!_isCurrentAccess(epoch)) return;
+    final dataEpoch = ++_dataEpoch;
     final pageEpoch = ++_pageEpoch;
     state = StudentProgressState.loading;
     _firstSummarySettled = false;
@@ -103,13 +114,13 @@ class StudentProgressController extends ChangeNotifier {
         .watchSummary(traineeId)
         .listen(
           (value) {
-            if (!_isCurrentAccess(epoch)) return;
+            if (!_isCurrentData(epoch, dataEpoch)) return;
             summary = value;
             _firstSummarySettled = true;
             _setStateFromData();
           },
           onError: (Object error, StackTrace stackTrace) {
-            if (!_isCurrentAccess(epoch)) return;
+            if (!_isCurrentData(epoch, dataEpoch)) return;
             final next =
                 error is TeacherProgressException &&
                     error.code == TeacherProgressError.accessWithdrawn
@@ -118,7 +129,7 @@ class StudentProgressController extends ChangeNotifier {
             _clear(next);
           },
         );
-    _loadPage(epoch, pageEpoch, firstPage: true);
+    _loadPage(epoch, dataEpoch, pageEpoch, firstPage: true);
   }
 
   Future<void> refresh() async {
@@ -134,13 +145,14 @@ class StudentProgressController extends ChangeNotifier {
         link?.hasEffectiveProgressAccess != true) {
       return;
     }
-    await _loadPage(_accessEpoch, ++_pageEpoch);
+    await _loadPage(_accessEpoch, _dataEpoch, ++_pageEpoch);
   }
 
   Future<void> retryLoadMore() => loadMore();
 
   Future<void> _loadPage(
     int accessEpoch,
+    int dataEpoch,
     int pageEpoch, {
     bool firstPage = false,
   }) async {
@@ -154,7 +166,7 @@ class StudentProgressController extends ChangeNotifier {
         traineeId: traineeId,
         startAfter: _cursor,
       );
-      if (!_isCurrent(accessEpoch, pageEpoch)) return;
+      if (!_isCurrent(accessEpoch, dataEpoch, pageEpoch)) return;
       final known = sessions.map((item) => item.sessionId).toSet();
       sessions = [
         ...sessions,
@@ -165,7 +177,7 @@ class StudentProgressController extends ChangeNotifier {
       _firstPageSettled = true;
       _setStateFromData();
     } on TeacherProgressException catch (error) {
-      if (!_isCurrent(accessEpoch, pageEpoch)) return;
+      if (!_isCurrent(accessEpoch, dataEpoch, pageEpoch)) return;
       if (error.code == TeacherProgressError.accessWithdrawn) {
         _clear(StudentProgressState.accessWithdrawn);
       } else if (firstPage) {
@@ -174,7 +186,7 @@ class StudentProgressController extends ChangeNotifier {
         paginationError = error;
       }
     } finally {
-      if (_isCurrent(accessEpoch, pageEpoch)) {
+      if (_isCurrent(accessEpoch, dataEpoch, pageEpoch)) {
         loadingMore = false;
         notifyListeners();
       }
@@ -183,8 +195,10 @@ class StudentProgressController extends ChangeNotifier {
 
   bool _isCurrentAccess(int epoch) =>
       !_disposed && _active && epoch == _accessEpoch;
-  bool _isCurrent(int accessEpoch, int pageEpoch) =>
-      _isCurrentAccess(accessEpoch) && pageEpoch == _pageEpoch;
+  bool _isCurrentData(int accessEpoch, int dataEpoch) =>
+      _isCurrentAccess(accessEpoch) && dataEpoch == _dataEpoch;
+  bool _isCurrent(int accessEpoch, int dataEpoch, int pageEpoch) =>
+      _isCurrentData(accessEpoch, dataEpoch) && pageEpoch == _pageEpoch;
 
   void _setStateFromData() {
     if (!_firstSummarySettled || !_firstPageSettled) return;
@@ -201,6 +215,7 @@ class StudentProgressController extends ChangeNotifier {
   void pause() {
     _active = false;
     _accessEpoch++;
+    _dataEpoch++;
     _pageEpoch++;
     _linkSub?.cancel();
     _linkSub = null;
@@ -208,6 +223,7 @@ class StudentProgressController extends ChangeNotifier {
   }
 
   void _clear(StudentProgressState next) {
+    _dataEpoch++;
     _pageEpoch++;
     _summarySub?.cancel();
     _summarySub = null;
@@ -232,6 +248,7 @@ class StudentProgressController extends ChangeNotifier {
     _disposed = true;
     _active = false;
     _accessEpoch++;
+    _dataEpoch++;
     _pageEpoch++;
     _linkSub?.cancel();
     _summarySub?.cancel();

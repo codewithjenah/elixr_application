@@ -50,4 +50,40 @@ void main() {
     expect(link, isNotNull);
     expect(link!.isPending, isTrue);
   });
+
+  test(
+    'progress access is effective only for an approved, versioned grant',
+    () {
+      final base = {
+        'teacher_id': 'teacher',
+        'trainee_id': 'trainee',
+        'teacher_display_name': 'Teacher',
+        'trainee_display_name': 'Trainee',
+        'status': 'approved',
+      };
+      expect(
+        TeacherStudentLink.tryFromMap(
+          base,
+          id: 'teacher_trainee',
+        )!.hasEffectiveProgressAccess,
+        isFalse,
+      );
+      final granted = TeacherStudentLink.tryFromMap({
+        ...base,
+        'progress_access': 'granted',
+        'progress_access_version': 1,
+        'progress_access_granted_at': DateTime.utc(2026, 8, 14),
+      }, id: 'teacher_trainee')!;
+      expect(granted.hasEffectiveProgressAccess, isTrue);
+      expect(
+        TeacherStudentLink.tryFromMap({
+          ...base,
+          'progress_access': 'granted',
+          'progress_access_version': 1.5,
+          'progress_access_granted_at': DateTime.utc(2026, 8, 14),
+        }, id: 'teacher_trainee')!.hasEffectiveProgressAccess,
+        isFalse,
+      );
+    },
+  );
 }
