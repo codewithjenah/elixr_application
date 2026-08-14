@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,7 +10,8 @@ import '../../../data/models/movement.dart';
 import '../../../data/models/training_prop.dart';
 import '../movements_presentation.dart';
 
-const _kCompactLayoutBreakpoint = 720.0;
+const _kCardRadius = 16.0;
+const _kHeroHeight = 152.0;
 
 class MovementCard extends StatefulWidget {
   const MovementCard({
@@ -99,7 +102,6 @@ class _MovementCardState extends State<MovementCard> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < _kCompactLayoutBreakpoint;
         return Semantics(
           button: cardInteractive,
           enabled: interactive,
@@ -129,12 +131,14 @@ class _MovementCardState extends State<MovementCard> {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
-                transform: Matrix4.translationValues(0, active ? -2.0 : 0.0, 0),
+                transformAlignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..setEntry(0, 0, active ? 1.015 : 1)
+                  ..setEntry(1, 1, active ? 1.015 : 1)
+                  ..setTranslationRaw(0, active ? -4 : 0, 0),
                 decoration: BoxDecoration(
-                  color: active
-                      ? _accent.withValues(alpha: isDark ? 0.06 : 0.04)
-                      : context.elixCardSurface,
-                  borderRadius: BorderRadius.circular(14),
+                  color: context.elixCardSurface,
+                  borderRadius: BorderRadius.circular(_kCardRadius),
                   border: Border.all(
                     color: active
                         ? _accent.withValues(alpha: isDark ? 0.55 : 0.45)
@@ -145,33 +149,22 @@ class _MovementCardState extends State<MovementCard> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: isDark
-                            ? (active ? 0.32 : 0.18)
-                            : (active ? 0.10 : 0.05),
-                      ),
+                      color: active
+                          ? _accent.withValues(alpha: isDark ? 0.24 : 0.18)
+                          : context.elixBorder.withValues(
+                              alpha: isDark ? 0.32 : 0.45,
+                            ),
                       blurRadius: active ? 14 : 8,
-                      offset: Offset(0, active ? 4 : 2),
+                      spreadRadius: active ? 1 : 0,
+                      offset: Offset(0, active ? 6 : 3),
                     ),
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        child: Container(width: 4, color: _accent),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                        child: compact
-                            ? _buildStackedLayout(context)
-                            : _buildHorizontalLayout(context),
-                      ),
-                    ],
+                  borderRadius: BorderRadius.circular(_kCardRadius),
+                  child: _buildTileLayout(
+                    context,
+                    pinActions: constraints.hasBoundedHeight,
                   ),
                 ),
               ),
@@ -182,51 +175,85 @@ class _MovementCardState extends State<MovementCard> {
     );
   }
 
-  Widget _buildHorizontalLayout(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        _buildVisual(context),
-        const SizedBox(width: 12),
-        Expanded(child: _buildInfoColumn(context)),
-        const SizedBox(width: 16),
-        SizedBox(
-          width: _hasPropChoice && _enabled ? 220 : 184,
-          child: _buildPerformanceColumn(context, fullWidthCta: true),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStackedLayout(BuildContext context) {
+  Widget _buildTileLayout(BuildContext context, {required bool pinActions}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildVisual(context),
-            const SizedBox(width: 12),
-            Expanded(child: _buildInfoColumn(context)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        _buildPerformanceColumn(context, fullWidthCta: true),
+        _buildHero(context),
+        if (pinActions)
+          Expanded(child: _buildCardBody(context, pinActions: true))
+        else
+          _buildCardBody(context, pinActions: false),
       ],
     );
   }
 
-  Widget _buildVisual(BuildContext context) {
-    return Container(
-      width: 52,
-      height: 52,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: _accent.withValues(alpha: context.isDarkTheme ? 0.14 : 0.10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _accent.withValues(alpha: 0.28)),
+  Widget _buildHero(BuildContext context) {
+    return SizedBox(
+      height: _kHeroHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  _accent.withValues(alpha: 0.18),
+                  _accent.withValues(alpha: 0.04),
+                ],
+              ),
+              border: Border(
+                bottom: BorderSide(color: _accent.withValues(alpha: 0.18)),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: MovementImage(
+              movementName: widget.movement.name,
+              size: 132,
+              paddingFactor: 0.015,
+              alignment: Alignment.bottomCenter,
+            ),
+          ),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: _StatusBadge(
+              label: _statusLabel,
+              color: _statusColor(context),
+            ),
+          ),
+        ],
       ),
-      child: MovementImage(movementName: widget.movement.name, size: 52),
+    );
+  }
+
+  Widget _buildCardBody(BuildContext context, {required bool pinActions}) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildInfoColumn(context),
+          if (pinActions) const Spacer() else const SizedBox(height: 16),
+          if (_hasPropChoice && _enabled)
+            _buildPropChoiceActions(context)
+          else
+            _ActionButton(
+              label: _actionLabel,
+              enabled: _enabled,
+              accent: _accent,
+              fullWidth: true,
+              hovered: _ctaHovered,
+              onHoverChanged: (hovered) {
+                if (_enabled) setState(() => _ctaHovered = hovered);
+              },
+            ),
+        ],
+      ),
     );
   }
 
@@ -235,25 +262,17 @@ class _MovementCardState extends State<MovementCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                widget.movement.name,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: context.elixTextPrimary,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 8),
-            _StatusBadge(label: _statusLabel, color: _statusColor(context)),
-          ],
+        Text(
+          widget.movement.name,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: context.elixTextPrimary,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Text(
           widget.movement.description,
           style: TextStyle(
@@ -261,11 +280,11 @@ class _MovementCardState extends State<MovementCard> {
             height: 1.35,
             color: context.elixTextSecondary,
           ),
-          maxLines: 3,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         if (_buildMetadata(context) != null) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           _buildMetadata(context)!,
         ],
       ],
@@ -297,40 +316,37 @@ class _MovementCardState extends State<MovementCard> {
           color: context.elixTextSecondary,
         ),
       );
+    } else if (!_practiced) {
+      chips.add(
+        _MetaChip(
+          icon: FluentIcons.education,
+          label: 'Ready to learn',
+          color: context.elixTextSecondary,
+        ),
+      );
+    } else {
+      chips.add(
+        _MetaChip(
+          icon: FluentIcons.history,
+          label:
+              '${widget.sessionCount} session${widget.sessionCount == 1 ? '' : 's'}',
+          color: context.elixTextSecondary,
+        ),
+      );
+      chips.add(
+        _MetaChip(
+          icon: FluentIcons.completed,
+          label: widget.averageRubricTotal == null
+              ? 'No rubric result yet'
+              : 'Average rubric ${widget.averageRubricTotal!.round()} / 12',
+          color: context.elixTextSecondary,
+        ),
+      );
     }
 
     if (chips.isEmpty) return null;
 
     return Wrap(spacing: 6, runSpacing: 4, children: chips);
-  }
-
-  Widget _buildPerformanceColumn(
-    BuildContext context, {
-    bool fullWidthCta = false,
-  }) {
-    return Column(
-      crossAxisAlignment: fullWidthCta
-          ? CrossAxisAlignment.stretch
-          : CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildPerformanceStats(context, fullWidth: fullWidthCta),
-        const SizedBox(height: 8),
-        if (_hasPropChoice && _enabled)
-          _buildPropChoiceActions(context)
-        else
-          _ActionButton(
-            label: _actionLabel,
-            enabled: _enabled,
-            accent: _accent,
-            fullWidth: fullWidthCta,
-            hovered: _ctaHovered,
-            onHoverChanged: (hovered) {
-              if (_enabled) setState(() => _ctaHovered = hovered);
-            },
-          ),
-      ],
-    );
   }
 
   String _emojiForProp(TrainingProp prop) {
@@ -376,76 +392,6 @@ class _MovementCardState extends State<MovementCard> {
       ],
     );
   }
-
-  Widget _buildPerformanceStats(
-    BuildContext context, {
-    bool fullWidth = false,
-  }) {
-    if (!_enabled) {
-      return Text(
-        'Locked',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: context.elixTextSecondary,
-        ),
-      );
-    }
-
-    if (!_practiced) {
-      return Text(
-        'Ready to learn',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: context.elixTextSecondary,
-        ),
-      );
-    }
-
-    final average = widget.averageRubricTotal;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${widget.sessionCount} session${widget.sessionCount == 1 ? '' : 's'}',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: context.elixTextSecondary,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          average == null
-              ? 'No rubric result yet'
-              : 'Average rubric ${average.round()} / 12',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: context.elixTextPrimary,
-          ),
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: SizedBox(
-            height: 5,
-            width: fullWidth ? double.infinity : 140,
-            child: Stack(
-              children: [
-                Container(color: context.elixBorder),
-                FractionallySizedBox(
-                  widthFactor: ((average ?? 0) / 12).clamp(0.0, 1.0),
-                  child: Container(color: _accent.withValues(alpha: 0.85)),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _StatusBadge extends StatelessWidget {
@@ -456,19 +402,27 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: context.isDarkTheme ? 0.14 : 0.10),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: context.elixCardSurface.withValues(
+              alpha: context.isDarkTheme ? 0.62 : 0.72,
+            ),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.38)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
         ),
       ),
     );

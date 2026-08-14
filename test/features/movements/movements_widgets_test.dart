@@ -474,6 +474,7 @@ void main() {
     testWidgets('Easy and Hard cards keep a single practice CTA', (
       tester,
     ) async {
+      await setSurface(tester, const Size(900, 1000));
       await tester.pumpWidget(
         wrap(
           Column(
@@ -531,7 +532,7 @@ void main() {
   });
 
   group('MovementDifficultySection', () {
-    testWidgets('renders four movements as vertical rows', (tester) async {
+    testWidgets('renders three columns at desktop width', (tester) async {
       await setSurface(tester, const Size(1280, 1200));
       await tester.pumpWidget(
         wrap(
@@ -561,17 +562,76 @@ void main() {
       expect(find.text('Easy — Foundations'), findsOneWidget);
       expect(find.text('1 of 4 practiced'), findsOneWidget);
       expect(find.byType(MovementCard), findsNWidgets(4));
-      expect(find.byType(GridView), findsNothing);
+      expect(find.byType(GridView), findsOneWidget);
 
       final positions = <Offset>[];
       for (var i = 0; i < 4; i++) {
         positions.add(tester.getTopLeft(find.byType(MovementCard).at(i)));
       }
 
-      for (var i = 1; i < positions.length; i++) {
-        expect(positions[i].dx, closeTo(positions[0].dx, 1));
-        expect(positions[i].dy, greaterThan(positions[i - 1].dy));
-      }
+      expect(positions[0].dy, closeTo(positions[1].dy, 1));
+      expect(positions[1].dy, closeTo(positions[2].dy, 1));
+      expect(positions[0].dx, lessThan(positions[1].dx));
+      expect(positions[1].dx, lessThan(positions[2].dx));
+      expect(positions[3].dx, closeTo(positions[0].dx, 1));
+      expect(positions[3].dy, greaterThan(positions[0].dy));
+
+      final firstSize = tester.getSize(find.byType(MovementCard).at(0));
+      final secondSize = tester.getSize(find.byType(MovementCard).at(1));
+      expect(firstSize.height, closeTo(secondSize.height, 1));
+    });
+
+    testWidgets('uses two columns from 700 through 1099 pixels', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1000, 1200));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final first = tester.getTopLeft(find.byType(MovementCard).at(0));
+      final second = tester.getTopLeft(find.byType(MovementCard).at(1));
+      final third = tester.getTopLeft(find.byType(MovementCard).at(2));
+      expect(first.dy, closeTo(second.dy, 1));
+      expect(first.dx, lessThan(second.dx));
+      expect(third.dx, closeTo(first.dx, 1));
+      expect(third.dy, greaterThan(first.dy));
+    });
+
+    testWidgets('uses one column below 700 pixels', (tester) async {
+      await setSurface(tester, const Size(680, 1600));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 650,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final positions = List.generate(
+        3,
+        (index) => tester.getTopLeft(find.byType(MovementCard).at(index)),
+      );
+      expect(positions[1].dx, closeTo(positions[0].dx, 1));
+      expect(positions[2].dx, closeTo(positions[0].dx, 1));
+      expect(positions[1].dy, greaterThan(positions[0].dy));
+      expect(positions[2].dy, greaterThan(positions[1].dy));
     });
 
     testWidgets('collapses and expands movement rows', (tester) async {
@@ -609,6 +669,7 @@ void main() {
     });
 
     testWidgets('section practiced count remains correct', (tester) async {
+      await setSurface(tester, const Size(1000, 1200));
       await tester.pumpWidget(
         wrap(
           const MovementDifficultySection(

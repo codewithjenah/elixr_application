@@ -26,6 +26,9 @@ class MovementDifficultySection extends StatefulWidget {
 class _MovementDifficultySectionState extends State<MovementDifficultySection>
     with SingleTickerProviderStateMixin {
   static const _animationDuration = Duration(milliseconds: 200);
+  static const _threeColumnBreakpoint = 1100.0;
+  static const _twoColumnBreakpoint = 700.0;
+  static const _cardHeight = 430.0;
 
   late final AnimationController _controller;
   late final Animation<double> _expandAnimation;
@@ -207,23 +210,39 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
             alignment: Alignment.topLeft,
             child: Align(
               alignment: Alignment.topCenter,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: AppSpacing.md),
-                  for (var i = 0; i < widget.movements.length; i++) ...[
-                    if (i > 0) const SizedBox(height: AppSpacing.md),
-                    MovementCard(
-                      movement: widget.movements[i],
-                      sessionCount:
-                          widget.stats[widget.movements[i].name]?.count ?? 0,
-                      averageRubricTotal: widget
-                          .stats[widget.movements[i].name]
-                          ?.averageRubricTotal,
-                    ),
-                  ],
-                ],
+              child: Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.md),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns =
+                        constraints.maxWidth >= _threeColumnBreakpoint
+                        ? 3
+                        : constraints.maxWidth >= _twoColumnBreakpoint
+                        ? 2
+                        : 1;
+
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: widget.movements.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        crossAxisSpacing: AppSpacing.md,
+                        mainAxisSpacing: AppSpacing.md,
+                        mainAxisExtent: _cardHeight,
+                      ),
+                      itemBuilder: (context, index) {
+                        final movement = widget.movements[index];
+                        return MovementCard(
+                          movement: movement,
+                          sessionCount: widget.stats[movement.name]?.count ?? 0,
+                          averageRubricTotal:
+                              widget.stats[movement.name]?.averageRubricTotal,
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ),
           ),

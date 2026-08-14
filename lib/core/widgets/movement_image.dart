@@ -10,10 +10,14 @@ class MovementImage extends StatelessWidget {
     super.key,
     required this.movementName,
     required this.size,
+    this.paddingFactor = 0.08,
+    this.alignment = Alignment.center,
   });
 
   final String movementName;
   final double size;
+  final double paddingFactor;
+  final Alignment alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -44,12 +48,13 @@ class MovementImage extends StatelessWidget {
         width: size,
         height: size,
         child: Padding(
-          padding: EdgeInsets.all(size * 0.08),
+          padding: EdgeInsets.all(size * paddingFactor),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(size * 0.16),
             child: Image.asset(
               assetPath,
               fit: BoxFit.contain,
+              alignment: alignment,
               cacheWidth: imageSize,
               cacheHeight: imageSize,
             ),
