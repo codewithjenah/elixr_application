@@ -532,7 +532,9 @@ void main() {
   });
 
   group('MovementDifficultySection', () {
-    testWidgets('renders three columns at desktop width', (tester) async {
+    testWidgets('renders four equal-height columns at desktop width', (
+      tester,
+    ) async {
       await setSurface(tester, const Size(1280, 1200));
       await tester.pumpWidget(
         wrap(
@@ -589,13 +591,21 @@ void main() {
 
       expect(positions[0].dy, closeTo(positions[1].dy, 1));
       expect(positions[1].dy, closeTo(positions[2].dy, 1));
+      expect(positions[2].dy, closeTo(positions[3].dy, 1));
       expect(positions[0].dx, lessThan(positions[1].dx));
       expect(positions[1].dx, lessThan(positions[2].dx));
-      expect(positions[3].dx, closeTo(positions[0].dx, 1));
-      expect(positions[3].dy, greaterThan(positions[0].dy));
+      expect(positions[2].dx, lessThan(positions[3].dx));
 
-      expect(tester.getSize(first).height, lessThan(430));
-      expect(tester.getSize(second).height, lessThan(430));
+      final cardHeights = [
+        first,
+        second,
+        third,
+        fourth,
+      ].map((finder) => tester.getSize(finder).height).toList();
+      expect(cardHeights.first, lessThan(430));
+      for (final height in cardHeights.skip(1)) {
+        expect(height, closeTo(cardHeights.first, 1));
+      }
     });
 
     testWidgets('uses two columns from 700 through 1099 pixels', (
@@ -636,6 +646,27 @@ void main() {
       );
       expect(first.dy, closeTo(second.dy, 1));
       expect(first.dx, lessThan(second.dx));
+      expect(
+        tester
+            .getSize(
+              find.ancestor(
+                of: find.text('Normal Grip'),
+                matching: find.byType(MovementCard),
+              ),
+            )
+            .height,
+        closeTo(
+          tester
+              .getSize(
+                find.ancestor(
+                  of: find.text("Bartender's Grip"),
+                  matching: find.byType(MovementCard),
+                ),
+              )
+              .height,
+          1,
+        ),
+      );
       expect(third.dx, closeTo(first.dx, 1));
       expect(third.dy, greaterThan(first.dy));
     });

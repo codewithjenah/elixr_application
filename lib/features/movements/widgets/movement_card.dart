@@ -285,7 +285,10 @@ class _MovementCardState extends State<MovementCard> {
         ),
         if (_buildMetadata(context) != null) ...[
           const SizedBox(height: 10),
-          _buildMetadata(context)!,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: _buildMetadata(context)!,
+          ),
         ],
       ],
     );
