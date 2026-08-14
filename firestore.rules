@@ -1566,7 +1566,7 @@ service cloud.firestore {
     function isOrdinaryPlayer() {
       return isSignedIn()
         && exists(userPath(request.auth.uid))
-        && get(userPath(request.auth.uid)).data.get('role', 'trainee') == 'trainee';
+        && get(userPath(request.auth.uid)).data.get('role', 'Trainee') == 'Trainee';
     }
 
     function canReadProtectedPublicProfile(userId) {
