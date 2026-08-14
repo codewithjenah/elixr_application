@@ -30,6 +30,10 @@ class TeacherCoachingNotesController extends ChangeNotifier {
   int _generation = 0;
   bool _active = false;
   bool _disposed = false;
+  bool get canAuthor =>
+      _active &&
+      !_disposed &&
+      state != TeacherCoachingNotesState.relationshipRequired;
   Future<void> start() async {
     _active = true;
     await refresh();
@@ -60,7 +64,9 @@ class TeacherCoachingNotesController extends ChangeNotifier {
         teacherId: teacherId,
         traineeId: traineeId,
       );
-      if (!_current(g)) return;
+      if (!_current(g)) {
+        return;
+      }
       notes = page.notes;
       _cursor = page.nextCursor;
       hasMore = page.hasMore;
@@ -68,10 +74,11 @@ class TeacherCoachingNotesController extends ChangeNotifier {
           ? TeacherCoachingNotesState.empty
           : TeacherCoachingNotesState.ready;
     } on CoachingNoteException catch (e) {
-      if (_current(g))
+      if (_current(g)) {
         state = _relationship(e)
             ? TeacherCoachingNotesState.relationshipRequired
             : TeacherCoachingNotesState.error;
+      }
     } catch (_) {
       if (_current(g)) state = TeacherCoachingNotesState.error;
     }
@@ -124,6 +131,7 @@ class TeacherCoachingNotesController extends ChangeNotifier {
         ),
       );
   Future<void> _mutate(Future<CoachingNote> Function() action) async {
+    _requireActiveRelationship();
     saving = true;
     _notify();
     try {
@@ -139,6 +147,7 @@ class TeacherCoachingNotesController extends ChangeNotifier {
   }
 
   Future<void> delete(CoachingNote note) async {
+    _requireActiveRelationship();
     deletingId = note.id;
     _notify();
     try {
@@ -160,6 +169,12 @@ class TeacherCoachingNotesController extends ChangeNotifier {
   bool _relationship(CoachingNoteException e) =>
       e.code == CoachingNoteError.relationshipRequired ||
       e.code == CoachingNoteError.permissionDenied;
+  void _requireActiveRelationship() {
+    if (!canAuthor) {
+      throw const CoachingNoteException(CoachingNoteError.relationshipRequired);
+    }
+  }
+
   bool _current(int g) => !_disposed && _active && g == _generation;
   void _notify() {
     if (!_disposed) notifyListeners();

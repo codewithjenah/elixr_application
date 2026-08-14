@@ -18,16 +18,22 @@ class CoachingNotesSection extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Spacer(),
-            FilledButton.icon(
-              onPressed: controller.saving ? null : () => _compose(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Add note'),
-            ),
+            if (controller.canAuthor)
+              FilledButton.icon(
+                onPressed: controller.saving ? null : () => _compose(context),
+                icon: const Icon(Icons.add),
+                label: const Text('Add note'),
+              ),
           ],
         ),
         const SizedBox(height: 12),
         if (controller.state == TeacherCoachingNotesState.loading)
           const Center(child: CircularProgressIndicator())
+        else if (controller.state ==
+            TeacherCoachingNotesState.relationshipRequired)
+          const Text(
+            'Coaching is unavailable because this relationship is no longer approved.',
+          )
         else if (controller.state == TeacherCoachingNotesState.error)
           OutlinedButton(
             onPressed: controller.refresh,
@@ -41,22 +47,29 @@ class CoachingNotesSection extends StatelessWidget {
               child: ListTile(
                 title: Text(note.movementName ?? 'General coaching'),
                 subtitle: Text(note.body),
-                trailing: PopupMenuButton<String>(
-                  onSelected: (value) {
-                    if (value == 'edit') {
-                      _compose(context, note);
-                    } else {
-                      _delete(context, note);
-                    }
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
-                  ],
-                ),
+                trailing: controller.canAuthor
+                    ? PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'edit') {
+                            _compose(context, note);
+                          } else {
+                            _delete(context, note);
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(value: 'delete', child: Text('Delete')),
+                        ],
+                      )
+                    : null,
               ),
             ),
-          if (controller.hasMore)
+          if (controller.paginationError != null)
+            OutlinedButton(
+              onPressed: controller.loadingMore ? null : controller.loadMore,
+              child: const Text('Try loading again'),
+            )
+          else if (controller.hasMore)
             OutlinedButton(
               onPressed: controller.loadingMore ? null : controller.loadMore,
               child: Text(controller.loadingMore ? 'Loading…' : 'Load more'),
@@ -114,7 +127,7 @@ class CoachingNotesSection extends StatelessWidget {
                           }
                           if (sheet.mounted) Navigator.pop(sheet);
                         } on CoachingNoteException catch (error) {
-                          if (sheet.mounted)
+                          if (sheet.mounted) {
                             ScaffoldMessenger.of(sheet).showSnackBar(
                               SnackBar(
                                 content: Text(
@@ -122,6 +135,7 @@ class CoachingNotesSection extends StatelessWidget {
                                 ),
                               ),
                             );
+                          }
                         }
                       },
                 child: const Text('Save'),

@@ -79,6 +79,113 @@ before(async () => {
   });
 });
 
+// Phase 3A coaching-note policy.  These tests intentionally use direct client
+// writes/queries: repository validation is defense in depth, while these rules
+// are the authoritative boundary for a modified client.
+describe('teacher coaching notes', () => {
+  const notePath = (db, id = 'note') => doc(db, 'teacher_coaching_notes', id);
+  const linkId = 'bob_alice';
+  const noteData = (overrides = {}) => ({
+    teacher_id: 'bob', trainee_id: 'alice', teacher_display_name: 'Bob Teacher',
+    body: 'Keep your wrist steady.', created_at: serverTimestamp(), updated_at: serverTimestamp(),
+    ...overrides,
+  });
+  async function seed({ status = 'approved', note = false } = {}) {
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'bob'), { full_name: 'Bob Teacher', role: ROLE_TEACHER });
+      await setDoc(doc(admin, 'users', 'alice'), { full_name: 'Alice Trainee', role: ROLE_TRAINEE });
+      await setDoc(doc(admin, 'teacher_student_links', linkId), {
+        teacher_id: 'bob', trainee_id: 'alice', status,
+      });
+      if (note) await setDoc(notePath(admin), noteData({ created_at: Timestamp.now(), updated_at: Timestamp.now() }));
+    });
+  }
+
+  test('approved teacher creates valid note and can query their exact history', async () => {
+    await seed();
+    const bob = bobDb();
+    await assertSucceeds(setDoc(notePath(bob), noteData({ movement_name: 'Bottle in a tin' })));
+    await assertSucceeds(getDocs(query(collection(bob, 'teacher_coaching_notes'), where('teacher_id', '==', 'bob'), where('trainee_id', '==', 'alice'))));
+  });
+
+  test('non-approved relationship states and unauthenticated callers cannot create', async () => {
+    for (const status of ['pending', 'rejected', 'cancelled', 'revoked']) {
+      await testEnv.clearFirestore();
+      await seed({ status });
+      await assertFails(setDoc(notePath(bobDb(), status), noteData()));
+    }
+    await testEnv.clearFirestore();
+    await seed();
+    await assertFails(setDoc(notePath(testEnv.unauthenticatedContext().firestore(), 'anon'), noteData()));
+  });
+
+  test('create rejects spoofing, unrelated targets, invalid contents, and extra fields', async () => {
+    await seed();
+    const bob = bobDb();
+    for (const [id, overrides] of [
+      ['spoof', { teacher_id: 'eve' }], ['target', { trainee_id: 'carol' }],
+      ['whitespace', { body: ' \n\t ' }], ['long', { body: 'a'.repeat(1001) }],
+      ['movement', { movement_name: 'Bottle in a Tin' }], ['extra', { extra: true }],
+    ]) await assertFails(setDoc(notePath(bob, id), noteData(overrides)));
+  });
+
+  test('author may update only mutable note fields while approved', async () => {
+    await seed({ note: true });
+    const bob = bobDb();
+    await assertSucceeds(updateDoc(notePath(bob), { body: 'Use a softer catch.', updated_at: serverTimestamp() }));
+    await assertSucceeds(updateDoc(notePath(bob), { movement_name: 'Hand Stall', updated_at: serverTimestamp() }));
+    for (const patch of [
+      { teacher_id: 'eve', updated_at: serverTimestamp() },
+      { trainee_id: 'carol', updated_at: serverTimestamp() },
+      { teacher_display_name: 'Eve', updated_at: serverTimestamp() },
+      { created_at: serverTimestamp(), updated_at: serverTimestamp() },
+      { movement_name: 'invalid', updated_at: serverTimestamp() },
+    ]) await assertFails(updateDoc(notePath(bob), patch));
+  });
+
+  test('addressed trainee reads notes but cannot mutate, while unrelated users cannot read', async () => {
+    await seed({ note: true });
+    await assertSucceeds(getDoc(notePath(aliceDb())));
+    await assertFails(updateDoc(notePath(aliceDb()), { body: 'forged', updated_at: serverTimestamp() }));
+    const eve = verifiedUser('eve');
+    await assertFails(getDoc(notePath(eve)));
+  });
+
+  test('only the author can delete; relationship revoke blocks future author access but preserves trainee history', async () => {
+    await seed({ note: true });
+    const bob = bobDb();
+    await assertSucceeds(deleteDoc(notePath(bob)));
+    await seed({ note: true, status: 'revoked' });
+    await assertFails(setDoc(notePath(bob, 'new'), noteData()));
+    await assertFails(updateDoc(notePath(bob), { body: 'blocked', updated_at: serverTimestamp() }));
+    await assertFails(deleteDoc(notePath(bob)));
+    await assertSucceeds(getDoc(notePath(aliceDb())));
+  });
+
+  test('progress-sharing status is irrelevant to approved coaching authorization', async () => {
+    await seed();
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'teacher_student_links', linkId), { progress_access: 'none' });
+    });
+    await assertSucceeds(setDoc(notePath(bobDb()), noteData()));
+  });
+
+  test('broad or partial teacher collection queries are denied', async () => {
+    await seed({ note: true });
+    const bob = bobDb();
+    await assertFails(getDocs(collection(bob, 'teacher_coaching_notes')));
+    await assertFails(getDocs(query(collection(bob, 'teacher_coaching_notes'), where('teacher_id', '==', 'bob'))));
+  });
+
+  test('account-erasure cleanup can list and delete notes after its user document is gone', async () => {
+    await seed({ note: true });
+    const bob = bobDb();
+    await assertSucceeds(deleteDoc(doc(bob, 'users', 'bob')));
+    const notes = await assertSucceeds(getDocs(query(collection(bob, 'teacher_coaching_notes'), where('teacher_id', '==', 'bob'))));
+    await assertSucceeds(deleteDoc(notes.docs[0].ref));
+  });
+});
+
 after(async () => {
   await testEnv.cleanup();
 });

@@ -38,6 +38,9 @@ class CoachingNote {
     Map<String, dynamic> map, {
     required String id,
   }) {
+    if (id.trim().isEmpty) {
+      return null;
+    }
     String? string(String key) {
       final value = map[key];
       return value is String && value.trim().isNotEmpty ? value : null;
@@ -48,8 +51,9 @@ class CoachingNote {
       if (value is DateTime) return value.toUtc();
       try {
         final dynamic timestamp = value;
-        if (timestamp?.toDate is Function)
+        if (timestamp?.toDate is Function) {
           return (timestamp.toDate() as DateTime).toUtc();
+        }
       } catch (_) {}
       return null;
     }
@@ -64,14 +68,21 @@ class CoachingNote {
     if (teacherId == null ||
         traineeId == null ||
         teacherId == traineeId ||
+        teacherId.length > 128 ||
+        traineeId.length > 128 ||
         teacherName == null ||
+        teacherName.length > 80 ||
         body == null ||
         body.length > maximumBodyLength ||
         createdAt == null ||
         updatedAt == null ||
         updatedAt.isBefore(createdAt) ||
-        (movement != null && (movement is! String || movement.trim().isEmpty)))
+        (movement != null &&
+            (movement is! String ||
+                movement.trim().isEmpty ||
+                !isRecognizedCoachingMovement(movement)))) {
       return null;
+    }
     return CoachingNote(
       id: id,
       teacherId: teacherId,
