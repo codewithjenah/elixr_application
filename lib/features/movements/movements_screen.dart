@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
@@ -86,40 +87,59 @@ class _MovementsScreenState extends State<MovementsScreen> {
     final summary = computeMovementsSummary(_movementStats);
 
     return ScaffoldPage(
-      content: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: _kMovementsContentMaxWidth,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  MovementsHeader(summary: summary),
-                  const SizedBox(height: AppSpacing.xl),
-                  MovementDifficultySection(
-                    difficulty: 'Easy',
-                    movements: movementsByDifficulty('Easy'),
-                    stats: _movementStats,
+      // The page content owns its spacing. Removing ScaffoldPage's default
+      // 24px top inset lets the ambient gradient reach the title bar instead
+      // of exposing a strip of the black scaffold background.
+      padding: EdgeInsets.zero,
+      content: DecoratedBox(
+        decoration: AppTheme.practicePageBackground(context),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final horizontalPadding = constraints.maxWidth < 680
+                  ? AppSpacing.md
+                  : AppSpacing.xl;
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  AppSpacing.xl,
+                  horizontalPadding,
+                  AppSpacing.xxl,
+                ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: _kMovementsContentMaxWidth,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        MovementsHeader(summary: summary),
+                        const SizedBox(height: AppSpacing.xl),
+                        MovementDifficultySection(
+                          difficulty: 'Easy',
+                          movements: movementsByDifficulty('Easy'),
+                          stats: _movementStats,
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        MovementDifficultySection(
+                          difficulty: 'Medium',
+                          movements: movementsByDifficulty('Medium'),
+                          stats: _movementStats,
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        MovementDifficultySection(
+                          difficulty: 'Hard',
+                          movements: movementsByDifficulty('Hard'),
+                          stats: _movementStats,
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: AppSpacing.xl),
-                  MovementDifficultySection(
-                    difficulty: 'Medium',
-                    movements: movementsByDifficulty('Medium'),
-                    stats: _movementStats,
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
-                  MovementDifficultySection(
-                    difficulty: 'Hard',
-                    movements: movementsByDifficulty('Hard'),
-                    stats: _movementStats,
-                  ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
         ),
       ),

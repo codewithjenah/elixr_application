@@ -1,3 +1,6 @@
+import 'dart:ui';
+
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -6,12 +9,29 @@ import 'package:elixr_application/features/movements/widgets/movement_card.dart'
 import 'package:elixr_application/features/movements/widgets/movement_difficulty_section.dart';
 import 'package:elixr_application/features/movements/widgets/movements_header.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-Widget wrap(Widget child, {Brightness brightness = Brightness.dark}) {
+Widget wrap(
+  Widget child, {
+  Brightness brightness = Brightness.dark,
+  bool highContrast = false,
+  bool disableAnimations = false,
+}) {
+  final theme = highContrast
+      ? (brightness == Brightness.dark
+            ? AppTheme.highContrastDark
+            : AppTheme.highContrastLight)
+      : (brightness == Brightness.dark ? AppTheme.dark : AppTheme.light);
   return FluentApp(
-    theme: brightness == Brightness.dark ? AppTheme.dark : AppTheme.light,
+    theme: theme,
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(
+        context,
+      ).copyWith(disableAnimations: disableAnimations),
+      child: child!,
+    ),
     home: ScaffoldPage(content: child),
   );
 }
@@ -149,15 +169,16 @@ void main() {
       );
 
       expect(find.text('Movements'), findsOneWidget);
+      expect(find.text('TRAINING LIBRARY'), findsOneWidget);
       expect(
         find.text(
-          'Build your flair foundation, balance, and advanced control.',
+          'Build your flair foundation, sharpen your control, and master every level.',
         ),
         findsOneWidget,
       );
       expect(find.text('3 of 9'), findsOneWidget);
       expect(find.text('6'), findsWidgets);
-      expect(find.text('Overall rubric average'), findsOneWidget);
+      expect(find.text('Rubric average'), findsOneWidget);
       expect(find.text('10.5 / 12'), findsOneWidget);
       expect(find.textContaining('Best avg'), findsNothing);
     });
@@ -254,7 +275,7 @@ void main() {
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 1200,
+            width: 1050,
             child: MovementCard(
               movement: easyMovement,
               sessionCount: 2,
@@ -529,17 +550,218 @@ void main() {
       expect(find.text('Bottle'), findsOneWidget);
       expect(find.text('Cocktail Shaker'), findsOneWidget);
     });
+
+    testWidgets('hover reveals metadata without changing card dimensions', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1000, 800));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            height: 430,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 2,
+              averageRubricTotal: 8,
+            ),
+          ),
+        ),
+      );
+
+      final card = find.byType(MovementCard);
+      final metadata = find.descendant(
+        of: card,
+        matching: find.byType(AnimatedOpacity),
+      );
+      final initialHeight = tester.getSize(card).height;
+      expect(tester.widget<AnimatedOpacity>(metadata).opacity, 0);
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(card));
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<AnimatedOpacity>(metadata).opacity, 1);
+      expect(tester.getSize(card).height, initialHeight);
+      await mouse.removePointer();
+    });
+
+    testWidgets('keyboard focus reveals metadata and Enter keeps navigation', (
+      tester,
+    ) async {
+      final navigated = <String>[];
+      final router = practiceTrackingRouter(
+        home: ScaffoldPage(
+          content: const SizedBox(
+            width: 900,
+            height: 430,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 1,
+              averageRubricTotal: 9,
+            ),
+          ),
+        ),
+        navigatedLocations: navigated,
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(wrapWithRouter(router: router));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      final metadata = find.byType(AnimatedOpacity);
+      expect(tester.widget<AnimatedOpacity>(metadata).opacity, 1);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(navigated.single, contains('movement=Normal%20Grip'));
+      expect(navigated.single, contains('difficulty=Easy'));
+      expect(navigated.single, contains('prop=bottle'));
+    });
+
+    testWidgets('one-column cards keep metadata visible', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 600,
+            height: 430,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 1,
+              averageRubricTotal: 9,
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+        1,
+      );
+    });
+
+    testWidgets('reduced motion removes lift and parallax', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            height: 430,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 1,
+              averageRubricTotal: 9,
+            ),
+          ),
+          disableAnimations: true,
+        ),
+      );
+
+      final card = find.byType(MovementCard);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(card));
+      await tester.pump();
+
+      final surface = tester.widget<AnimatedContainer>(
+        find.byKey(const ValueKey('movement-card-surface')),
+      );
+      expect(surface.duration, Duration.zero);
+      expect(surface.transform!.storage[12], 0);
+      expect(surface.transform!.storage[13], 0);
+      expect(surface.transform!.storage[0], 1);
+      await mouse.removePointer();
+    });
+
+    testWidgets('high contrast uses solid card surfaces without blur or glow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 900,
+            height: 430,
+            child: MovementCard(
+              movement: easyMovement,
+              sessionCount: 1,
+              averageRubricTotal: 9,
+            ),
+          ),
+          highContrast: true,
+        ),
+      );
+
+      expect(find.byType(BackdropFilter), findsNothing);
+      final surface = tester.widget<AnimatedContainer>(
+        find.byKey(const ValueKey('movement-card-surface')),
+      );
+      final decoration = surface.decoration! as BoxDecoration;
+      expect(decoration.boxShadow, isEmpty);
+      expect(decoration.border!.top.width, 2);
+      expect(decoration.gradient, isNull);
+      expect(decoration.color, isNot(AppColors.cardSurfaceHighContrastDark));
+      expect(decoration.color!.a, 1);
+    });
+
+    testWidgets('difficulty gives each card a distinct tinted surface', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1000, 1000));
+      await tester.pumpWidget(
+        wrap(
+          const Column(
+            children: [
+              SizedBox(
+                width: 900,
+                height: 430,
+                child: MovementCard(
+                  movement: easyMovement,
+                  sessionCount: 0,
+                  averageRubricTotal: null,
+                ),
+              ),
+              SizedBox(height: 20),
+              SizedBox(
+                width: 900,
+                height: 430,
+                child: MovementCard(
+                  movement: hardMovement,
+                  sessionCount: 0,
+                  averageRubricTotal: null,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final surfaces = tester
+          .widgetList<AnimatedContainer>(
+            find.byKey(const ValueKey('movement-card-surface')),
+          )
+          .map((surface) => surface.decoration! as BoxDecoration)
+          .toList();
+      expect(surfaces, hasLength(2));
+      expect(surfaces[0].gradient, isA<LinearGradient>());
+      expect(surfaces[1].gradient, isA<LinearGradient>());
+      final easyColor = (surfaces[0].gradient! as LinearGradient).colors.first;
+      final hardColor = (surfaces[1].gradient! as LinearGradient).colors.first;
+      expect(easyColor, isNot(hardColor));
+      expect(easyColor, isNot(AppColors.cardSurface));
+      expect(hardColor, isNot(AppColors.cardSurface));
+    });
   });
 
   group('MovementDifficultySection', () {
-    testWidgets('renders four equal-height columns at desktop width', (
+    testWidgets('renders three equal-height columns at desktop width', (
       tester,
     ) async {
       await setSurface(tester, const Size(1280, 1200));
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 1200,
+            width: 1050,
             child: MovementDifficultySection(
               difficulty: 'Easy',
               movements: [
@@ -566,6 +788,8 @@ void main() {
       expect(find.byType(MovementCard), findsNWidgets(4));
       expect(find.byType(GridView), findsNothing);
 
+      final banner = find.byKey(const ValueKey('difficulty-banner'));
+
       final first = find.ancestor(
         of: find.text('Normal Grip'),
         matching: find.byType(MovementCard),
@@ -591,10 +815,14 @@ void main() {
 
       expect(positions[0].dy, closeTo(positions[1].dy, 1));
       expect(positions[1].dy, closeTo(positions[2].dy, 1));
-      expect(positions[2].dy, closeTo(positions[3].dy, 1));
       expect(positions[0].dx, lessThan(positions[1].dx));
       expect(positions[1].dx, lessThan(positions[2].dx));
-      expect(positions[2].dx, lessThan(positions[3].dx));
+      expect(positions[3].dx, closeTo(positions[0].dx, 1));
+      expect(positions[3].dy, greaterThan(positions[0].dy));
+      expect(
+        positions[0].dy - tester.getRect(banner).bottom,
+        greaterThanOrEqualTo(30),
+      );
 
       final cardHeights = [
         first,
@@ -602,20 +830,24 @@ void main() {
         third,
         fourth,
       ].map((finder) => tester.getSize(finder).height).toList();
-      expect(cardHeights.first, lessThan(430));
+      expect(cardHeights.first, 448);
       for (final height in cardHeights.skip(1)) {
         expect(height, closeTo(cardHeights.first, 1));
       }
+      expect(
+        positions[3].dy - (positions[0].dy + cardHeights.first),
+        closeTo(32, 1),
+      );
     });
 
-    testWidgets('uses two columns from 700 through 1099 pixels', (
+    testWidgets('uses two columns from 680 through 1049 pixels', (
       tester,
     ) async {
-      await setSurface(tester, const Size(1000, 1200));
+      await setSurface(tester, const Size(1200, 1200));
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 900,
+            width: 1049,
             child: MovementDifficultySection(
               difficulty: 'Easy',
               movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
@@ -671,12 +903,67 @@ void main() {
       expect(third.dy, greaterThan(first.dy));
     });
 
-    testWidgets('uses one column below 700 pixels', (tester) async {
-      await setSurface(tester, const Size(680, 1600));
+    testWidgets('multi-prop cards fit the three-column reserved height', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1200, 1200));
       await tester.pumpWidget(
         wrap(
           const SizedBox(
-            width: 650,
+            width: 1120,
+            child: MovementDifficultySection(
+              difficulty: 'Medium',
+              movements: [mediumMovement, mediumMovement, mediumMovement],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+
+      await expectNoOverflow(tester);
+      for (final card in find.byType(MovementCard).evaluate()) {
+        expect((card.renderObject! as RenderBox).size.height, 448);
+      }
+    });
+
+    testWidgets('hovered edge cards stay inside the grid gutter', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1280, 1000));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 1050,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [easyMovement, secondEasyMovement, thirdEasyMovement],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final firstCard = find.byType(MovementCard).first;
+      final grid = find.byKey(const ValueKey('movement-grid'));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(firstCard));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(firstCard).left,
+        greaterThanOrEqualTo(tester.getRect(grid).left),
+      );
+      await mouse.removePointer();
+    });
+
+    testWidgets('uses one column below 680 pixels', (tester) async {
+      await setSurface(tester, const Size(670, 1600));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 679,
             child: MovementDifficultySection(
               difficulty: 'Easy',
               movements: [easyMovement, secondEasyMovement, thirdEasyMovement],

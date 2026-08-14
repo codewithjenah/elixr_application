@@ -10,8 +10,8 @@ import '../../../data/models/movement.dart';
 import '../../../data/models/training_prop.dart';
 import '../movements_presentation.dart';
 
-const _kCardRadius = 16.0;
-const _kHeroHeight = 152.0;
+const _kCardRadius = 20.0;
+const _kHeroHeight = 176.0;
 
 class MovementCard extends StatefulWidget {
   const MovementCard({
@@ -31,13 +31,31 @@ class MovementCard extends StatefulWidget {
   State<MovementCard> createState() => _MovementCardState();
 }
 
-class _MovementCardState extends State<MovementCard> {
+class _MovementCardState extends State<MovementCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _interactionController;
   bool _hovered = false;
   bool _focused = false;
-  bool _ctaHovered = false;
+  bool _pressed = false;
   final Map<TrainingProp, bool> _propHovered = {};
   final Map<TrainingProp, bool> _propFocused = {};
   bool _activating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _interactionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+      reverseDuration: const Duration(milliseconds: 180),
+    );
+  }
+
+  @override
+  void dispose() {
+    _interactionController.dispose();
+    super.dispose();
+  }
 
   bool get _enabled => widget.movement.enabled;
   bool get _practiced => widget.sessionCount > 0;
@@ -93,28 +111,59 @@ class _MovementCardState extends State<MovementCard> {
     }
   }
 
+  bool get _reduceMotion =>
+      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+  void _syncInteraction() {
+    final active = _enabled && (_hovered || _focused);
+    if (_reduceMotion) {
+      _interactionController.value = active ? 1 : 0;
+    } else if (active) {
+      _interactionController.forward();
+    } else {
+      _interactionController.reverse();
+    }
+  }
+
+  void _setHovered(bool value) {
+    if (!_enabled || _hovered == value) return;
+    setState(() => _hovered = value);
+    _syncInteraction();
+  }
+
+  void _setFocused(bool value) {
+    if (_focused == value) return;
+    setState(() => _focused = value);
+    _syncInteraction();
+  }
+
+  void _setPressed(bool value) {
+    if (!_enabled || _pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final interactive = _enabled;
     final cardInteractive = interactive && !_hasPropChoice;
-    final active = interactive && (_hovered || _focused);
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final reduceMotion = _reduceMotion;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        return Semantics(
+        final alwaysRevealMetadata = constraints.maxWidth < 680;
+        final statsLabel = _practiced
+            ? '${widget.sessionCount} session${widget.sessionCount == 1 ? '' : 's'}, ${widget.averageRubricTotal == null ? 'no rubric result yet' : 'average rubric ${widget.averageRubricTotal!.round()} of 12'}'
+            : (_enabled ? 'Ready to learn' : 'Coming soon');
+        final card = Semantics(
           button: cardInteractive,
           enabled: interactive,
-          label: '${widget.movement.name}. $_actionLabel',
+          label:
+              '${widget.movement.name}. $_statusLabel. $statsLabel. $_actionLabel',
           child: FocusableActionDetector(
             enabled: cardInteractive,
-            onShowHoverHighlight: (hovered) {
-              if (!interactive) return;
-              setState(() => _hovered = hovered);
-            },
-            onShowFocusHighlight: (focused) {
-              setState(() => _focused = focused);
-            },
+            onShowFocusHighlight: _setFocused,
             mouseCursor: interactive
                 ? SystemMouseCursors.click
                 : SystemMouseCursors.basic,
@@ -127,68 +176,163 @@ class _MovementCardState extends State<MovementCard> {
               ),
             },
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: cardInteractive ? _startPractice : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                transformAlignment: Alignment.center,
-                transform: Matrix4.identity()
-                  ..setEntry(0, 0, active ? 1.015 : 1)
-                  ..setEntry(1, 1, active ? 1.015 : 1)
-                  ..setTranslationRaw(0, active ? -4 : 0, 0),
-                decoration: BoxDecoration(
-                  color: context.elixCardSurface,
-                  borderRadius: BorderRadius.circular(_kCardRadius),
-                  border: Border.all(
-                    color: active
-                        ? _accent.withValues(alpha: isDark ? 0.55 : 0.45)
-                        : context.elixBorder.withValues(
-                            alpha: isDark ? 0.7 : 1,
-                          ),
-                    width: _focused ? 1.6 : 1,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: active
-                          ? _accent.withValues(alpha: isDark ? 0.24 : 0.18)
-                          : context.elixBorder.withValues(
-                              alpha: isDark ? 0.32 : 0.45,
+              onTapDown: cardInteractive ? (_) => _setPressed(true) : null,
+              onTapUp: cardInteractive ? (_) => _setPressed(false) : null,
+              onTapCancel: cardInteractive ? () => _setPressed(false) : null,
+              child: AnimatedBuilder(
+                animation: _interactionController,
+                builder: (context, child) {
+                  final t = Curves.easeOutCubic.transform(
+                    _interactionController.value,
+                  );
+                  final lift = reduceMotion ? 0.0 : 7 * t;
+                  final scale = reduceMotion
+                      ? 1.0
+                      : (_pressed ? 0.992 : 1 + (0.015 * t));
+                  final baseSurface = context.elixCardSurface;
+                  final highContrastSurface = Color.alphaBlend(
+                    _accent.withValues(alpha: isDark ? 0.20 : 0.14),
+                    baseSurface,
+                  );
+                  return AnimatedContainer(
+                    key: const ValueKey('movement-card-surface'),
+                    duration: reduceMotion
+                        ? Duration.zero
+                        : const Duration(milliseconds: 90),
+                    curve: Curves.easeOut,
+                    transformAlignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..translateByDouble(0, -lift, 0, 1)
+                      ..scaleByDouble(scale, scale, scale, 1),
+                    decoration: BoxDecoration(
+                      color: highContrast ? highContrastSurface : null,
+                      gradient: highContrast
+                          ? null
+                          : LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color.alphaBlend(
+                                  _accent.withValues(
+                                    alpha: (isDark ? 0.18 : 0.11) + (0.04 * t),
+                                  ),
+                                  baseSurface,
+                                ),
+                                Color.alphaBlend(
+                                  AppColors.accent.withValues(
+                                    alpha: isDark ? 0.08 : 0.045,
+                                  ),
+                                  baseSurface,
+                                ),
+                                Color.alphaBlend(
+                                  _accent.withValues(
+                                    alpha: isDark ? 0.10 : 0.06,
+                                  ),
+                                  baseSurface,
+                                ),
+                              ],
+                              stops: const [0, 0.55, 1],
                             ),
-                      blurRadius: active ? 14 : 8,
-                      spreadRadius: active ? 1 : 0,
-                      offset: Offset(0, active ? 6 : 3),
+                      borderRadius: BorderRadius.circular(_kCardRadius),
+                      border: Border.all(
+                        color: highContrast
+                            ? context.elixBorder
+                            : _focused
+                            ? _accent
+                            : Color.lerp(
+                                context.elixBorder,
+                                _accent,
+                                0.22 + (0.48 * t),
+                              )!,
+                        width: highContrast || _focused ? 2 : 1,
+                      ),
+                      boxShadow: highContrast
+                          ? const []
+                          : [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFF000000,
+                                ).withValues(alpha: isDark ? 0.42 : 0.12),
+                                blurRadius: 14 + (10 * t),
+                                offset: Offset(0, 7 + (4 * t)),
+                              ),
+                              BoxShadow(
+                                color: _accent.withValues(
+                                  alpha: (isDark ? 0.22 : 0.13) * t,
+                                ),
+                                blurRadius: 28,
+                                spreadRadius: -6,
+                              ),
+                            ],
                     ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(_kCardRadius),
-                  child: _buildTileLayout(
-                    context,
-                    pinActions: constraints.hasBoundedHeight,
-                  ),
-                ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(_kCardRadius),
+                      child: Opacity(
+                        opacity: _enabled || highContrast ? 1 : 0.58,
+                        child: _buildTileLayout(
+                          context,
+                          pinActions: constraints.hasBoundedHeight,
+                          revealMetadata: alwaysRevealMetadata,
+                          interactionValue: t,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
+        );
+        return MouseRegion(
+          onEnter: (_) => _setHovered(true),
+          onExit: (_) {
+            _setHovered(false);
+            _setPressed(false);
+          },
+          cursor: interactive
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          child: card,
         );
       },
     );
   }
 
-  Widget _buildTileLayout(BuildContext context, {required bool pinActions}) {
+  Widget _buildTileLayout(
+    BuildContext context, {
+    required bool pinActions,
+    required bool revealMetadata,
+    required double interactionValue,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildHero(context),
+        _buildHero(context, interactionValue),
         if (pinActions)
-          Expanded(child: _buildCardBody(context, pinActions: true))
+          Expanded(
+            child: _buildCardBody(
+              context,
+              pinActions: true,
+              revealMetadata: revealMetadata,
+              interactionValue: interactionValue,
+            ),
+          )
         else
-          _buildCardBody(context, pinActions: false),
+          _buildCardBody(
+            context,
+            pinActions: false,
+            revealMetadata: revealMetadata,
+            interactionValue: interactionValue,
+          ),
       ],
     );
   }
 
-  Widget _buildHero(BuildContext context) {
+  Widget _buildHero(BuildContext context, double interactionValue) {
+    final highContrast = context.isHighContrast;
+    final reduceMotion = _reduceMotion;
     return SizedBox(
       height: _kHeroHeight,
       child: Stack(
@@ -196,28 +340,65 @@ class _MovementCardState extends State<MovementCard> {
         children: [
           DecoratedBox(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  _accent.withValues(alpha: 0.18),
-                  _accent.withValues(alpha: 0.04),
-                ],
-              ),
+              color: highContrast
+                  ? Color.alphaBlend(
+                      _accent.withValues(
+                        alpha: context.isDarkTheme ? 0.34 : 0.22,
+                      ),
+                      context.elixCardSurface,
+                    )
+                  : null,
+              gradient: highContrast
+                  ? null
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        _accent.withValues(alpha: 0.44),
+                        AppColors.accent.withValues(alpha: 0.16),
+                        _accent.withValues(alpha: 0.08),
+                      ],
+                    ),
               border: Border(
                 bottom: BorderSide(color: _accent.withValues(alpha: 0.18)),
               ),
             ),
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: MovementImage(
-              movementName: widget.movement.name,
-              size: 132,
-              paddingFactor: 0.015,
+          Transform.translate(
+            offset: Offset(0, reduceMotion ? 0 : -3 * interactionValue),
+            child: Transform.scale(
+              scale: reduceMotion ? 1 : 1 + (0.055 * interactionValue),
               alignment: Alignment.bottomCenter,
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: MovementImage(
+                  movementName: widget.movement.name,
+                  size: 154,
+                  paddingFactor: 0.01,
+                  alignment: Alignment.bottomCenter,
+                ),
+              ),
             ),
           ),
+          if (!highContrast && !reduceMotion)
+            IgnorePointer(
+              child: Opacity(
+                opacity: interactionValue * 0.28,
+                child: Transform.translate(
+                  offset: Offset(150 * (interactionValue - 0.5), 0),
+                  child: Transform.rotate(
+                    angle: -0.32,
+                    child: Align(
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: 42,
+                        color: Colors.white.withValues(alpha: 0.28),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             top: 12,
             right: 12,
@@ -231,13 +412,22 @@ class _MovementCardState extends State<MovementCard> {
     );
   }
 
-  Widget _buildCardBody(BuildContext context, {required bool pinActions}) {
+  Widget _buildCardBody(
+    BuildContext context, {
+    required bool pinActions,
+    required bool revealMetadata,
+    required double interactionValue,
+  }) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildInfoColumn(context),
+          _buildInfoColumn(
+            context,
+            revealMetadata: revealMetadata,
+            interactionValue: interactionValue,
+          ),
           if (pinActions) const Spacer() else const SizedBox(height: 16),
           if (_hasPropChoice && _enabled)
             _buildPropChoiceActions(context)
@@ -247,17 +437,21 @@ class _MovementCardState extends State<MovementCard> {
               enabled: _enabled,
               accent: _accent,
               fullWidth: true,
-              hovered: _ctaHovered,
-              onHoverChanged: (hovered) {
-                if (_enabled) setState(() => _ctaHovered = hovered);
-              },
+              active: _hovered || _focused,
+              reduceMotion: _reduceMotion,
             ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoColumn(BuildContext context) {
+  Widget _buildInfoColumn(
+    BuildContext context, {
+    required bool revealMetadata,
+    required double interactionValue,
+  }) {
+    final metadata = _buildMetadata(context);
+    final visible = revealMetadata || _hovered || _focused;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -283,11 +477,25 @@ class _MovementCardState extends State<MovementCard> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        if (_buildMetadata(context) != null) ...[
+        if (metadata != null) ...[
           const SizedBox(height: 10),
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 56),
-            child: _buildMetadata(context)!,
+          SizedBox(
+            height: 48,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: _reduceMotion
+                  ? Duration.zero
+                  : Duration(milliseconds: visible ? 260 : 180),
+              curve: Curves.easeOutCubic,
+              alwaysIncludeSemantics: true,
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  _reduceMotion || visible ? 0 : 8 * (1 - interactionValue),
+                ),
+                child: metadata,
+              ),
+            ),
           ),
         ],
       ],
@@ -387,7 +595,9 @@ class _MovementCardState extends State<MovementCard> {
             },
             onFocusChanged: (focused) {
               setState(() => _propFocused[_supportedProps[i]] = focused);
+              _setFocused(_propFocused.values.any((value) => value));
             },
+            onPressedChanged: _setPressed,
             onTap: () => _startPractice(_supportedProps[i]),
             semanticLabel: 'Practice with ${_supportedProps[i].displayLabel}',
           ),
@@ -405,28 +615,35 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixCardSurface.withValues(
+                alpha: context.isDarkTheme ? 0.68 : 0.80,
+              ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: context.isHighContrast ? context.elixBorder : color,
+          width: context.isHighContrast ? 2 : 1,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
+    );
+    if (context.isHighContrast) return badge;
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color: context.elixCardSurface.withValues(
-              alpha: context.isDarkTheme ? 0.62 : 0.72,
-            ),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.38)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ),
+        child: badge,
       ),
     );
   }
@@ -476,80 +693,80 @@ class _ActionButton extends StatelessWidget {
     required this.enabled,
     required this.accent,
     required this.fullWidth,
-    required this.hovered,
-    required this.onHoverChanged,
+    required this.active,
+    required this.reduceMotion,
   });
 
   final String label;
   final bool enabled;
   final Color accent;
   final bool fullWidth;
-  final bool hovered;
-  final ValueChanged<bool> onHoverChanged;
+  final bool active;
+  final bool reduceMotion;
 
   @override
   Widget build(BuildContext context) {
-    final fill = enabled
-        ? accent.withValues(
-            alpha: hovered
-                ? (context.isDarkTheme ? 0.24 : 0.18)
-                : (context.isDarkTheme ? 0.14 : 0.10),
-          )
-        : context.elixBorder.withValues(alpha: 0.35);
-
-    return MouseRegion(
-      onEnter: (_) {
-        if (enabled) onHoverChanged(true);
-      },
-      onExit: (_) => onHoverChanged(false),
-      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: fullWidth ? double.infinity : null,
-        constraints: fullWidth ? null : const BoxConstraints(minWidth: 120),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: fill,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: enabled
-                ? accent.withValues(alpha: 0.40)
-                : context.elixBorder,
-          ),
+    final highContrast = context.isHighContrast;
+    return AnimatedContainer(
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 180),
+      width: fullWidth ? double.infinity : null,
+      constraints: fullWidth ? null : const BoxConstraints(minWidth: 120),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: !enabled
+            ? context.elixBorder.withValues(alpha: highContrast ? 1 : 0.35)
+            : highContrast
+            ? context.elixCardSurface
+            : null,
+        gradient: enabled && active && !highContrast
+            ? LinearGradient(colors: [accent, AppColors.accent])
+            : null,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(
+          color: enabled ? accent : context.elixBorder,
+          width: highContrast ? 2 : 1,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.max,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: enabled
-                      ? context.elixTextPrimary
-                      : context.elixTextSecondary,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: enabled
+                    ? (active && !highContrast
+                          ? Colors.white
+                          : context.elixTextPrimary)
+                    : context.elixTextSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          if (enabled) ...[
+            const SizedBox(width: 6),
+            AnimatedContainer(
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              transform: Matrix4.translationValues(active ? 4.0 : 0.0, 0, 0),
+              child: Icon(
+                FluentIcons.chrome_back_mirrored,
+                size: 10,
+                color: active && !highContrast
+                    ? Colors.white
+                    : context.elixTextPrimary,
               ),
             ),
-            if (enabled) ...[
-              const SizedBox(width: 6),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                transform: Matrix4.translationValues(hovered ? 3.0 : 0.0, 0, 0),
-                child: Icon(
-                  FluentIcons.chrome_back_mirrored,
-                  size: 10,
-                  color: context.elixTextPrimary,
-                ),
-              ),
-            ],
           ],
-        ),
+        ],
       ),
     );
   }
@@ -565,6 +782,7 @@ class _PropActionChip extends StatelessWidget {
     required this.focused,
     required this.onHoverChanged,
     required this.onFocusChanged,
+    required this.onPressedChanged,
     required this.onTap,
     required this.semanticLabel,
   });
@@ -577,6 +795,7 @@ class _PropActionChip extends StatelessWidget {
   final bool focused;
   final ValueChanged<bool> onHoverChanged;
   final ValueChanged<bool> onFocusChanged;
+  final ValueChanged<bool> onPressedChanged;
   final VoidCallback onTap;
   final String semanticLabel;
 
@@ -618,6 +837,9 @@ class _PropActionChip extends StatelessWidget {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: enabled ? onTap : null,
+          onTapDown: enabled ? (_) => onPressedChanged(true) : null,
+          onTapUp: enabled ? (_) => onPressedChanged(false) : null,
+          onTapCancel: enabled ? () => onPressedChanged(false) : null,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             width: double.infinity,

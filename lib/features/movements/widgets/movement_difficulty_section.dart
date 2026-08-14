@@ -25,9 +25,16 @@ class MovementDifficultySection extends StatefulWidget {
 
 class _MovementDifficultySectionState extends State<MovementDifficultySection>
     with SingleTickerProviderStateMixin {
-  static const _animationDuration = Duration(milliseconds: 200);
-  static const _fourColumnBreakpoint = 1100.0;
-  static const _twoColumnBreakpoint = 700.0;
+  static const _animationDuration = Duration(milliseconds: 240);
+  static const _threeColumnBreakpoint = 1050.0;
+  static const _twoColumnBreakpoint = 680.0;
+  // Sized for the densest card variant (two prop actions) so every card keeps
+  // the same footprint without clipping or moving neighboring content.
+  static const _cardHeight = 448.0;
+  // Keeps the next row clear even while the card above is lifted on hover.
+  static const _cardRowGap = 32.0;
+  // Leaves visual separation below the level banner after a card lifts on hover.
+  static const _sectionToGridGap = 32.0;
 
   late final AnimationController _controller;
   late final Animation<double> _expandAnimation;
@@ -56,6 +63,10 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
 
   void _toggleExpanded() {
     setState(() => _expanded = !_expanded);
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      _controller.value = _expanded ? 1 : 0;
+      return;
+    }
     if (_expanded) {
       _controller.forward();
     } else {
@@ -74,6 +85,9 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
         : practiced / widget.movements.length;
     final sectionTitle = difficultySectionTitle(widget.difficulty);
     final semanticsAction = _expanded ? 'Collapse' : 'Expand';
+    final highContrast = context.isHighContrast;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,26 +113,29 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
             child: GestureDetector(
               onTap: _toggleExpanded,
               child: AnimatedContainer(
-                duration: _animationDuration,
+                key: const ValueKey('difficulty-banner'),
+                duration: reduceMotion ? Duration.zero : _animationDuration,
                 curve: Curves.easeOut,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.sm,
-                ),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: _headerFocused
-                      ? Border.all(
-                          color: accent.withValues(alpha: 0.55),
-                          width: 1.5,
-                        )
-                      : null,
+                  color: highContrast
+                      ? context.elixCardSurface
+                      : accent.withValues(
+                          alpha: context.isDarkTheme ? 0.09 : 0.06,
+                        ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _headerFocused || highContrast
+                        ? (highContrast ? context.elixBorder : accent)
+                        : accent.withValues(alpha: 0.30),
+                    width: _headerFocused || highContrast ? 2 : 1,
+                  ),
                 ),
                 child: Row(
                   children: [
                     Container(
-                      width: 4,
-                      height: 28,
+                      width: 6,
+                      height: 42,
                       decoration: BoxDecoration(
                         color: accent,
                         borderRadius: BorderRadius.circular(2),
@@ -132,8 +149,8 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                           Text(
                             sectionTitle,
                             style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
                               color: context.elixTextPrimary,
                             ),
                           ),
@@ -189,7 +206,9 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                     const SizedBox(width: AppSpacing.sm),
                     AnimatedRotation(
                       turns: _expanded ? 0.5 : 0,
-                      duration: _animationDuration,
+                      duration: reduceMotion
+                          ? Duration.zero
+                          : _animationDuration,
                       curve: Curves.easeInOut,
                       child: Icon(
                         FluentIcons.chevron_down,
@@ -210,12 +229,12 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
             child: Align(
               alignment: Alignment.topCenter,
               child: Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.md),
+                padding: const EdgeInsets.only(top: _sectionToGridGap),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final columns =
-                        constraints.maxWidth >= _fourColumnBreakpoint
-                        ? 4
+                        constraints.maxWidth >= _threeColumnBreakpoint
+                        ? 3
                         : constraints.maxWidth >= _twoColumnBreakpoint
                         ? 2
                         : 1;
@@ -232,11 +251,12 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                       final movement = widget.movements[index];
                       final children = columnChildren[index % columns];
                       if (children.isNotEmpty) {
-                        children.add(const SizedBox(height: AppSpacing.md));
+                        children.add(const SizedBox(height: _cardRowGap));
                       }
                       children.add(
                         SizedBox(
                           width: double.infinity,
+                          height: _cardHeight,
                           child: MovementCard(
                             movement: movement,
                             sessionCount:
@@ -248,20 +268,27 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                       );
                     }
 
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (var index = 0; index < columns; index++) ...[
-                          if (index > 0) const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: columnChildren[index],
+                    // Cards scale on hover. Reserve a small outer gutter so
+                    // the first and last cards stay inside the content lane
+                    // instead of painting into the navigation sidebar.
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        key: const ValueKey('movement-grid'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (var index = 0; index < columns; index++) ...[
+                            if (index > 0) const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: columnChildren[index],
+                              ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
+                      ),
                     );
                   },
                 ),
