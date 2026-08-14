@@ -285,10 +285,18 @@ class _RosterBody extends StatelessWidget {
             Card(
               color: TeacherColors.surfaceHigh,
               child: ListTile(
-                onTap: () => context.go(TeacherRoutes.student(link.traineeId)),
-                title: Text(link.traineeDisplayName, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                onTap: () =>
+                    context.push(TeacherRoutes.student(link.traineeId)),
+                title: Text(
+                  link.traineeDisplayName,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 subtitle: Text(
-                  link.hasEffectiveProgressAccess ? 'Progress access on' : 'Waiting for progress access',
+                  link.hasEffectiveProgressAccess
+                      ? 'Progress access on'
+                      : 'Waiting for progress access',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: TeacherColors.textSecondary,
                     height: 1.35,

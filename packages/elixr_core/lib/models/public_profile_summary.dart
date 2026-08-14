@@ -26,7 +26,9 @@ class PublicProfileSummary {
 
   static int? _readInt(dynamic value) {
     if (value is int) return value;
-    if (value is num) return value.toInt();
+    if (value is num && value.isFinite && value == value.truncateToDouble()) {
+      return value.toInt();
+    }
     return null;
   }
 

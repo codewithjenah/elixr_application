@@ -32,7 +32,8 @@ void main() {
       expect(text, contains('Delete Account'));
       expect(text, contains('Teacher Access'));
       expect(text, contains('coach code'));
-      expect(text, contains('does not share your practice sessions'));
+      expect(text, contains('Linking alone does not share progress'));
+      expect(text, contains('per-relationship Share Progress confirmation'));
     });
   });
 
@@ -53,8 +54,11 @@ void main() {
         expect(text, contains('Teacher↔Trainee relationship records'));
         expect(text, contains('explicitly approve'));
         expect(text, contains('revoke'));
-        expect(text, contains('not exposed to Teachers in this version'));
-        expect(text, isNot(contains('not yet active')));
+        expect(text, contains('sanitized, read-only progress summary'));
+        expect(
+          text,
+          contains('cannot create or edit Trainee sessions or scores'),
+        );
       },
     );
 
@@ -80,7 +84,7 @@ void main() {
     });
 
     test(
-      'Teacher terms describe approved roster linking without progress access',
+      'Teacher terms describe separately authorized, read-only progress access',
       () {
         final text = joined(
           ElixrLegalDocuments.termsOfServiceParagraphsFor(
@@ -88,7 +92,7 @@ void main() {
           ),
         );
         expect(text, contains('approve a relationship'));
-        expect(text, contains('not yet active in this version'));
+        expect(text, contains('read-only when separately authorized'));
         expect(text, isNot(contains('Leaderboard scores')));
       },
     );

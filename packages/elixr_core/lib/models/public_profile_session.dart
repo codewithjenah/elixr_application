@@ -50,12 +50,16 @@ class PublicProfileSession {
         movementName.isEmpty ||
         difficulty == null ||
         difficulty.isEmpty ||
-        durationSeconds == null) {
+        durationSeconds == null ||
+        durationSeconds < 0) {
       return null;
     }
 
+    final version = _readInt(map['assessment_version']);
+    if (map.containsKey('assessment_version') && version == null) return null;
     final rubric = RubricAssessment.tryFromFirestore(map);
-    if (rubric != null) {
+    if (version == 2) {
+      if (rubric == null) return null;
       return PublicProfileSession(
         sessionId: sessionId,
         userId: userId,
@@ -63,14 +67,21 @@ class PublicProfileSession {
         difficulty: difficulty,
         rubric: rubric,
         assessmentVersion: 2,
-        durationSeconds: durationSeconds < 0 ? 0 : durationSeconds,
+        durationSeconds: durationSeconds,
         propType: TrainingProp.fromProtocolValue(map['prop_type']),
         createdAt: _readTimestampString(map['created_at']),
       );
     }
 
+    if (version != null && version != 1) return null;
+    // A malformed explicit V2 payload must never fall back to legacy parsing.
+    if (map.containsKey('rubric') ||
+        map.containsKey('rubric_total') ||
+        map.containsKey('performance_level')) {
+      return null;
+    }
     final score = _readInt(map['score']);
-    if (score == null) return null;
+    if (score == null || score < 0 || score > 100) return null;
 
     return PublicProfileSession(
       sessionId: sessionId,
@@ -79,7 +90,7 @@ class PublicProfileSession {
       difficulty: difficulty,
       legacyScore: score,
       assessmentVersion: 1,
-      durationSeconds: durationSeconds < 0 ? 0 : durationSeconds,
+      durationSeconds: durationSeconds,
       propType: TrainingProp.fromProtocolValue(map['prop_type']),
       createdAt: _readTimestampString(map['created_at']),
     );
@@ -92,7 +103,9 @@ class PublicProfileSession {
 
   static int? _readInt(dynamic value) {
     if (value is int) return value;
-    if (value is num) return value.toInt();
+    if (value is num && value.isFinite && value == value.truncateToDouble()) {
+      return value.toInt();
+    }
     return null;
   }
 

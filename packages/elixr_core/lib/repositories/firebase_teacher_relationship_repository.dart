@@ -139,7 +139,9 @@ class FirebaseTeacherRelationshipRepository
       teacherId: teacherId,
       traineeId: traineeId,
     );
-    return _links.doc(id).snapshots().map((snapshot) {
+    return _links.doc(id).snapshots(includeMetadataChanges: true).map((
+      snapshot,
+    ) {
       return TeacherStudentLinkSnapshot(
         link: snapshot.exists
             ? TeacherStudentLink.tryFromMap(snapshot.data() ?? const {}, id: id)
@@ -365,7 +367,9 @@ class FirebaseTeacherRelationshipRepository
           ? TeacherStudentLink.tryFromMap(snap.data() ?? const {}, id: snap.id)
           : null;
       if (link == null || link.traineeId != traineeId || !link.isApproved) {
-        throw const TeacherRelationshipException(TeacherRelationshipError.notFound);
+        throw const TeacherRelationshipException(
+          TeacherRelationshipError.notFound,
+        );
       }
       if (access == TeacherProgressAccess.granted &&
           link.hasEffectiveProgressAccess) {

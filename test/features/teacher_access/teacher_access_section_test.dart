@@ -101,7 +101,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
-    expect(find.text('Relationship: Linked\nProgress sharing: Off'), findsOneWidget);
+    expect(
+      find.text('Relationship: Linked\nProgress sharing: Off'),
+      findsOneWidget,
+    );
     expect(find.text('Revoke Teacher'), findsOneWidget);
   });
 
@@ -130,6 +133,9 @@ void main() {
     await tester.tap(
       find.byKey(const Key('teacher_access_revoke_teacher-1_trainee-1')),
     );
+    await tester.pump();
+    expect(find.text('Revoke this Teacher?'), findsOneWidget);
+    await tester.tap(find.text('Revoke Teacher').last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 

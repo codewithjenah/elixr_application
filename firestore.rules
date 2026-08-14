@@ -1562,8 +1562,15 @@ service cloud.firestore {
       return publicProfileVisibility(userId) == 'public';
     }
 
+    // Missing legacy roles are Trainee-compatible; unknown roles fail closed.
+    function isOrdinaryPlayer() {
+      return isSignedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get('role', 'trainee') == 'trainee';
+    }
+
     function canReadProtectedPublicProfile(userId) {
-      return isOwner(userId) || isPublicProfile(userId);
+      return isOwner(userId) || (isOrdinaryPlayer() && isPublicProfile(userId));
     }
 
     function validPublicProfileRoot(data, userId) {

@@ -77,7 +77,7 @@ enum PerformanceLevel {
 
   /// Authoritative thresholds: 0–3 / 4–6 / 7–9 / 10–11 / 12.
   static PerformanceLevel fromTotal(int total) {
-    if (total < 0 || total > 12) {
+    if (total < 0 || total > RubricAssessment.maxTotalScore) {
       throw ArgumentError.value(total, 'total', 'must be 0..12');
     }
     if (total <= 3) return PerformanceLevel.beginning;
@@ -117,7 +117,13 @@ class CriterionScore {
     if (raw is! Map) return null;
     final scoreRaw = raw['score'];
     final reason = raw['reason_code'];
-    if (scoreRaw is! num || reason is! String || reason.isEmpty) return null;
+    if (scoreRaw is! num ||
+        !scoreRaw.isFinite ||
+        scoreRaw != scoreRaw.truncateToDouble() ||
+        reason is! String ||
+        reason.isEmpty) {
+      return null;
+    }
     final score = scoreRaw.toInt();
     if (score < 0 || score > 3) return null;
     final explanation = raw['explanation'];
@@ -130,6 +136,8 @@ class CriterionScore {
 }
 
 class RubricAssessment {
+  static const maxCriterionScore = 3;
+  static const maxTotalScore = maxCriterionScore * 4;
   const RubricAssessment({
     required this.technique,
     required this.stability,
@@ -211,7 +219,7 @@ class RubricAssessment {
   static RubricAssessment? tryFromJson(dynamic raw) {
     if (raw is! Map) return null;
     final version = raw['version'];
-    if (version is! num || version.toInt() != 2) return null;
+    if (version is! num || version != 2) return null;
     final criteria = raw['criteria'];
     if (criteria is! Map) return null;
 
@@ -239,7 +247,10 @@ class RubricAssessment {
 
     // Reject payloads whose claimed total/level disagree with derivation.
     final claimedTotal = raw['total'];
-    if (claimedTotal is num && claimedTotal.toInt() != assessment.total) {
+    if (claimedTotal is num &&
+        (!claimedTotal.isFinite ||
+            claimedTotal != claimedTotal.truncateToDouble() ||
+            claimedTotal.toInt() != assessment.total)) {
       return null;
     }
     final claimedLevel = raw['performance_level'];
@@ -253,13 +264,17 @@ class RubricAssessment {
   /// Parse a Firestore session document map (partial or full).
   static RubricAssessment? tryFromFirestore(Map<String, dynamic> map) {
     final version = map['assessment_version'];
-    if (version is! num || version.toInt() != 2) return null;
+    if (version is! num || version != 2) return null;
     final rubric = map['rubric'];
     if (rubric is! Map) return null;
 
     int? readCriterion(String key) {
       final value = rubric[key];
-      if (value is! num) return null;
+      if (value is! num ||
+          !value.isFinite ||
+          value != value.truncateToDouble()) {
+        return null;
+      }
       final score = value.toInt();
       if (score < 0 || score > 3) return null;
       return score;
@@ -284,7 +299,10 @@ class RubricAssessment {
     );
 
     final claimedTotal = map['rubric_total'];
-    if (claimedTotal is num && claimedTotal.toInt() != assessment.total) {
+    if (claimedTotal is num &&
+        (!claimedTotal.isFinite ||
+            claimedTotal != claimedTotal.truncateToDouble() ||
+            claimedTotal.toInt() != assessment.total)) {
       return null;
     }
     final claimedLevel = map['performance_level'];

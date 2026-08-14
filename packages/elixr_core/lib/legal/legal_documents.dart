@@ -72,7 +72,8 @@ abstract final class ElixrLegalDocuments {
         'enable sanitized, read-only summary and practice/assessment history '
         'for each linked Teacher, and stop sharing or revoke that Teacher at '
         'any time. Raw video, credentials, private settings, feedback internals, '
-        'achievements, and unrestricted account data are never shared.',
+        'achievements, and unrestricted account data are never shared. Each '
+        'per-relationship Share Progress confirmation is the consent event.',
     'Use Settings > Security > Delete Account to exercise your right to '
         'erasure.',
   ];
@@ -91,7 +92,8 @@ abstract final class ElixrLegalDocuments {
         'separately authorize sanitized, read-only progress summary and '
         'practice/assessment history, then stop sharing or revoke the '
         'relationship at any time. Raw video, credentials, private settings, '
-        'feedback internals, and unrestricted account data are not shared.',
+        'feedback internals, achievements, and unrestricted account data are '
+        'not shared. The Teacher app cannot create or edit Trainee sessions or scores.',
     'The Teacher application does not currently include in-app account '
         'deletion. You retain the right under RA 10173 to request access, '
         'correction, or erasure of your Teacher account data.',

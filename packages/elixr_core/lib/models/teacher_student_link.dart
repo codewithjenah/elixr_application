@@ -31,6 +31,7 @@ enum TeacherProgressAccess {
 
 /// Authoritative relationship at `teacher_student_links/{teacherId}_{traineeId}`.
 class TeacherStudentLink {
+  static const supportedProgressAccessVersion = 1;
   const TeacherStudentLink({
     required this.id,
     required this.teacherId,
@@ -64,7 +65,7 @@ class TeacherStudentLink {
   bool get hasEffectiveProgressAccess =>
       isApproved &&
       progressAccess == TeacherProgressAccess.granted &&
-      progressAccessVersion == 1 &&
+      progressAccessVersion == supportedProgressAccessVersion &&
       progressAccessGrantedAt != null;
 
   static String documentId({
@@ -103,7 +104,9 @@ class TeacherStudentLink {
       inviteId: _readString(map['invite_id']),
       createdAt: TeacherInvite.readDateTime(map['created_at']),
       updatedAt: TeacherInvite.readDateTime(map['updated_at']),
-      progressAccess: TeacherProgressAccess.fromFirestore(map['progress_access']),
+      progressAccess: TeacherProgressAccess.fromFirestore(
+        map['progress_access'],
+      ),
       progressAccessVersion: _readInt(map['progress_access_version']),
       progressAccessGrantedAt: TeacherInvite.readDateTime(
         map['progress_access_granted_at'],
@@ -118,7 +121,9 @@ class TeacherStudentLink {
 
   static int? _readInt(dynamic value) {
     if (value is int) return value;
-    if (value is num) return value.toInt();
+    if (value is num && value.isFinite && value == value.truncateToDouble()) {
+      return value.toInt();
+    }
     return null;
   }
 }

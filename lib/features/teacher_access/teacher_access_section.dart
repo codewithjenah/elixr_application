@@ -361,7 +361,7 @@ class _LinkedTeachersCard extends StatelessWidget {
                         key: Key('teacher_access_stop_sharing_${link.id}'),
                         onPressed: controller.busy
                             ? null
-                            : () => controller.stopSharingProgress(link),
+                            : () => _confirmStopSharing(context, controller, link),
                         child: const Text('Stop sharing'),
                       )
                     else
@@ -376,7 +376,7 @@ class _LinkedTeachersCard extends StatelessWidget {
                       key: Key('teacher_access_revoke_${link.id}'),
                       onPressed: controller.busy
                           ? null
-                          : () => controller.revokeTeacher(link),
+                          : () => _confirmRevokeTeacher(context, controller, link),
                       child: const Text('Revoke Teacher'),
                     ),
                   ],
@@ -415,6 +415,50 @@ Future<void> _confirmShareProgress(
     ),
   );
   if (accepted == true) await controller.shareProgress(link);
+}
+
+Future<void> _confirmStopSharing(
+  BuildContext context,
+  TeacherAccessController controller,
+  TeacherStudentLink link,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Stop sharing progress?'),
+      content: const Text(
+        'This Teacher will immediately lose access to your sanitized progress. '
+        'Your Teacher relationship will remain linked, and you can share again later.',
+      ),
+      actions: [
+        Button(child: const Text('Cancel'), onPressed: () => Navigator.pop(context, false)),
+        FilledButton(child: const Text('Stop sharing'), onPressed: () => Navigator.pop(context, true)),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.stopSharingProgress(link);
+}
+
+Future<void> _confirmRevokeTeacher(
+  BuildContext context,
+  TeacherAccessController controller,
+  TeacherStudentLink link,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Revoke this Teacher?'),
+      content: const Text(
+        'This ends the Teacher relationship and removes any progress consent. '
+        'If you approve a future request from this Teacher, progress sharing will be off by default.',
+      ),
+      actions: [
+        Button(child: const Text('Cancel'), onPressed: () => Navigator.pop(context, false)),
+        FilledButton(child: const Text('Revoke Teacher'), onPressed: () => Navigator.pop(context, true)),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.revokeTeacher(link);
 }
 
 class _RequestRow extends StatelessWidget {
