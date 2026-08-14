@@ -74,6 +74,7 @@ flutter:
 
   assets:
     - assets/
+    - assets/achievements_icon/
     - assets/movements_icon/
     - assets/music/practice.mp3
     - assets/music/countdown.mp3

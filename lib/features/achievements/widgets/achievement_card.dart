@@ -48,12 +48,7 @@ class _AchievementCardState extends State<AchievementCard> {
     return Color.alphaBlend(accentTint.withValues(alpha: 0.1), base);
   }
 
-  Color _previewGlyphColor(BuildContext context) {
-    return _locked ? context.elixTextSecondary : context.elixTextPrimary;
-  }
-
-  Widget _buildTrophyPreview(BuildContext context, Color accentTint) {
-    final glyphColor = _previewGlyphColor(context);
+  Widget _buildAchievementPreview(BuildContext context, Color accentTint) {
     return SizedBox(
       width: 48,
       height: 48,
@@ -66,19 +61,10 @@ class _AchievementCardState extends State<AchievementCard> {
           child: ColoredBox(
             color: _previewPlateColor(context, accentTint),
             child: Center(
-              child: Icon(
-                FluentIcons.trophy2,
-                size: 20,
-                color: glyphColor,
-                shadows: [
-                  Shadow(
-                    color: Colors.black.withValues(
-                      alpha: context.isDarkTheme ? 0.32 : 0.1,
-                    ),
-                    blurRadius: 1.5,
-                    offset: const Offset(0, 0.5),
-                  ),
-                ],
+              child: Image.asset(
+                widget.view.definition.iconAssetPath,
+                fit: BoxFit.contain,
+                semanticLabel: widget.view.definition.title,
               ),
             ),
           ),
@@ -206,7 +192,7 @@ class _AchievementCardState extends State<AchievementCard> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildTrophyPreview(context, borderAccent),
+                              _buildAchievementPreview(context, borderAccent),
                               const SizedBox(width: AppSpacing.sm + 2),
                               Expanded(
                                 child: Column(

@@ -43,6 +43,7 @@ class AchievementDefinition {
   const AchievementDefinition({
     required this.id,
     required this.title,
+    required this.iconAssetPath,
     required this.description,
     required this.category,
     required this.rewardBorderId,
@@ -53,6 +54,7 @@ class AchievementDefinition {
 
   final String id;
   final String title;
+  final String iconAssetPath;
   final String description;
   final AchievementCategory category;
   final String rewardBorderId;
@@ -209,6 +211,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'first_steps',
       title: 'First Steps',
+      iconAssetPath: 'assets/achievements_icon/first_step.png',
       description: 'Complete 1 training session.',
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['first_steps']!,
@@ -219,6 +222,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'getting_started',
       title: 'Getting Started',
+      iconAssetPath: 'assets/achievements_icon/getting_started.png',
       description: 'Complete 10 training sessions.',
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['getting_started']!,
@@ -229,6 +233,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'flair_regular',
       title: 'Flair Regular',
+      iconAssetPath: 'assets/achievements_icon/flair_regular.png',
       description: 'Complete 50 training sessions.',
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['flair_regular']!,
@@ -239,6 +244,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'century_club',
       title: 'Century Club',
+      iconAssetPath: 'assets/achievements_icon/century_club.png',
       description: 'Complete 100 training sessions.',
       category: AchievementCategory.sessions,
       rewardBorderId: achievementRewardBorderIds['century_club']!,
@@ -249,6 +255,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'sharp_pour',
       title: 'Sharp Pour',
+      iconAssetPath: 'assets/achievements_icon/sharp_pour.png',
       description: 'Reach Proficient (10 of 12) in a session.',
       category: AchievementCategory.score,
       rewardBorderId: achievementRewardBorderIds['sharp_pour']!,
@@ -259,6 +266,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'perfect_serve',
       title: 'Perfect Serve',
+      iconAssetPath: 'assets/achievements_icon/perfect_serve.png',
       description: 'Reach Mastered with a perfect 12 of 12 in a session.',
       category: AchievementCategory.score,
       rewardBorderId: achievementRewardBorderIds['perfect_serve']!,
@@ -269,6 +277,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'movement_explorer',
       title: 'Movement Explorer',
+      iconAssetPath: 'assets/achievements_icon/movement_explorer.png',
       description: 'Practice at least 5 distinct movements.',
       category: AchievementCategory.exploration,
       rewardBorderId: achievementRewardBorderIds['movement_explorer']!,
@@ -279,6 +288,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'versatility_master',
       title: 'Versatility Master',
+      iconAssetPath: 'assets/achievements_icon/versatility_master.png',
       description:
           'Complete at least one Easy, one Medium, and one Hard session.',
       category: AchievementCategory.exploration,
@@ -290,6 +300,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'week_warrior',
       title: 'Week Warrior',
+      iconAssetPath: 'assets/achievements_icon/week_warrior.png',
       description: 'Practice on 7 consecutive calendar days.',
       category: AchievementCategory.consistency,
       rewardBorderId: achievementRewardBorderIds['week_warrior']!,
@@ -300,6 +311,7 @@ achievementCatalog = List<AchievementDefinition>.unmodifiable(
     AchievementDefinition(
       id: 'bottle_in_tin_specialist',
       title: 'Bottle in a Tin Specialist',
+      iconAssetPath: 'assets/achievements_icon/bottle_in_a_tin.png',
       description:
           'Complete 5 Bottle in a Tin sessions using Bottle + Cocktail Shaker.',
       category: AchievementCategory.specialization,

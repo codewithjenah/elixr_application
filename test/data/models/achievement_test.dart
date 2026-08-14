@@ -73,6 +73,27 @@ void main() {
         expect(achievement.rewardBorderId, isNotEmpty, reason: achievement.id);
       }
     });
+
+    test('every achievement has its assigned custom icon asset', () {
+      const expectedAssets = <String, String>{
+        'first_steps': 'assets/achievements_icon/first_step.png',
+        'getting_started': 'assets/achievements_icon/getting_started.png',
+        'movement_explorer': 'assets/achievements_icon/movement_explorer.png',
+        'sharp_pour': 'assets/achievements_icon/sharp_pour.png',
+        'week_warrior': 'assets/achievements_icon/week_warrior.png',
+        'flair_regular': 'assets/achievements_icon/flair_regular.png',
+        'versatility_master': 'assets/achievements_icon/versatility_master.png',
+        'bottle_in_tin_specialist':
+            'assets/achievements_icon/bottle_in_a_tin.png',
+        'perfect_serve': 'assets/achievements_icon/perfect_serve.png',
+        'century_club': 'assets/achievements_icon/century_club.png',
+      };
+
+      expect(<String, String>{
+        for (final achievement in achievementCatalog)
+          achievement.id: achievement.iconAssetPath,
+      }, expectedAssets);
+    });
   });
 
   group('AchievementProgress', () {

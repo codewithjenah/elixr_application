@@ -91,10 +91,10 @@ class _ClaimedBadge extends StatelessWidget {
                 equippedBorderId: achievement.rewardBorderId,
                 child: ColoredBox(
                   color: AppColors.success.withValues(alpha: 0.12),
-                  child: const Icon(
-                    FluentIcons.trophy2,
-                    size: 18,
-                    color: AppColors.success,
+                  child: Image.asset(
+                    achievement.iconAssetPath,
+                    fit: BoxFit.contain,
+                    semanticLabel: achievement.title,
                   ),
                 ),
               ),

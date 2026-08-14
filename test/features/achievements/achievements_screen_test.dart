@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/achievement.dart';
@@ -8,7 +7,6 @@ import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
-import 'package:elixr_application/data/models/profile_border.dart';
 import 'package:elixr_application/data/repositories/achievement_repository.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
@@ -317,8 +315,15 @@ Matrix4 _cardTransform(WidgetTester tester) {
   return container.transform ?? Matrix4.identity();
 }
 
-Icon _previewIcon(WidgetTester tester, IconData iconData) {
-  return tester.widget<Icon>(find.byIcon(iconData));
+Image _previewImage(WidgetTester tester, String assetPath) {
+  return tester.widget<Image>(
+    find.byWidgetPredicate(
+      (widget) =>
+          widget is Image &&
+          widget.image is AssetImage &&
+          (widget.image as AssetImage).assetName == assetPath,
+    ),
+  );
 }
 
 AchievementViewData _achievementViewForBorder(String achievementId) {
@@ -864,39 +869,32 @@ void main() {
     expect(cosmetics.isUnlocked('gold_mastery'), isFalse);
   });
 
-  testWidgets(
-    'dark theme unlocked achievement trophy avoids border accent foreground',
-    (tester) async {
-      final view = _achievementViewForBorder('first_steps');
-      final borderAccent = Color(
-        profileBorderById('starter_glow')!.primaryColorValue,
-      );
-
-      await tester.pumpWidget(
-        wrap(
-          SizedBox(
-            width: 420,
-            height: 200,
-            child: AchievementCard(view: view, claiming: false, onClaim: () {}),
-          ),
-        ),
-      );
-
-      final trophy = _previewIcon(tester, FluentIcons.trophy2);
-      expect(trophy.color, AppColors.textPrimary);
-      expect(trophy.color, isNot(equals(borderAccent)));
-      expect(trophy.size, 20);
-    },
-  );
-
-  testWidgets('light theme achievement trophy uses primary text foreground', (
+  testWidgets('dark theme unlocked achievement uses its custom icon asset', (
     tester,
   ) async {
     final view = _achievementViewForBorder('first_steps');
-    final borderAccent = Color(
-      profileBorderById('starter_glow')!.primaryColorValue,
+    await tester.pumpWidget(
+      wrap(
+        SizedBox(
+          width: 420,
+          height: 200,
+          child: AchievementCard(view: view, claiming: false, onClaim: () {}),
+        ),
+      ),
     );
 
+    final image = _previewImage(
+      tester,
+      'assets/achievements_icon/first_step.png',
+    );
+    expect(image.semanticLabel, 'First Steps');
+    expect(image.fit, BoxFit.contain);
+  });
+
+  testWidgets('light theme achievement uses its custom icon asset', (
+    tester,
+  ) async {
+    final view = _achievementViewForBorder('first_steps');
     await tester.pumpWidget(
       wrap(
         brightness: Brightness.light,
@@ -908,14 +906,14 @@ void main() {
       ),
     );
 
-    final trophy = _previewIcon(tester, FluentIcons.trophy2);
-    expect(trophy.color, AppColors.textPrimaryLight);
-    expect(trophy.color, isNot(equals(borderAccent)));
+    final image = _previewImage(
+      tester,
+      'assets/achievements_icon/first_step.png',
+    );
+    expect(image.semanticLabel, 'First Steps');
   });
 
-  testWidgets('locked preview icons use muted secondary foreground', (
-    tester,
-  ) async {
+  testWidgets('locked achievement uses its custom icon asset', (tester) async {
     await tester.pumpWidget(
       wrap(
         SizedBox(
@@ -930,7 +928,10 @@ void main() {
       ),
     );
 
-    final lockedTrophy = _previewIcon(tester, FluentIcons.trophy2);
-    expect(lockedTrophy.color, AppColors.textSecondary);
+    final image = _previewImage(
+      tester,
+      achievementById('century_club')!.iconAssetPath,
+    );
+    expect(image.semanticLabel, 'Century Club');
   });
 }
