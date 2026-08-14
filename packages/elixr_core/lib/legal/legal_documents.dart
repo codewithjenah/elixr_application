@@ -70,7 +70,10 @@ abstract final class ElixrLegalDocuments {
         'Teacher Access and approve or reject a Teacher who requests to link '
         'with you. Linking alone does not share progress. You can separately '
         'enable sanitized, read-only summary and practice/assessment history '
-        'for each linked Teacher, and stop sharing or revoke that Teacher at '
+        'for each linked Teacher. Linked Teachers may send stored instructional '
+        'notes without progress sharing; stop sharing affects progress only, while '
+        'revoke stops future Teacher access and preserves received note history. '
+        'Notes exclude raw video and protected assessment internals. You can stop sharing or revoke that Teacher at '
         'any time. Raw video, credentials, private settings, feedback internals, '
         'achievements, and unrestricted account data are never shared. Each '
         'per-relationship Share Progress confirmation is the consent event.',
@@ -119,6 +122,8 @@ abstract final class ElixrLegalDocuments {
     'Teacher accounts are for instructor use of the Teacher application. '
         'A Teacher roster lists only Trainees who approve a relationship. '
         'Student progress review is read-only when separately authorized by '
-        'the Trainee. Teacher notes and assignments remain unavailable.',
+        'the Trainee. Teachers may send stored coaching notes to approved Trainees; '
+        'progress review remains read-only and separately consented. Assignments '
+        'and chat remain unavailable.',
   ];
 }

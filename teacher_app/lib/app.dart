@@ -4,6 +4,8 @@ import 'package:elixr_core/repositories/firebase_teacher_relationship_repository
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_progress_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
+import 'package:elixr_core/repositories/coaching_note_repository.dart';
+import 'package:elixr_core/repositories/firebase_coaching_note_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -55,7 +57,9 @@ class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
       value: widget.authController,
       child: MultiProvider(
         providers: [
-          Provider<TeacherRelationshipRepository>.value(value: _relationshipRepository),
+          Provider<TeacherRelationshipRepository>.value(
+            value: _relationshipRepository,
+          ),
           if (widget.progressRepository != null)
             Provider<TeacherProgressRepository>.value(
               value: widget.progressRepository!,
@@ -64,6 +68,9 @@ class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
             Provider<TeacherProgressRepository>(
               create: (_) => FirebaseTeacherProgressRepository(),
             ),
+          Provider<CoachingNoteRepository>(
+            create: (_) => FirebaseCoachingNoteRepository(),
+          ),
         ],
         child: MaterialApp.router(
           title: 'ELIXR Teacher',

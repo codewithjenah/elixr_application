@@ -2,9 +2,12 @@
 library;
 
 export 'database/firestore_collections.dart';
+export 'constants/coaching_movement_names.dart';
 export 'database/user_profile_store.dart';
 export 'legal/legal_documents.dart';
 export 'models/coach_code.dart';
+export 'models/coaching_note.dart';
+export 'models/coaching_note_exception.dart';
 export 'models/public_profile_session.dart';
 export 'models/public_profile_summary.dart';
 export 'models/rubric_assessment.dart';
@@ -16,6 +19,9 @@ export 'models/training_prop.dart';
 export 'models/user.dart';
 export 'privacy/privacy_consent.dart';
 export 'repositories/auth_repository.dart';
+export 'repositories/coaching_note_repository.dart';
+export 'repositories/firebase_coaching_note_repository.dart';
+export 'repositories/in_memory_coaching_note_repository.dart';
 export 'repositories/firebase_teacher_relationship_repository.dart';
 export 'repositories/in_memory_teacher_relationship_repository.dart';
 export 'repositories/profile_image_repository.dart';

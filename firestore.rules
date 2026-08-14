@@ -1964,5 +1964,71 @@ service cloud.firestore {
       allow delete: if isSignedIn()
         && (resource == null || isLinkParticipant());
     }
+
+    // Phase 3A asynchronous teacher recommendations. They intentionally carry
+    // no session or assessment data, and progress sharing is not consulted.
+    function coachingKeys() {
+      return ['teacher_id', 'trainee_id', 'teacher_display_name', 'body',
+        'created_at', 'updated_at'];
+    }
+    function coachingAllowedKeys() { return coachingKeys().concat(['movement_name']); }
+    function coachingMovementNames() {
+      return ['Normal Grip', "Bartender's Grip", 'Reverse Grip', 'Claw Grip',
+        'Hand Stall', 'One Finger Stall', 'Forearm Stall', 'Elbow Stall',
+        'Reverse Forearm Stall', 'Shoulder Stall', 'Double Hand Stall',
+        'Bottle in a tin'];
+    }
+    function approvedCoachingLink(teacherId, traineeId) {
+      return exists(teacherStudentLinkPath(teacherId, traineeId))
+        && get(teacherStudentLinkPath(teacherId, traineeId)).data.teacher_id == teacherId
+        && get(teacherStudentLinkPath(teacherId, traineeId)).data.trainee_id == traineeId
+        && get(teacherStudentLinkPath(teacherId, traineeId)).data.status == 'approved';
+    }
+    function validCoachingBody(value) {
+      return value is string && value.size() > 0 && value.size() <= 1000
+        && value.matches('.*[^[:space:]].*');
+    }
+    function validCoachingMovement(data) {
+      return !data.keys().hasAny(['movement_name'])
+        || (data.movement_name is string && data.movement_name in coachingMovementNames());
+    }
+    function isErasingOwnCoaching(data) {
+      return isSignedIn() && (data.teacher_id == request.auth.uid || data.trainee_id == request.auth.uid)
+        && !exists(userPath(request.auth.uid));
+    }
+    function isCoachingAuthor(data) {
+      return isSignedIn() && data.teacher_id == request.auth.uid
+        && approvedCoachingLink(data.teacher_id, data.trainee_id);
+    }
+    function validCoachingCreate(data) {
+      return isSignedIn() && data.keys().hasOnly(coachingAllowedKeys())
+        && data.keys().hasAll(coachingKeys()) && data.teacher_id == request.auth.uid
+        && data.teacher_id != data.trainee_id && isParticipantId(data.teacher_id)
+        && isParticipantId(data.trainee_id) && approvedCoachingLink(data.teacher_id, data.trainee_id)
+        && exists(userPath(request.auth.uid)) && data.teacher_display_name == userFullName(request.auth.uid)
+        && isDisplayName(data.teacher_display_name) && validCoachingBody(data.body)
+        && validCoachingMovement(data) && data.created_at == request.time && data.updated_at == request.time;
+    }
+    function validCoachingUpdate() {
+      return isCoachingAuthor(resource.data)
+        && request.resource.data.keys().hasOnly(coachingAllowedKeys())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'movement_name', 'updated_at'])
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.trainee_id == resource.data.trainee_id
+        && request.resource.data.teacher_display_name == resource.data.teacher_display_name
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.updated_at == request.time
+        && request.resource.data.updated_at >= request.resource.data.created_at
+        && validCoachingBody(request.resource.data.body) && validCoachingMovement(request.resource.data);
+    }
+    match /teacher_coaching_notes/{noteId} {
+      allow get: if isSignedIn() && (resource.data.trainee_id == request.auth.uid || isCoachingAuthor(resource.data));
+      allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
+      allow list: if isSignedIn() && isCoachingAuthor(resource.data);
+      allow list: if isErasingOwnCoaching(resource.data);
+      allow create: if validCoachingCreate(request.resource.data);
+      allow update: if validCoachingUpdate();
+      allow delete: if isCoachingAuthor(resource.data) || isErasingOwnCoaching(resource.data);
+    }
   }
 }

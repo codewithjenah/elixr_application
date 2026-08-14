@@ -295,8 +295,8 @@ class _RosterBody extends StatelessWidget {
                 ),
                 subtitle: Text(
                   link.hasEffectiveProgressAccess
-                      ? 'Progress access on'
-                      : 'Waiting for progress access',
+                      ? 'Progress shared • Coaching available'
+                      : 'Progress not shared • Coaching available',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: TeacherColors.textSecondary,
                     height: 1.35,

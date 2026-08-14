@@ -961,6 +961,24 @@ class AuthRepository implements AuthRepositoryBase {
       ]);
     });
 
+    // Rules permit this cleanup only after the caller's own user document has
+    // gone. Query both roles: a user may have authored and received notes.
+    await _runPurgeStage('coaching notes purge', () async {
+      final asTeacher = await _firestore
+          .collection(FirestoreCollections.teacherCoachingNotes)
+          .where('teacher_id', isEqualTo: uid)
+          .get();
+      final asTrainee = await _firestore
+          .collection(FirestoreCollections.teacherCoachingNotes)
+          .where('trainee_id', isEqualTo: uid)
+          .get();
+      final refs = <String, DocumentReference>{
+        for (final doc in asTeacher.docs) doc.reference.path: doc.reference,
+        for (final doc in asTrainee.docs) doc.reference.path: doc.reference,
+      };
+      await _commitDeletes(refs.values.toList());
+    });
+
     await _runPurgeStage('profile Storage purge', () {
       return _deleteProfileStorage(uid, profile?.profilePictureStoragePath);
     });

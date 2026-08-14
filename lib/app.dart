@@ -1,5 +1,7 @@
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/coaching_note_repository.dart';
+import 'package:elixr_core/repositories/firebase_coaching_note_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -68,6 +70,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<TeacherRelationshipRepository>.value(
           value: _teacherRelationshipRepository,
+        ),
+        Provider<CoachingNoteRepository>(
+          create: (_) => FirebaseCoachingNoteRepository(),
         ),
       ],
       child: Consumer<SettingsService>(

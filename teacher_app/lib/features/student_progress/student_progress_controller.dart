@@ -44,6 +44,10 @@ class StudentProgressController extends ChangeNotifier {
   bool _firstSummarySettled = false;
   bool _firstPageSettled = false;
   bool _disposed = false;
+  bool get hasVerifiedApprovedRelationship =>
+      _active &&
+      link?.isApproved == true &&
+      state != StudentProgressState.connectionRequired;
 
   Future<void> start() async {
     final epoch = ++_accessEpoch;

@@ -351,7 +351,8 @@ class _LinkedTeachersCard extends StatelessWidget {
             for (final link in controller.approved) ...[
               _RequestRow(
                 link: link,
-                subtitleOverride: 'Relationship: Linked\nProgress sharing: '
+                subtitleOverride:
+                    'Relationship: Linked\nProgress sharing: '
                     '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}',
                 trailing: Wrap(
                   spacing: AppSpacing.sm,
@@ -361,7 +362,11 @@ class _LinkedTeachersCard extends StatelessWidget {
                         key: Key('teacher_access_stop_sharing_${link.id}'),
                         onPressed: controller.busy
                             ? null
-                            : () => _confirmStopSharing(context, controller, link),
+                            : () => _confirmStopSharing(
+                                context,
+                                controller,
+                                link,
+                              ),
                         child: const Text('Stop sharing'),
                       )
                     else
@@ -369,14 +374,22 @@ class _LinkedTeachersCard extends StatelessWidget {
                         key: Key('teacher_access_share_${link.id}'),
                         onPressed: controller.busy
                             ? null
-                            : () => _confirmShareProgress(context, controller, link),
+                            : () => _confirmShareProgress(
+                                context,
+                                controller,
+                                link,
+                              ),
                         child: const Text('Share progress'),
                       ),
                     Button(
                       key: Key('teacher_access_revoke_${link.id}'),
                       onPressed: controller.busy
                           ? null
-                          : () => _confirmRevokeTeacher(context, controller, link),
+                          : () => _confirmRevokeTeacher(
+                              context,
+                              controller,
+                              link,
+                            ),
                       child: const Text('Revoke Teacher'),
                     ),
                   ],
@@ -409,8 +422,14 @@ Future<void> _confirmShareProgress(
         'to edit sessions or scores, or unrestricted account data.',
       ),
       actions: [
-        Button(child: const Text('Cancel'), onPressed: () => Navigator.pop(context, false)),
-        FilledButton(child: const Text('Share progress'), onPressed: () => Navigator.pop(context, true)),
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          child: const Text('Share progress'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
       ],
     ),
   );
@@ -428,11 +447,18 @@ Future<void> _confirmStopSharing(
       title: const Text('Stop sharing progress?'),
       content: const Text(
         'This Teacher will immediately lose access to your sanitized progress. '
-        'Your Teacher relationship will remain linked, and you can share again later.',
+        'Your Teacher relationship will remain linked, coaching can continue, '
+        'and you can share progress again later.',
       ),
       actions: [
-        Button(child: const Text('Cancel'), onPressed: () => Navigator.pop(context, false)),
-        FilledButton(child: const Text('Stop sharing'), onPressed: () => Navigator.pop(context, true)),
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          child: const Text('Stop sharing'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
       ],
     ),
   );
@@ -450,11 +476,18 @@ Future<void> _confirmRevokeTeacher(
       title: const Text('Revoke this Teacher?'),
       content: const Text(
         'This ends the Teacher relationship and removes any progress consent. '
+        'Future coaching stops, while historical received notes remain visible. '
         'If you approve a future request from this Teacher, progress sharing will be off by default.',
       ),
       actions: [
-        Button(child: const Text('Cancel'), onPressed: () => Navigator.pop(context, false)),
-        FilledButton(child: const Text('Revoke Teacher'), onPressed: () => Navigator.pop(context, true)),
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          child: const Text('Revoke Teacher'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
       ],
     ),
   );

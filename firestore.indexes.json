@@ -52,6 +52,25 @@
         { "fieldPath": "user_id", "order": "ASCENDING" },
         { "fieldPath": "board_id", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "teacher_coaching_notes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teacher_id", "order": "ASCENDING" },
+        { "fieldPath": "trainee_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "teacher_coaching_notes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "trainee_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

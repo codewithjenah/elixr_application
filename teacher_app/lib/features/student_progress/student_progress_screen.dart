@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/router/teacher_routes.dart';
 import '../auth/teacher_auth_controller.dart';
+import '../coaching_notes/coaching_notes_controller.dart';
+import '../coaching_notes/coaching_notes_section.dart';
 import 'student_progress_controller.dart';
 import 'student_progress_formatters.dart';
 import 'student_progress_session_card.dart';
@@ -25,6 +27,7 @@ class StudentProgressScreen extends StatefulWidget {
 class _StudentProgressScreenState extends State<StudentProgressScreen>
     with WidgetsBindingObserver {
   StudentProgressController? _owned;
+  TeacherCoachingNotesController? _coaching;
   StudentProgressController get _controller => widget.controller ?? _owned!;
 
   @override
@@ -52,6 +55,7 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
       _controller.start();
     } else {
       _controller.pause();
+      _coaching?.pause();
     }
   }
 
@@ -59,6 +63,7 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _owned?.dispose();
+    _coaching?.dispose();
     super.dispose();
   }
 
@@ -100,8 +105,8 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
   }
 
   Widget _body(BuildContext context, StudentProgressController c) {
-    if (c.state != StudentProgressState.ready &&
-        c.state != StudentProgressState.empty) {
+    if (!c.hasVerifiedApprovedRelationship) {
+      _coaching?.pause();
       final retry =
           c.state == StudentProgressState.connectionRequired ||
           c.state == StudentProgressState.error;
@@ -134,6 +139,11 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
         ),
       );
     }
+    _coaching ??= TeacherCoachingNotesController(
+      repository: context.read<CoachingNoteRepository>(),
+      teacherId: context.read<TeacherAuthController>().currentUser!.id!,
+      traineeId: widget.traineeId,
+    )..start();
     final summary = c.summary;
     return CustomScrollView(
       slivers: [
@@ -152,6 +162,11 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
                   'Progress Overview',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
+                if (c.state != StudentProgressState.ready &&
+                    c.state != StudentProgressState.empty) ...[
+                  const SizedBox(height: 8),
+                  Text(_message(c.state)),
+                ],
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 12,
@@ -186,6 +201,8 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
                       Chip(label: Text(movement)),
                   ],
                 ),
+                const SizedBox(height: 24),
+                CoachingNotesSection(controller: _coaching!),
                 const SizedBox(height: 24),
                 Text(
                   'Recent Practice / Assessments',
