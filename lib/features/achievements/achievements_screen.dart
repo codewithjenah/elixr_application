@@ -28,7 +28,7 @@ const _kAchievementFilterDropdownHeight = 42.0;
 const _kAchievementFilterDropdownWidth = 280.0;
 const _kAchievementMinCardWidth = 420.0;
 const _kAchievementGridGap = 16.0;
-const _kAchievementCardExtent = 200.0;
+const _kAchievementCardExtent = 216.0;
 
 String _achievementFilterDisplayLabel(_AchievementFilter filter) {
   return switch (filter) {

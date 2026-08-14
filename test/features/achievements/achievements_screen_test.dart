@@ -889,6 +889,11 @@ void main() {
     );
     expect(image.semanticLabel, 'First Steps');
     expect(image.fit, BoxFit.contain);
+    expect(
+      tester.getSize(find.byKey(const Key('achievement-preview-first_steps'))),
+      const Size.square(92),
+    );
+    expect(tester.getSize(find.byWidget(image)), const Size.square(68));
   });
 
   testWidgets('light theme achievement uses its custom icon asset', (

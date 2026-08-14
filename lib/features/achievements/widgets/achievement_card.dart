@@ -7,6 +7,9 @@ import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/achievement.dart';
 import '../../../data/models/profile_border.dart';
 
+const _kAchievementPreviewExtent = 92.0;
+const _kAchievementArtworkExtent = 68.0;
+
 class AchievementCard extends StatefulWidget {
   const AchievementCard({
     super.key,
@@ -50,25 +53,55 @@ class _AchievementCardState extends State<AchievementCard> {
 
   Widget _buildAchievementPreview(BuildContext context, Color accentTint) {
     return SizedBox(
-      width: 48,
-      height: 48,
-      child: FittedBox(
-        fit: BoxFit.contain,
-        child: ProfileBorderFrame(
-          size: 40,
-          equippedBorderId: widget.view.definition.rewardBorderId,
-          animate: !_locked,
-          child: ColoredBox(
-            color: _previewPlateColor(context, accentTint),
-            child: Center(
-              child: Image.asset(
-                widget.view.definition.iconAssetPath,
-                fit: BoxFit.contain,
-                semanticLabel: widget.view.definition.title,
+      key: Key('achievement-preview-${widget.view.definition.id}'),
+      width: _kAchievementPreviewExtent,
+      height: _kAchievementPreviewExtent,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: Container(
+              margin: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    accentTint.withValues(alpha: _locked ? 0.07 : 0.18),
+                    accentTint.withValues(alpha: _locked ? 0.02 : 0.04),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: accentTint.withValues(alpha: _locked ? 0.12 : 0.28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: accentTint.withValues(alpha: _locked ? 0.02 : 0.12),
+                    blurRadius: 18,
+                  ),
+                ],
               ),
             ),
           ),
-        ),
+          FittedBox(
+            fit: BoxFit.contain,
+            child: ProfileBorderFrame(
+              size: _kAchievementArtworkExtent,
+              equippedBorderId: widget.view.definition.rewardBorderId,
+              animate: !_locked,
+              child: ColoredBox(
+                color: _previewPlateColor(context, accentTint),
+                child: Center(
+                  child: Image.asset(
+                    widget.view.definition.iconAssetPath,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    semanticLabel: widget.view.definition.title,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -98,7 +131,13 @@ class _AchievementCardState extends State<AchievementCard> {
 
     final cardBorderColor = _claimable
         ? accent.withValues(alpha: active ? 0.65 : 0.42)
-        : context.elixBorder.withValues(alpha: isDark ? 0.7 : 1);
+        : Color.alphaBlend(
+            accent.withValues(alpha: _locked ? 0.04 : 0.13),
+            context.elixBorder.withValues(alpha: isDark ? 0.78 : 1),
+          );
+    final cardSurface = context.elixCardSurface.withValues(
+      alpha: _locked ? 0.78 : 1,
+    );
 
     return Semantics(
       button: _interactive,
@@ -143,12 +182,27 @@ class _AchievementCardState extends State<AchievementCard> {
               curve: Curves.easeOut,
               transform: Matrix4.translationValues(0, active ? -2.0 : 0.0, 0),
               decoration: BoxDecoration(
-                color: active
-                    ? accent.withValues(alpha: isDark ? 0.08 : 0.05)
-                    : context.elixCardSurface.withValues(
-                        alpha: _locked ? 0.72 : 1,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.alphaBlend(
+                      accent.withValues(
+                        alpha: active
+                            ? (isDark ? 0.16 : 0.09)
+                            : (isDark ? 0.08 : 0.045),
                       ),
-                borderRadius: BorderRadius.circular(14),
+                      cardSurface,
+                    ),
+                    cardSurface,
+                    Color.alphaBlend(
+                      borderAccent.withValues(alpha: isDark ? 0.035 : 0.025),
+                      cardSurface,
+                    ),
+                  ],
+                  stops: const [0, 0.55, 1],
+                ),
+                borderRadius: BorderRadius.circular(18),
                 border: Border.all(
                   color: cardBorderColor,
                   width: _focused ? 1.6 : 1,
@@ -160,32 +214,68 @@ class _AchievementCardState extends State<AchievementCard> {
                           ? (active ? 0.3 : 0.16)
                           : (active ? 0.1 : 0.05),
                     ),
-                    blurRadius: active ? 12 : 6,
-                    offset: Offset(0, active ? 4 : 2),
+                    blurRadius: active ? 20 : 10,
+                    offset: Offset(0, active ? 8 : 4),
                   ),
+                  if (active)
+                    BoxShadow(
+                      color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
+                      blurRadius: 22,
+                      spreadRadius: -4,
+                    ),
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(18),
                 child: Stack(
                   children: [
                     Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
+                      right: -42,
+                      top: -54,
                       child: Container(
-                        width: 3,
-                        color: accent.withValues(
-                          alpha: _locked
-                              ? 0.35
-                              : _claimed
-                              ? 0.55
-                              : 0.9,
+                        width: 150,
+                        height: 150,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              borderAccent.withValues(
+                                alpha: _locked ? 0.025 : 0.09,
+                              ),
+                              borderAccent.withValues(alpha: 0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      top: 18,
+                      bottom: 18,
+                      child: Container(
+                        width: 4,
+                        decoration: BoxDecoration(
+                          color: accent.withValues(
+                            alpha: _locked
+                                ? 0.35
+                                : _claimed
+                                ? 0.55
+                                : 0.9,
+                          ),
+                          borderRadius: const BorderRadius.horizontal(
+                            right: Radius.circular(4),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: accent.withValues(alpha: 0.32),
+                              blurRadius: 10,
+                            ),
+                          ],
                         ),
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                      padding: const EdgeInsets.fromLTRB(18, 14, 16, 14),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -193,23 +283,33 @@ class _AchievementCardState extends State<AchievementCard> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _buildAchievementPreview(context, borderAccent),
-                              const SizedBox(width: AppSpacing.sm + 2),
+                              const SizedBox(width: AppSpacing.md),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      widget.view.definition.title,
-                                      style: AppTheme.body.copyWith(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        color: context.elixTextPrimary
-                                            .withValues(
-                                              alpha: _locked ? 0.82 : 1,
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            widget.view.definition.title,
+                                            style: AppTheme.body.copyWith(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w700,
+                                              color: context.elixTextPrimary
+                                                  .withValues(
+                                                    alpha: _locked ? 0.82 : 1,
+                                                  ),
                                             ),
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        _StateChip(state: state),
+                                      ],
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
@@ -217,103 +317,160 @@ class _AchievementCardState extends State<AchievementCard> {
                                         widget.view.definition.category,
                                       ),
                                       style: AppTheme.caption.copyWith(
-                                        fontSize: 11,
+                                        fontSize: 9.5,
+                                        letterSpacing: 0.7,
                                         color: AppColors.accent.withValues(
                                           alpha: _locked ? 0.7 : 1,
                                         ),
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                       maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      widget.view.definition.description,
+                                      style: AppTheme.bodySecondary.copyWith(
+                                        color: context.elixTextSecondary
+                                            .withValues(
+                                              alpha: _locked ? 0.78 : 1,
+                                            ),
+                                        fontSize: 12.5,
+                                        height: 1.35,
+                                      ),
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              _StateChip(state: state),
                             ],
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            widget.view.definition.description,
-                            style: AppTheme.bodySecondary.copyWith(
-                              color: context.elixTextSecondary.withValues(
-                                alpha: _locked ? 0.78 : 1,
-                              ),
-                              fontSize: 12.5,
-                              height: 1.35,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
                           const Spacer(),
-                          Row(
-                            children: [
-                              Text(
-                                'Progress',
-                                style: AppTheme.caption.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: context.elixTextSecondary,
-                                  fontSize: 11,
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(
+                                alpha: _locked
+                                    ? (isDark ? 0.025 : 0.018)
+                                    : (isDark ? 0.055 : 0.035),
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: accent.withValues(
+                                  alpha: _locked ? 0.08 : 0.15,
                                 ),
                               ),
-                              const Spacer(),
-                              Text(
-                                '${widget.view.progress.current} / ${widget.view.progress.target}',
-                                style: AppTheme.caption.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: context.elixTextPrimary.withValues(
-                                    alpha: _locked ? 0.8 : 1,
-                                  ),
-                                  fontSize: 11,
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      'PROGRESS',
+                                      style: AppTheme.caption.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.7,
+                                        color: context.elixTextSecondary,
+                                        fontSize: 9.5,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      '${widget.view.progress.current} / ${widget.view.progress.target}',
+                                      style: AppTheme.caption.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: context.elixTextPrimary
+                                            .withValues(
+                                              alpha: _locked ? 0.8 : 1,
+                                            ),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(3),
-                            child: SizedBox(
-                              height: 5,
-                              child: Stack(
-                                children: [
-                                  Container(
-                                    color: context.elixBorder.withValues(
-                                      alpha: 0.45,
+                                const SizedBox(height: 6),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: SizedBox(
+                                    height: 6,
+                                    child: Stack(
+                                      children: [
+                                        Container(
+                                          color: context.elixBorder.withValues(
+                                            alpha: 0.42,
+                                          ),
+                                        ),
+                                        FractionallySizedBox(
+                                          widthFactor: widget
+                                              .view
+                                              .progress
+                                              .normalizedProgress,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  accent.withValues(
+                                                    alpha: _locked ? 0.4 : 0.72,
+                                                  ),
+                                                  accent.withValues(
+                                                    alpha: _locked ? 0.58 : 1,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  FractionallySizedBox(
-                                    widthFactor:
-                                        widget.view.progress.normalizedProgress,
-                                    child: Container(
-                                      color: accent.withValues(
-                                        alpha: _locked ? 0.55 : 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              if (border != null) ...[
+                                Container(
+                                  width: 22,
+                                  height: 22,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: borderAccent.withValues(
+                                      alpha: _locked ? 0.06 : 0.12,
+                                    ),
+                                    borderRadius: BorderRadius.circular(7),
+                                    border: Border.all(
+                                      color: borderAccent.withValues(
+                                        alpha: _locked ? 0.1 : 0.22,
                                       ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              if (border != null)
+                                  child: Icon(
+                                    FluentIcons.trophy2,
+                                    size: 11,
+                                    color: borderAccent.withValues(
+                                      alpha: _locked ? 0.6 : 1,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Reward · ${border.displayName}',
+                                    '${border.displayName} frame',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: AppTheme.caption.copyWith(
-                                      color: Color(
-                                        border.primaryColorValue,
-                                      ).withValues(alpha: _locked ? 0.7 : 1),
+                                      color: borderAccent.withValues(
+                                        alpha: _locked ? 0.7 : 1,
+                                      ),
                                       fontWeight: FontWeight.w600,
                                       fontSize: 11,
                                     ),
                                   ),
-                                )
-                              else
+                                ),
+                              ] else
                                 const Spacer(),
                               if (_claimable) ...[
                                 const SizedBox(width: AppSpacing.sm),
@@ -322,10 +479,29 @@ class _AchievementCardState extends State<AchievementCard> {
                                       ? null
                                       : _handleClaim,
                                   style: ButtonStyle(
+                                    backgroundColor:
+                                        WidgetStateProperty.resolveWith((
+                                          states,
+                                        ) {
+                                          if (states.isDisabled) {
+                                            return AppColors.primary.withValues(
+                                              alpha: 0.45,
+                                            );
+                                          }
+                                          if (states.isHovered) {
+                                            return AppColors.primarySoft;
+                                          }
+                                          return AppColors.primary;
+                                        }),
                                     padding: WidgetStateProperty.all(
                                       const EdgeInsets.symmetric(
                                         horizontal: 12,
                                         vertical: 5,
+                                      ),
+                                    ),
+                                    shape: WidgetStateProperty.all(
+                                      RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
                                     ),
                                   ),
@@ -367,11 +543,11 @@ class _AchievementCardState extends State<AchievementCard> {
 
   static String _categoryLabel(AchievementCategory category) {
     return switch (category) {
-      AchievementCategory.sessions => 'Sessions',
-      AchievementCategory.score => 'Score',
-      AchievementCategory.exploration => 'Exploration',
-      AchievementCategory.consistency => 'Consistency',
-      AchievementCategory.specialization => 'Specialization',
+      AchievementCategory.sessions => 'SESSIONS',
+      AchievementCategory.score => 'SCORE',
+      AchievementCategory.exploration => 'EXPLORATION',
+      AchievementCategory.consistency => 'CONSISTENCY',
+      AchievementCategory.specialization => 'SPECIALIZATION',
     };
   }
 }
@@ -391,12 +567,12 @@ class _StateChip extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(
-          alpha: state == AchievementState.inProgress ? 0.10 : 0.14,
+          alpha: state == AchievementState.inProgress ? 0.09 : 0.12,
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: color.withValues(
             alpha: state == AchievementState.claimed
@@ -407,15 +583,32 @@ class _StateChip extends StatelessWidget {
           ),
         ),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color.withValues(
-            alpha: state == AchievementState.inProgress ? 0.9 : 1,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 5),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              color: color.withValues(
+                alpha: state == AchievementState.inProgress ? 0.9 : 1,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
