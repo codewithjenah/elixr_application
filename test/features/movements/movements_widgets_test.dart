@@ -562,12 +562,30 @@ void main() {
       expect(find.text('Easy — Foundations'), findsOneWidget);
       expect(find.text('1 of 4 practiced'), findsOneWidget);
       expect(find.byType(MovementCard), findsNWidgets(4));
-      expect(find.byType(GridView), findsOneWidget);
+      expect(find.byType(GridView), findsNothing);
 
-      final positions = <Offset>[];
-      for (var i = 0; i < 4; i++) {
-        positions.add(tester.getTopLeft(find.byType(MovementCard).at(i)));
-      }
+      final first = find.ancestor(
+        of: find.text('Normal Grip'),
+        matching: find.byType(MovementCard),
+      );
+      final second = find.ancestor(
+        of: find.text("Bartender's Grip"),
+        matching: find.byType(MovementCard),
+      );
+      final third = find.ancestor(
+        of: find.text('Reverse Grip'),
+        matching: find.byType(MovementCard),
+      );
+      final fourth = find.ancestor(
+        of: find.text('Claw Grip'),
+        matching: find.byType(MovementCard),
+      );
+      final positions = [
+        tester.getTopLeft(first),
+        tester.getTopLeft(second),
+        tester.getTopLeft(third),
+        tester.getTopLeft(fourth),
+      ];
 
       expect(positions[0].dy, closeTo(positions[1].dy, 1));
       expect(positions[1].dy, closeTo(positions[2].dy, 1));
@@ -576,9 +594,8 @@ void main() {
       expect(positions[3].dx, closeTo(positions[0].dx, 1));
       expect(positions[3].dy, greaterThan(positions[0].dy));
 
-      final firstSize = tester.getSize(find.byType(MovementCard).at(0));
-      final secondSize = tester.getSize(find.byType(MovementCard).at(1));
-      expect(firstSize.height, closeTo(secondSize.height, 1));
+      expect(tester.getSize(first).height, lessThan(430));
+      expect(tester.getSize(second).height, lessThan(430));
     });
 
     testWidgets('uses two columns from 700 through 1099 pixels', (
@@ -599,9 +616,24 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final first = tester.getTopLeft(find.byType(MovementCard).at(0));
-      final second = tester.getTopLeft(find.byType(MovementCard).at(1));
-      final third = tester.getTopLeft(find.byType(MovementCard).at(2));
+      final first = tester.getTopLeft(
+        find.ancestor(
+          of: find.text('Normal Grip'),
+          matching: find.byType(MovementCard),
+        ),
+      );
+      final second = tester.getTopLeft(
+        find.ancestor(
+          of: find.text("Bartender's Grip"),
+          matching: find.byType(MovementCard),
+        ),
+      );
+      final third = tester.getTopLeft(
+        find.ancestor(
+          of: find.text('Reverse Grip'),
+          matching: find.byType(MovementCard),
+        ),
+      );
       expect(first.dy, closeTo(second.dy, 1));
       expect(first.dx, lessThan(second.dx));
       expect(third.dx, closeTo(first.dx, 1));

@@ -28,7 +28,6 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
   static const _animationDuration = Duration(milliseconds: 200);
   static const _threeColumnBreakpoint = 1100.0;
   static const _twoColumnBreakpoint = 700.0;
-  static const _cardHeight = 430.0;
 
   late final AnimationController _controller;
   late final Animation<double> _expandAnimation;
@@ -221,25 +220,48 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                         ? 2
                         : 1;
 
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: widget.movements.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: columns,
-                        crossAxisSpacing: AppSpacing.md,
-                        mainAxisSpacing: AppSpacing.md,
-                        mainAxisExtent: _cardHeight,
-                      ),
-                      itemBuilder: (context, index) {
-                        final movement = widget.movements[index];
-                        return MovementCard(
-                          movement: movement,
-                          sessionCount: widget.stats[movement.name]?.count ?? 0,
-                          averageRubricTotal:
-                              widget.stats[movement.name]?.averageRubricTotal,
-                        );
-                      },
+                    final columnChildren = List.generate(
+                      columns,
+                      (_) => <Widget>[],
+                    );
+                    for (
+                      var index = 0;
+                      index < widget.movements.length;
+                      index++
+                    ) {
+                      final movement = widget.movements[index];
+                      final children = columnChildren[index % columns];
+                      if (children.isNotEmpty) {
+                        children.add(const SizedBox(height: AppSpacing.md));
+                      }
+                      children.add(
+                        SizedBox(
+                          width: double.infinity,
+                          child: MovementCard(
+                            movement: movement,
+                            sessionCount:
+                                widget.stats[movement.name]?.count ?? 0,
+                            averageRubricTotal:
+                                widget.stats[movement.name]?.averageRubricTotal,
+                          ),
+                        ),
+                      );
+                    }
+
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var index = 0; index < columns; index++) ...[
+                          if (index > 0) const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: columnChildren[index],
+                            ),
+                          ),
+                        ],
+                      ],
                     );
                   },
                 ),
