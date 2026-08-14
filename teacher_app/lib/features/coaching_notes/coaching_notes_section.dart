@@ -11,21 +11,7 @@ class CoachingNotesSection extends StatelessWidget {
     builder: (context, child) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              'Coaching Notes',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const Spacer(),
-            if (controller.canAuthor)
-              FilledButton.icon(
-                onPressed: controller.saving ? null : () => _compose(context),
-                icon: const Icon(Icons.add),
-                label: const Text('Add note'),
-              ),
-          ],
-        ),
+        _header(context),
         const SizedBox(height: 12),
         if (controller.state == TeacherCoachingNotesState.loading)
           const Center(child: CircularProgressIndicator())
@@ -78,69 +64,130 @@ class CoachingNotesSection extends StatelessWidget {
       ],
     ),
   );
+
+  Widget _header(BuildContext context) {
+    final title = Text(
+      'Coaching Notes',
+      style: Theme.of(context).textTheme.titleLarge,
+    );
+    if (!controller.canAuthor) return title;
+
+    final addNote = FilledButton.icon(
+      onPressed: controller.saving ? null : () => _compose(context),
+      icon: const Icon(Icons.add),
+      label: const Text('Add note'),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 360) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              title,
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerRight, child: addNote),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: title),
+            const SizedBox(width: 12),
+            addNote,
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _compose(BuildContext context, [CoachingNote? note]) async {
     final body = TextEditingController(text: note?.body);
     String? movement = note?.movementName;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheet) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          MediaQuery.viewInsetsOf(sheet).bottom + 24,
-        ),
-        child: StatefulBuilder(
-          builder: (context, setState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String?>(
-                initialValue: movement,
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('General / no movement'),
+      builder: (sheet) => SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  24,
+                  24,
+                  24,
+                  MediaQuery.viewInsetsOf(sheet).bottom + 24,
+                ),
+                child: StatefulBuilder(
+                  builder: (context, setState) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      DropdownButtonFormField<String?>(
+                        isExpanded: true,
+                        initialValue: movement,
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('General / no movement'),
+                          ),
+                          ...coachingMovementNames.map(
+                            (name) => DropdownMenuItem(
+                              value: name,
+                              child: Text(name),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) => setState(() => movement = value),
+                      ),
+                      TextField(
+                        controller: body,
+                        maxLength: CoachingNote.maximumBodyLength,
+                        minLines: 4,
+                        maxLines: 8,
+                        decoration: const InputDecoration(
+                          labelText: 'Recommendation',
+                        ),
+                      ),
+                      FilledButton(
+                        onPressed: controller.saving
+                            ? null
+                            : () async {
+                                try {
+                                  if (note == null) {
+                                    await controller.create(
+                                      body.text,
+                                      movement,
+                                    );
+                                  } else {
+                                    await controller.update(
+                                      note,
+                                      body.text,
+                                      movement,
+                                    );
+                                  }
+                                  if (sheet.mounted) Navigator.pop(sheet);
+                                } on CoachingNoteException catch (error) {
+                                  if (sheet.mounted) {
+                                    ScaffoldMessenger.of(sheet).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          error.message ??
+                                              'Could not save note.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        child: const Text('Save'),
+                      ),
+                    ],
                   ),
-                  ...coachingMovementNames.map(
-                    (name) => DropdownMenuItem(value: name, child: Text(name)),
-                  ),
-                ],
-                onChanged: (value) => setState(() => movement = value),
+                ),
               ),
-              TextField(
-                controller: body,
-                maxLength: CoachingNote.maximumBodyLength,
-                minLines: 4,
-                maxLines: 8,
-                decoration: const InputDecoration(labelText: 'Recommendation'),
-              ),
-              FilledButton(
-                onPressed: controller.saving
-                    ? null
-                    : () async {
-                        try {
-                          if (note == null) {
-                            await controller.create(body.text, movement);
-                          } else {
-                            await controller.update(note, body.text, movement);
-                          }
-                          if (sheet.mounted) Navigator.pop(sheet);
-                        } on CoachingNoteException catch (error) {
-                          if (sheet.mounted) {
-                            ScaffoldMessenger.of(sheet).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  error.message ?? 'Could not save note.',
-                                ),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                child: const Text('Save'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

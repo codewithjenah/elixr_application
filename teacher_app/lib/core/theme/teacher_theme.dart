@@ -61,7 +61,10 @@ ThemeData buildTeacherTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(48),
+        // A global button style must remain usable in unbounded horizontal
+        // layouts such as a Row. Full-width buttons opt in through their
+        // bounded parent instead.
+        minimumSize: const Size(64, 48),
         backgroundColor: TeacherColors.primary,
         foregroundColor: const Color(0xFF1A0510),
         textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
