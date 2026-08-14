@@ -2,8 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/constants/movement_visuals.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../movements/movements_presentation.dart';
 import '../just_dance/movement_rotation_controller.dart';
 
@@ -43,10 +43,7 @@ class MovementRotationOverlay extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        MovementVisuals.emojiFor(current.name),
-                        style: const TextStyle(fontSize: 18),
-                      ),
+                      MovementImage(movementName: current.name, size: 24),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(

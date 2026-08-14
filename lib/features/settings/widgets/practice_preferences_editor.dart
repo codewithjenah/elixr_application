@@ -2,10 +2,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/constants/movement_visuals.dart';
 import '../../../core/constants/movements.dart';
 import '../../../core/constants/music_tracks.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../movements/movements_presentation.dart';
 import 'practice_preferences_controller.dart';
 
@@ -150,7 +150,6 @@ class _DifficultyGroup extends StatelessWidget {
         for (final movement in movements)
           _MovementRow(
             name: movement.name,
-            emoji: MovementVisuals.emojiFor(movement.name),
             accent: accent,
             selected: orderedSelected.contains(movement.name),
             order: orderedSelected.contains(movement.name)
@@ -176,7 +175,6 @@ class _DifficultyGroup extends StatelessWidget {
 class _MovementRow extends StatelessWidget {
   const _MovementRow({
     required this.name,
-    required this.emoji,
     required this.accent,
     required this.selected,
     required this.order,
@@ -188,7 +186,6 @@ class _MovementRow extends StatelessWidget {
   });
 
   final String name;
-  final String emoji;
   final Color accent;
   final bool selected;
   final int? order;
@@ -209,7 +206,7 @@ class _MovementRow extends StatelessWidget {
             onChanged: (value) => onToggle(value ?? false),
           ),
           const SizedBox(width: 4),
-          Text(emoji, style: const TextStyle(fontSize: 15)),
+          MovementImage(movementName: name, size: 20),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(

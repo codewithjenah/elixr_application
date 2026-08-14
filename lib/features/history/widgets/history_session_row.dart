@@ -3,8 +3,8 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/constants/movement_visuals.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/session.dart';
 import '../../../data/repositories/session_repository.dart';
@@ -79,7 +79,6 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
         ? DateFormat.jm().format(DateTime.parse(s.createdAt!).toLocal())
         : '—';
     final duration = formatTrainingDuration(s.durationSeconds);
-    final emoji = MovementVisuals.emojiFor(s.movementName);
     final diffColor = difficultyColor(s.difficulty);
     final active = _expanded || _hovered;
 
@@ -139,7 +138,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
                   final wide = constraints.maxWidth >= 700;
                   if (wide) {
                     return _WideRow(
-                      emoji: emoji,
+                      movementName: s.movementName,
                       name: s.movementName,
                       difficulty: s.difficulty,
                       difficultyColor: diffColor,
@@ -153,7 +152,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
                     );
                   }
                   return _NarrowRow(
-                    emoji: emoji,
+                    movementName: s.movementName,
                     name: s.movementName,
                     difficulty: s.difficulty,
                     time: time,
@@ -188,7 +187,7 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
 
 class _WideRow extends StatelessWidget {
   const _WideRow({
-    required this.emoji,
+    required this.movementName,
     required this.name,
     required this.difficulty,
     required this.difficultyColor,
@@ -201,7 +200,7 @@ class _WideRow extends StatelessWidget {
     required this.active,
   });
 
-  final String emoji;
+  final String movementName;
   final String name;
   final String difficulty;
   final Color difficultyColor;
@@ -217,7 +216,7 @@ class _WideRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _EmojiAvatar(emoji: emoji),
+        _MovementAvatar(movementName: movementName),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Text(
@@ -266,7 +265,7 @@ class _WideRow extends StatelessWidget {
 
 class _NarrowRow extends StatelessWidget {
   const _NarrowRow({
-    required this.emoji,
+    required this.movementName,
     required this.name,
     required this.difficulty,
     required this.time,
@@ -277,7 +276,7 @@ class _NarrowRow extends StatelessWidget {
     required this.active,
   });
 
-  final String emoji;
+  final String movementName;
   final String name;
   final String difficulty;
   final String time;
@@ -292,7 +291,7 @@ class _NarrowRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _EmojiAvatar(emoji: emoji, size: 40),
+        _MovementAvatar(movementName: movementName, size: 40),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Column(
@@ -356,10 +355,10 @@ class _NarrowRow extends StatelessWidget {
   }
 }
 
-class _EmojiAvatar extends StatelessWidget {
-  const _EmojiAvatar({required this.emoji, this.size = 42});
+class _MovementAvatar extends StatelessWidget {
+  const _MovementAvatar({required this.movementName, this.size = 42});
 
-  final String emoji;
+  final String movementName;
   final double size;
 
   @override
@@ -375,7 +374,7 @@ class _EmojiAvatar extends StatelessWidget {
         ),
         border: Border.all(color: context.elixBorder),
       ),
-      child: Text(emoji, style: TextStyle(fontSize: size * 0.45)),
+      child: MovementImage(movementName: movementName, size: size),
     );
   }
 }

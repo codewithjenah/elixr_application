@@ -2,8 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/movement_visuals.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/training_prop.dart';
 import '../movements_presentation.dart';
@@ -226,10 +226,7 @@ class _MovementCardState extends State<MovementCard> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _accent.withValues(alpha: 0.28)),
       ),
-      child: Text(
-        MovementVisuals.emojiFor(widget.movement.name),
-        style: const TextStyle(fontSize: 24),
-      ),
+      child: MovementImage(movementName: widget.movement.name, size: 52),
     );
   }
 

@@ -1,8 +1,10 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/constants/movement_visuals.dart';
 import 'package:elixr_application/core/constants/movements.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/movements/movements_presentation.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -144,19 +146,53 @@ void main() {
       }
     });
 
-    test('Bottle in a tin has a combined bottle/shaker emoji mapping', () {
-      expect(MovementVisuals.emojiFor('Bottle in a tin'), '🍾🍸');
-      expect(MovementVisuals.emojiFor('Bottle in a tin'), isNot('🍾'));
+    test('every catalog movement has a declared image asset', () {
+      for (final movement in movementCatalog) {
+        final assetPath = MovementVisuals.assetPathFor(movement.name);
+        expect(
+          assetPath,
+          isNotNull,
+          reason: '${movement.name} is missing an image',
+        );
+        expect(assetPath, startsWith('assets/movements_icon/'));
+      }
+
+      expect(MovementVisuals.assetPaths, hasLength(movementCatalog.length));
     });
 
-    test('Claw Grip has a dedicated emoji mapping', () {
-      expect(MovementVisuals.emojiFor('Claw Grip'), '🦅');
-      expect(MovementVisuals.emojiFor('Claw Grip'), isNot('🍾'));
+    testWidgets('loads an image for every catalog movement', (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(
+            children: [
+              for (final movement in movementCatalog)
+                MovementImage(movementName: movement.name, size: 32),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Image), findsNWidgets(movementCatalog.length));
+      expect(tester.takeException(), isNull);
     });
 
-    test('One Finger Stall has a dedicated emoji mapping', () {
-      expect(MovementVisuals.emojiFor('One Finger Stall'), '☝️');
-      expect(MovementVisuals.emojiFor('One Finger Stall'), isNot('🍾'));
+    testWidgets('uses a generic icon for unknown movement names', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: MovementImage(movementName: 'Legacy movement', size: 32),
+        ),
+      );
+
+      expect(find.byIcon(FluentIcons.running), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Movement icon: Legacy movement'),
+        findsOneWidget,
+      );
     });
   });
 
