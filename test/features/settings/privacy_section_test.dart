@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_core/models/user.dart';
@@ -94,9 +96,35 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
   PublicProfile? root;
   ProfileVisibility? lastUpdatedVisibility;
   int updateVisibilityCalls = 0;
+  int ensureRootCalls = 0;
+  Future<void>? nextUpdate;
+  Future<PublicProfile?>? nextServerRead;
+  Object? updateError;
+  Object? serverReadError;
 
   @override
-  Future<PublicProfile?> getProfileRoot(String userId) async => root;
+  Future<PublicProfile?> getProfileRoot(
+    String userId, {
+    bool forceServer = false,
+  }) async {
+    if (forceServer && serverReadError != null) throw serverReadError!;
+    if (forceServer && nextServerRead != null) return nextServerRead!;
+    return root;
+  }
+
+  @override
+  Future<void> ensurePrivacyProfileRoot({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {
+    ensureRootCalls++;
+    root ??= PublicProfile(
+      userId: userId,
+      displayName: displayName,
+      visibility: ProfileVisibility.private,
+    );
+  }
 
   @override
   Future<void> updateVisibility({
@@ -105,6 +133,9 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
   }) async {
     updateVisibilityCalls++;
     lastUpdatedVisibility = visibility;
+    final pending = nextUpdate;
+    if (pending != null) await pending;
+    if (updateError != null) throw updateError!;
     root = PublicProfile(
       userId: userId,
       displayName: root?.displayName ?? 'Ada',
@@ -121,6 +152,8 @@ void main() {
     required WidgetTester tester,
     required _FakePublicProfileRepository repository,
     required AuthService auth,
+    Duration saveDeadline = const Duration(seconds: 12),
+    Duration reconciliationDeadline = const Duration(seconds: 6),
   }) async {
     Widget buildSection({required bool isActive}) {
       return FluentApp(
@@ -131,6 +164,8 @@ void main() {
             content: PrivacySection(
               isActive: isActive,
               publicProfileRepository: repository,
+              saveDeadline: saveDeadline,
+              reconciliationDeadline: reconciliationDeadline,
             ),
           ),
         ),
@@ -217,4 +252,267 @@ void main() {
     expect(repository.updateVisibilityCalls, 1);
     expect(repository.lastUpdatedVisibility, ProfileVisibility.public);
   });
+
+  testWidgets('explicit failure exits Saving and restores the prior state', (
+    tester,
+  ) async {
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.public)
+      ..updateError = StateError('denied');
+    await pumpPrivacy(tester: tester, repository: repository, auth: auth);
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saving...'), findsNothing);
+    expect(
+      find.textContaining('Could not save privacy setting'),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      isFalse,
+    );
+  });
+
+  testWidgets(
+    'pending write leaves Saving and recovers to authoritative state',
+    (tester) async {
+      final pending = Completer<void>();
+      final auth = await _auth();
+      final repository = _repository(ProfileVisibility.public)
+        ..nextUpdate = pending.future;
+      await pumpPrivacy(
+        tester: tester,
+        repository: repository,
+        auth: auth,
+        saveDeadline: const Duration(milliseconds: 1),
+        reconciliationDeadline: const Duration(milliseconds: 1),
+      );
+
+      await tester.tap(find.byType(ToggleSwitch));
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saving...'), findsNothing);
+      expect(find.textContaining('Could not confirm'), findsOneWidget);
+      expect(
+        tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).onChanged,
+        isNotNull,
+      );
+      pending.complete();
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('delayed success keeps the requested visibility', (tester) async {
+    final pending = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.public)
+      ..nextUpdate = pending.future;
+    await pumpPrivacy(tester: tester, repository: repository, auth: auth);
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump();
+    expect(find.text('Saving...'), findsOneWidget);
+    pending.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saving...'), findsNothing);
+    expect(
+      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      isTrue,
+    );
+  });
+
+  testWidgets('pending unlock reconciles to authoritative private visibility', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.private)
+      ..nextUpdate = pending.future;
+    await pumpPrivacy(
+      tester: tester,
+      repository: repository,
+      auth: auth,
+      saveDeadline: const Duration(milliseconds: 1),
+      reconciliationDeadline: const Duration(milliseconds: 1),
+    );
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump(const Duration(milliseconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      isTrue,
+    );
+    pending.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('unavailable reconciliation restores prior visibility', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.public)
+      ..nextUpdate = pending.future
+      ..serverReadError = StateError('network unavailable');
+    await pumpPrivacy(
+      tester: tester,
+      repository: repository,
+      auth: auth,
+      saveDeadline: const Duration(milliseconds: 1),
+      reconciliationDeadline: const Duration(milliseconds: 1),
+    );
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump(const Duration(milliseconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      isFalse,
+    );
+    expect(find.textContaining('Could not confirm'), findsOneWidget);
+    pending.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('delayed failure restores the requested visibility', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.private)
+      ..nextUpdate = pending.future;
+    await pumpPrivacy(tester: tester, repository: repository, auth: auth);
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump();
+    pending.completeError(StateError('offline'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      isTrue,
+    );
+    expect(
+      find.textContaining('Could not save privacy setting'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('duplicate taps do not issue concurrent writes', (tester) async {
+    final pending = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.public)
+      ..nextUpdate = pending.future;
+    await pumpPrivacy(tester: tester, repository: repository, auth: auth);
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump();
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump();
+
+    expect(repository.updateVisibilityCalls, 1);
+    pending.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a late stale completion cannot overwrite a newer result', (
+    tester,
+  ) async {
+    final first = Completer<void>();
+    final second = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.public)
+      ..nextUpdate = first.future;
+    await pumpPrivacy(
+      tester: tester,
+      repository: repository,
+      auth: auth,
+      saveDeadline: const Duration(milliseconds: 1),
+      reconciliationDeadline: const Duration(milliseconds: 1),
+    );
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump(const Duration(milliseconds: 2));
+    await tester.pumpAndSettle();
+    repository.nextUpdate = second.future;
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump();
+    second.completeError(StateError('second write failed'));
+    await tester.pumpAndSettle();
+    first.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      isFalse,
+    );
+  });
+
+  testWidgets('missing current user fails safely without a write', (
+    tester,
+  ) async {
+    final auth = AuthService(
+      repository: _StubAuthRepository(null),
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+    final repository = _repository(ProfileVisibility.public);
+    await pumpPrivacy(tester: tester, repository: repository, auth: auth);
+
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(repository.updateVisibilityCalls, 0);
+    expect(find.textContaining('Sign in'), findsOneWidget);
+  });
+
+  testWidgets('disposing during a pending operation does not set state', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    final auth = await _auth();
+    final repository = _repository(ProfileVisibility.public)
+      ..nextUpdate = pending.future;
+    await pumpPrivacy(tester: tester, repository: repository, auth: auth);
+    await tester.tap(find.byType(ToggleSwitch));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    pending.complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
+}
+
+Future<AuthService> _auth() async {
+  final auth = AuthService(
+    repository: _StubAuthRepository(
+      const User(
+        id: 'u1',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+      ),
+    ),
+    awaitInitialAuthState: () async {},
+  );
+  await auth.initialize();
+  return auth;
+}
+
+_FakePublicProfileRepository _repository(ProfileVisibility visibility) {
+  return _FakePublicProfileRepository(
+    root: PublicProfile(
+      userId: 'u1',
+      displayName: 'Ada Lovelace',
+      visibility: visibility,
+    ),
+  );
 }

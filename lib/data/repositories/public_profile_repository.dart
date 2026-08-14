@@ -180,8 +180,13 @@ class PublicProfileRepository {
     });
   }
 
-  Future<PublicProfile?> getProfileRoot(String userId) async {
-    final doc = await _rootRef(userId).get();
+  Future<PublicProfile?> getProfileRoot(
+    String userId, {
+    bool forceServer = false,
+  }) async {
+    final doc = await _rootRef(
+      userId,
+    ).get(forceServer ? const GetOptions(source: Source.server) : null);
     if (!doc.exists || doc.data() == null) return null;
     return PublicProfile.tryFromMap(doc.data()!, id: doc.id);
   }
@@ -283,6 +288,33 @@ class PublicProfileRepository {
         displayName: trimmedName,
         profilePictureUrl: profilePictureUrl,
         initialVisibility: ProfileVisibility.public,
+      ),
+    );
+  }
+
+  /// Creates a missing root with the existing privacy-safe repair schema.
+  ///
+  /// This deliberately does not overwrite an existing (including legacy or
+  /// malformed) root. Such documents must be repaired through their dedicated
+  /// migration path rather than being silently reshaped by a settings toggle.
+  Future<void> ensurePrivacyProfileRoot({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) {
+    final trimmedUserId = userId.trim();
+    if (trimmedUserId.isEmpty) return Future<void>.value();
+
+    final trimmedName = displayName.trim().isEmpty
+        ? 'Trainee'
+        : displayName.trim();
+    return _runWithEnsureGuard(
+      trimmedUserId,
+      () => _ensureRootDocument(
+        userId: trimmedUserId,
+        displayName: trimmedName,
+        profilePictureUrl: profilePictureUrl,
+        initialVisibility: ProfileVisibility.private,
       ),
     );
   }
