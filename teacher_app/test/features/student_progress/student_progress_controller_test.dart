@@ -103,6 +103,49 @@ void main() {
     },
   );
 
+  test('generic first-page failure is contained and enters error', () async {
+    await authorize();
+    progress.requests.single.completer.completeError(Exception('offline'));
+    await pumpEventQueue();
+
+    expect(controller.state, StudentProgressState.error);
+    expect(controller.summary, isNull);
+    expect(controller.sessions, isEmpty);
+    expect(controller.loadingMore, isFalse);
+  });
+
+  test(
+    'pagination failure preserves data and retry uses the same cursor',
+    () async {
+      await authorize();
+      progress.summaries.single.add(summary());
+      progress.requests.single.completer.complete(
+        TeacherProgressPage(
+          sessions: [session('one')],
+          hasMore: true,
+          nextCursor: const TestCursor('next'),
+        ),
+      );
+      await pumpEventQueue();
+
+      final loadMore = controller.loadMore();
+      progress.requests.last.completer.completeError(Exception('offline'));
+      await loadMore;
+      expect(controller.state, StudentProgressState.ready);
+      expect(controller.sessions.map((item) => item.sessionId), ['one']);
+      expect(controller.paginationError, isA<Exception>());
+      expect(controller.hasMore, isTrue);
+
+      final retry = controller.retryLoadMore();
+      expect(progress.requests.last.cursor, const TestCursor('next'));
+      progress.requests.last.completer.complete(
+        TeacherProgressPage(sessions: [session('two')], hasMore: false),
+      );
+      await retry;
+      expect(controller.sessions.map((item) => item.sessionId), ['one', 'two']);
+    },
+  );
+
   test('old relationship errors cannot clear a newer start', () async {
     await controller.start();
     await controller.start();

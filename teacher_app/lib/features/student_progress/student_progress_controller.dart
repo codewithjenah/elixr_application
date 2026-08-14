@@ -185,6 +185,18 @@ class StudentProgressController extends ChangeNotifier {
       } else {
         paginationError = error;
       }
+    } catch (error) {
+      // Repository implementations may surface transport or platform errors
+      // outside the domain exception hierarchy.  Treat those identically to a
+      // non-access domain failure so an unawaited initial load cannot leave
+      // the controller stuck in loading, while pagination keeps its data and
+      // cursor available for retry.
+      if (!_isCurrent(accessEpoch, dataEpoch, pageEpoch)) return;
+      if (firstPage) {
+        _clear(StudentProgressState.error);
+      } else {
+        paginationError = error;
+      }
     } finally {
       if (_isCurrent(accessEpoch, dataEpoch, pageEpoch)) {
         loadingMore = false;
