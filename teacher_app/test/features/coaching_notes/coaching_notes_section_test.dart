@@ -41,6 +41,14 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Save'), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    await tester.enterText(find.byType(TextField), 'Keep the bottle upright.');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(controller.notes, hasLength(1));
+    expect(find.widgetWithText(FilledButton, 'Save'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('existing notes expose edit and delete actions', (tester) async {

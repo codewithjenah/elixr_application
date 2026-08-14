@@ -101,98 +101,109 @@ class CoachingNotesSection extends StatelessWidget {
   }
 
   Future<void> _compose(BuildContext context, [CoachingNote? note]) async {
-    final body = TextEditingController(text: note?.body);
     String? movement = note?.movementName;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheet) => SafeArea(
-        top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: constraints.maxWidth),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  24,
-                  24,
-                  24,
-                  MediaQuery.viewInsetsOf(sheet).bottom + 24,
-                ),
-                child: StatefulBuilder(
-                  builder: (context, setState) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      DropdownButtonFormField<String?>(
-                        isExpanded: true,
-                        initialValue: movement,
-                        items: [
-                          const DropdownMenuItem(
-                            value: null,
-                            child: Text('General / no movement'),
+      builder: (sheet) {
+        final navigator = Navigator.of(sheet);
+        final route = ModalRoute.of(sheet);
+        final messenger = ScaffoldMessenger.of(sheet);
+        return _BodyControllerOwner(
+          initialText: note?.body,
+          builder: (body) => SafeArea(
+            top: false,
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      24,
+                      24,
+                      24,
+                      MediaQuery.viewInsetsOf(sheet).bottom + 24,
+                    ),
+                    child: StatefulBuilder(
+                      builder: (context, setState) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          DropdownButtonFormField<String?>(
+                            isExpanded: true,
+                            initialValue: movement,
+                            items: [
+                              const DropdownMenuItem(
+                                value: null,
+                                child: Text('General / no movement'),
+                              ),
+                              ...coachingMovementNames.map(
+                                (name) => DropdownMenuItem(
+                                  value: name,
+                                  child: Text(name),
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) =>
+                                setState(() => movement = value),
                           ),
-                          ...coachingMovementNames.map(
-                            (name) => DropdownMenuItem(
-                              value: name,
-                              child: Text(name),
+                          TextField(
+                            controller: body,
+                            maxLength: CoachingNote.maximumBodyLength,
+                            minLines: 4,
+                            maxLines: 8,
+                            decoration: const InputDecoration(
+                              labelText: 'Recommendation',
                             ),
                           ),
+                          FilledButton(
+                            onPressed: controller.saving
+                                ? null
+                                : () async {
+                                    try {
+                                      if (note == null) {
+                                        await controller.create(
+                                          body.text,
+                                          movement,
+                                        );
+                                      } else {
+                                        await controller.update(
+                                          note,
+                                          body.text,
+                                          movement,
+                                        );
+                                      }
+                                      if (navigator.mounted &&
+                                          route?.isCurrent == true) {
+                                        navigator.pop();
+                                      }
+                                    } on CoachingNoteException catch (error) {
+                                      if (messenger.mounted &&
+                                          route?.isCurrent == true) {
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              error.message ??
+                                                  'Could not save note.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                            child: const Text('Save'),
+                          ),
                         ],
-                        onChanged: (value) => setState(() => movement = value),
                       ),
-                      TextField(
-                        controller: body,
-                        maxLength: CoachingNote.maximumBodyLength,
-                        minLines: 4,
-                        maxLines: 8,
-                        decoration: const InputDecoration(
-                          labelText: 'Recommendation',
-                        ),
-                      ),
-                      FilledButton(
-                        onPressed: controller.saving
-                            ? null
-                            : () async {
-                                try {
-                                  if (note == null) {
-                                    await controller.create(
-                                      body.text,
-                                      movement,
-                                    );
-                                  } else {
-                                    await controller.update(
-                                      note,
-                                      body.text,
-                                      movement,
-                                    );
-                                  }
-                                  if (sheet.mounted) Navigator.pop(sheet);
-                                } on CoachingNoteException catch (error) {
-                                  if (sheet.mounted) {
-                                    ScaffoldMessenger.of(sheet).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          error.message ??
-                                              'Could not save note.',
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                        child: const Text('Save'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
-    body.dispose();
   }
 
   Future<void> _delete(BuildContext context, CoachingNote note) async {
@@ -221,4 +232,32 @@ class CoachingNotesSection extends StatelessWidget {
       } catch (_) {}
     }
   }
+}
+
+class _BodyControllerOwner extends StatefulWidget {
+  const _BodyControllerOwner({
+    required this.initialText,
+    required this.builder,
+  });
+
+  final String? initialText;
+  final Widget Function(TextEditingController controller) builder;
+
+  @override
+  State<_BodyControllerOwner> createState() => _BodyControllerOwnerState();
+}
+
+class _BodyControllerOwnerState extends State<_BodyControllerOwner> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialText,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_controller);
 }
