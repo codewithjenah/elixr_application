@@ -122,8 +122,8 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
             children: [
               Text(
                 'Share a coach code so a Teacher can request to link with you. '
-                'Approving a request does not share your practice sessions or '
-                'scores in this version.',
+                'Linking alone does not share your progress. You can separately '
+                'choose whether each linked Teacher may view it.',
                 style: AppTheme.bodySecondary.copyWith(
                   color: context.elixTextSecondary,
                   height: 1.4,
@@ -351,13 +351,35 @@ class _LinkedTeachersCard extends StatelessWidget {
             for (final link in controller.approved) ...[
               _RequestRow(
                 link: link,
-                subtitleOverride: 'Approved',
-                trailing: Button(
-                  key: Key('teacher_access_revoke_${link.id}'),
-                  onPressed: controller.busy
-                      ? null
-                      : () => controller.revokeTeacher(link),
-                  child: const Text('Revoke'),
+                subtitleOverride: 'Relationship: Linked\nProgress sharing: '
+                    '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}',
+                trailing: Wrap(
+                  spacing: AppSpacing.sm,
+                  children: [
+                    if (link.hasEffectiveProgressAccess)
+                      Button(
+                        key: Key('teacher_access_stop_sharing_${link.id}'),
+                        onPressed: controller.busy
+                            ? null
+                            : () => controller.stopSharingProgress(link),
+                        child: const Text('Stop sharing'),
+                      )
+                    else
+                      Button(
+                        key: Key('teacher_access_share_${link.id}'),
+                        onPressed: controller.busy
+                            ? null
+                            : () => _confirmShareProgress(context, controller, link),
+                        child: const Text('Share progress'),
+                      ),
+                    Button(
+                      key: Key('teacher_access_revoke_${link.id}'),
+                      onPressed: controller.busy
+                          ? null
+                          : () => controller.revokeTeacher(link),
+                      child: const Text('Revoke Teacher'),
+                    ),
+                  ],
                 ),
               ),
               if (link != controller.approved.last)
@@ -367,6 +389,32 @@ class _LinkedTeachersCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _confirmShareProgress(
+  BuildContext context,
+  TeacherAccessController controller,
+  TeacherStudentLink link,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Share progress with this Teacher?'),
+      content: const Text(
+        'This shares total practice time, completed movement names, and sanitized '
+        'practice/assessment history: movement, difficulty, date and duration, '
+        'prop type, legacy score or V2 rubric scores, and performance level.\n\n'
+        'It does not share passwords or credentials, private settings, raw webcam '
+        'or video, feedback internals, achievements, visitor records, permission '
+        'to edit sessions or scores, or unrestricted account data.',
+      ),
+      actions: [
+        Button(child: const Text('Cancel'), onPressed: () => Navigator.pop(context, false)),
+        FilledButton(child: const Text('Share progress'), onPressed: () => Navigator.pop(context, true)),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.shareProgress(link);
 }
 
 class _RequestRow extends StatelessWidget {

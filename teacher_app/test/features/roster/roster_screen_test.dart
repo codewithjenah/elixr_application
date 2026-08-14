@@ -112,7 +112,7 @@ void main() {
     expect(find.byKey(const Key('roster_empty')), findsOneWidget);
   });
 
-  testWidgets('approved student is not interactive', (tester) async {
+  testWidgets('approved student shows its consent-gated progress state', (tester) async {
     relationships.seedLink(
       TeacherStudentLink(
         id: 'teacher-1_trainee-1',
@@ -127,10 +127,10 @@ void main() {
 
     expect(find.text('Carol Shaw'), findsOneWidget);
     expect(
-      find.text('Linked. Progress review will be available in the next phase.'),
+      find.text('Waiting for progress access'),
       findsOneWidget,
     );
-    expect(find.byType(ListTile), findsNothing);
+    expect(find.byType(ListTile), findsOneWidget);
   });
 
   testWidgets('add student opens the coach-code sheet', (tester) async {
@@ -386,6 +386,24 @@ class _ThrowingRelationshipRepository implements TeacherRelationshipRepository {
     required String linkId,
     required String traineeId,
   }) => throw UnimplementedError();
+
+  @override
+  Future<void> grantProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> removeProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => throw UnimplementedError();
+
+  @override
+  Stream<TeacherStudentLinkSnapshot> watchLink({
+    required String teacherId,
+    required String traineeId,
+  }) => const Stream.empty();
 
   @override
   Stream<List<TeacherStudentLink>> watchTeacherLinks({

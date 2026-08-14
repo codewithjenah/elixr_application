@@ -101,8 +101,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
-    expect(find.text('Approved'), findsOneWidget);
-    expect(find.text('Revoke'), findsOneWidget);
+    expect(find.text('Relationship: Linked\nProgress sharing: Off'), findsOneWidget);
+    expect(find.text('Revoke Teacher'), findsOneWidget);
   });
 
   testWidgets('reject removes the pending request', (tester) async {

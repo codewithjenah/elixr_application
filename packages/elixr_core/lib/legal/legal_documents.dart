@@ -68,10 +68,11 @@ abstract final class ElixrLegalDocuments {
         'all associated data.',
     'Teacher Access: you can generate a short-lived coach code in Settings > '
         'Teacher Access and approve or reject a Teacher who requests to link '
-        'with you. Approving that request authorizes only this Teacher↔Trainee '
-        'relationship. It does not share your practice sessions, scores, '
-        'movement mastery, achievements, or feedback with that Teacher in this '
-        'version. You can revoke an approved Teacher at any time.',
+        'with you. Linking alone does not share progress. You can separately '
+        'enable sanitized, read-only summary and practice/assessment history '
+        'for each linked Teacher, and stop sharing or revoke that Teacher at '
+        'any time. Raw video, credentials, private settings, feedback internals, '
+        'achievements, and unrestricted account data are never shared.',
     'Use Settings > Security > Delete Account to exercise your right to '
         'erasure.',
   ];
@@ -86,9 +87,11 @@ abstract final class ElixrLegalDocuments {
     'Roster linking: the Teacher application may store Teacher↔Trainee '
         'relationship records after you enter a coach code that a Trainee '
         'intentionally shared. You only see Trainees who explicitly approve '
-        'your request. A Trainee may revoke that relationship at any time. '
-        'Private training and session data are not exposed to Teachers in this '
-        'version.',
+        'your request. Linking alone does not share progress. A Trainee may '
+        'separately authorize sanitized, read-only progress summary and '
+        'practice/assessment history, then stop sharing or revoke the '
+        'relationship at any time. Raw video, credentials, private settings, '
+        'feedback internals, and unrestricted account data are not shared.',
     'The Teacher application does not currently include in-app account '
         'deletion. You retain the right under RA 10173 to request access, '
         'correction, or erasure of your Teacher account data.',
@@ -113,7 +116,7 @@ abstract final class ElixrLegalDocuments {
   static const teacherTermsOfServiceParagraphs = <String>[
     'Teacher accounts are for instructor use of the Teacher application. '
         'A Teacher roster lists only Trainees who approve a relationship. '
-        'Student progress review, teacher notes, and assignments are not yet '
-        'active in this version.',
+        'Student progress review is read-only when separately authorized by '
+        'the Trainee. Teacher notes and assignments remain unavailable.',
   ];
 }

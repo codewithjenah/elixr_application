@@ -17,6 +17,18 @@ enum TeacherStudentLinkStatus {
   }
 }
 
+/// Explicit, versioned consent for a Teacher to read sanitized progress.
+enum TeacherProgressAccess {
+  none,
+  granted;
+
+  static TeacherProgressAccess fromFirestore(Object? value) {
+    return value == 'granted'
+        ? TeacherProgressAccess.granted
+        : TeacherProgressAccess.none;
+  }
+}
+
 /// Authoritative relationship at `teacher_student_links/{teacherId}_{traineeId}`.
 class TeacherStudentLink {
   const TeacherStudentLink({
@@ -29,6 +41,9 @@ class TeacherStudentLink {
     this.inviteId,
     this.createdAt,
     this.updatedAt,
+    this.progressAccess = TeacherProgressAccess.none,
+    this.progressAccessVersion,
+    this.progressAccessGrantedAt,
   });
 
   final String id;
@@ -40,9 +55,17 @@ class TeacherStudentLink {
   final String? inviteId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final TeacherProgressAccess progressAccess;
+  final int? progressAccessVersion;
+  final DateTime? progressAccessGrantedAt;
 
   bool get isPending => status == TeacherStudentLinkStatus.pending;
   bool get isApproved => status == TeacherStudentLinkStatus.approved;
+  bool get hasEffectiveProgressAccess =>
+      isApproved &&
+      progressAccess == TeacherProgressAccess.granted &&
+      progressAccessVersion == 1 &&
+      progressAccessGrantedAt != null;
 
   static String documentId({
     required String teacherId,
@@ -80,11 +103,22 @@ class TeacherStudentLink {
       inviteId: _readString(map['invite_id']),
       createdAt: TeacherInvite.readDateTime(map['created_at']),
       updatedAt: TeacherInvite.readDateTime(map['updated_at']),
+      progressAccess: TeacherProgressAccess.fromFirestore(map['progress_access']),
+      progressAccessVersion: _readInt(map['progress_access_version']),
+      progressAccessGrantedAt: TeacherInvite.readDateTime(
+        map['progress_access_granted_at'],
+      ),
     );
   }
 
   static String? _readString(dynamic value) {
     if (value is String && value.trim().isNotEmpty) return value;
+    return null;
+  }
+
+  static int? _readInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
     return null;
   }
 }

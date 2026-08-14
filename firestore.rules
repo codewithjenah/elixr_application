@@ -1623,14 +1623,18 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
 
       match /details/summary {
-        allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
+        allow read: if isSignedIn()
+          && (canReadProtectedPublicProfile(userId)
+            || hasApprovedProgressAccess(userId));
         allow create, update: if isOwner(userId)
           && validPublicProfileSummary(request.resource.data, userId);
         allow delete: if isOwner(userId);
       }
 
       match /sessions/{sessionId} {
-        allow read: if isSignedIn() && canReadProtectedPublicProfile(userId);
+        allow read: if isSignedIn()
+          && (canReadProtectedPublicProfile(userId)
+            || hasApprovedProgressAccess(userId));
         allow create, update: if isOwner(userId)
           && validPublicProfileSession(request.resource.data, userId, sessionId);
         allow delete: if isOwner(userId);
@@ -1759,6 +1763,54 @@ service cloud.firestore {
       ];
     }
 
+    function linkAllowedKeys() {
+      return linkKeys().concat([
+        'progress_access',
+        'progress_access_version',
+        'progress_access_granted_at'
+      ]);
+    }
+
+    function progressAccessIsNone(data) {
+      return data.get('progress_access', 'none') == 'none'
+        && !data.keys().hasAny([
+          'progress_access_version', 'progress_access_granted_at'
+        ]);
+    }
+
+    function validProgressAccessShape(data) {
+      return progressAccessIsNone(data)
+        || (data.keys().hasAll([
+            'progress_access',
+            'progress_access_version',
+            'progress_access_granted_at'
+          ])
+          && data.progress_access == 'granted'
+          && data.progress_access_version == 1
+          && data.progress_access_granted_at is timestamp);
+    }
+
+    function teacherStudentLinkPath(teacherId, traineeId) {
+      return /databases/$(database)/documents/teacher_student_links/$(teacherId + '_' + traineeId);
+    }
+
+    function hasApprovedProgressAccess(traineeId) {
+      return isSignedIn()
+        && exists(teacherStudentLinkPath(request.auth.uid, traineeId))
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.teacher_id
+          == request.auth.uid
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.trainee_id
+          == traineeId
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.status
+          == 'approved'
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access
+          == 'granted'
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_version
+          == 1
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_granted_at
+          is timestamp;
+    }
+
     function isLinkStatus(value) {
       return value in ['pending', 'approved', 'rejected', 'cancelled', 'revoked'];
     }
@@ -1789,10 +1841,11 @@ service cloud.firestore {
 
     function validPendingLinkCreate(data, linkId) {
       return hasVerifiedEmail()
-        && data.keys().hasOnly(linkKeys())
+        && data.keys().hasOnly(linkAllowedKeys())
         && data.keys().hasAll(linkKeys())
         && data.teacher_id == request.auth.uid
         && data.status == 'pending'
+        && progressAccessIsNone(data)
         && linkIdsMatchDocument(data, linkId)
         && isDisplayName(data.teacher_display_name)
         && isDisplayName(data.trainee_display_name)
@@ -1818,10 +1871,11 @@ service cloud.firestore {
     }
 
     function validLinkUpdateShape(data) {
-      return data.keys().hasOnly(linkKeys())
+      return data.keys().hasOnly(linkAllowedKeys())
         && data.keys().hasAll(linkKeys())
         && isLinkStatus(data.status)
-        && data.updated_at == request.time;
+        && data.updated_at == request.time
+        && validProgressAccessShape(data);
     }
 
     function validTraineeLinkTransition() {
@@ -1829,15 +1883,22 @@ service cloud.firestore {
         && linkParticipantsUnchanged()
         && linkIdentitySnapshotsUnchanged()
         && (
-          (
-            resource.data.status == 'pending'
+          (resource.data.status == 'approved'
+            && request.resource.data.status == 'approved'
+            && ((progressAccessIsNone(resource.data)
+                && request.resource.data.progress_access == 'granted'
+                && request.resource.data.progress_access_version == 1
+                && request.resource.data.progress_access_granted_at == request.time)
+              || (resource.data.progress_access == 'granted'
+                && progressAccessIsNone(request.resource.data))))
+          || (resource.data.status == 'pending'
             && request.resource.data.status in ['approved', 'rejected']
-          )
-          || (
-            resource.data.status == 'approved'
+            && progressAccessIsNone(request.resource.data))
+          || (resource.data.status == 'approved'
             && request.resource.data.status == 'revoked'
-          )
-        );
+            && progressAccessIsNone(request.resource.data))
+        )
+        ;
     }
 
     function validTeacherCancelTransition() {
@@ -1845,7 +1906,8 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && request.resource.data.status == 'cancelled'
         && linkParticipantsUnchanged()
-        && linkIdentitySnapshotsUnchanged();
+        && linkIdentitySnapshotsUnchanged()
+        && progressAccessIsNone(request.resource.data);
     }
 
     function validTeacherRerequestTransition() {
@@ -1859,7 +1921,8 @@ service cloud.firestore {
         && exists(userPath(request.auth.uid))
         && request.resource.data.teacher_display_name
           == userFullName(request.auth.uid)
-        && liveInviteMatchesTrainee(request.resource.data);
+        && liveInviteMatchesTrainee(request.resource.data)
+        && progressAccessIsNone(request.resource.data);
     }
 
     match /teacher_invites/{inviteId} {

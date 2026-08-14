@@ -7,6 +7,7 @@ import '../../features/auth/teacher_auth_controller.dart';
 import '../../features/auth/verify_email_screen.dart';
 import '../../features/legal/legal_screens.dart';
 import '../../features/roster/roster_screen.dart';
+import '../../features/student_progress/student_progress_screen.dart';
 import 'teacher_routes.dart';
 
 GoRouter createTeacherRouter(TeacherAuthController auth) {
@@ -47,6 +48,12 @@ GoRouter createTeacherRouter(TeacherAuthController auth) {
       GoRoute(
         path: TeacherRoutes.roster,
         builder: (context, state) => const RosterScreen(),
+      ),
+      GoRoute(
+        path: '/students/:traineeId',
+        builder: (context, state) => StudentProgressScreen(
+          traineeId: state.pathParameters['traineeId']!,
+        ),
       ),
     ],
   );

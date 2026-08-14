@@ -131,6 +131,25 @@ class FirebaseTeacherRelationshipRepository
   }
 
   @override
+  Stream<TeacherStudentLinkSnapshot> watchLink({
+    required String teacherId,
+    required String traineeId,
+  }) {
+    final id = TeacherStudentLink.documentId(
+      teacherId: teacherId,
+      traineeId: traineeId,
+    );
+    return _links.doc(id).snapshots().map((snapshot) {
+      return TeacherStudentLinkSnapshot(
+        link: snapshot.exists
+            ? TeacherStudentLink.tryFromMap(snapshot.data() ?? const {}, id: id)
+            : null,
+        isServerVerified: !snapshot.metadata.isFromCache,
+      );
+    });
+  }
+
+  @override
   Future<TeacherInvite> resolveCoachCode(String code) async {
     final normalized = CoachCode.tryNormalize(code);
     if (normalized == null) {
@@ -201,6 +220,9 @@ class FirebaseTeacherRelationshipRepository
         'status': TeacherStudentLinkStatus.pending.name,
         'invite_id': invite.normalizedCode,
         'updated_at': FieldValue.serverTimestamp(),
+        'progress_access': TeacherProgressAccess.none.name,
+        'progress_access_version': FieldValue.delete(),
+        'progress_access_granted_at': FieldValue.delete(),
       });
     } else {
       await ref.set({
@@ -212,6 +234,7 @@ class FirebaseTeacherRelationshipRepository
         'invite_id': invite.normalizedCode,
         'created_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
+        'progress_access': TeacherProgressAccess.none.name,
       });
     }
 
@@ -265,6 +288,26 @@ class FirebaseTeacherRelationshipRepository
   }
 
   @override
+  Future<void> grantProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _setProgressAccess(
+    linkId: linkId,
+    traineeId: traineeId,
+    access: TeacherProgressAccess.granted,
+  );
+
+  @override
+  Future<void> removeProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _setProgressAccess(
+    linkId: linkId,
+    traineeId: traineeId,
+    access: TeacherProgressAccess.none,
+  );
+
+  @override
   Future<void> cancelLink({required String linkId, required String teacherId}) {
     return _updateOwnLink(
       linkId: linkId,
@@ -301,6 +344,48 @@ class FirebaseTeacherRelationshipRepository
     await ref.update({
       'status': status.name,
       'updated_at': FieldValue.serverTimestamp(),
+      if (status != TeacherStudentLinkStatus.approved)
+        'progress_access': TeacherProgressAccess.none.name,
+      if (status != TeacherStudentLinkStatus.approved)
+        'progress_access_version': FieldValue.delete(),
+      if (status != TeacherStudentLinkStatus.approved)
+        'progress_access_granted_at': FieldValue.delete(),
+    });
+  }
+
+  Future<void> _setProgressAccess({
+    required String linkId,
+    required String traineeId,
+    required TeacherProgressAccess access,
+  }) async {
+    final ref = _links.doc(linkId);
+    await _firestore.runTransaction((transaction) async {
+      final snap = await transaction.get(ref);
+      final link = snap.exists
+          ? TeacherStudentLink.tryFromMap(snap.data() ?? const {}, id: snap.id)
+          : null;
+      if (link == null || link.traineeId != traineeId || !link.isApproved) {
+        throw const TeacherRelationshipException(TeacherRelationshipError.notFound);
+      }
+      if (access == TeacherProgressAccess.granted &&
+          link.hasEffectiveProgressAccess) {
+        throw const TeacherRelationshipException(
+          TeacherRelationshipError.alreadyLinked,
+          'Progress sharing is already enabled.',
+        );
+      }
+      transaction.update(ref, {
+        'progress_access': access.name,
+        'updated_at': FieldValue.serverTimestamp(),
+        if (access == TeacherProgressAccess.granted)
+          'progress_access_version': 1,
+        if (access == TeacherProgressAccess.granted)
+          'progress_access_granted_at': FieldValue.serverTimestamp(),
+        if (access == TeacherProgressAccess.none)
+          'progress_access_version': FieldValue.delete(),
+        if (access == TeacherProgressAccess.none)
+          'progress_access_granted_at': FieldValue.delete(),
+      });
     });
   }
 

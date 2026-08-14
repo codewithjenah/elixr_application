@@ -51,7 +51,7 @@ void main() {
     expect(containing('Teacher↔Trainee relationship records'), findsOneWidget);
     expect(containing('explicitly approve'), findsOneWidget);
     expect(
-      containing('not exposed to Teachers in this version'),
+      containing('sanitized, read-only progress summary'),
       findsOneWidget,
     );
     expect(containing('pose/hand landmark'), findsNothing);
@@ -70,7 +70,7 @@ void main() {
     );
 
     expect(containing('approve a relationship'), findsOneWidget);
-    expect(containing('not yet active in this version'), findsOneWidget);
+    expect(containing('read-only when separately authorized'), findsOneWidget);
     expect(containing('Leaderboard scores'), findsNothing);
     expect(containing('educational and training purposes'), findsOneWidget);
   });

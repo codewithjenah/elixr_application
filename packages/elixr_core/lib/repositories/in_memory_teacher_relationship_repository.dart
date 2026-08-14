@@ -134,6 +134,26 @@ class InMemoryTeacherRelationshipRepository
     );
   }
 
+  @override
+  Stream<TeacherStudentLinkSnapshot> watchLink({
+    required String teacherId,
+    required String traineeId,
+  }) {
+    final id = TeacherStudentLink.documentId(
+      teacherId: teacherId,
+      traineeId: traineeId,
+    );
+    return Stream.multi((controller) {
+      void emit() => controller.add(TeacherStudentLinkSnapshot(
+        link: links[id],
+        isServerVerified: true,
+      ));
+      emit();
+      final subscription = _watch(_teacherControllers, teacherId, () => _linksForTeacher(teacherId)).listen((_) => emit());
+      controller.onCancel = subscription.cancel;
+    });
+  }
+
   Stream<List<TeacherStudentLink>> _watch(
     Map<String, StreamController<List<TeacherStudentLink>>> controllers,
     String key,
@@ -266,6 +286,41 @@ class InMemoryTeacherRelationshipRepository
       from: TeacherStudentLinkStatus.approved,
       to: TeacherStudentLinkStatus.revoked,
     );
+  }
+
+  @override
+  Future<void> grantProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _replaceProgressAccess(linkId, traineeId, TeacherProgressAccess.granted);
+
+  @override
+  Future<void> removeProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _replaceProgressAccess(linkId, traineeId, TeacherProgressAccess.none);
+
+  Future<void> _replaceProgressAccess(
+    String linkId,
+    String traineeId,
+    TeacherProgressAccess access,
+  ) async {
+    final link = links[linkId];
+    if (link == null || link.traineeId != traineeId || !link.isApproved) {
+      throw const TeacherRelationshipException(TeacherRelationshipError.notFound);
+    }
+    if (access == TeacherProgressAccess.granted && link.hasEffectiveProgressAccess) {
+      throw const TeacherRelationshipException(TeacherRelationshipError.alreadyLinked);
+    }
+    links[linkId] = TeacherStudentLink(
+      id: link.id, teacherId: link.teacherId, traineeId: link.traineeId,
+      teacherDisplayName: link.teacherDisplayName, traineeDisplayName: link.traineeDisplayName,
+      status: link.status, inviteId: link.inviteId, createdAt: link.createdAt,
+      updatedAt: now, progressAccess: access,
+      progressAccessVersion: access == TeacherProgressAccess.granted ? 1 : null,
+      progressAccessGrantedAt: access == TeacherProgressAccess.granted ? now : null,
+    );
+    _emit();
   }
 
   @override

@@ -23,6 +23,12 @@ abstract class TeacherRelationshipRepository {
     required String teacherId,
   });
 
+  /// Watches one deterministic link and reports whether it came from server.
+  Stream<TeacherStudentLinkSnapshot> watchLink({
+    required String teacherId,
+    required String traineeId,
+  });
+
   Future<TeacherInvite> resolveCoachCode(String code);
 
   Future<TeacherStudentLink> requestLink({
@@ -37,5 +43,25 @@ abstract class TeacherRelationshipRepository {
 
   Future<void> revokeLink({required String linkId, required String traineeId});
 
+  Future<void> grantProgressAccess({
+    required String linkId,
+    required String traineeId,
+  });
+
+  Future<void> removeProgressAccess({
+    required String linkId,
+    required String traineeId,
+  });
+
   Future<void> cancelLink({required String linkId, required String teacherId});
+}
+
+class TeacherStudentLinkSnapshot {
+  const TeacherStudentLinkSnapshot({
+    required this.link,
+    required this.isServerVerified,
+  });
+
+  final TeacherStudentLink? link;
+  final bool isServerVerified;
 }

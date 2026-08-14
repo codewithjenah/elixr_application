@@ -110,6 +110,20 @@ class TeacherAccessController extends ChangeNotifier {
     );
   }
 
+  Future<void> shareProgress(TeacherStudentLink link) {
+    return _runLinkAction(
+      () => repository.grantProgressAccess(linkId: link.id, traineeId: traineeId),
+      failure: 'Could not enable progress sharing. Check your connection and try again.',
+    );
+  }
+
+  Future<void> stopSharingProgress(TeacherStudentLink link) {
+    return _runLinkAction(
+      () => repository.removeProgressAccess(linkId: link.id, traineeId: traineeId),
+      failure: 'Could not stop progress sharing. Check your connection and try again.',
+    );
+  }
+
   Future<void> _runLinkAction(
     Future<void> Function() action, {
     required String failure,

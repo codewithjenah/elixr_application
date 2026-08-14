@@ -8,6 +8,7 @@ abstract final class TeacherRoutes {
   static const privacyPolicy = '/privacy-policy';
   static const termsOfService = '/terms-of-service';
   static const roster = '/roster';
+  static String student(String traineeId) => '/students/${Uri.encodeComponent(traineeId)}';
 }
 
 /// Redirects for the Teacher app. Returns null when the current location is

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/firebase_teacher_progress_repository.dart';
+import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -16,10 +18,12 @@ class ElixrTeacherApp extends StatefulWidget {
     super.key,
     required this.authController,
     this.relationshipRepository,
+    this.progressRepository,
   });
 
   final TeacherAuthController authController;
   final TeacherRelationshipRepository? relationshipRepository;
+  final TeacherProgressRepository? progressRepository;
 
   @override
   State<ElixrTeacherApp> createState() => _ElixrTeacherAppState();
@@ -49,8 +53,18 @@ class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<TeacherAuthController>.value(
       value: widget.authController,
-      child: Provider<TeacherRelationshipRepository>.value(
-        value: _relationshipRepository,
+      child: MultiProvider(
+        providers: [
+          Provider<TeacherRelationshipRepository>.value(value: _relationshipRepository),
+          if (widget.progressRepository != null)
+            Provider<TeacherProgressRepository>.value(
+              value: widget.progressRepository!,
+            )
+          else
+            Provider<TeacherProgressRepository>(
+              create: (_) => FirebaseTeacherProgressRepository(),
+            ),
+        ],
         child: MaterialApp.router(
           title: 'ELIXR Teacher',
           theme: buildTeacherTheme(),

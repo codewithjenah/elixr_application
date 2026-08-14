@@ -1,6 +1,7 @@
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/teacher_theme.dart';
@@ -8,6 +9,7 @@ import '../../core/widgets/teacher_auth_widgets.dart';
 import '../auth/teacher_auth_controller.dart';
 import 'add_student_sheet.dart';
 import 'roster_controller.dart';
+import '../../core/router/teacher_routes.dart';
 
 class RosterScreen extends StatefulWidget {
   const RosterScreen({super.key, this.repository, this.controller});
@@ -169,7 +171,8 @@ class _RosterScreenState extends State<RosterScreen> {
               ],
               Text(
                 'Students appear here only after they approve your request. '
-                'Practice sessions and scores are not shared in this version.',
+                'Linking alone does not share progress; each Trainee controls '
+                'separate progress access.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: TeacherColors.textSecondary,
                   height: 1.4,
@@ -281,27 +284,17 @@ class _RosterBody extends StatelessWidget {
           for (final link in roster.approved)
             Card(
               color: TeacherColors.surfaceHigh,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      link.traineeDisplayName,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Linked. Progress review will be available in the next phase.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: TeacherColors.textSecondary,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
+              child: ListTile(
+                onTap: () => context.go(TeacherRoutes.student(link.traineeId)),
+                title: Text(link.traineeDisplayName, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                subtitle: Text(
+                  link.hasEffectiveProgressAccess ? 'Progress access on' : 'Waiting for progress access',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: TeacherColors.textSecondary,
+                    height: 1.35,
+                  ),
                 ),
+                trailing: const Icon(Icons.chevron_right),
               ),
             ),
       ],

@@ -384,6 +384,10 @@ class PublicProfileRepository {
           'movement_name': data['movement_name'],
           'difficulty': data['difficulty'],
           'score': data['score'],
+          'assessment_version': data['assessment_version'],
+          'rubric': data['rubric'],
+          'rubric_total': data['rubric_total'],
+          'performance_level': data['performance_level'],
           'duration_seconds': data['duration_seconds'],
           'prop_type': data['prop_type'],
           'created_at': _readCreatedAt(data['created_at']),
@@ -581,13 +585,12 @@ class PublicProfileRepository {
       'difficulty': session.difficulty,
       'duration_seconds': session.durationSeconds,
       'prop_type': session.propType.protocolValue,
-      'created_at': FieldValue.serverTimestamp(),
+      'created_at': session.createdAt ?? FieldValue.serverTimestamp(),
     };
     if (session.isRubricAssessed && session.rubric != null) {
       payload.addAll(session.rubric!.toFirestoreFields());
     } else if (session.legacyScore != null) {
       payload['score'] = session.legacyScore;
-      payload['assessment_version'] = 1;
     } else {
       throw ArgumentError(
         'Session projection requires Assessment V2 rubric or legacy score',
