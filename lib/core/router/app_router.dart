@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/forgot_password_screen.dart';
@@ -13,6 +13,8 @@ import '../../features/leaderboard/leaderboard_screen.dart';
 import '../../features/legal/privacy_policy_screen.dart';
 import '../../features/legal/terms_of_service_screen.dart';
 import '../../features/movements/movements_screen.dart';
+import '../../features/learning/learning_center_screen.dart';
+import '../../features/learning/movement_lesson.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
 import '../../features/profile/profile_route_args.dart';
@@ -20,14 +22,18 @@ import '../../features/profile/user_profile_screen.dart';
 import '../../features/progress/progress_screen.dart';
 import '../../data/models/training_prop.dart';
 import '../../services/auth_service.dart';
+import '../../services/tutorial_progress_service.dart';
 import '../widgets/app_shell.dart';
 import 'page_transitions.dart';
 
 class AppRouter {
-  static GoRouter create(AuthService authService) {
+  static GoRouter create(
+    AuthService authService,
+    TutorialProgressService tutorialProgress,
+  ) {
     return GoRouter(
       initialLocation: '/login',
-      refreshListenable: authService,
+      refreshListenable: Listenable.merge([authService, tutorialProgress]),
       redirect: (context, state) {
         if (authService.isLoading) return null;
 
@@ -43,6 +49,21 @@ class AppRouter {
 
         if (!isAuth && !isPublicRoute) return '/login';
         if (isAuth && isAuthRoute) return '/dashboard';
+        if (isAuth &&
+            location == '/practice' &&
+            tutorialProgress.isInitialized) {
+          final movement =
+              state.uri.queryParameters['movement'] ?? 'Hand Stall';
+          if (!tutorialProgress.hasCompletedLesson(movement)) {
+            final difficulty =
+                state.uri.queryParameters['difficulty'] ?? 'Easy';
+            final prop = TrainingProp.fromProtocolValue(
+              state.uri.queryParameters['prop'],
+            );
+            return '/learn/movement/${Uri.encodeComponent(movement)}'
+                '?difficulty=$difficulty&prop=${prop.protocolValue}';
+          }
+        }
         return null;
       },
       routes: [
@@ -137,6 +158,32 @@ class AppRouter {
                 key: state.pageKey,
                 child: const MovementsScreen(),
               ),
+            ),
+            GoRoute(
+              path: '/learn',
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const LearningCenterScreen(),
+              ),
+            ),
+            GoRoute(
+              path: '/learn/movement/:movementName',
+              pageBuilder: (context, state) {
+                final movement = state.pathParameters['movementName'] ?? '';
+                final difficulty =
+                    state.uri.queryParameters['difficulty'] ?? 'Easy';
+                final prop = TrainingProp.fromProtocolValue(
+                  state.uri.queryParameters['prop'],
+                );
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: MovementLessonScreen(
+                    movement: movement,
+                    difficulty: difficulty,
+                    prop: prop,
+                  ),
+                );
+              },
             ),
             GoRoute(
               path: '/history',

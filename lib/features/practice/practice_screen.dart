@@ -21,6 +21,7 @@ import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/tutorial_progress_service.dart';
 import '../../services/websocket_service.dart';
 import 'practice_feedback_controller.dart';
 import 'practice_game_widgets.dart';
@@ -427,6 +428,9 @@ class _PracticeScreenState extends State<PracticeScreen>
       }
 
       if (!_run.onConfirmReadinessAccepted()) return;
+      unawaited(
+        context.read<TutorialProgressService>().markCameraSetupComplete(),
+      );
       setState(() {});
       unawaited(_startGuidedCountdownOverlay());
     } catch (error) {
@@ -678,6 +682,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     final userId = authUser?.id;
     final displayName = authUser?.fullName ?? 'Trainee';
     final settings = context.read<SettingsService>();
+    final tutorialProgress = context.read<TutorialProgressService>();
     final sfxVolume = settings.soundEnabled ? settings.musicVolume : 0.0;
 
     await _stopWebSocketSession();
@@ -718,7 +723,6 @@ class _PracticeScreenState extends State<PracticeScreen>
       rubric: summaryRubric,
       heldSteady: heldSteady,
     );
-
     _isShowingSummary = true;
     try {
       // Play congrats when the Session Complete dialog appears.
@@ -759,6 +763,7 @@ class _PracticeScreenState extends State<PracticeScreen>
 
       if (result == SessionSummaryResult.next && nextMovement != null) {
         // Session was already persisted by the summary primary action.
+        unawaited(tutorialProgress.completeFirstSessionGuidance());
         // Don't block navigation on SFX teardown.
         unawaited(_sfx.stop());
         _clearSessionState();
@@ -779,6 +784,10 @@ class _PracticeScreenState extends State<PracticeScreen>
       // Try Again starts preparation on the same player and a finally stop
       // would silence it immediately.
       await _sfx.stop();
+
+      if (result == SessionSummaryResult.saved) {
+        unawaited(tutorialProgress.completeFirstSessionGuidance());
+      }
 
       _clearSessionState();
       _run.cancelToIdle();
@@ -1141,7 +1150,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           : (hasConnectionError
                 ? Text(
                     _ws.errorMessage ??
-                        'Backend offline. Start the Python server first.',
+                        'Camera setup is unavailable. Check that ELIXR is running, then try again.',
                     style: AppTheme.bodySecondary.copyWith(
                       color: AppColors.error,
                     ),
@@ -1151,7 +1160,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           ? _buildReadinessActionArea()
           : TrainingActionArea(
               kind: actionKind,
-              startLabel: 'Begin Calibration',
+              startLabel: 'Start Camera Setup',
               onPressed: switch (actionKind) {
                 TrainingActionKind.finish => () => _stopSession(),
                 TrainingActionKind.cancel => _cancelPreActive,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/coaching_note_repository.dart';
@@ -16,6 +18,7 @@ import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
 import 'services/settings_service.dart';
+import 'services/tutorial_progress_service.dart';
 
 class ElixrApp extends StatefulWidget {
   const ElixrApp({super.key});
@@ -28,6 +31,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final AuthService _authService;
   late final SettingsService _settingsService;
   late final CameraDeviceService _cameraDeviceService;
+  late final TutorialProgressService _tutorialProgressService;
   late final PublicProfileRepository _publicProfileRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
   late final GoRouter _router;
@@ -44,7 +48,8 @@ class _ElixrAppState extends State<ElixrApp> {
     )..initialize();
     _settingsService = SettingsService()..initialize();
     _cameraDeviceService = CameraDeviceService();
-    _router = AppRouter.create(_authService);
+    _tutorialProgressService = TutorialProgressService();
+    _router = AppRouter.create(_authService, _tutorialProgressService);
   }
 
   @override
@@ -61,6 +66,15 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _authService),
         ChangeNotifierProvider.value(value: _settingsService),
         ChangeNotifierProvider.value(value: _cameraDeviceService),
+        ChangeNotifierProxyProvider<AuthService, TutorialProgressService>(
+          create: (_) => _tutorialProgressService,
+          update: (_, auth, tutorial) {
+            tutorial ??= _tutorialProgressService;
+            // setUser coalesces identical calls and clears state on logout.
+            unawaited(tutorial.setUser(auth.currentUser?.id));
+            return tutorial;
+          },
+        ),
         ChangeNotifierProvider(
           create: (_) =>
               SessionService(publicProfileRepository: _publicProfileRepository),

@@ -2,12 +2,14 @@ import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../services/tutorial_progress_service.dart';
 import '../movements_presentation.dart';
 
 const _kCardRadius = 20.0;
@@ -84,14 +86,24 @@ class _MovementCardState extends State<MovementCard>
     return 'New';
   }
 
-  String get _actionLabel {
+  String _actionLabel(BuildContext context) {
     if (!_enabled) return 'Locked';
     if (_hasPropChoice) return 'Choose a prop';
     if (_requiresFixedNonDefaultProp) {
       return 'Start with ${_singleProp.displayLabel}';
     }
-    if (_practiced) return 'Practice again';
-    return 'Start practice';
+    final tutorial = Provider.of<TutorialProgressService?>(
+      context,
+      listen: false,
+    );
+    // Standalone cards (including legacy widget tests) retain the original
+    // practice wording. In the app, the router still enforces the lesson gate.
+    if (tutorial == null)
+      return _practiced ? 'Practice again' : 'Start practice';
+    if (tutorial.hasCompletedLesson(widget.movement.name)) {
+      return _practiced ? 'Practice again' : 'Start practice';
+    }
+    return 'Learn movement';
   }
 
   void _startPractice([TrainingProp? prop]) {
@@ -160,7 +172,7 @@ class _MovementCardState extends State<MovementCard>
           button: cardInteractive,
           enabled: interactive,
           label:
-              '${widget.movement.name}. $_statusLabel. $statsLabel. $_actionLabel',
+              '${widget.movement.name}. $_statusLabel. $statsLabel. ${_actionLabel(context)}',
           child: FocusableActionDetector(
             enabled: cardInteractive,
             onShowFocusHighlight: _setFocused,
@@ -433,7 +445,7 @@ class _MovementCardState extends State<MovementCard>
             _buildPropChoiceActions(context)
           else
             _ActionButton(
-              label: _actionLabel,
+              label: _actionLabel(context),
               enabled: _enabled,
               accent: _accent,
               fullWidth: true,

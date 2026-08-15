@@ -22,14 +22,20 @@ enum TrainingSessionPhase {
   BuildContext context,
 ) {
   return switch (phase) {
-    TrainingSessionPhase.ready => (context.elixTextSecondary, 'Ready'),
+    TrainingSessionPhase.ready => (
+      context.elixTextSecondary,
+      'Ready to set up',
+    ),
     TrainingSessionPhase.preparingCamera => (
       AppColors.warning,
-      'Preparing Camera',
+      'Opening camera',
     ),
-    TrainingSessionPhase.readiness => (AppColors.accent, 'Readiness Check'),
-    TrainingSessionPhase.getReady => (AppColors.primary, 'Get Ready'),
-    TrainingSessionPhase.inProgress => (AppColors.success, 'In Progress'),
+    TrainingSessionPhase.readiness => (AppColors.accent, 'Visibility check'),
+    TrainingSessionPhase.getReady => (AppColors.primary, 'Countdown'),
+    TrainingSessionPhase.inProgress => (
+      AppColors.success,
+      'Practice in progress',
+    ),
     TrainingSessionPhase.completed => (AppColors.success, 'Completed'),
     TrainingSessionPhase.cameraError => (AppColors.error, 'Camera Error'),
   };

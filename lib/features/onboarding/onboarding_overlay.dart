@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/settings_service.dart';
+import '../../services/tutorial_progress_service.dart';
 
 class _OnboardingStep {
   const _OnboardingStep({
@@ -26,40 +27,28 @@ class OnboardingOverlay {
 
   static const steps = <_OnboardingStep>[
     _OnboardingStep(
-      title: 'Welcome to ELIXR',
+      title: 'Prepare your space',
       description:
-          'Train flair bartending with real-time coaching that guides your form as you practice.',
-      icon: FluentIcons.rocket,
+          'Use a clear space and a safe practice prop. Keep people and breakable items out of the way.',
+      icon: FluentIcons.shield,
     ),
     _OnboardingStep(
-      title: 'Movements',
+      title: 'Learn before the camera',
       description:
-          'Browse the difficulty-tiered movement library — Easy, Medium, and Hard — and pick what to learn next.',
+          'Choose a movement lesson first. It shows the prop, camera framing, steps, and common mistakes.',
       icon: FluentIcons.exercise_tracker,
     ),
     _OnboardingStep(
-      title: 'Live Practice',
+      title: 'Camera setup comes first',
       description:
-          'Get real-time computer-vision feedback through your webcam during training sessions.',
+          'ELIXR checks visibility only. Setup is not scored. After it is ready, a countdown leads into practice.',
       icon: FluentIcons.video,
     ),
     _OnboardingStep(
-      title: 'Progress & Calendar',
+      title: 'Understand your score',
       description:
-          'Track movement mastery and daily practice consistency so you can see how far you have come.',
-      icon: FluentIcons.calendar,
-    ),
-    _OnboardingStep(
-      title: 'Leaderboard & Achievements',
-      description:
-          'Earn XP, unlock achievements, and compete with other flair bartenders.',
+          'ELIXR scores Technique, Stability, Completion, and Prop Positioning from 0 to 3. A confirmed hold completes the movement.',
       icon: FluentIcons.trophy,
-    ),
-    _OnboardingStep(
-      title: 'Settings',
-      description:
-          'Set up your camera and adjust appearance and accessibility options to fit how you train.',
-      icon: FluentIcons.settings,
     ),
   ];
 
@@ -92,9 +81,13 @@ class _OnboardingOverlayBodyState extends State<_OnboardingOverlayBody> {
     if (_closing) return;
     _closing = true;
     try {
+      final tutorial = context.read<TutorialProgressService>();
       final settings = context.read<SettingsService>();
+      final navigator = Navigator.of(context);
+      await tutorial.completeOnboarding();
       await settings.setHasSeenOnboarding(true);
-      if (mounted) Navigator.of(context).pop();
+      if (!mounted) return;
+      navigator.pop();
     } finally {
       _closing = false;
     }
@@ -118,6 +111,9 @@ class _OnboardingOverlayBodyState extends State<_OnboardingOverlayBody> {
   Widget build(BuildContext context) {
     final step = OnboardingOverlay.steps[_stepIndex];
     final progressLabel = '${_stepIndex + 1} of $_stepCount';
+    // Keep secondary and primary actions visually balanced. The final label
+    // needs more room, so both controls grow together on that step.
+    final actionWidth = _isLastStep ? 180.0 : 112.0;
 
     return ElixDialog(
       title: step.title,
@@ -144,23 +140,24 @@ class _OnboardingOverlayBodyState extends State<_OnboardingOverlayBody> {
       actions: [
         Row(
           children: [
-            HyperlinkButton(
-              onPressed: _closing ? null : _completeAndClose,
-              child: Text(
-                'Skip',
-                style: TextStyle(color: context.elixTextSecondary),
+            const Spacer(),
+            SizedBox(
+              width: actionWidth,
+              height: 56,
+              child: Button(
+                onPressed: (_stepIndex == 0 || _closing) ? null : _goBack,
+                child: const Text('Back'),
               ),
             ),
-            const Spacer(),
-            Button(
-              onPressed: (_stepIndex == 0 || _closing) ? null : _goBack,
-              child: const Text('Back'),
-            ),
             const SizedBox(width: AppSpacing.sm),
-            ElixPrimaryButton(
-              label: _isLastStep ? 'Get Started' : 'Next',
-              expanded: false,
-              onPressed: _closing ? null : _goNext,
+            SizedBox(
+              width: actionWidth,
+              height: 56,
+              child: ElixPrimaryButton(
+                label: _isLastStep ? 'Go to Dashboard' : 'Next',
+                expanded: false,
+                onPressed: _closing ? null : _goNext,
+              ),
             ),
           ],
         ),

@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/app_colors.dart';
 import '../../core/constants/movements.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/utils/user_name.dart';
 import '../../data/models/session.dart';
@@ -12,9 +14,11 @@ import '../../data/repositories/progress_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import '../../services/tutorial_progress_service.dart';
 import '../calendar/utils/calendar_metrics.dart';
 import '../progress/training_recommendation.dart';
 import 'widgets/dashboard_calendar_card.dart';
+import 'widgets/dashboard_panel_card.dart';
 import 'widgets/dashboard_hero.dart';
 import 'widgets/dashboard_leaderboard.dart';
 import 'widgets/dashboard_quest_card.dart';
@@ -294,6 +298,10 @@ class _MainColumn extends StatelessWidget {
           recommendation: trainingRecommendation,
         ),
         const SizedBox(height: 18),
+        if (stats?.totalSessions == 0) ...[
+          const _QuickStartCard(),
+          const SizedBox(height: 18),
+        ],
         RecommendedPracticeCard(
           recommendation: trainingRecommendation,
           loading: recommendationLoading,
@@ -311,6 +319,126 @@ class _MainColumn extends StatelessWidget {
           profilePictureUrl: profilePictureUrl,
         ),
       ],
+    );
+  }
+}
+
+class _QuickStartCard extends StatelessWidget {
+  const _QuickStartCard();
+  @override
+  Widget build(BuildContext context) {
+    final tutorial = context.watch<TutorialProgressService>();
+    return DashboardPanelCard(
+      accent: AppColors.primary,
+      showAccentBar: true,
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 12, AppSpacing.md, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  FluentIcons.rocket,
+                  size: 14,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'QUICK START',
+                      style: AppTheme.caption.copyWith(
+                        letterSpacing: 0.8,
+                        fontWeight: FontWeight.w700,
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Complete your first session',
+                      style: AppTheme.headingMedium.copyWith(fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _QuickStartStep(
+            label: 'Learn one Easy movement',
+            complete: tutorial.hasCompletedLesson('Normal Grip'),
+          ),
+          _QuickStartStep(
+            label: 'Complete camera setup',
+            complete: tutorial.firstCameraSetupComplete,
+          ),
+          const _QuickStartStep(
+            label: 'Complete and save a guided session',
+            complete: false,
+          ),
+          const SizedBox(height: 6),
+          HyperlinkButton(
+            onPressed: () => context.go(
+              '/learn/movement/Normal%20Grip?difficulty=Easy&prop=bottle',
+            ),
+            child: const Text('Learn Normal Grip'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickStartStep extends StatelessWidget {
+  const _QuickStartStep({required this.label, required this.complete});
+  final String label;
+  final bool complete;
+  @override
+  Widget build(BuildContext context) {
+    final color = complete ? AppColors.success : context.elixTextSecondary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: complete ? 0.16 : 0.08),
+              border: Border.all(color: color.withValues(alpha: 0.45)),
+              shape: BoxShape.circle,
+            ),
+            child: complete
+                ? const Icon(
+                    FluentIcons.check_mark,
+                    size: 9,
+                    color: AppColors.success,
+                  )
+                : null,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: complete
+                  ? context.elixTextSecondary
+                  : context.elixTextPrimary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

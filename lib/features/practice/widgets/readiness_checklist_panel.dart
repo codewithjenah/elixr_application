@@ -123,7 +123,7 @@ class ReadinessChecklistPanel extends StatelessWidget {
     return Row(
       children: [
         Semantics(
-          label: 'Readiness Check',
+          label: 'Visibility check only — not scored',
           child: Text(
             'Setup Check',
             style: AppTheme.bodySecondary.copyWith(

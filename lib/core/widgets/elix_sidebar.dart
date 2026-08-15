@@ -65,6 +65,12 @@ const _sidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
+    label: 'Help & Tutorials',
+    icon: FluentIcons.education,
+    route: '/learn',
+    group: SidebarGroup.training,
+  ),
+  SidebarItem(
     label: 'Coaching',
     icon: FluentIcons.chat,
     route: '/coaching',
