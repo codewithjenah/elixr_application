@@ -66,30 +66,60 @@ class _TitleBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'TRAINING LIBRARY',
-          style: TextStyle(
-            color: AppColors.primary,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 2.2,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Movements',
-          style: AppTheme.brandTitle(
-            fontSize: 34,
-            color: context.elixTextPrimary,
-          ).copyWith(letterSpacing: -0.5),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Build your flair foundation, sharpen your control, and master every level.',
-          style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
-            height: 1.45,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(
+                  alpha: context.isDarkTheme ? 0.18 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.26),
+                ),
+              ),
+              child: const Icon(
+                FluentIcons.more_sports,
+                size: 20,
+                color: AppColors.accentSoft,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'TRAINING LIBRARY',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2.2,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Movements',
+                    style: AppTheme.brandTitle(
+                      fontSize: 34,
+                      color: context.elixTextPrimary,
+                    ).copyWith(letterSpacing: -0.5),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Build your flair foundation, sharpen your control, and master every level.',
+                    style: AppTheme.bodySecondary.copyWith(
+                      color: context.elixTextSecondary,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );

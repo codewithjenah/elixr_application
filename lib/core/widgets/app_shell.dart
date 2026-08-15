@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -21,6 +21,33 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   bool _sidebarCollapsed = false;
   bool _onboardingShown = false;
+
+  Future<void> _confirmAndLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Log out?'),
+        content: const Text(
+          'Are you sure you want to log out of your ELIXR account?',
+        ),
+        actions: [
+          Button(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          FilledButton(
+            child: const Text('Log out'),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout != true || !mounted) return;
+
+    await context.read<AuthService>().logout();
+    if (mounted) context.go('/login');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,10 +78,7 @@ class _AppShellState extends State<AppShell> {
             isCollapsed: _sidebarCollapsed,
             onToggleCollapse: () =>
                 setState(() => _sidebarCollapsed = !_sidebarCollapsed),
-            onLogout: () async {
-              await context.read<AuthService>().logout();
-              if (context.mounted) context.go('/login');
-            },
+            onLogout: _confirmAndLogout,
           ),
           Expanded(child: ClipRect(child: widget.child)),
         ],

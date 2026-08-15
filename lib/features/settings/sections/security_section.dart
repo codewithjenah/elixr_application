@@ -775,16 +775,25 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
         ],
       ),
       actions: [
-        Button(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+        SizedBox(
+          width: 160,
+          height: 52,
+          child: Button(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
         ),
-        ElixPrimaryButton(
-          label: 'Delete account',
-          expanded: false,
-          onPressed: _canSubmit
-              ? () => Navigator.of(context).pop(_passwordController.text)
-              : null,
+        SizedBox(
+          width: 160,
+          height: 52,
+          child: ElixPrimaryButton(
+            label: 'Delete account',
+            dense: true,
+            expanded: false,
+            onPressed: _canSubmit
+                ? () => Navigator.of(context).pop(_passwordController.text)
+                : null,
+          ),
         ),
       ],
     );

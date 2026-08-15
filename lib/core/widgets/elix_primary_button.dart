@@ -8,6 +8,7 @@ class ElixPrimaryButton extends StatefulWidget {
     super.key,
     required this.label,
     required this.onPressed,
+    this.icon,
     this.isLoading = false,
     this.expanded = true,
     this.dense = false,
@@ -15,6 +16,7 @@ class ElixPrimaryButton extends StatefulWidget {
 
   final String label;
   final VoidCallback? onPressed;
+  final IconData? icon;
   final bool isLoading;
   final bool expanded;
   final bool dense;
@@ -91,12 +93,29 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
                       height: 20,
                       child: ProgressRing(strokeWidth: 2),
                     )
-                  : Text(
-                      widget.label,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.icon != null) ...[
+                            Icon(
+                              widget.icon,
+                              size: 16,
+                              color: AppColors.textPrimary,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                          ],
+                          Text(
+                            widget.label,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
             ),

@@ -28,10 +28,11 @@ class MovementLessonScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final item = movementCatalog.where((m) => m.name == movement).firstOrNull;
-    if (item == null)
+    if (item == null) {
       return const ElixScaffoldPage(
         content: Center(child: Text('This movement is not available.')),
       );
+    }
     final lesson = MovementLesson.forMovement(item);
     return ElixScaffoldPage(
       content: SingleChildScrollView(
@@ -58,6 +59,8 @@ class MovementLessonScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _Header(movement: item.name, difficulty: item.difficulty),
+                    const SizedBox(height: AppSpacing.md),
+                    _Actions(item: item, difficulty: difficulty, prop: prop),
                     const SizedBox(height: AppSpacing.lg),
                     if (wide)
                       Row(
@@ -75,35 +78,37 @@ class MovementLessonScreen extends StatelessWidget {
                     ],
                     const SizedBox(height: AppSpacing.md),
                     if (wide)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: _Panel(
-                              eyebrow: 'SUCCESS TARGET',
-                              title: 'What good looks like',
-                              icon: FluentIcons.completed,
-                              accent: AppColors.success,
-                              child: Text(
-                                lesson.successTarget,
-                                style: AppTheme.body.copyWith(height: 1.4),
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: _Panel(
+                                eyebrow: 'SUCCESS TARGET',
+                                title: 'What good looks like',
+                                icon: FluentIcons.completed,
+                                accent: AppColors.success,
+                                child: Text(
+                                  lesson.successTarget,
+                                  style: AppTheme.body.copyWith(height: 1.4),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: _Panel(
-                              eyebrow: 'AVOID THIS',
-                              title: 'Common mistake',
-                              icon: FluentIcons.error_badge,
-                              accent: AppColors.warning,
-                              child: Text(
-                                lesson.commonMistake,
-                                style: AppTheme.body.copyWith(height: 1.4),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: _Panel(
+                                eyebrow: 'AVOID THIS',
+                                title: 'Common mistake',
+                                icon: FluentIcons.error_badge,
+                                accent: AppColors.warning,
+                                child: Text(
+                                  lesson.commonMistake,
+                                  style: AppTheme.body.copyWith(height: 1.4),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       )
                     else ...[
                       _Panel(
@@ -143,8 +148,6 @@ class MovementLessonScreen extends StatelessWidget {
                     ],
                     const SizedBox(height: AppSpacing.md),
                     const RubricGuide(compact: true),
-                    const SizedBox(height: AppSpacing.lg),
-                    _Actions(item: item, difficulty: difficulty, prop: prop),
                   ],
                 );
               },
@@ -400,27 +403,40 @@ class _Actions extends StatelessWidget {
     builder: (context, c) {
       final stacked = c.maxWidth < 520;
       final back = SizedBox(
-        width: stacked ? double.infinity : 210,
+        width: stacked ? double.infinity : 220,
         height: 52,
         child: Button(
           onPressed: () => context.go('/learn'),
-          child: const Text('Back to tutorials'),
+          child: const FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(FluentIcons.back, size: 16),
+                SizedBox(width: AppSpacing.sm),
+                Text('Back to tutorials'),
+              ],
+            ),
+          ),
         ),
       );
       final start = SizedBox(
-        width: stacked ? double.infinity : 210,
+        width: stacked ? double.infinity : 260,
         height: 52,
         child: ElixPrimaryButton(
           label: 'Start guided practice',
+          icon: FluentIcons.play_solid,
           expanded: false,
+          dense: true,
           onPressed: () async {
             await context.read<TutorialProgressService>().completeLesson(
               item.name,
             );
-            if (context.mounted)
+            if (context.mounted) {
               context.go(
                 '/practice?movement=${Uri.encodeComponent(item.name)}&difficulty=$difficulty&prop=${prop.protocolValue}',
               );
+            }
           },
         ),
       );
