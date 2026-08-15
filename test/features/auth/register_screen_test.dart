@@ -221,6 +221,8 @@ void main() {
   Future<void> fillValidRegistrationForm(WidgetTester tester) async {
     await _enterAuthField(tester, 'First name', 'Ada');
     await _enterAuthField(tester, 'Last name', 'Lovelace');
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
     await _enterAuthField(tester, 'Email address', 'ada@example.com');
     await _enterAuthField(tester, 'Password', 'secret1');
     await _enterAuthField(tester, 'Confirm password', 'secret1');
@@ -236,28 +238,34 @@ void main() {
 
         await _enterAuthField(tester, 'First name', 'Ada');
         await _enterAuthField(tester, 'Last name', 'Lovelace');
+        await tester.tap(find.text('Continue'));
+        await tester.pump();
         await _enterAuthField(tester, 'Email address', 'ada@example.com');
         await _enterAuthField(tester, 'Password', 'secret1');
         await _enterAuthField(tester, 'Confirm password', 'secret1');
         await tester.pump();
 
         final disabled = tester.widget<ElixPrimaryButton>(
-          find.byType(ElixPrimaryButton),
+          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
         );
         expect(disabled.onPressed, isNull);
 
-        await tester.tap(find.byType(ElixPrimaryButton));
+        await tester.tap(
+          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+        );
         await tester.pump();
         expect(repository.registerCallCount, 0);
 
         await checkPrivacyConsent(tester);
 
         final enabled = tester.widget<ElixPrimaryButton>(
-          find.byType(ElixPrimaryButton),
+          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
         );
         expect(enabled.onPressed, isNotNull);
 
-        await tester.tap(find.byType(ElixPrimaryButton));
+        await tester.tap(
+          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+        );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
 
@@ -269,11 +277,7 @@ void main() {
       await _setSurface(tester);
       await pumpRegisterScreen(tester);
 
-      await _enterAuthField(tester, 'Email address', 'ada@example.com');
-      await _enterAuthField(tester, 'Password', 'secret1');
-      await _enterAuthField(tester, 'Confirm password', 'secret1');
-      await checkPrivacyConsent(tester);
-      await tester.tap(find.byType(ElixPrimaryButton));
+      await tester.tap(find.text('Continue'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -304,11 +308,15 @@ void main() {
         await _enterAuthField(tester, 'First name', '  Ada   Marie  ');
         await _enterAuthField(tester, 'Middle name (optional)', '  Augusta  ');
         await _enterAuthField(tester, 'Last name', '  Lovelace  ');
+        await tester.tap(find.text('Continue'));
+        await tester.pump();
         await _enterAuthField(tester, 'Email address', ' ada@example.com ');
         await _enterAuthField(tester, 'Password', 'secret1');
         await _enterAuthField(tester, 'Confirm password', 'secret1');
         await checkPrivacyConsent(tester);
-        await tester.tap(find.byType(ElixPrimaryButton));
+        await tester.tap(
+          find.widgetWithText(ElixPrimaryButton, 'Create Account'),
+        );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
 
@@ -321,32 +329,47 @@ void main() {
       },
     );
 
-    testWidgets('arranges all register fields vertically at full width', (
-      tester,
-    ) async {
-      await _setSurface(tester, size: const Size(1366, 768));
-      await pumpRegisterScreen(tester);
+    testWidgets(
+      'keeps each registration step vertically arranged at full width',
+      (tester) async {
+        await _setSurface(tester, size: const Size(1366, 768));
+        await pumpRegisterScreen(tester);
 
-      double? previousBottom;
-      double? referenceWidth;
-      for (final placeholder in _registerFieldPlaceholders) {
-        final rect = tester.getRect(_authField(placeholder));
-        referenceWidth ??= rect.width;
-        expect(rect.width, closeTo(referenceWidth, 2));
-        if (previousBottom != null) {
-          expect(rect.top, greaterThanOrEqualTo(previousBottom - 1));
+        double? previousBottom;
+        double? referenceWidth;
+        for (final placeholder in _registerFieldPlaceholders.take(3)) {
+          final rect = tester.getRect(_authField(placeholder));
+          referenceWidth ??= rect.width;
+          expect(rect.width, closeTo(referenceWidth, 2));
+          if (previousBottom != null) {
+            expect(rect.top, greaterThanOrEqualTo(previousBottom - 1));
+          }
+          previousBottom = rect.bottom;
         }
-        previousBottom = rect.bottom;
-      }
 
-      final rowFinder = find.descendant(
-        of: find.byKey(const Key('register_form_fields')),
-        matching: find.byType(Row),
-      );
-      for (final rowElement in tester.elementList(rowFinder)) {
-        expect(_rowPairsRegisterFields(rowElement), isFalse);
-      }
-    });
+        final rowFinder = find.descendant(
+          of: find.byKey(const Key('register_form_fields')),
+          matching: find.byType(Row),
+        );
+        for (final rowElement in tester.elementList(rowFinder)) {
+          expect(_rowPairsRegisterFields(rowElement), isFalse);
+        }
+        await _enterAuthField(tester, 'First name', 'Ada');
+        await _enterAuthField(tester, 'Last name', 'Lovelace');
+        await tester.tap(find.text('Continue'));
+        await tester.pump(const Duration(milliseconds: 150));
+        for (final placeholder in _registerFieldPlaceholders.skip(3)) {
+          expect(_authField(placeholder), findsOneWidget);
+        }
+        await tester.tap(find.text('Back'));
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(_authField('First name'), findsOneWidget);
+        expect(
+          tester.widget<TextBox>(_authField('First name')).controller?.text,
+          'Ada',
+        );
+      },
+    );
 
     testWidgets('does not overflow at a representative laptop size', (
       tester,
@@ -377,7 +400,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(RegisterScreen), findsOneWidget);
-      for (final placeholder in _registerFieldPlaceholders) {
+      for (final placeholder in _registerFieldPlaceholders.take(3)) {
         expect(_authField(placeholder), findsOneWidget);
       }
     });

@@ -72,6 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           AuthTextField(
             controller: _emailController,
+            label: 'Email address',
             placeholder: 'Email address',
             icon: FluentIcons.mail_solid,
             keyboardType: TextInputType.emailAddress,
@@ -79,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: AppSpacing.sm + 4),
           AuthTextField(
             controller: _passwordController,
+            label: 'Password',
             placeholder: 'Password',
             icon: FluentIcons.lock_solid,
             obscureText: true,

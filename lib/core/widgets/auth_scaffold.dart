@@ -161,55 +161,58 @@ class _BrandPanel extends StatelessWidget {
         return Stack(
           fit: StackFit.expand,
           children: [
-              if (!highContrast) CustomPaint(
+            if (!highContrast)
+              CustomPaint(
                 painter: _DotGridPainter(
                   color: AppColors.primary.withValues(
                     alpha: isDark ? 0.035 : 0.05,
                   ),
                 ),
               ),
-              if (!highContrast) _Orb(
+            if (!highContrast)
+              _Orb(
                 top: 40 + math.sin(t) * 20,
                 left: -60,
                 size: 220,
                 color: AppColors.primary.withValues(alpha: 0.20),
               ),
-              if (!highContrast) _Orb(
+            if (!highContrast)
+              _Orb(
                 bottom: 80 + math.cos(t) * 16,
                 right: -40,
                 size: 200,
                 color: AppColors.accent.withValues(alpha: 0.18),
               ),
-              if (overlay == null)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xxl),
-                    child: _BrandContent(title: title, subtitle: subtitle),
-                  ),
-                )
-              else
-                SafeArea(
-                  child: Column(
-                    children: [
-                      const SizedBox(height: AppSpacing.xl),
-                      _BrandContent(
-                        title: title,
-                        subtitle: subtitle,
-                        compact: true,
-                      ),
-                      const Spacer(),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          0,
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                        ),
-                        child: overlay!,
-                      ),
-                    ],
-                  ),
+            if (overlay == null)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.xxl),
+                  child: _BrandContent(title: title, subtitle: subtitle),
                 ),
+              )
+            else
+              SafeArea(
+                child: Column(
+                  children: [
+                    const SizedBox(height: AppSpacing.xl),
+                    _BrandContent(
+                      title: title,
+                      subtitle: subtitle,
+                      compact: true,
+                    ),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        0,
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                      ),
+                      child: overlay!,
+                    ),
+                  ],
+                ),
+              ),
           ],
         );
       },
@@ -584,35 +587,7 @@ class _BrandContent extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: compact ? 52 : 64,
-          height: compact ? 52 : 64,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppColors.primary, AppColors.primarySoft],
-            ),
-            borderRadius: BorderRadius.circular(compact ? 14 : 18),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              'E',
-              style: AppTheme.headingLarge.copyWith(
-                color: Colors.white,
-                fontSize: compact ? 26 : 32,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
+        BottleFlairMark(size: compact ? 64 : 88),
         SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
         Text(
           AppConstants.appName,
@@ -665,6 +640,125 @@ class _BrandContent extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Code-drawn bottle silhouette used across entry points without an image asset.
+class BottleFlairMark extends StatelessWidget {
+  const BottleFlairMark({super.key, this.size = 88, this.glow = true});
+
+  final double size;
+  final bool glow;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _BottleFlairPainter(
+          bottleColor: highContrast
+              ? context.elixTextPrimary
+              : AppColors.primary,
+          trailColor: highContrast ? context.elixTextPrimary : AppColors.accent,
+          glow: glow && !highContrast,
+        ),
+      ),
+    );
+  }
+}
+
+class _BottleFlairPainter extends CustomPainter {
+  const _BottleFlairPainter({
+    required this.bottleColor,
+    required this.trailColor,
+    required this.glow,
+  });
+
+  final Color bottleColor;
+  final Color trailColor;
+  final bool glow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * .53, size.height * .54);
+    final scale = size.shortestSide / 88;
+    final trail = Paint()
+      ..color = trailColor.withValues(alpha: .62)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3 * scale
+      ..strokeCap = StrokeCap.round;
+    final trailPath = Path()
+      ..moveTo(size.width * .12, size.height * .68)
+      ..cubicTo(
+        size.width * .05,
+        size.height * .18,
+        size.width * .78,
+        size.height * .06,
+        size.width * .88,
+        size.height * .35,
+      )
+      ..cubicTo(
+        size.width * .96,
+        size.height * .56,
+        size.width * .78,
+        size.height * .76,
+        size.width * .66,
+        size.height * .8,
+      );
+    canvas.drawPath(trailPath, trail);
+    final bottle = Path()
+      ..moveTo(center.dx - 7 * scale, center.dy - 29 * scale)
+      ..lineTo(center.dx + 7 * scale, center.dy - 29 * scale)
+      ..lineTo(center.dx + 6 * scale, center.dy - 17 * scale)
+      ..cubicTo(
+        center.dx + 17 * scale,
+        center.dy - 10 * scale,
+        center.dx + 19 * scale,
+        center.dy + 4 * scale,
+        center.dx + 13 * scale,
+        center.dy + 20 * scale,
+      )
+      ..cubicTo(
+        center.dx + 8 * scale,
+        center.dy + 31 * scale,
+        center.dx - 10 * scale,
+        center.dy + 31 * scale,
+        center.dx - 15 * scale,
+        center.dy + 20 * scale,
+      )
+      ..cubicTo(
+        center.dx - 21 * scale,
+        center.dy + 4 * scale,
+        center.dx - 18 * scale,
+        center.dy - 10 * scale,
+        center.dx - 6 * scale,
+        center.dy - 17 * scale,
+      )
+      ..close();
+    if (glow) {
+      canvas.drawPath(
+        bottle,
+        Paint()
+          ..color = bottleColor.withValues(alpha: .25)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+      );
+    }
+    canvas.drawPath(bottle, Paint()..color = bottleColor);
+    canvas.drawLine(
+      Offset(center.dx - 7 * scale, center.dy - 25 * scale),
+      Offset(center.dx + 7 * scale, center.dy - 25 * scale),
+      Paint()
+        ..color = Colors.white.withValues(alpha: .8)
+        ..strokeWidth = 1.2 * scale,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BottleFlairPainter oldDelegate) =>
+      oldDelegate.bottleColor != bottleColor ||
+      oldDelegate.trailColor != trailColor ||
+      oldDelegate.glow != glow;
 }
 
 class _FeatureRow extends StatelessWidget {

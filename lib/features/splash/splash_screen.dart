@@ -7,6 +7,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/auth_scaffold.dart' show BottleFlairMark;
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({
@@ -35,6 +36,7 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<double> _pulseScale;
 
   bool _animationDone = false;
+  bool _completionScheduled = false;
 
   @override
   void initState() {
@@ -100,7 +102,8 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   void _tryFinish() {
-    if (_animationDone && widget.authReady) {
+    if (_animationDone && widget.authReady && !_completionScheduled) {
+      _completionScheduled = true;
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) widget.onFinished();
       });
@@ -264,7 +267,7 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ],
       ),
-      child: const Icon(FluentIcons.brightness, size: 48, color: Colors.white),
+      child: const Center(child: BottleFlairMark(size: 76, glow: false)),
     );
   }
 

@@ -52,15 +52,18 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
+    final auth = context.watch<AuthService>();
     final settings = context.watch<SettingsService>();
     final tutorials = context.watch<TutorialProgressService>();
 
-    if (settings.isInitialized &&
+    if (auth.isAuthenticated &&
+        settings.isInitialized &&
         tutorials.isInitialized &&
         !tutorials.onboardingComplete &&
         !_onboardingShown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _onboardingShown) return;
+        if (!context.read<AuthService>().isAuthenticated) return;
         if (!context.read<SettingsService>().isInitialized) return;
         if (context.read<TutorialProgressService>().onboardingComplete) return;
         _onboardingShown = true;

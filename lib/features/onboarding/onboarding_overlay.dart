@@ -56,6 +56,10 @@ class OnboardingOverlay {
   static Future<void> show(BuildContext context) {
     return showDialog<void>(
       context: context,
+      // Keep onboarding owned by the authenticated shell navigator. When the
+      // shell is removed on logout, its modal route is removed with it instead
+      // of lingering on the root navigator above the login page.
+      useRootNavigator: false,
       barrierDismissible: false,
       barrierColor: const Color(0xCC000000),
       builder: (ctx) => const Center(child: _OnboardingOverlayBody()),

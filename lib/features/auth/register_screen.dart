@@ -28,6 +28,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _agreedToLegal = false;
   bool _isLoading = false;
   String? _error;
+  int _step = 0;
 
   @override
   void dispose() {
@@ -40,18 +41,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  Future<void> _register() async {
-    if (!_agreedToLegal) return;
-
+  bool _validatePersonalDetails() {
     final nameError = validateUserNameParts(
       firstName: _firstNameController.text,
       middleName: _middleNameController.text,
       lastName: _lastNameController.text,
     );
-    if (nameError != null) {
-      setState(() => _error = nameError);
-      return;
-    }
+    if (nameError == null) return true;
+    setState(() => _error = nameError);
+    return false;
+  }
+
+  void _continueToAccount() {
+    if (!_validatePersonalDetails()) return;
+    setState(() {
+      _step = 1;
+      _error = null;
+    });
+  }
+
+  Future<void> _register() async {
+    if (!_agreedToLegal) return;
+    if (!_validatePersonalDetails()) return;
 
     if (_passwordController.text != _confirmController.text) {
       setState(() => _error = 'Passwords do not match');
@@ -101,80 +112,116 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     return AuthScaffold(
       formOnLeft: true,
-      title: 'Create Account',
+      title: 'Train with intention',
       subtitle: 'Start your flair training journey',
-      formTitle: 'Register',
-      formSubtitle: 'Set up your trainee profile',
+      formTitle: _step == 0 ? 'Create your profile' : 'Secure your account',
+      formSubtitle: _step == 0
+          ? 'Tell us how to address you.'
+          : 'Use an email and password to finish setup.',
       formVerticalCompact: verticalCompact,
       formVerticalTight: verticalTight,
       child: Column(
         key: const Key('register_form_fields'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AuthTextField(
-            controller: _firstNameController,
-            placeholder: 'First name',
-            icon: FluentIcons.contact,
-            dense: dense,
-          ),
-          SizedBox(height: fieldGap),
-          AuthTextField(
-            controller: _middleNameController,
-            placeholder: 'Middle name (optional)',
-            icon: FluentIcons.contact,
-            dense: dense,
-          ),
-          SizedBox(height: fieldGap),
-          AuthTextField(
-            controller: _lastNameController,
-            placeholder: 'Last name',
-            icon: FluentIcons.contact,
-            dense: dense,
-          ),
-          SizedBox(height: fieldGap),
-          AuthTextField(
-            controller: _emailController,
-            placeholder: 'Email address',
-            icon: FluentIcons.mail_solid,
-            keyboardType: TextInputType.emailAddress,
-            dense: dense,
-          ),
-          SizedBox(height: fieldGap),
-          AuthTextField(
-            controller: _passwordController,
-            placeholder: 'Password',
-            icon: FluentIcons.lock_solid,
-            obscureText: true,
-            helperText: 'At least 6 characters',
-            dense: dense,
-          ),
-          SizedBox(height: fieldGap),
-          AuthTextField(
-            controller: _confirmController,
-            placeholder: 'Confirm password',
-            icon: FluentIcons.shield_solid,
-            obscureText: true,
-            onSubmitted: (_) {
-              if (_agreedToLegal) _register();
-            },
-            dense: dense,
-          ),
-          SizedBox(height: fieldGap),
-          _RegisterLegalConsent(
-            agreed: _agreedToLegal,
-            onChanged: (value) => setState(() => _agreedToLegal = value),
-          ),
+          _RegistrationProgress(step: _step),
+          SizedBox(height: actionGap),
+          if (_step == 0) ...[
+            AuthTextField(
+              controller: _firstNameController,
+              label: 'First name',
+              placeholder: 'First name',
+              icon: FluentIcons.contact,
+              dense: dense,
+            ),
+            SizedBox(height: fieldGap),
+            AuthTextField(
+              controller: _middleNameController,
+              label: 'Middle name (optional)',
+              placeholder: 'Middle name (optional)',
+              icon: FluentIcons.contact,
+              dense: dense,
+            ),
+            SizedBox(height: fieldGap),
+            AuthTextField(
+              controller: _lastNameController,
+              label: 'Last name',
+              placeholder: 'Last name',
+              icon: FluentIcons.contact,
+              dense: dense,
+            ),
+          ] else ...[
+            AuthTextField(
+              controller: _emailController,
+              label: 'Email address',
+              placeholder: 'Email address',
+              icon: FluentIcons.mail_solid,
+              keyboardType: TextInputType.emailAddress,
+              dense: dense,
+            ),
+            SizedBox(height: fieldGap),
+            AuthTextField(
+              controller: _passwordController,
+              label: 'Password',
+              placeholder: 'Password',
+              icon: FluentIcons.lock_solid,
+              obscureText: true,
+              helperText: 'At least 6 characters',
+              dense: dense,
+            ),
+            SizedBox(height: fieldGap),
+            AuthTextField(
+              controller: _confirmController,
+              label: 'Confirm password',
+              placeholder: 'Confirm password',
+              icon: FluentIcons.shield_solid,
+              obscureText: true,
+              onSubmitted: (_) {
+                if (_agreedToLegal) _register();
+              },
+              dense: dense,
+            ),
+            SizedBox(height: fieldGap),
+            _RegisterLegalConsent(
+              agreed: _agreedToLegal,
+              onChanged: (value) => setState(() => _agreedToLegal = value),
+            ),
+          ],
           if (_error != null) ...[
             SizedBox(height: actionGap),
             AuthErrorBanner(message: _error!),
           ],
           SizedBox(height: actionGap),
-          ElixPrimaryButton(
-            label: 'Create Account',
-            isLoading: _isLoading,
-            onPressed: _agreedToLegal ? _register : null,
-            dense: dense,
-          ),
+          if (_step == 0)
+            ElixPrimaryButton(
+              label: 'Continue',
+              onPressed: _continueToAccount,
+              dense: dense,
+            )
+          else ...[
+            Row(
+              children: [
+                Button(
+                  onPressed: _isLoading
+                      ? null
+                      : () => setState(() {
+                          _step = 0;
+                          _error = null;
+                        }),
+                  child: const Text('Back'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: ElixPrimaryButton(
+                    label: 'Create Account',
+                    isLoading: _isLoading,
+                    onPressed: _agreedToLegal ? _register : null,
+                    dense: dense,
+                  ),
+                ),
+              ],
+            ),
+          ],
           SizedBox(height: verticalTight ? AppSpacing.xs : AppSpacing.sm),
           Center(
             child: AuthFooterLink(
@@ -185,6 +232,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RegistrationProgress extends StatelessWidget {
+  const _RegistrationProgress({required this.step});
+  final int step;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget segment(String label, int index) {
+      final active = index <= step;
+      return Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: active ? AppColors.primary : context.elixBorder,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '${index + 1}. $label',
+              style: AppTheme.caption.copyWith(
+                color: active
+                    ? context.elixTextPrimary
+                    : context.elixTextSecondary,
+                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        segment('Personal details', 0),
+        const SizedBox(width: AppSpacing.sm),
+        segment('Account & security', 1),
+      ],
     );
   }
 }

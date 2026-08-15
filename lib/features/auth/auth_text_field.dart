@@ -10,6 +10,7 @@ class AuthTextField extends StatefulWidget {
     required this.controller,
     required this.placeholder,
     required this.icon,
+    this.label,
     this.obscureText = false,
     this.keyboardType,
     this.onSubmitted,
@@ -20,6 +21,7 @@ class AuthTextField extends StatefulWidget {
   final TextEditingController controller;
   final String placeholder;
   final IconData icon;
+  final String? label;
   final bool obscureText;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onSubmitted;
@@ -47,6 +49,16 @@ class _AuthTextFieldState extends State<AuthTextField> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (widget.label != null) ...[
+          Text(
+            widget.label!,
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+        ],
         Focus(
           onFocusChange: (v) => setState(() => _focused = v),
           child: AnimatedContainer(
@@ -72,39 +84,46 @@ class _AuthTextFieldState extends State<AuthTextField> {
                     ]
                   : null,
             ),
-            child: TextBox(
-              controller: widget.controller,
-              placeholder: widget.placeholder,
-              obscureText: _obscured,
-              keyboardType: widget.keyboardType,
-              onSubmitted: widget.onSubmitted,
-              padding: EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: widget.dense ? 8 : 11,
-              ),
-              prefix: Padding(
-                padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
-                child: Icon(
-                  widget.icon,
-                  color: _focused
-                      ? AppColors.primary
-                      : context.elixTextSecondary,
-                  size: 16,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: widget.dense ? 48 : 52),
+              child: TextBox(
+                controller: widget.controller,
+                placeholder: widget.placeholder,
+                obscureText: _obscured,
+                keyboardType: widget.keyboardType,
+                onSubmitted: widget.onSubmitted,
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: widget.dense ? 8 : 11,
                 ),
-              ),
-              suffix: widget.obscureText
-                  ? IconButton(
-                      icon: Icon(
-                        _obscured ? FluentIcons.view : FluentIcons.hide,
-                        size: 15,
-                        color: context.elixTextSecondary,
-                      ),
-                      onPressed: () => setState(() => _obscured = !_obscured),
-                    )
-                  : null,
-              style: AppTheme.body.copyWith(
-                color: context.elixTextPrimary,
-                fontSize: 14,
+                prefix: Padding(
+                  padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
+                  child: Icon(
+                    widget.icon,
+                    color: _focused
+                        ? AppColors.primary
+                        : context.elixTextSecondary,
+                    size: 16,
+                  ),
+                ),
+                suffix: widget.obscureText
+                    ? Tooltip(
+                        message: _obscured ? 'Show password' : 'Hide password',
+                        child: IconButton(
+                          icon: Icon(
+                            _obscured ? FluentIcons.view : FluentIcons.hide,
+                            size: 15,
+                            color: context.elixTextSecondary,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscured = !_obscured),
+                        ),
+                      )
+                    : null,
+                style: AppTheme.body.copyWith(
+                  color: context.elixTextPrimary,
+                  fontSize: 14,
+                ),
               ),
             ),
           ),
