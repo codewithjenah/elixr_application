@@ -187,29 +187,56 @@ class _ElixSidebarState extends State<ElixSidebar> {
         ? userInitials(user!.fullName)
         : '?';
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final sidebarBase = isDark
+        ? const Color(0xFF120D1C)
+        : context.elixCardSurface;
+    final sidebarDecoration = BoxDecoration(
+      color: highContrast ? context.elixBackground : null,
+      gradient: highContrast
+          ? null
+          : LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.alphaBlend(
+                  AppColors.primary.withValues(alpha: isDark ? 0.10 : 0.045),
+                  sidebarBase,
+                ),
+                sidebarBase,
+                Color.alphaBlend(
+                  AppColors.accent.withValues(alpha: isDark ? 0.09 : 0.035),
+                  sidebarBase,
+                ),
+              ],
+              stops: const [0, 0.48, 1],
+            ),
+      border: Border(
+        right: BorderSide(
+          color: highContrast
+              ? context.elixBorder
+              : (isDark
+                    ? _purple.withValues(alpha: 0.24)
+                    : context.elixBorder.withValues(alpha: 0.9)),
+        ),
+      ),
+      boxShadow: highContrast
+          ? const []
+          : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.20 : 0.05),
+                blurRadius: 16,
+                offset: const Offset(4, 0),
+              ),
+            ],
+    );
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOutCubic,
       width: widget.isCollapsed ? _collapsedWidth : _expandedWidth,
       clipBehavior: Clip.hardEdge,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF120D1C) : context.elixCardSurface,
-        border: Border(
-          right: BorderSide(
-            color: isDark
-                ? _purple.withValues(alpha: 0.18)
-                : context.elixBorder,
-          ),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-            blurRadius: 16,
-            offset: const Offset(4, 0),
-          ),
-        ],
-      ),
+      decoration: sidebarDecoration,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final showCollapsedLayout =

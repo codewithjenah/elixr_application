@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({
@@ -117,33 +118,24 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    return FluentTheme(
-      data: AppTheme.dark,
-      child: ScaffoldPage(
-        padding: EdgeInsets.zero,
-        content: Stack(
-          fit: StackFit.expand,
-          children: [
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF0A0A0C),
-                    AppColors.background,
-                    Color(0xFF17101B),
-                  ],
+    final highContrast = context.isHighContrast;
+    final isDark = context.isDarkTheme;
+    return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
+      content: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Dot-grid background — matches AuthScaffold density for visual continuity.
+          if (!highContrast)
+            CustomPaint(
+              painter: _SplashDotGridPainter(
+                color: AppColors.primary.withValues(
+                  alpha: isDark ? 0.035 : 0.05,
                 ),
               ),
             ),
-            // Dot-grid background — matches AuthScaffold density for visual continuity.
-            CustomPaint(
-              painter: _SplashDotGridPainter(
-                color: AppColors.primary.withValues(alpha: 0.035),
-              ),
-            ),
-            // Floating ambient orbs — dual pink+purple identity.
+          // Floating ambient orbs — dual pink+purple identity.
+          if (!highContrast)
             AnimatedBuilder(
               animation: _ambientController,
               builder: (context, _) {
@@ -175,50 +167,49 @@ class _SplashScreenState extends State<SplashScreen>
                 );
               },
             ),
-            Center(
-              child: AnimatedBuilder(
-                animation: Listenable.merge([
-                  _logoController,
-                  _shimmerController,
-                  _pulseController,
-                ]),
-                builder: (context, _) {
-                  return Opacity(
-                    opacity: _logoOpacity.value,
-                    child: Transform.scale(
-                      scale: _logoScale.value,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Transform.scale(
-                            scale: _pulseScale.value,
-                            child: _buildLogoMark(),
-                          ),
-                          const SizedBox(height: AppSpacing.lg + AppSpacing.sm),
-                          _buildTitle(),
-                          const SizedBox(height: AppSpacing.sm),
-                          SlideTransition(
-                            position: _taglineSlide,
-                            child: FadeTransition(
-                              opacity: _taglineOpacity,
-                              child: Text(
-                                'Bottle flair training, reimagined',
-                                style: AppTheme.bodySecondary.copyWith(
-                                  letterSpacing: 1.2,
-                                ),
+          Center(
+            child: AnimatedBuilder(
+              animation: Listenable.merge([
+                _logoController,
+                _shimmerController,
+                _pulseController,
+              ]),
+              builder: (context, _) {
+                return Opacity(
+                  opacity: _logoOpacity.value,
+                  child: Transform.scale(
+                    scale: _logoScale.value,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Transform.scale(
+                          scale: _pulseScale.value,
+                          child: _buildLogoMark(),
+                        ),
+                        const SizedBox(height: AppSpacing.lg + AppSpacing.sm),
+                        _buildTitle(),
+                        const SizedBox(height: AppSpacing.sm),
+                        SlideTransition(
+                          position: _taglineSlide,
+                          child: FadeTransition(
+                            opacity: _taglineOpacity,
+                            child: Text(
+                              'Bottle flair training, reimagined',
+                              style: AppTheme.bodySecondary.copyWith(
+                                letterSpacing: 1.2,
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
-            _buildLoader(),
-          ],
-        ),
+          ),
+          _buildLoader(context),
+        ],
       ),
     );
   }
@@ -298,7 +289,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildLoader() {
+  Widget _buildLoader(BuildContext context) {
     return Positioned(
       bottom: AppSpacing.xxl,
       left: 0,
@@ -352,7 +343,7 @@ class _SplashScreenState extends State<SplashScreen>
                     Text(
                       'Preparing your session\u2026',
                       style: AppTheme.caption.copyWith(
-                        color: AppColors.textSecondary,
+                        color: context.elixTextSecondary,
                       ),
                     ),
                   ],

@@ -261,8 +261,8 @@ abstract final class AppTheme {
 
   static TextStyle get caption => const TextStyle(fontSize: 12);
 
-  /// Subtle ambient wash for practice training screens.
-  static BoxDecoration practicePageBackground(BuildContext context) {
+  /// Subtle ambient wash used behind every primary ELIXR page.
+  static BoxDecoration ambientPageBackground(BuildContext context) {
     final isDark = context.isDarkTheme;
     if (context.isHighContrast) {
       return BoxDecoration(color: context.elixBackground);
@@ -281,6 +281,11 @@ abstract final class AppTheme {
       ),
     );
   }
+
+  /// Backward-compatible name for the former practice-only page background.
+  @Deprecated('Use ambientPageBackground instead.')
+  static BoxDecoration practicePageBackground(BuildContext context) =>
+      ambientPageBackground(context);
 
   /// Premium session panel shell for guided practice.
   static BoxDecoration practicePanelDecoration(

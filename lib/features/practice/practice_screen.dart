@@ -11,6 +11,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
@@ -848,91 +849,88 @@ class _PracticeScreenState extends State<PracticeScreen>
     final hasConnectionError =
         _ws.connectionState == WebSocketConnectionState.error;
 
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: SizedBox.expand(
-        child: DecoratedBox(
-          decoration: AppTheme.practicePageBackground(context),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                AppSpacing.sm + 2,
-                AppSpacing.lg,
-                AppSpacing.lg,
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final contentWidth = math.min(
-                    constraints.maxWidth,
-                    _maxContentWidth,
-                  );
-                  final isDesktop = contentWidth >= _desktopBreakpoint;
-                  final isCompact =
-                      contentWidth >= _compactBreakpoint && !isDesktop;
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm + 2,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = math.min(
+                  constraints.maxWidth,
+                  _maxContentWidth,
+                );
+                final isDesktop = contentWidth >= _desktopBreakpoint;
+                final isCompact =
+                    contentWidth >= _compactBreakpoint && !isDesktop;
 
-                  final header = TrainingSessionHeader(
-                    onBack: _onBack,
-                    title: _movement,
-                    statusPill: _difficulty,
-                    statusPillColor: trainingDifficultyColor(_difficulty),
-                    instruction: _instructionForMovement(_movement),
-                    connectionState: _ws.connectionState,
-                    connecting: _connecting,
-                    wideLayout: isDesktop || isCompact,
-                  );
-                  final camera = _buildCamera(
-                    isTrainingActive: isTrainingActive,
-                    isCameraLive: isCameraLive,
-                  );
-                  final panel = _buildPanel(
-                    isTrainingActive: isTrainingActive,
-                    hasConnectionError: hasConnectionError,
-                    expandVertically: isDesktop,
-                  );
+                final header = TrainingSessionHeader(
+                  onBack: _onBack,
+                  title: _movement,
+                  statusPill: _difficulty,
+                  statusPillColor: trainingDifficultyColor(_difficulty),
+                  instruction: _instructionForMovement(_movement),
+                  connectionState: _ws.connectionState,
+                  connecting: _connecting,
+                  wideLayout: isDesktop || isCompact,
+                );
+                final camera = _buildCamera(
+                  isTrainingActive: isTrainingActive,
+                  isCameraLive: isCameraLive,
+                );
+                final panel = _buildPanel(
+                  isTrainingActive: isTrainingActive,
+                  hasConnectionError: hasConnectionError,
+                  expandVertically: isDesktop,
+                );
 
-                  final body = Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      header,
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, workspaceConstraints) {
-                            final workspace = isDesktop
-                                ? _buildDesktopWorkspace(
-                                    contentWidth: contentWidth,
-                                    workspaceHeight:
-                                        workspaceConstraints.maxHeight,
-                                    camera: camera,
-                                    panel: panel,
-                                  )
-                                : _buildStackedWorkspace(
-                                    contentWidth: contentWidth,
-                                    camera: camera,
-                                    panel: panel,
-                                  );
+                final body = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    header,
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, workspaceConstraints) {
+                          final workspace = isDesktop
+                              ? _buildDesktopWorkspace(
+                                  contentWidth: contentWidth,
+                                  workspaceHeight:
+                                      workspaceConstraints.maxHeight,
+                                  camera: camera,
+                                  panel: panel,
+                                )
+                              : _buildStackedWorkspace(
+                                  contentWidth: contentWidth,
+                                  camera: camera,
+                                  panel: panel,
+                                );
 
-                            if (isDesktop) {
-                              return workspace;
-                            }
+                          if (isDesktop) {
+                            return workspace;
+                          }
 
-                            return SingleChildScrollView(child: workspace);
-                          },
-                        ),
+                          return SingleChildScrollView(child: workspace);
+                        },
                       ),
-                    ],
-                  );
+                    ),
+                  ],
+                );
 
-                  if (constraints.maxWidth <= _maxContentWidth) {
-                    return body;
-                  }
+                if (constraints.maxWidth <= _maxContentWidth) {
+                  return body;
+                }
 
-                  return Align(
-                    alignment: Alignment.topCenter,
-                    child: SizedBox(width: _maxContentWidth, child: body),
-                  );
-                },
-              ),
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(width: _maxContentWidth, child: body),
+                );
+              },
             ),
           ),
         ),

@@ -11,6 +11,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
@@ -453,7 +454,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         _ws.connectionState == WebSocketConnectionState.error;
     final actionKind = _actionKind();
 
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       content: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(

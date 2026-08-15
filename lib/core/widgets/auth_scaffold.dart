@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import 'elix_scaffold_page.dart';
 
 class AuthScaffold extends StatefulWidget {
   const AuthScaffold({
@@ -75,7 +76,7 @@ class _AuthScaffoldState extends State<AuthScaffold>
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: LayoutBuilder(
         builder: (context, constraints) {
@@ -151,46 +152,29 @@ class _BrandPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
 
     return AnimatedBuilder(
       animation: orbController,
       builder: (context, _) {
         final t = orbController.value * 2 * math.pi;
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDark
-                  ? [
-                      const Color(0xFF06060A),
-                      context.elixBackground,
-                      AppColors.primary.withValues(alpha: 0.12),
-                    ]
-                  : [
-                      const Color(0xFFF8F8FC),
-                      context.elixBackground,
-                      AppColors.primary.withValues(alpha: 0.06),
-                    ],
-            ),
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              CustomPaint(
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+              if (!highContrast) CustomPaint(
                 painter: _DotGridPainter(
                   color: AppColors.primary.withValues(
                     alpha: isDark ? 0.035 : 0.05,
                   ),
                 ),
               ),
-              _Orb(
+              if (!highContrast) _Orb(
                 top: 40 + math.sin(t) * 20,
                 left: -60,
                 size: 220,
                 color: AppColors.primary.withValues(alpha: 0.20),
               ),
-              _Orb(
+              if (!highContrast) _Orb(
                 bottom: 80 + math.cos(t) * 16,
                 right: -40,
                 size: 200,
@@ -226,8 +210,7 @@ class _BrandPanel extends StatelessWidget {
                     ],
                   ),
                 ),
-            ],
-          ),
+          ],
         );
       },
     );
@@ -386,13 +369,10 @@ class _FormPanel extends StatelessWidget {
       );
     }
 
-    return Container(
-      color: context.elixBackground,
-      child: Padding(
-        padding: _panelPadding,
-        child: _AuthFitScrollView(
-          child: AuthFormCard(padding: _cardPadding, child: form),
-        ),
+    return Padding(
+      padding: _panelPadding,
+      child: _AuthFitScrollView(
+        child: AuthFormCard(padding: _cardPadding, child: form),
       ),
     );
   }

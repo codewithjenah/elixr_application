@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
@@ -145,7 +146,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       content: SafeArea(
         child: _loading
             ? const Center(child: ProgressRing())

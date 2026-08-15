@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
@@ -166,7 +167,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: SafeArea(
         child: _loading

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/models/leaderboard_period.dart';
 import '../../data/repositories/leaderboard_repository.dart';
@@ -134,7 +135,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       content: SafeArea(
         child: LayoutBuilder(
           builder: (context, viewportConstraints) {

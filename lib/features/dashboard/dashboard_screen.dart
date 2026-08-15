@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/utils/user_name.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/progress_repository.dart';
@@ -196,7 +197,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         : 'Trainee';
 
     if (_loading) {
-      return const ScaffoldPage(
+      return const ElixScaffoldPage(
         padding: EdgeInsets.zero,
         content: Center(child: ProgressRing()),
       );
@@ -223,7 +224,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       recommendationLoading: _loading,
     );
 
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),

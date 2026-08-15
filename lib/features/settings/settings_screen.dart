@@ -197,7 +197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       width: sidebarWidth,
       decoration: BoxDecoration(
-        color: context.elixBackground,
+        color: context.elixPanelSurface,
         border: Border(
           right: BorderSide(color: context.elixBorder.withValues(alpha: 0.5)),
         ),

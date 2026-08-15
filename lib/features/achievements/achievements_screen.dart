@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/achievement.dart';
@@ -285,7 +286,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     final initials = userInitials(user?.fullName ?? 'User');
     final filterCounts = _filterCounts;
 
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       header: PageHeader(
         title: Row(
           mainAxisSize: MainAxisSize.min,

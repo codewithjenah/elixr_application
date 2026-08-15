@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../services/auth_service.dart';
 import 'coaching_notes_controller.dart';
 
@@ -37,7 +38,7 @@ class _CoachingNotesScreenState extends State<CoachingNotesScreen> {
     final controller = _controller!;
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, child) => ScaffoldPage(
+      builder: (context, child) => ElixScaffoldPage(
         content: SafeArea(
           child: Center(
             child: ConstrainedBox(

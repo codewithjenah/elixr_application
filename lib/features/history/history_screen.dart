@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../services/auth_service.dart';
@@ -201,7 +202,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     final hasSessions = _sessions.isNotEmpty;
 
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       content: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(

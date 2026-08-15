@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/profile_visit.dart';
 import '../../services/auth_service.dart';
 import '../settings/settings_screen.dart';
@@ -136,7 +137,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final controller = _controller!;
     final pageTitle = controller.isSelf ? 'My Profile' : 'Player Profile';
 
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       content: SafeArea(
         child: ListenableBuilder(
           listenable: controller,

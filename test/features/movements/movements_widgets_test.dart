@@ -840,6 +840,42 @@ void main() {
       );
     });
 
+    testWidgets('renders four movements in one wide-desktop row', (
+      tester,
+    ) async {
+      await setSurface(tester, const Size(1500, 1200));
+      await tester.pumpWidget(
+        wrap(
+          const SizedBox(
+            width: 1280,
+            child: MovementDifficultySection(
+              difficulty: 'Easy',
+              movements: [
+                easyMovement,
+                secondEasyMovement,
+                thirdEasyMovement,
+                fourthEasyMovement,
+              ],
+              stats: {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final positions = List.generate(
+        4,
+        (index) => tester.getTopLeft(find.byType(MovementCard).at(index)),
+      );
+      for (final position in positions.skip(1)) {
+        expect(position.dy, closeTo(positions.first.dy, 1));
+      }
+      for (var index = 1; index < positions.length; index++) {
+        expect(positions[index - 1].dx, lessThan(positions[index].dx));
+      }
+      await expectNoOverflow(tester);
+    });
+
     testWidgets('uses two columns from 680 through 1049 pixels', (
       tester,
     ) async {

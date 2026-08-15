@@ -26,6 +26,7 @@ class MovementDifficultySection extends StatefulWidget {
 class _MovementDifficultySectionState extends State<MovementDifficultySection>
     with SingleTickerProviderStateMixin {
   static const _animationDuration = Duration(milliseconds: 240);
+  static const _fourColumnBreakpoint = 1200.0;
   static const _threeColumnBreakpoint = 1050.0;
   static const _twoColumnBreakpoint = 680.0;
   // Sized for the densest card variant (two prop actions) so every card keeps
@@ -233,7 +234,9 @@ class _MovementDifficultySectionState extends State<MovementDifficultySection>
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final columns =
-                        constraints.maxWidth >= _threeColumnBreakpoint
+                        constraints.maxWidth >= _fourColumnBreakpoint
+                        ? 4
+                        : constraints.maxWidth >= _threeColumnBreakpoint
                         ? 3
                         : constraints.maxWidth >= _twoColumnBreakpoint
                         ? 2
