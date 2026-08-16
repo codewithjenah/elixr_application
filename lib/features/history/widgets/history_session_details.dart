@@ -343,7 +343,7 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
   void _openLightbox(BuildContext context, Uint8List image) {
     showDialog<void>(
       context: context,
-      builder: (_) => ContentDialog(
+      builder: (dialogContext) => ContentDialog(
         constraints: const BoxConstraints(
           maxWidth: _InspectorLayout.dialogMaxWidth,
         ),
@@ -362,7 +362,7 @@ class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
         actions: [
           Button(
             child: const Text('Close'),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
           ),
         ],
       ),

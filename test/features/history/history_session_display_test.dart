@@ -9,6 +9,7 @@ import 'package:elixr_application/features/history/widgets/history_session_detai
 import 'package:elixr_application/features/history/widgets/history_summary_section.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 const _userId = 'history-user';
 
@@ -224,6 +225,66 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(AspectRatio), findsNothing);
     });
+
+    testWidgets(
+      'closing the enlarged still does not pop the GoRouter History page',
+      (tester) async {
+        tester.view.physicalSize = const Size(900, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = GoRouter(
+          initialLocation: '/history',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) => ScaffoldPage(content: child),
+              routes: [
+                GoRoute(
+                  path: '/history',
+                  builder: (context, state) => HistorySessionDetails(
+                    session: _rubricSession(
+                      evidenceStoragePath:
+                          'users/history-user/session_evidence/s1.jpg',
+                      evidenceKind: 'hold_confirmed',
+                    ),
+                    loading: false,
+                    feedbacks: const [],
+                    loadEvidence: (_) async => _onePixelPng,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          FluentApp.router(
+            theme: AppTheme.dark,
+            routeInformationParser: router.routeInformationParser,
+            routerDelegate: router.routerDelegate,
+            routeInformationProvider: router.routeInformationProvider,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('history-evidence-preview')));
+        await tester.pumpAndSettle();
+        expect(find.byType(ContentDialog), findsOneWidget);
+
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ContentDialog), findsNothing);
+        expect(find.text('Confirmed movement image'), findsOneWidget);
+        expect(find.text('Click to enlarge'), findsOneWidget);
+        expect(
+          find.byKey(const Key('history-evidence-preview')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('HistorySummarySection', () {
