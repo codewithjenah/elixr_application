@@ -16,16 +16,17 @@ from vision.types import (
     PoseLandmarks,
 )
 
-_NECK_ANCHOR_FRACTION = 0.25
-_NECK_ZONE_BOTTOM_FRACTION = 0.50
-_NECK_ZONE_TOP_MARGIN_FRACTION = 0.05
+_NECK_TERMINAL_BAND_FRACTION = 0.35
+_NECK_ZONE_END_MARGIN_FRACTION = 0.50
 _NECK_ZONE_HORIZONTAL_MARGIN_FRACTION = 0.75
 _MIN_TOP_MARGIN = 0.02
 _MIN_HORIZONTAL_MARGIN = 0.04
-_MIN_UNDERHAND_DROP = 0.01
-_UNDERHAND_DROP_RATIO = 0.20
-_MIN_PINKY_THUMB_SEPARATION = 0.01
-_PINKY_THUMB_SEPARATION_RATIO = 0.15
+_MIN_HAND_SCALE = 0.01
+# An axis-aligned detector box is a coarse proxy for a strongly tilted bottle.
+# Reject only a clearly opposing wrist direction; hand-local pinky/thumb
+# geometry provides the stricter reverse-grip orientation check below.
+_MIN_REVERSE_ORIENTATION_ALIGNMENT = -0.65
+_PINKY_THUMB_INWARD_RATIO = 0.12
 _FINGERTIP_INDICES = (8, 12, 16, 20)
 _REQUIRED_FINGERTIPS = 3
 
@@ -36,17 +37,21 @@ def _distance(a: Point2D, b: Point2D) -> float:
     return math.hypot(a.x - b.x, a.y - b.y)
 
 
-def _neck_anchor(bottle: BottleDetection) -> Point2D:
-    bottle_height = bottle.y2 - bottle.y1
+def _terminal_anchors(bottle: BottleDetection) -> tuple[Point2D, Point2D]:
+    center_x = ((bottle.x1 + bottle.x2) / 2.0) / FRAME_WIDTH
     return Point2D(
-        x=((bottle.x1 + bottle.x2) / 2.0) / FRAME_WIDTH,
-        y=(
-            bottle.y1 + bottle_height * _NECK_ANCHOR_FRACTION
-        ) / FRAME_HEIGHT,
+        x=center_x,
+        y=bottle.y1 / FRAME_HEIGHT,
+    ), Point2D(
+        x=center_x,
+        y=bottle.y2 / FRAME_HEIGHT,
     )
 
 
-def _neck_contact_zone(bottle: BottleDetection) -> ContactZone:
+def _neck_contact_zone(
+    bottle: BottleDetection,
+    terminal: Point2D,
+) -> ContactZone:
     left = bottle.x1 / FRAME_WIDTH
     top = bottle.y1 / FRAME_HEIGHT
     right = bottle.x2 / FRAME_WIDTH
@@ -57,17 +62,25 @@ def _neck_contact_zone(bottle: BottleDetection) -> ContactZone:
         _MIN_HORIZONTAL_MARGIN,
         bottle_width * _NECK_ZONE_HORIZONTAL_MARGIN_FRACTION,
     )
-    top_margin = max(
+    end_margin = max(
         _MIN_TOP_MARGIN,
-        bottle_height * _NECK_ZONE_TOP_MARGIN_FRACTION,
+        bottle_height * _NECK_ZONE_END_MARGIN_FRACTION,
     )
-    bottom = top + bottle_height * _NECK_ZONE_BOTTOM_FRACTION
+    terminal_band = bottle_height * _NECK_TERMINAL_BAND_FRACTION
+    is_top_terminal = terminal.y <= (top + bottle_height / 2.0)
+
+    if is_top_terminal:
+        zone_top = top - end_margin
+        zone_bottom = top + terminal_band
+    else:
+        zone_top = top + bottle_height - terminal_band
+        zone_bottom = top + bottle_height + end_margin
 
     return (
         left - horizontal_margin,
-        top - top_margin,
+        zone_top,
         right + horizontal_margin,
-        bottom,
+        zone_bottom,
     )
 
 
@@ -81,51 +94,81 @@ def _is_in_zone(
     return left <= point.x <= right and top <= point.y <= bottom
 
 
-def _nearest_hand_to_anchor(
+def _nearest_hand_to_terminal(
     hands: HandsResult,
-    anchor: Point2D,
-) -> tuple[Optional[HandLandmarks], Optional[Point2D]]:
+    terminals: tuple[Point2D, Point2D],
+) -> tuple[Optional[HandLandmarks], Optional[Point2D], Optional[Point2D]]:
     nearest_hand: Optional[HandLandmarks] = None
     nearest_palm: Optional[Point2D] = None
+    nearest_terminal: Optional[Point2D] = None
     nearest_distance = float("inf")
 
     for hand in hands.hands:
         palm = hand.palm_center()
         if palm is None:
             continue
-        distance = _distance(palm, anchor)
-        if distance < nearest_distance:
-            nearest_hand = hand
-            nearest_palm = palm
-            nearest_distance = distance
+        for terminal in terminals:
+            distance = _distance(palm, terminal)
+            if distance < nearest_distance:
+                nearest_hand = hand
+                nearest_palm = palm
+                nearest_terminal = terminal
+                nearest_distance = distance
 
-    return nearest_hand, nearest_palm
+    return nearest_hand, nearest_palm, nearest_terminal
 
 
-def _is_underhand(hand: HandLandmarks) -> Optional[bool]:
+def _direction(a: Point2D, b: Point2D) -> tuple[float, float, float]:
+    dx = b.x - a.x
+    dy = b.y - a.y
+    return dx, dy, math.hypot(dx, dy)
+
+
+def _is_underhand(
+    hand: HandLandmarks,
+    terminal: Point2D,
+    palm: Point2D,
+) -> Optional[bool]:
     wrist = hand.points.get(0)
     middle_mcp = hand.points.get(9)
     if wrist is None or middle_mcp is None:
         return None
 
-    required_drop = max(
-        _MIN_UNDERHAND_DROP,
-        _distance(wrist, middle_mcp) * _UNDERHAND_DROP_RATIO,
-    )
-    return middle_mcp.y - wrist.y >= required_drop
-
-
-def _is_pinky_above_thumb(hand: HandLandmarks) -> Optional[bool]:
-    thumb_tip = hand.points.get(4)
-    pinky_tip = hand.points.get(20)
-    if thumb_tip is None or pinky_tip is None:
+    hand_dx, hand_dy, hand_scale = _direction(wrist, middle_mcp)
+    grip_dx, grip_dy, grip_scale = _direction(terminal, palm)
+    if hand_scale < _MIN_HAND_SCALE or grip_scale < _MIN_HAND_SCALE:
         return None
 
-    required_separation = max(
-        _MIN_PINKY_THUMB_SEPARATION,
-        _distance(thumb_tip, pinky_tip) * _PINKY_THUMB_SEPARATION_RATIO,
+    alignment = (hand_dx * grip_dx + hand_dy * grip_dy) / (
+        hand_scale * grip_scale
     )
-    return pinky_tip.y + required_separation <= thumb_tip.y
+    return alignment >= _MIN_REVERSE_ORIENTATION_ALIGNMENT
+
+
+def _is_pinky_toward_terminal(
+    hand: HandLandmarks,
+) -> Optional[bool]:
+    wrist = hand.points.get(0)
+    middle_mcp = hand.points.get(9)
+    thumb_tip = hand.points.get(4)
+    pinky_tip = hand.points.get(20)
+    if (
+        wrist is None
+        or middle_mcp is None
+        or thumb_tip is None
+        or pinky_tip is None
+    ):
+        return None
+
+    hand_dx, hand_dy, hand_scale = _direction(wrist, middle_mcp)
+    if hand_scale < _MIN_HAND_SCALE:
+        return None
+
+    pinky_to_thumb_dx, pinky_to_thumb_dy, _ = _direction(pinky_tip, thumb_tip)
+    inward_projection = (
+        pinky_to_thumb_dx * hand_dx + pinky_to_thumb_dy * hand_dy
+    ) / hand_scale
+    return inward_projection >= hand_scale * _PINKY_THUMB_INWARD_RATIO
 
 
 def evaluate(
@@ -146,8 +189,11 @@ def evaluate(
     assert bottle is not None
     assert hands is not None
 
-    hand, palm = _nearest_hand_to_anchor(hands, _neck_anchor(bottle))
-    if hand is None or palm is None:
+    hand, palm, terminal = _nearest_hand_to_terminal(
+        hands,
+        _terminal_anchors(bottle),
+    )
+    if hand is None or palm is None or terminal is None:
         return (
             RuleResult(
                 feedback="Keep your full hand visible around the bottle neck.",
@@ -159,12 +205,12 @@ def evaluate(
             movement_state,
         )
 
-    contact_zone = _neck_contact_zone(bottle)
+    contact_zone = _neck_contact_zone(bottle, terminal)
     positioning_fail = None
     if not _is_in_zone(palm, contact_zone):
         positioning_fail = FeedbackCode.HAND_NOT_AT_NECK.value
 
-    underhand = _is_underhand(hand)
+    underhand = _is_underhand(hand, terminal, palm)
     if underhand is None:
         return (
             RuleResult(
@@ -177,8 +223,8 @@ def evaluate(
             movement_state,
         )
 
-    pinky_above_thumb = _is_pinky_above_thumb(hand)
-    if pinky_above_thumb is None:
+    pinky_toward_terminal = _is_pinky_toward_terminal(hand)
+    if pinky_toward_terminal is None:
         return (
             RuleResult(
                 feedback="Keep your full hand visible around the bottle neck.",
@@ -193,7 +239,7 @@ def evaluate(
     technique_fail = None
     if not underhand:
         technique_fail = FeedbackCode.UNDERHAND_GRIP_REQUIRED.value
-    elif not pinky_above_thumb:
+    elif not pinky_toward_terminal:
         technique_fail = FeedbackCode.REVERSE_PINKY_THUMB_ORIENTATION.value
     else:
         engaged_fingertips = sum(

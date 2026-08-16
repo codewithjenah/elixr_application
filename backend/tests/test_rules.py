@@ -89,9 +89,16 @@ def _evaluate_normal_grip(hand: HandLandmarks):
     return result
 
 def _evaluate_reverse_grip(hand: HandLandmarks):
+    return _evaluate_reverse_grip_with_bottle(hand, _bottle())
+
+
+def _evaluate_reverse_grip_with_bottle(
+    hand: HandLandmarks,
+    bottle: BottleDetection,
+):
     result, _, _ = evaluate_movement(
         "Reverse Grip",
-        _bottle(),
+        bottle,
         None,
         HandsResult(hands=[hand]),
         None,
@@ -675,16 +682,96 @@ def test_reverse_grip_accepts_reference_like_full_wrap(hand):
     )
 
 
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _grip_hand(
+            wrist=Point2D(0.45, 0.435),
+            middle_mcp=Point2D(0.425, 0.505),
+            thumb_tip=Point2D(0.48, 0.50),
+            fingertips=(
+                Point2D(0.47, 0.49),
+                Point2D(0.49, 0.47),
+                Point2D(0.52, 0.45),
+                Point2D(0.54, 0.43),
+            ),
+        ),
+        _grip_hand(
+            wrist=Point2D(0.50, 0.43),
+            middle_mcp=Point2D(0.50, 0.50),
+            thumb_tip=Point2D(0.47, 0.50),
+            fingertips=(
+                Point2D(0.48, 0.49),
+                Point2D(0.50, 0.47),
+                Point2D(0.52, 0.45),
+                Point2D(0.54, 0.43),
+            ),
+        ),
+        _grip_hand(
+            wrist=Point2D(0.55, 0.435),
+            middle_mcp=Point2D(0.575, 0.505),
+            thumb_tip=Point2D(0.52, 0.50),
+            fingertips=(
+                Point2D(0.53, 0.49),
+                Point2D(0.51, 0.47),
+                Point2D(0.48, 0.45),
+                Point2D(0.46, 0.43),
+            ),
+            handedness="Left",
+        ),
+    ],
+    ids=["left-tilted", "centered", "right-tilted-mirrored"],
+)
+def test_reverse_grip_accepts_tilted_static_variations(hand):
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_code == "reverse_grip_locked"
+
+
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _grip_hand(
+            wrist=Point2D(0.43, 0.43),
+            middle_mcp=Point2D(0.47, 0.49),
+            thumb_tip=Point2D(0.46, 0.49),
+            fingertips=(
+                Point2D(0.48, 0.48),
+                Point2D(0.50, 0.46),
+                Point2D(0.52, 0.44),
+                Point2D(0.54, 0.42),
+            ),
+        ),
+        _grip_hand(
+            wrist=Point2D(0.43, 0.57),
+            middle_mcp=Point2D(0.47, 0.51),
+            thumb_tip=Point2D(0.46, 0.51),
+            fingertips=(
+                Point2D(0.48, 0.52),
+                Point2D(0.50, 0.54),
+                Point2D(0.52, 0.56),
+                Point2D(0.54, 0.58),
+            ),
+        ),
+    ],
+    ids=["top-terminal", "bottom-terminal"],
+)
+def test_reverse_grip_accepts_both_bottle_terminals(hand):
+    result = _evaluate_reverse_grip(hand)
+
+    assert result.feedback_code == "reverse_grip_locked"
+
+
 def test_reverse_grip_rejects_hand_around_bottle_body():
     hand = _grip_hand(
-        wrist=Point2D(0.43, 0.58),
-        middle_mcp=Point2D(0.47, 0.64),
-        thumb_tip=Point2D(0.46, 0.64),
+        wrist=Point2D(0.43, 0.47),
+        middle_mcp=Point2D(0.47, 0.53),
+        thumb_tip=Point2D(0.46, 0.53),
         fingertips=(
-            Point2D(0.48, 0.63),
-            Point2D(0.50, 0.61),
-            Point2D(0.52, 0.59),
-            Point2D(0.54, 0.57),
+            Point2D(0.48, 0.52),
+            Point2D(0.50, 0.50),
+            Point2D(0.52, 0.48),
+            Point2D(0.54, 0.46),
         ),
     )
 
