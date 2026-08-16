@@ -6,6 +6,7 @@ from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
+    uncertain_result,
 )
 from config import FRAME_HEIGHT, FRAME_WIDTH
 from vision.grip_geometry import (
@@ -144,10 +145,9 @@ def evaluate(
     )
     if hand is None:
         return (
-            _warning(
+            uncertain_result(
                 "Keep your full gripping hand visible.",
-                "unknown",
-                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -173,10 +173,9 @@ def evaluate(
         < _REQUIRED_OTHER_FINGERTIPS
     ):
         return (
-            _warning(
+            uncertain_result(
                 "Keep your full gripping hand visible.",
-                "unknown",
-                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -185,10 +184,9 @@ def evaluate(
     hand_scale = _pixel_distance(wrist, middle_mcp)
     if hand_scale <= 0:
         return (
-            _warning(
+            uncertain_result(
                 "Keep your full gripping hand visible.",
-                "unknown",
-                FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

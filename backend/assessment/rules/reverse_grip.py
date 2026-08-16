@@ -6,6 +6,7 @@ from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
+    uncertain_result,
 )
 from config import FRAME_HEIGHT, FRAME_WIDTH
 from vision.types import (
@@ -195,11 +196,9 @@ def evaluate(
     )
     if hand is None or palm is None or terminal is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible around the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible around the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -213,11 +212,9 @@ def evaluate(
     underhand = _is_underhand(hand, terminal, palm)
     if underhand is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible around the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible around the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -226,11 +223,9 @@ def evaluate(
     pinky_toward_terminal = _is_pinky_toward_terminal(hand)
     if pinky_toward_terminal is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible around the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible around the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

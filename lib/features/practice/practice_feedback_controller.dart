@@ -1,6 +1,7 @@
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/training_prop.dart';
+import '../../data/models/coaching_verdict.dart';
 import 'session_assessment.dart';
 
 /// High-frequency combo UI state scoped outside page rebuilds.
@@ -96,19 +97,21 @@ class PracticeFeedbackController {
     var nextCombo = comboState.combo;
     var nextBest = comboState.bestCombo;
     var comboChanged = false;
-    if (feedback.feedbackType == 'positive') {
-      nextCombo = comboState.combo + 1;
-      if (nextCombo > comboState.bestCombo) {
-        nextBest = nextCombo;
-      }
-      comboChanged =
-          nextCombo != comboState.combo || nextBest != comboState.bestCombo;
-    } else if (feedback.feedbackType == 'error' ||
-        feedback.feedbackType == 'warning') {
-      if (comboState.combo != 0) {
-        nextCombo = 0;
-        comboChanged = true;
-      }
+    switch (feedback.coachingVerdict) {
+      case CoachingVerdict.correct:
+        nextCombo = comboState.combo + 1;
+        if (nextCombo > comboState.bestCombo) {
+          nextBest = nextCombo;
+        }
+        comboChanged =
+            nextCombo != comboState.combo || nextBest != comboState.bestCombo;
+      case CoachingVerdict.wrong:
+        if (comboState.combo != 0) {
+          nextCombo = 0;
+          comboChanged = true;
+        }
+      case CoachingVerdict.uncertain:
+        break;
     }
 
     var scorePopupTrigger = scorePopupState.trigger;

@@ -12,6 +12,7 @@ from assessment.rules.common_checks import (
     check_bottle_visible,
     pose_upper_forearm_landmarks,
     track_bottle_stability,
+    uncertain_result,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
 
@@ -52,11 +53,9 @@ def evaluate(
     )
     if landmarks is None:
         return (
-            RuleResult(
-                feedback="Show your elbow and wrist so the reverse forearm can be tracked.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.POSE_ARM_NOT_VISIBLE.value,
+            uncertain_result(
+                "Move back so your elbow and forearm are visible.",
+                code=FeedbackCode.POSE_ARM_NOT_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

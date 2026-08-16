@@ -1,17 +1,20 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../../data/models/coaching_verdict.dart';
+import 'coaching_verdict_style.dart';
 
 class FeedbackChip extends StatefulWidget {
   const FeedbackChip({
     super.key,
     required this.message,
-    required this.feedbackType,
+    required this.verdict,
+    this.feedbackType = 'warning',
   });
 
   final String message;
+  final CoachingVerdict verdict;
   final String feedbackType;
 
   @override
@@ -23,31 +26,10 @@ class _FeedbackChipState extends State<FeedbackChip>
   late final AnimationController _controller;
   late final Animation<double> _fade;
 
-  Color get _color {
-    switch (widget.feedbackType) {
-      case 'positive':
-        return AppColors.success;
-      case 'warning':
-        return AppColors.warning;
-      case 'error':
-        return AppColors.error;
-      default:
-        return AppColors.textSecondary;
-    }
-  }
+  Color get _color =>
+      coachingVerdictColor(widget.verdict, feedbackType: widget.feedbackType);
 
-  IconData get _icon {
-    switch (widget.feedbackType) {
-      case 'positive':
-        return FluentIcons.status_circle_checkmark;
-      case 'warning':
-        return FluentIcons.warning;
-      case 'error':
-        return FluentIcons.status_circle_error_x;
-      default:
-        return FluentIcons.info_solid;
-    }
-  }
+  IconData get _icon => coachingVerdictIcon(widget.verdict);
 
   @override
   void initState() {

@@ -1,10 +1,12 @@
 from typing import Optional
 
 from config import MOVEMENT_CONFIG
+from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import RuleResult
 from assessment.rules.common_checks import (
     check_hands_visible,
     is_open_palm,
+    uncertain_result,
     usable_hands_with_palms,
 )
 from vision.types import HandsResult, Point2D, PoseLandmarks
@@ -69,10 +71,9 @@ def evaluate_posture_only(
         usable = usable_hands_with_palms(hands)
         if len(usable) < 2:
             return (
-                RuleResult(
-                    feedback="Keep both hands fully visible.",
-                    feedback_type="warning",
-                    posture_status="unknown",
+                uncertain_result(
+                    "Keep both hands fully visible.",
+                    code=FeedbackCode.BOTH_HANDS_NOT_VISIBLE,
                 ),
                 prev_hip_center,
                 None,

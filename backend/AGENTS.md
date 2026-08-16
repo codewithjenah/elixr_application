@@ -96,6 +96,7 @@ Keep Flutter independent of these implementation details except for the document
 - Put movement-specific logic in `assessment/rules/<movement>.py`.
 - Reuse geometry and posture helpers from shared modules rather than copying threshold math.
 - Return a typed `RuleResult` with a valid feedback type and posture status.
+- Missing required landmarks or props must return `posture_status="unknown"` with a visibility/environment code and no `criterion_results`. Never treat unobservable landmarks as `unstable` technique.
 - Keep state explicit through the movement-state dictionary or a new typed structure; do not use hidden module globals for per-session state.
 - Add a movement to all required registries/configuration layers, including Flutter's catalog when it is user-selectable.
 - Threshold changes require positive, boundary, and negative synthetic tests.

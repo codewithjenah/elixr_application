@@ -464,8 +464,9 @@ def test_bottle_in_a_tin_distinguishes_bottle_and_shaker_technique():
         x1=300, y1=200, x2=340, y2=360, confidence=0.9
     )
 
+    hands = HandsResult(hands=[_open_palm(0.5, 0.65)])
     bottle_issue, _, _ = bottle_in_a_tin.evaluate(
-        tilted_bottle, wide_shaker, None, None, None
+        tilted_bottle, wide_shaker, None, hands, None
     )
     _assert_coded(
         bottle_issue,
@@ -475,7 +476,7 @@ def test_bottle_in_a_tin_distinguishes_bottle_and_shaker_technique():
     )
 
     shaker_issue, _, _ = bottle_in_a_tin.evaluate(
-        upright_bottle, upright_shaker, None, None, None
+        upright_bottle, upright_shaker, None, hands, None
     )
     _assert_coded(
         shaker_issue,

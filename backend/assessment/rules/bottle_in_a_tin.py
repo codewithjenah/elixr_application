@@ -19,6 +19,7 @@ from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
 from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     track_bottle_stability,
+    uncertain_result,
     usable_hands_with_palms,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
@@ -75,33 +76,41 @@ def evaluate(
     # A. Visibility.
     if bottle is None and shaker is None:
         return (
-            RuleResult(
-                feedback="Keep the bottle and cocktail shaker visible.",
+            uncertain_result(
+                "Keep the bottle and cocktail shaker visible.",
+                code=FeedbackCode.BOTH_PROPS_NOT_DETECTED,
                 feedback_type="error",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.BOTH_PROPS_NOT_DETECTED.value,
             ),
             prev_hip_center,
             movement_state,
         )
     if bottle is None:
         return (
-            RuleResult(
-                feedback="Keep the bottle visible above the shaker.",
+            uncertain_result(
+                "Keep the bottle visible above the shaker.",
+                code=FeedbackCode.BOTTLE_NOT_DETECTED,
                 feedback_type="error",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.BOTTLE_NOT_DETECTED.value,
             ),
             prev_hip_center,
             movement_state,
         )
     if shaker is None:
         return (
-            RuleResult(
-                feedback="Keep the cocktail shaker visible under the bottle.",
+            uncertain_result(
+                "Keep the cocktail shaker visible under the bottle.",
+                code=FeedbackCode.SHAKER_NOT_DETECTED,
                 feedback_type="error",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.SHAKER_NOT_DETECTED.value,
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    usable = usable_hands_with_palms(hands)
+    if not usable:
+        return (
+            uncertain_result(
+                "Keep your supporting hand visible.",
+                code=FeedbackCode.HAND_NOT_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -129,20 +138,14 @@ def evaluate(
     elif abs(bottle_base.y - shaker_top_y) > BOTTLE_IN_A_TIN_CONTACT_VERTICAL_TOLERANCE:
         positioning_fail = FeedbackCode.BOTTLE_NOT_ON_SHAKER.value
 
-    usable = usable_hands_with_palms(hands)
-    support_visible = True
-    if not usable:
-        support_visible = False
-    else:
-        shaker_center = shaker.center_normalized(_FRAME_W, _FRAME_H)
-        shaker_bottom_y = shaker.y2 / _FRAME_H
-        grip_target = Point2D(
-            x=shaker_center.x,
-            y=(shaker_center.y + shaker_bottom_y) / 2.0,
-        )
-        nearest_palm_dist = min(_dist(palm, grip_target) for _hand, palm in usable)
-        if nearest_palm_dist > BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE:
-            support_visible = False
+    shaker_center = shaker.center_normalized(_FRAME_W, _FRAME_H)
+    shaker_bottom_y = shaker.y2 / _FRAME_H
+    grip_target = Point2D(
+        x=shaker_center.x,
+        y=(shaker_center.y + shaker_bottom_y) / 2.0,
+    )
+    nearest_palm_dist = min(_dist(palm, grip_target) for _hand, palm in usable)
+    support_too_far = nearest_palm_dist > BOTTLE_IN_A_TIN_MAX_PALM_DISTANCE
 
     current = dict(movement_state or {})
     bottle_sub, bottle_stable = track_bottle_stability(
@@ -226,18 +229,17 @@ def evaluate(
             current,
         )
 
-    if not support_visible:
-        # Visibility headline, but technique/positioning were already evaluable.
+    if support_too_far:
         return (
             _credited(
                 RuleResult(
-                    feedback="Keep one hand visible while supporting the shaker.",
+                    feedback="Support the shaker with your hand.",
                     feedback_type="warning",
                     posture_status="unstable",
                     feedback_code=FeedbackCode.HAND_NOT_SUPPORTING_SHAKER.value,
                 ),
                 technique_fail=technique_fail,
-                positioning_fail=positioning_fail,
+                positioning_fail=FeedbackCode.HAND_NOT_SUPPORTING_SHAKER.value,
                 stability_fail=stability_fail,
             ),
             prev_hip_center,

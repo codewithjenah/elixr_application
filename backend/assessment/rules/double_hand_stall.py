@@ -13,6 +13,7 @@ from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     is_open_palm,
     track_bottle_stability,
+    uncertain_result,
     usable_hands_with_palms,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
@@ -79,11 +80,10 @@ def evaluate(
 
     if len(bottle_list) == 0:
         return (
-            RuleResult(
-                feedback="Keep both bottles visible.",
+            uncertain_result(
+                "Keep both bottles visible.",
+                code=FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE,
                 feedback_type="error",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE.value,
             ),
             prev_hip_center,
             movement_state,
@@ -91,11 +91,9 @@ def evaluate(
 
     if len(bottle_list) < 2:
         return (
-            RuleResult(
-                feedback="Use two bottles—one above each open palm.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.NEED_TWO_BOTTLES.value,
+            uncertain_result(
+                "Use two bottles—one above each open palm.",
+                code=FeedbackCode.NEED_TWO_BOTTLES,
             ),
             prev_hip_center,
             movement_state,
@@ -110,11 +108,9 @@ def evaluate(
     usable = usable_hands_with_palms(hands)
     if len(usable) < 2:
         return (
-            RuleResult(
-                feedback="Keep both hands fully visible.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.BOTH_HANDS_NOT_VISIBLE.value,
+            uncertain_result(
+                "Keep both hands fully visible.",
+                code=FeedbackCode.BOTH_HANDS_NOT_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

@@ -145,7 +145,7 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.BOTH_PROPS_NOT_DETECTED: FeedbackCategory.ENVIRONMENT,
     FeedbackCode.BOTTLE_NOT_DETECTED: FeedbackCategory.ENVIRONMENT,
     FeedbackCode.SHAKER_NOT_DETECTED: FeedbackCategory.ENVIRONMENT,
-    FeedbackCode.HAND_NOT_SUPPORTING_SHAKER: FeedbackCategory.VISIBILITY,
+    FeedbackCode.HAND_NOT_SUPPORTING_SHAKER: FeedbackCategory.TECHNIQUE,
     # Shared technique
     FeedbackCode.PALM_NOT_OPEN: FeedbackCategory.TECHNIQUE,
     FeedbackCode.BOTH_PALMS_NOT_OPEN: FeedbackCategory.TECHNIQUE,
@@ -235,7 +235,6 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.BOTH_PROPS_NOT_DETECTED: None,
     FeedbackCode.BOTTLE_NOT_DETECTED: None,
     FeedbackCode.SHAKER_NOT_DETECTED: None,
-    FeedbackCode.HAND_NOT_SUPPORTING_SHAKER: None,
     FeedbackCode.PINCH_FINGERS_NOT_VISIBLE: None,
     # Technique
     FeedbackCode.PALM_NOT_OPEN: RubricCriterion.TECHNIQUE,
@@ -280,6 +279,7 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.PROP_NOT_ON_SHOULDER: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BOTTLE_NOT_CENTERED_ON_SHAKER: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BOTTLE_NOT_ON_SHAKER: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.HAND_NOT_SUPPORTING_SHAKER: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BOTTLES_NOT_ONE_PER_PALM: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.PROP_NOT_IN_PINCH: RubricCriterion.PROP_POSITIONING,
     # Stability

@@ -14,6 +14,7 @@ from assessment.rules.common_checks import (
     check_bottle_visible,
     is_open_palm,
     track_bottle_stability,
+    uncertain_result,
     usable_hands_with_palms,
 )
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D, PoseLandmarks
@@ -87,11 +88,9 @@ def evaluate(
     usable = usable_hands_with_palms(hands)
     if not usable:
         return (
-            RuleResult(
-                feedback="Keep your hand fully visible.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your hand fully visible.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

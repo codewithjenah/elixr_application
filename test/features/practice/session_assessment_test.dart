@@ -22,6 +22,7 @@ const _perfectRubric = RubricAssessment(
 PracticeFeedback _frame({
   String feedback = 'Keep steady',
   String feedbackType = 'warning',
+  String? postureStatus,
   RubricAssessment? assessment,
   String? sessionState = 'active',
   String? errorCode,
@@ -38,7 +39,8 @@ PracticeFeedback _frame({
     assessment: assessment,
     feedback: feedback,
     feedbackType: feedbackType,
-    postureStatus: feedbackType == 'positive' ? 'stable' : 'unstable',
+    postureStatus:
+        postureStatus ?? (feedbackType == 'positive' ? 'stable' : 'unstable'),
     sessionState: sessionState,
     errorCode: errorCode,
     feedbackCode: feedbackCode,
@@ -188,6 +190,36 @@ void main() {
       expect(assessment.improvements.single.sampleCount, 4);
       expect(assessment.improvements.single.sampleRatio, closeTo(0.2, 0.001));
       expect(assessment.improvements.single.occurrenceCount, 4);
+    });
+
+    test('unknown warning frames stay excluded from improvements', () {
+      final accumulator = SessionAssessmentAccumulator();
+      _recordFrames(
+        accumulator,
+        10,
+        frame: _frame(
+          feedbackType: 'positive',
+          feedback: 'Hand stall locked in.',
+          feedbackCode: 'hand_stall_locked',
+          feedbackCategory: 'technique',
+        ),
+      );
+      _recordFrames(
+        accumulator,
+        8,
+        frame: _frame(
+          feedbackType: 'warning',
+          postureStatus: 'unknown',
+          feedback: 'Move back so your shoulder is visible.',
+          feedbackCode: 'shoulders_not_visible',
+          feedbackCategory: 'visibility',
+        ),
+      );
+
+      final assessment = _build(accumulator);
+      expect(assessment.improvements, isEmpty);
+      expect(assessment.positiveSampleCount, 10);
+      expect(assessment.totalApplicableSamples, 10);
     });
 
     test('visibility and environment categories are excluded', () {

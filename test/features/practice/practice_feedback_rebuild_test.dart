@@ -62,6 +62,8 @@ PracticeFeedback _base({
   TrainingProp propType = TrainingProp.bottle,
   String? sessionState = 'active',
   bool holdConfirmed = false,
+  String? feedbackCode,
+  String? feedbackCategory,
 }) {
   return PracticeFeedback(
     bottleDetected: bottleDetected,
@@ -77,6 +79,8 @@ PracticeFeedback _base({
     propType: propType,
     sessionState: sessionState,
     holdConfirmed: holdConfirmed,
+    feedbackCode: feedbackCode,
+    feedbackCategory: feedbackCategory,
   );
 }
 
@@ -333,6 +337,60 @@ void main() {
       expect(second.chromeChanged, isFalse);
       expect(second.needsChromeRebuild, isFalse);
       expect(controller.comboState.combo, 3);
+    });
+
+    test('uncertain frames freeze combo instead of resetting it', () {
+      final controller = PracticeFeedbackController();
+      controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', postureStatus: 'stable'),
+      );
+      controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', postureStatus: 'stable'),
+      );
+      expect(controller.comboState.combo, 2);
+
+      final frozen = controller.applyActiveFeedback(
+        _base(
+          feedbackType: 'warning',
+          postureStatus: 'unknown',
+          feedback: 'Move back so your shoulder is visible.',
+        ),
+      );
+      expect(frozen.comboChanged, isFalse);
+      expect(controller.comboState.combo, 2);
+
+      final stillFrozen = controller.applyActiveFeedback(
+        _base(
+          feedbackType: 'warning',
+          postureStatus: 'unknown',
+          feedback: 'Move back so your shoulder is visible.',
+          holdProgress: 0,
+        ),
+      );
+      expect(stillFrozen.comboChanged, isFalse);
+      expect(controller.comboState.combo, 2);
+    });
+
+    test('wrong frames reset combo', () {
+      final controller = PracticeFeedbackController();
+      controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', postureStatus: 'stable'),
+      );
+      controller.applyActiveFeedback(
+        _base(feedbackType: 'positive', postureStatus: 'stable'),
+      );
+      expect(controller.comboState.combo, 2);
+
+      final reset = controller.applyActiveFeedback(
+        _base(
+          feedbackType: 'warning',
+          postureStatus: 'unstable',
+          feedback:
+              'Rest the bottle on top of your shoulder, not on your chest.',
+        ),
+      );
+      expect(reset.comboChanged, isTrue);
+      expect(controller.comboState.combo, 0);
     });
 
     test('reset clears session assessment accumulator', () {

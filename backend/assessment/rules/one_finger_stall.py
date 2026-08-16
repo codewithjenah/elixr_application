@@ -16,6 +16,7 @@ from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     track_bottle_stability,
+    uncertain_result,
 )
 from vision.types import (
     BottleDetection,
@@ -165,11 +166,9 @@ def evaluate(
     usable = _usable_hands_with_index(hands)
     if not usable:
         return (
-            RuleResult(
-                feedback="Keep your index finger fully visible.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.INDEX_FINGER_NOT_VISIBLE.value,
+            uncertain_result(
+                "Keep your index finger fully visible.",
+                code=FeedbackCode.INDEX_FINGER_NOT_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

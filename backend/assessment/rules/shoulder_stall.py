@@ -12,6 +12,7 @@ from assessment.rules.common_checks import (
     pose_nearest_shoulder,
     pose_shoulder_point,
     track_bottle_stability,
+    uncertain_result,
 )
 from vision.types import BottleDetection, HandsResult, Point2D, PoseLandmarks
 
@@ -53,11 +54,9 @@ def evaluate(
     )
     if shoulder is None or target is None:
         return (
-            RuleResult(
-                feedback="Show your shoulders so the stall point can be tracked.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.SHOULDERS_NOT_VISIBLE.value,
+            uncertain_result(
+                "Move back so your shoulder is visible.",
+                code=FeedbackCode.SHOULDERS_NOT_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

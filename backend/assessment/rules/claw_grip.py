@@ -6,6 +6,7 @@ from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
+    uncertain_result,
 )
 from config import FRAME_HEIGHT, FRAME_WIDTH
 from vision.types import (
@@ -215,6 +216,12 @@ def _index_extension(hand: HandLandmarks) -> Optional[float]:
     return _pixel_distance(complete[0], complete[-1]) / path_length
 
 
+def _observable_fingertip_count(hand: HandLandmarks) -> int:
+    return sum(
+        1 for index in _FINGERTIP_INDICES if hand.points.get(index) is not None
+    )
+
+
 def _finger_curled_down(
     hand: HandLandmarks,
     chain: tuple[int, int, int, int],
@@ -378,11 +385,9 @@ def evaluate(
     hand, palm = _nearest_hand_to_anchor(hands, neck_anchor, contact_zone)
     if hand is None or palm is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible above the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible above the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -394,11 +399,9 @@ def evaluate(
     index = hand.points.get(8)
     if wrist is None or middle_mcp is None or thumb is None or index is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible above the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible above the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -407,11 +410,19 @@ def evaluate(
     hand_scale = _hand_scale(hand)
     if hand_scale is None or hand_scale <= 0:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible above the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible above the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    if _observable_fingertip_count(hand) < _REQUIRED_CURLED_CONTACTING:
+        return (
+            uncertain_result(
+                "Keep your full hand visible above the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

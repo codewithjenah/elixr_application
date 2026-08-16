@@ -22,6 +22,8 @@ String? postureDisplayLabel(String? postureStatus) {
       return 'Posture stable';
     case 'unstable':
       return 'Posture unstable';
+    case 'unknown':
+      return "Can't determine";
     default:
       return null;
   }

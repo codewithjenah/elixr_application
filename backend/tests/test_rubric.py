@@ -166,6 +166,75 @@ def test_readiness_camera_failures_do_not_reduce_rubric():
     assert assessment.total == 0
 
 
+def test_unknown_visibility_frames_do_not_increase_observed_or_lower_scores():
+    tracker = RubricTracker(min_observed_seconds=0.5)
+    tracker.activate()
+    tracker.record(
+        feedback_code=FeedbackCode.HAND_STALL_LOCKED.value,
+        feedback_type="positive",
+        posture_status="stable",
+        timestamp=0.2,
+        criterion_results=evaluable_criterion_results(
+            locked_code=FeedbackCode.HAND_STALL_LOCKED.value,
+        ),
+    )
+    before = tracker.snapshot(HoldSnapshot())
+    tracker.record(
+        feedback_code=FeedbackCode.SHOULDERS_NOT_VISIBLE.value,
+        feedback_type="warning",
+        posture_status="unknown",
+        timestamp=0.4,
+    )
+    tracker.record(
+        feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
+        feedback_type="warning",
+        posture_status="unknown",
+        timestamp=0.6,
+    )
+    after = tracker.snapshot(HoldSnapshot())
+    assert after.technique.score == before.technique.score
+    assert after.stability.score == before.stability.score
+    assert after.prop_positioning.score == before.prop_positioning.score
+
+
+def test_far_hand_bottle_in_tin_observes_unsatisfied_prop_positioning():
+    from assessment.rules import bottle_in_a_tin
+    from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D
+
+    bottle = BottleDetection(x1=300, y1=202, x2=340, y2=302, confidence=0.9)
+    shaker = BottleDetection(x1=220, y1=300, x2=420, y2=350, confidence=0.9)
+    far_hand = HandsResult(
+        hands=[
+            HandLandmarks(
+                points={0: Point2D(0.05, 0.09), 9: Point2D(0.05, 0.01)},
+                handedness="Right",
+            )
+        ]
+    )
+    result, _, _ = bottle_in_a_tin.evaluate(bottle, shaker, None, far_hand, None)
+    assert result.criterion_results is not None
+
+    tracker = RubricTracker(min_observed_seconds=0.5)
+    tracker.activate()
+    tracker.record(
+        feedback_code=result.feedback_code,
+        feedback_type=result.feedback_type,
+        posture_status=result.posture_status,
+        timestamp=0.2,
+        criterion_results=result.criterion_results,
+    )
+    tracker.record(
+        feedback_code=result.feedback_code,
+        feedback_type=result.feedback_type,
+        posture_status=result.posture_status,
+        timestamp=0.8,
+        criterion_results=result.criterion_results,
+    )
+    assessment = tracker.snapshot(HoldSnapshot())
+    assert assessment.prop_positioning.score < 3
+    assert assessment.prop_positioning.reason_code == FeedbackCode.HAND_NOT_SUPPORTING_SHAKER.value
+
+
 def test_fps_frame_count_does_not_change_rubric():
     """Same wall-clock evidence at different frame rates yields same scores."""
 

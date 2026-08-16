@@ -127,17 +127,23 @@ def test_bottle_overlapping_below_shaker_top_warns():
 # --- D. Hand support -------------------------------------------------------
 
 
-def test_missing_hand_warns():
+def test_missing_hand_is_uncertain_visibility():
     result, _, _ = _evaluate(_bottle(), _shaker(), None)
     assert result.feedback_type == "warning"
-    assert "hand" in result.feedback.lower()
+    assert result.posture_status == "unknown"
+    assert result.feedback_code == "hand_not_visible"
+    assert result.criterion_results is None
+    assert result.feedback == "Keep your supporting hand visible."
 
 
-def test_hand_too_far_from_shaker_warns():
+def test_hand_too_far_from_shaker_is_wrong_support():
     far_hands = _hands_at(x=0.05, y=0.05)
     result, _, _ = _evaluate(_bottle(), _shaker(), far_hands)
     assert result.feedback_type == "warning"
-    assert "hand" in result.feedback.lower()
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == "hand_not_supporting_shaker"
+    assert result.criterion_results is not None
+    assert result.feedback == "Support the shaker with your hand."
 
 
 # --- E. Stability -----------------------------------------------------------

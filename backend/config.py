@@ -184,12 +184,32 @@ def _load_unit_ratio(name: str, default: str) -> float:
     return value
 
 
+def _load_non_negative_seconds(name: str, default: str) -> float:
+    """Load a duration in seconds that must be >= 0."""
+    raw = os.getenv(name, default)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} must be a number of seconds (got {raw!r})"
+        ) from exc
+    if value < 0.0:
+        raise ValueError(f"{name} must be >= 0.0 (got {value})")
+    return value
+
+
 # Backend-authoritative hold confirmation (active sessions only).
 HOLD_CONFIRMATION_SECONDS = float(os.getenv("HOLD_CONFIRMATION_SECONDS", "2.5"))
 # Reject hold accumulation when evaluated frames are spaced farther apart.
 HOLD_MAX_FRAME_GAP_SECONDS = float(os.getenv("HOLD_MAX_FRAME_GAP_SECONDS", "0.35"))
 # Minimum share of positive/stable frames in the current hold window.
 HOLD_MIN_POSITIVE_RATIO = _load_unit_ratio("HOLD_MIN_POSITIVE_RATIO", "0.85")
+# Consecutive-unknown pause before resetting a hold segment. Runtime default
+# is one deterministic value (0.75s). 0.75–1.0s is a camera-tuning range for
+# later live occlusion tests, not a second runtime default or validation band.
+HOLD_UNKNOWN_GRACE_SECONDS = _load_non_negative_seconds(
+    "HOLD_UNKNOWN_GRACE_SECONDS", "0.75"
+)
 
 # Rubric assessment (Assessment V2). Frame-rate independent: durations use
 # wall-clock deltas capped like HoldValidator, never raw frame counts.

@@ -1020,7 +1020,8 @@ def test_claw_grip_handles_incomplete_landmarks(missing):
     result = _evaluate_claw_grip(_claw_grip_hand(missing=missing))
 
     assert result.feedback_type == "warning"
-    assert result.posture_status in ("unknown", "unstable")
+    assert result.posture_status == "unknown"
+    assert result.criterion_results is None
 
 
 def test_claw_grip_rejects_extended_open_fingers():
@@ -1695,6 +1696,7 @@ def test_shoulder_stall_missing_landmarks():
     )
     assert result.feedback_type == "warning"
     assert result.posture_status == "unknown"
+    assert result.feedback == "Move back so your shoulder is visible."
 
 
 def test_shoulder_stall_unstable_history():

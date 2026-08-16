@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from assessment.hold_validator import HoldValidator
+from config import HOLD_UNKNOWN_GRACE_SECONDS
 
 
 def _valid(validator: HoldValidator, timestamp: float):
@@ -312,3 +313,87 @@ def test_positive_ratio_below_threshold_delays_confirmation():
     assert snapshot is not None
     assert snapshot.hold_confirmed is False
     assert snapshot.positive_frame_ratio < 0.85
+
+
+def _unknown(validator: HoldValidator, timestamp: float):
+    return validator.update(
+        feedback_type="warning",
+        posture_status="unknown",
+        session_active=True,
+        timestamp=timestamp,
+    )
+
+
+def _hold_with_progress() -> tuple[HoldValidator, object]:
+    validator = HoldValidator(
+        confirmation_seconds=2.5,
+        max_frame_gap_seconds=0.5,
+        min_positive_ratio=0.85,
+        unknown_grace_seconds=HOLD_UNKNOWN_GRACE_SECONDS,
+    )
+    validator.activate()
+    snapshot = None
+    for i in range(20):
+        snapshot = _valid(validator, i * 0.1)
+    assert snapshot is not None
+    assert snapshot.hold_confirmed is False
+    assert snapshot.hold_duration_ms >= 1800
+    return validator, snapshot
+
+
+def test_brief_unknown_pauses_and_preserves_hold_progress():
+    validator, before = _hold_with_progress()
+    step = 0.1
+    unknown_until = 2.0 + (HOLD_UNKNOWN_GRACE_SECONDS * 0.5)
+    t = 2.0
+    paused = before
+    while t <= unknown_until:
+        paused = _unknown(validator, t)
+        t += step
+
+    assert paused.hold_confirmed is False
+    assert paused.hold_duration_ms == before.hold_duration_ms
+    assert paused.hold_progress == before.hold_progress
+    assert paused.positive_frame_ratio == before.positive_frame_ratio
+
+    resumed = _valid(validator, t)
+    assert resumed.hold_duration_ms == paused.hold_duration_ms
+    continued = _valid(validator, t + step)
+    assert continued.hold_duration_ms > paused.hold_duration_ms
+    assert continued.hold_confirmed is False
+
+
+def test_prolonged_unknown_resets_hold_segment_without_invalid_sample():
+    validator, before = _hold_with_progress()
+    step = 0.1
+    t = 2.0
+    snapshot = before
+    while t <= 2.0 + HOLD_UNKNOWN_GRACE_SECONDS + step:
+        snapshot = _unknown(validator, t)
+        t += step
+
+    assert snapshot.hold_confirmed is False
+    assert snapshot.hold_progress == 0.0
+    assert snapshot.hold_duration_ms == 0
+    assert snapshot.positive_frame_ratio == 0.0
+
+    restarted = _valid(validator, t)
+    assert restarted.hold_duration_ms == 0
+    assert restarted.hold_confirmed is False
+
+
+def test_wrong_dropout_budget_is_independent_of_unknown_grace():
+    validator, _ = _hold_with_progress()
+    snapshot = None
+    for i in range(5):
+        snapshot = _invalid(validator, 2.0 + i * 0.1)
+    assert snapshot is not None
+    assert snapshot.hold_progress == 0.0
+    assert snapshot.hold_duration_ms == 0
+
+
+def test_unknown_frames_do_not_lower_positive_frame_ratio():
+    validator, before = _hold_with_progress()
+    paused = _unknown(validator, 2.1)
+    assert paused.positive_frame_ratio == before.positive_frame_ratio
+    assert paused.positive_frame_ratio >= 0.85

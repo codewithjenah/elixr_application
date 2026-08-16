@@ -6,6 +6,7 @@ from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
     check_bottle_visible,
     check_hands_visible,
+    uncertain_result,
 )
 from config import FRAME_HEIGHT, FRAME_WIDTH
 from vision.types import (
@@ -134,11 +135,9 @@ def evaluate(
     hand, palm = _nearest_hand_to_anchor(hands, _neck_anchor(bottle))
     if hand is None or palm is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible around the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible around the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,
@@ -152,11 +151,9 @@ def evaluate(
     overhand = _is_overhand(hand)
     if overhand is None:
         return (
-            RuleResult(
-                feedback="Keep your full hand visible around the bottle neck.",
-                feedback_type="warning",
-                posture_status="unknown",
-                feedback_code=FeedbackCode.HAND_NOT_FULLY_VISIBLE.value,
+            uncertain_result(
+                "Keep your full hand visible around the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
             ),
             prev_hip_center,
             movement_state,

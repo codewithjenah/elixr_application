@@ -535,7 +535,13 @@ positive_frame_ratio
 
 Flutter treats missing `message_type` as legacy feedback. Flutter session flags advance only from matching acknowledgments/feedback for the current `session_id`, never from merely sending a command.
 
-Hold confirmation is **backend-authoritative**. Flutter must not run a parallel client-side hold timer. During `session_state: active`, the backend tracks continuous positive/stable frames using monotonic time, resets on invalid feedback or excessive frame gaps, and sets `hold_confirmed: true` once per activated session when the configured duration is reached. Preview, unavailable, and error messages use safe hold defaults (`hold_progress: 0`, `hold_confirmed: false`).
+Live coaching uses three trainee-facing verdicts derived from `posture_status` (primary) and `feedback_category` (leftover safety net only). `feedback_type` remains coaching urgency (`positive` / `warning` / `error`), not the verdict:
+
+- **Correct** — `positive` + `stable`
+- **Wrong** — evaluable technique/position/stability miss (`unstable`)
+- **Can't determine** — `unknown` (missing required landmark or prop). This is not a technique fail: rubric ignores it, combo freezes, and hold pauses then resets the hold segment only after `HOLD_UNKNOWN_GRACE_SECONDS` (backend config; default 0.75s; 0.75–1.0s is a camera-tuning range, not a second runtime default)
+
+Hold confirmation is **backend-authoritative**. Flutter must not run a parallel client-side hold timer. During `session_state: active`, the backend tracks continuous positive/stable frames using monotonic time, pauses on `unknown` without counting those frames as invalid, resets the hold segment after prolonged unknown or after a sustained Wrong dropout, and sets `hold_confirmed: true` once per activated session when the configured duration is reached. Preview, unavailable, and error messages use safe hold defaults (`hold_progress: 0`, `hold_confirmed: false`).
 
 Optional readiness fields on feedback (present during `readying`; omitted otherwise):
 

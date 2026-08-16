@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'rubric_assessment.dart';
 import 'training_prop.dart';
+import 'coaching_verdict.dart';
 
 /// Typed status for a single readiness checklist item.
 ///
@@ -157,6 +158,28 @@ class PracticeFeedback {
           frameJpegBytes == null &&
           (feedback.contains('Camera unavailable') ||
               feedback.contains('Model load failed')));
+
+  /// Trainee-facing live verdict. [postureStatus] is the primary source;
+  /// visibility/environment/system category is only a leftover safety net.
+  CoachingVerdict get coachingVerdict {
+    if (isSessionFatal) {
+      return CoachingVerdict.wrong;
+    }
+    if (postureStatus == 'unknown') {
+      return CoachingVerdict.uncertain;
+    }
+    if (feedbackType == 'positive' && postureStatus == 'stable') {
+      return CoachingVerdict.correct;
+    }
+    if (postureStatus == 'unstable') {
+      return CoachingVerdict.wrong;
+    }
+    final category = feedbackCategory;
+    if (category != null && nonEvaluableFeedbackCategories.contains(category)) {
+      return CoachingVerdict.uncertain;
+    }
+    return CoachingVerdict.wrong;
+  }
 
   /// Semantic UI fields only (excludes JPEG bytes).
   bool semanticEquals(PracticeFeedback? other) {

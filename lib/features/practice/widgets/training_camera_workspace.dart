@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_primary_button.dart';
+import '../../../core/widgets/coaching_verdict_style.dart';
 import '../../../data/models/practice_feedback.dart';
 import '../../../services/websocket_service.dart';
 import '../practice_game_widgets.dart';
@@ -629,16 +630,10 @@ class _FrameHudOverlay extends StatelessWidget {
   final bool showFeedbackMessage;
 
   Color _feedbackColor() {
-    switch (feedback.feedbackType) {
-      case 'positive':
-        return AppColors.success;
-      case 'warning':
-        return AppColors.warning;
-      case 'error':
-        return AppColors.error;
-      default:
-        return AppColors.textSecondary;
-    }
+    return coachingVerdictColor(
+      feedback.coachingVerdict,
+      feedbackType: feedback.feedbackType,
+    );
   }
 
   @override

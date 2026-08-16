@@ -9,6 +9,7 @@ from config import (
     HOLD_CONFIRMATION_SECONDS,
     HOLD_MAX_FRAME_GAP_SECONDS,
     HOLD_MIN_POSITIVE_RATIO,
+    HOLD_UNKNOWN_GRACE_SECONDS,
 )
 
 
@@ -28,6 +29,11 @@ class HoldValidator:
     Isolated non-positive/non-stable frames pause accumulation and count
     against ``HOLD_MIN_POSITIVE_RATIO`` over a rolling window. A sustained
     invalid stretch longer than the dropout budget resets the attempt.
+
+    ``unknown`` posture is a third path: pause immediately with no credit and
+    no negative sample, then reset the hold segment only after
+    ``HOLD_UNKNOWN_GRACE_SECONDS``. Resetting the segment is not a technique
+    fail.
     """
 
     def __init__(
@@ -36,16 +42,19 @@ class HoldValidator:
         confirmation_seconds: float = HOLD_CONFIRMATION_SECONDS,
         max_frame_gap_seconds: float = HOLD_MAX_FRAME_GAP_SECONDS,
         min_positive_ratio: float = HOLD_MIN_POSITIVE_RATIO,
+        unknown_grace_seconds: float = HOLD_UNKNOWN_GRACE_SECONDS,
     ) -> None:
         self._confirmation_seconds = confirmation_seconds
         self._max_frame_gap_seconds = max_frame_gap_seconds
         self._min_positive_ratio = min_positive_ratio
+        self._unknown_grace_seconds = unknown_grace_seconds
         self._activated = False
         self._confirmed = False
         self._accumulated_seconds = 0.0
         self._last_timestamp: float | None = None
         self._last_was_valid = False
         self._consecutive_invalid_seconds = 0.0
+        self._consecutive_unknown_seconds = 0.0
         self._samples: deque[tuple[float, bool]] = deque()
 
     @property
@@ -63,6 +72,7 @@ class HoldValidator:
         self._last_timestamp = None
         self._last_was_valid = False
         self._consecutive_invalid_seconds = 0.0
+        self._consecutive_unknown_seconds = 0.0
         self._samples.clear()
 
     def update(
@@ -89,7 +99,25 @@ class HoldValidator:
             self._last_was_valid = False
 
         is_valid = feedback_type == "positive" and posture_status == "stable"
+        is_unknown = posture_status == "unknown"
+        if is_unknown:
+            if self._last_timestamp is not None:
+                delta = timestamp - self._last_timestamp
+                if delta > 0:
+                    self._consecutive_unknown_seconds += min(
+                        delta,
+                        self._max_frame_gap_seconds,
+                    )
+            self._consecutive_invalid_seconds = 0.0
+            self._last_timestamp = timestamp
+            self._last_was_valid = False
+            if self._consecutive_unknown_seconds > self._unknown_grace_seconds:
+                self._reset_segment()
+                self._last_timestamp = None
+            return self._build_snapshot()
+
         if not is_valid:
+            self._consecutive_unknown_seconds = 0.0
             if self._last_timestamp is not None:
                 delta = timestamp - self._last_timestamp
                 if delta > 0:
@@ -107,6 +135,7 @@ class HoldValidator:
             return self._build_snapshot()
 
         self._consecutive_invalid_seconds = 0.0
+        self._consecutive_unknown_seconds = 0.0
         self._record_sample(timestamp, True)
         if self._last_timestamp is not None and self._last_was_valid:
             delta = timestamp - self._last_timestamp
@@ -140,6 +169,7 @@ class HoldValidator:
     def _reset_segment(self) -> None:
         self._accumulated_seconds = 0.0
         self._consecutive_invalid_seconds = 0.0
+        self._consecutive_unknown_seconds = 0.0
         self._last_was_valid = False
         self._samples.clear()
 

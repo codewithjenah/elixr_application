@@ -6,6 +6,7 @@ from assessment.feedback_codes import (
     FeedbackCategory,
     FeedbackCode,
     category_for,
+    criterion_for,
     is_registered,
     registered_codes,
 )
@@ -16,6 +17,7 @@ from assessment.rules.common_checks import (
     check_hands_visible,
     track_bottle_stability,
 )
+from assessment.rubric import RubricCriterion
 from schemas.feedback import FeedbackMessage
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D
 
@@ -446,3 +448,10 @@ def test_bottle_in_a_tin_codes_distinguish_props():
     assert FeedbackCode.SHAKER_NOT_DETECTED.value == "shaker_not_detected"
     assert category_for(FeedbackCode.SHAKER_NOT_HORIZONTAL) == FeedbackCategory.TECHNIQUE
     assert category_for(FeedbackCode.BOTTLE_NOT_DETECTED) == FeedbackCategory.ENVIRONMENT
+
+
+def test_hand_not_supporting_shaker_is_evaluable_technique_positioning():
+    assert category_for(FeedbackCode.HAND_NOT_SUPPORTING_SHAKER) == FeedbackCategory.TECHNIQUE
+    assert criterion_for(FeedbackCode.HAND_NOT_SUPPORTING_SHAKER) == RubricCriterion.PROP_POSITIONING
+    assert criterion_for(FeedbackCode.HAND_NOT_VISIBLE) is None
+    assert category_for(FeedbackCode.HAND_NOT_VISIBLE) == FeedbackCategory.VISIBILITY

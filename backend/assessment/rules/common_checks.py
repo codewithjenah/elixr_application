@@ -13,7 +13,7 @@ from config import (
     DOUBLE_HAND_MIN_EXTENDED_FINGERS,
 )
 from assessment.feedback_codes import FeedbackCode
-from assessment.rules.base import RuleResult
+from assessment.rules.base import FeedbackType, RuleResult
 from vision.types import (
     BottleDetection,
     HandLandmarks,
@@ -187,6 +187,22 @@ def pose_nearest_shoulder(
     return best
 
 
+def uncertain_result(
+    feedback: str,
+    *,
+    code: str | FeedbackCode,
+    feedback_type: FeedbackType = "warning",
+) -> RuleResult:
+    """Visibility/environment early return: unknown, no rubric criterion_results."""
+    code_value = code.value if isinstance(code, FeedbackCode) else code
+    return RuleResult(
+        feedback=feedback,
+        feedback_type=feedback_type,
+        posture_status="unknown",
+        feedback_code=code_value,
+    )
+
+
 def check_bottle_visible(
     bottle: Optional[BottleDetection],
     *,
@@ -194,22 +210,19 @@ def check_bottle_visible(
 ) -> Optional[RuleResult]:
     if bottle is None:
         prop_name = _prop_name(prop_label)
-        return RuleResult(
-            feedback=f"{prop_name} not detected. Keep the {prop_name.lower()} visible.",
+        return uncertain_result(
+            f"{prop_name} not detected. Keep the {prop_name.lower()} visible.",
+            code=FeedbackCode.PROP_NOT_DETECTED,
             feedback_type="error",
-            posture_status="unknown",
-            feedback_code=FeedbackCode.PROP_NOT_DETECTED.value,
         )
     return None
 
 
 def check_hands_visible(hands: Optional[HandsResult]) -> Optional[RuleResult]:
     if hands is None or not hands.hands:
-        return RuleResult(
-            feedback="Hand not detected. Keep your hand in frame.",
-            feedback_type="warning",
-            posture_status="unknown",
-            feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
+        return uncertain_result(
+            "Hand not detected. Keep your hand in frame.",
+            code=FeedbackCode.HAND_NOT_VISIBLE,
         )
     return None
 
@@ -224,11 +237,9 @@ def check_hand_bottle_proximity(
     success_code: str | None = None,
 ) -> RuleResult:
     if target is None:
-        return RuleResult(
-            feedback="Hand not detected. Keep your hand in frame.",
-            feedback_type="warning",
-            posture_status="unknown",
-            feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
+        return uncertain_result(
+            "Hand not detected. Keep your hand in frame.",
+            code=FeedbackCode.HAND_NOT_VISIBLE,
         )
 
     bottle_center = bottle.center_normalized(640, 480)
@@ -258,11 +269,9 @@ def check_stall_proximity(
     success_code: str | None = None,
 ) -> RuleResult:
     if target is None:
-        return RuleResult(
-            feedback="Hand not detected. Keep your hand in frame.",
-            feedback_type="warning",
-            posture_status="unknown",
-            feedback_code=FeedbackCode.HAND_NOT_VISIBLE.value,
+        return uncertain_result(
+            "Hand not detected. Keep your hand in frame.",
+            code=FeedbackCode.HAND_NOT_VISIBLE,
         )
 
     bottle_center = bottle.center_normalized(640, 480)
@@ -409,11 +418,9 @@ def check_pinch_grip(
     thumb = hand.points.get(4)
     index = hand.points.get(8)
     if thumb is None or index is None:
-        return RuleResult(
-            feedback="Keep thumb and index finger visible.",
-            feedback_type="warning",
-            posture_status="unknown",
-            feedback_code=FeedbackCode.PINCH_FINGERS_NOT_VISIBLE.value,
+        return uncertain_result(
+            "Keep thumb and index finger visible.",
+            code=FeedbackCode.PINCH_FINGERS_NOT_VISIBLE,
         )
 
     pinch_dist = _dist(thumb, index)
