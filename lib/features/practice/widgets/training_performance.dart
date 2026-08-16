@@ -70,13 +70,13 @@ class TrainingPerformanceBar extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: ColoredBox(
             color: context.elixBorder.withValues(alpha: 0.35),
             child: SizedBox(
-              height: 10,
+              height: 7,
               width: double.infinity,
               child: TweenAnimationBuilder<double>(
                 duration: const Duration(milliseconds: 500),
@@ -106,11 +106,11 @@ class TrainingPerformanceBar extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: 6),
         Container(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.sm + 2,
-            vertical: 4,
+            vertical: 3,
           ),
           decoration: BoxDecoration(
             color: levelColor.withValues(alpha: hasTotal ? 0.12 : 0.08),
@@ -185,7 +185,7 @@ class _CriterionTile extends StatelessWidget {
       key: ValueKey('rubric-criterion-${criterion.wireValue}'),
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
-        vertical: AppSpacing.sm,
+        vertical: 6,
       ),
       decoration: AppTheme.practiceMetricTileDecoration(context),
       child: Column(

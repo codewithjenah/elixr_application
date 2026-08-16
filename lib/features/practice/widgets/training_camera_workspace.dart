@@ -255,7 +255,10 @@ class TrainingCameraWorkspace extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Text(
               sessionError ?? errorMessage ?? 'Connection error',
-              style: AppTheme.body,
+              // The camera viewport remains dark in every app theme. Do not
+              // inherit the light-theme body color here, or this message
+              // becomes unreadable on the dark error surface.
+              style: AppTheme.body.copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),
             if (connectionState == WebSocketConnectionState.error) ...[

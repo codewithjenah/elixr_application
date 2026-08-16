@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
@@ -130,6 +131,66 @@ void main() {
       expect(find.text('3 / 3'), findsNWidgets(2));
       expect(find.text('2 / 3'), findsNWidgets(2));
     });
+
+    testWidgets(
+      'desktop panel keeps all information visible without scrolling',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            SizedBox(
+              width: 420,
+              height: 660,
+              child: TrainingSessionPanel(
+                phase: TrainingSessionPhase.ready,
+                metrics: SessionMetricTiles(
+                  elapsedDisplay: '00:00',
+                  rubricChild: const Text('—'),
+                  performanceBar: const TrainingPerformanceBar(total: null),
+                  rubricBreakdown: const RubricCriteriaTiles(assessment: null),
+                ),
+                statusContent: const TrainingStatusRow(
+                  detection: TrainingDetectionStatus.inactive,
+                ),
+                supportingContent: const Column(
+                  children: [
+                    SessionSetupRow(
+                      icon: FluentIcons.play_solid,
+                      label: 'Movement',
+                      value: 'Normal Grip',
+                    ),
+                    SessionSetupRow(
+                      icon: FluentIcons.speed_high,
+                      label: 'Difficulty',
+                      value: 'Easy',
+                    ),
+                    SessionSetupRow(
+                      icon: FluentIcons.diet_plan_notebook,
+                      label: 'Prop',
+                      value: 'Bottle',
+                    ),
+                  ],
+                ),
+                actionArea: TrainingActionArea(
+                  kind: TrainingActionKind.start,
+                  startLabel: 'Start Camera Setup',
+                  onPressed: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const ValueKey('session-information-static')),
+          findsOneWidget,
+        );
+        expect(find.byType(SingleChildScrollView), findsNothing);
+        expect(find.text('Normal Grip'), findsOneWidget);
+        expect(find.text('Start Camera Setup'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets('readiness phase renders checklist in status surface', (
       tester,
@@ -337,7 +398,97 @@ void main() {
         );
         await tester.pump();
         expect(tester.takeException(), isNull);
+
+        final title = tester.widget<Text>(find.text('Hand Stall'));
+        final instruction = tester.widget<Text>(find.text('Hold steady.'));
+        final backIcon = tester.widget<Icon>(
+          find.byIcon(FluentIcons.chrome_back),
+        );
+        expect(title.style?.color, AppColors.textPrimary);
+        expect(instruction.style?.color, AppColors.textSecondary);
+        expect(backIcon.color, AppColors.textPrimary);
       }
+    });
+
+    testWidgets('session panel gradient remains opaque in light mode', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          SizedBox(
+            width: 420,
+            height: 560,
+            child: TrainingSessionPanel(
+              phase: TrainingSessionPhase.ready,
+              metrics: SessionMetricTiles(
+                elapsedDisplay: '00:00',
+                rubricChild: const Text('—'),
+              ),
+              statusContent: const TrainingStatusRow(
+                detection: TrainingDetectionStatus.inactive,
+              ),
+              actionArea: TrainingActionArea(
+                kind: TrainingActionKind.start,
+                startLabel: 'Start Camera Setup',
+                onPressed: () {},
+              ),
+            ),
+          ),
+          brightness: Brightness.light,
+        ),
+      );
+      await tester.pump();
+
+      final panel = tester.widget<Container>(
+        find.byKey(const ValueKey('practice-session-panel')),
+      );
+      final decoration = panel.decoration! as BoxDecoration;
+      final gradient = decoration.gradient! as LinearGradient;
+
+      expect(gradient.colors, isNotEmpty);
+      expect(gradient.colors.every((color) => color.a == 1.0), isTrue);
+    });
+
+    testWidgets('session setup values share one right-aligned column', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const SizedBox(
+            width: 420,
+            child: Column(
+              children: [
+                SessionSetupRow(
+                  icon: FluentIcons.play_solid,
+                  label: 'Movement',
+                  value: 'Normal Grip',
+                ),
+                SessionSetupRow(
+                  icon: FluentIcons.speed_high,
+                  label: 'Difficulty',
+                  value: 'Easy',
+                ),
+                SessionSetupRow(
+                  icon: FluentIcons.diet_plan_notebook,
+                  label: 'Prop',
+                  value: 'Bottle',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final rightEdges = [
+        'Normal Grip',
+        'Easy',
+        'Bottle',
+      ].map((label) => tester.getTopRight(find.text(label)).dx).toList();
+
+      expect(rightEdges[0], closeTo(rightEdges[1], 0.01));
+      expect(rightEdges[1], closeTo(rightEdges[2], 0.01));
+      expect(tester.takeException(), isNull);
     });
   });
 }

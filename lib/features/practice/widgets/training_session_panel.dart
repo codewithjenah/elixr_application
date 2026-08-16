@@ -22,20 +22,11 @@ enum TrainingSessionPhase {
   BuildContext context,
 ) {
   return switch (phase) {
-    TrainingSessionPhase.ready => (
-      context.elixTextSecondary,
-      'Ready to set up',
-    ),
-    TrainingSessionPhase.preparingCamera => (
-      AppColors.warning,
-      'Opening camera',
-    ),
-    TrainingSessionPhase.readiness => (AppColors.accent, 'Visibility check'),
-    TrainingSessionPhase.getReady => (AppColors.primary, 'Countdown'),
-    TrainingSessionPhase.inProgress => (
-      AppColors.success,
-      'Practice in progress',
-    ),
+    TrainingSessionPhase.ready => (context.elixTextSecondary, 'Ready'),
+    TrainingSessionPhase.preparingCamera => (AppColors.warning, 'Camera Setup'),
+    TrainingSessionPhase.readiness => (AppColors.accent, 'Setup Check'),
+    TrainingSessionPhase.getReady => (AppColors.primary, 'Get Ready'),
+    TrainingSessionPhase.inProgress => (AppColors.success, 'In Progress'),
     TrainingSessionPhase.completed => (AppColors.success, 'Completed'),
     TrainingSessionPhase.cameraError => (AppColors.error, 'Camera Error'),
   };
@@ -83,48 +74,68 @@ class TrainingSessionPanel extends StatelessWidget {
     final (accent, phaseLabel) = trainingPhasePresentation(phase, context);
     final statusTitle = trainingStatusSectionTitle(phase);
 
-    final scrollable = SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.sm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _SessionHeaderRow(
-            phaseLabel: phaseLabel,
-            accent: accent,
-            rankBadge: rankBadge,
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SessionHeaderRow(
+          phaseLabel: phaseLabel,
+          accent: accent,
+          rankBadge: rankBadge,
+        ),
+        const SizedBox(height: 12),
+        metrics,
+        const SizedBox(height: 12),
+        _StatusSurface(
+          key: const ValueKey('session-status-surface'),
+          title: statusTitle,
+          accent: accent,
+          child: statusContent,
+        ),
+        if (notice != null) ...[const SizedBox(height: 12), notice!],
+        if (supportingContent != null) ...[
+          const SizedBox(height: 12),
+          _SetupSurface(
+            key: const ValueKey('session-setup-section'),
+            child: supportingContent!,
           ),
-          const SizedBox(height: AppSpacing.md),
-          metrics,
-          const SizedBox(height: AppSpacing.md),
-          _StatusSurface(
-            key: const ValueKey('session-status-surface'),
-            title: statusTitle,
-            accent: accent,
-            child: statusContent,
-          ),
-          if (notice != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            notice!,
-          ],
-          if (supportingContent != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            _SetupSurface(
-              key: const ValueKey('session-setup-section'),
-              child: supportingContent!,
-            ),
-          ],
-          if (compactStatusNote != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            compactStatusNote!,
-          ],
         ],
-      ),
+        if (compactStatusNote != null) ...[
+          const SizedBox(height: 12),
+          compactStatusNote!,
+        ],
+      ],
     );
+
+    final paddedContent = Padding(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+      child: content,
+    );
+
+    // Desktop keeps the whole control deck visible without a nested scrollbar.
+    // At unusually short window heights, scale the deck down as one unit rather
+    // than hiding status or forcing the user to scroll beside the camera.
+    final informationArea = expandVertically
+        ? LayoutBuilder(
+            key: const ValueKey('session-information-static'),
+            builder: (context, constraints) {
+              const horizontalPadding = 28.0;
+              final contentWidth = (constraints.maxWidth - horizontalPadding)
+                  .clamp(0.0, double.infinity);
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(width: contentWidth, child: content),
+                ),
+              );
+            },
+          )
+        : SingleChildScrollView(
+            key: const ValueKey('session-information-scrollable'),
+            child: paddedContent,
+          );
 
     return Container(
       key: const ValueKey('practice-session-panel'),
@@ -134,12 +145,10 @@ class TrainingSessionPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: expandVertically ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          // Rubric metrics can exceed the available height, so the scroll area
-          // must never claim the space reserved for the pinned action area.
           if (expandVertically)
-            Expanded(child: scrollable)
+            Expanded(child: informationArea)
           else
-            Flexible(child: scrollable),
+            Flexible(child: informationArea),
           Container(
             decoration: BoxDecoration(
               border: Border(
@@ -148,12 +157,7 @@ class TrainingSessionPanel extends StatelessWidget {
                 ),
               ),
             ),
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.sm + 2,
-              AppSpacing.md,
-              AppSpacing.md,
-            ),
+            padding: const EdgeInsets.fromLTRB(14, AppSpacing.sm + 2, 14, 14),
             child: actionArea,
           ),
         ],
@@ -177,17 +181,39 @@ class _SessionHeaderRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(
-          'Session',
-          style: AppTheme.headingMedium.copyWith(
-            fontSize: 18,
-            color: context.elixTextPrimary,
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: accent.withValues(alpha: 0.25)),
+          ),
+          child: Icon(FluentIcons.processing, size: 15, color: accent),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'TRAINING SESSION',
+                style: AppTheme.caption.copyWith(
+                  fontSize: 10,
+                  letterSpacing: 1.1,
+                  fontWeight: FontWeight.w700,
+                  color: context.elixTextSecondary,
+                ),
+              ),
+              const SizedBox(height: 3),
+              _PhaseChip(label: phaseLabel, accent: accent),
+            ],
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
-        _PhaseChip(label: phaseLabel, accent: accent),
-        const Spacer(),
-        ?rankBadge,
+        if (rankBadge != null) ...[
+          const SizedBox(width: AppSpacing.sm),
+          rankBadge!,
+        ],
       ],
     );
   }
@@ -201,20 +227,60 @@ class _PhaseChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: accent.withValues(alpha: 0.32)),
-      ),
-      child: Text(
-        label,
-        style: AppTheme.caption.copyWith(
-          color: accent,
-          fontWeight: FontWeight.w600,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
         ),
-      ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.caption.copyWith(
+              color: accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 3,
+          height: 13,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: AppTheme.caption.copyWith(
+            fontSize: 10,
+            letterSpacing: 0.9,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -234,20 +300,13 @@ class _StatusSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.sm + 2),
+      padding: const EdgeInsets.all(10),
       decoration: AppTheme.practiceSectionSurface(context, accent: accent),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            title,
-            style: AppTheme.caption.copyWith(
-              letterSpacing: 0.5,
-              fontWeight: FontWeight.w700,
-              color: accent,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
+          _SectionLabel(label: title, color: accent),
+          const SizedBox(height: 7),
           child,
         ],
       ),
@@ -263,20 +322,16 @@ class _SetupSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.sm + 2),
+      padding: const EdgeInsets.all(10),
       decoration: AppTheme.practiceSectionSurface(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Session setup',
-            style: AppTheme.caption.copyWith(
-              letterSpacing: 0.5,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextSecondary,
-            ),
+          _SectionLabel(
+            label: 'Session setup',
+            color: context.elixTextSecondary,
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: 7),
           child,
         ],
       ),
@@ -372,7 +427,7 @@ class _MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm + 2,
-        vertical: AppSpacing.sm,
+        vertical: 7,
       ),
       decoration: AppTheme.practiceMetricTileDecoration(context).copyWith(
         border: emphasized
@@ -398,7 +453,7 @@ class _MetricTile extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           child,
         ],
       ),
@@ -422,7 +477,7 @@ class SessionSetupRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           Icon(icon, size: 14, color: context.elixTextSecondary),
@@ -431,8 +486,8 @@ class SessionSetupRow extends StatelessWidget {
             label,
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
-          const Spacer(),
-          Flexible(
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
             child: Text(
               value,
               style: AppTheme.body.copyWith(

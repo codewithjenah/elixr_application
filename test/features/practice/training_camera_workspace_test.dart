@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -41,6 +42,13 @@ PracticeFeedback _feedback(TrainingProp prop, {String text = 'Good'}) {
 Widget _wrap(Widget child) {
   return FluentApp(
     theme: AppTheme.dark,
+    home: ScaffoldPage(content: child),
+  );
+}
+
+Widget _wrapWithTheme(Widget child, Brightness brightness) {
+  return FluentApp(
+    theme: brightness == Brightness.dark ? AppTheme.dark : AppTheme.light,
     home: ScaffoldPage(content: child),
   );
 }
@@ -109,6 +117,38 @@ class _RebuildProbe extends StatelessWidget {
 }
 
 void main() {
+  group('TrainingCameraWorkspace error surface', () {
+    testWidgets('keeps error copy readable in light theme', (tester) async {
+      await tester.pumpWidget(
+        _wrapWithTheme(
+          SizedBox(
+            width: 640,
+            height: 480,
+            child: TrainingCameraWorkspace(
+              mirrored: false,
+              connectionState: WebSocketConnectionState.error,
+              connecting: false,
+              isSessionActive: false,
+              onRetry: () {},
+              onCountdownComplete: () {},
+              errorMessage: 'Selected camera is unavailable.',
+            ),
+          ),
+          Brightness.light,
+        ),
+      );
+      await tester.pump();
+
+      final title = tester.widget<Text>(find.text('Connection error'));
+      final message = tester.widget<Text>(
+        find.text('Selected camera is unavailable.'),
+      );
+
+      expect(title.style?.color, AppColors.textPrimary);
+      expect(message.style?.color, AppColors.textSecondary);
+    });
+  });
+
   group('TrainingCameraWorkspace prop label', () {
     testWidgets('mirrored shaker label stays outside the flipped image', (
       tester,

@@ -295,10 +295,25 @@ abstract final class AppTheme {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
     final tint = accent ?? AppColors.accent;
+    final panelSurface = isDark
+        ? AppColors.panelSurface
+        : context.elixCardSurface;
+    final tintedPanelSurface = Color.alphaBlend(
+      tint.withValues(alpha: isDark ? 0.055 : 0.035),
+      panelSurface,
+    );
     return BoxDecoration(
-      color: highContrast
-          ? context.elixCardSurface
-          : (isDark ? AppColors.panelSurface : context.elixCardSurface),
+      color: highContrast ? context.elixCardSurface : null,
+      gradient: highContrast
+          ? null
+          : LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDark
+                  ? [panelSurface, tintedPanelSurface, const Color(0xFF15121D)]
+                  : [panelSurface, tintedPanelSurface, panelSurface],
+              stops: const [0, 0.48, 1],
+            ),
       borderRadius: BorderRadius.circular(AppSpacing.practiceSurfaceRadius),
       border: Border.all(
         color: highContrast

@@ -65,7 +65,10 @@ class TrainingSessionHeader extends StatelessWidget {
                 style: AppTheme.headingLarge.copyWith(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
-                  color: context.elixTextPrimary,
+                  // The session header sits on the saturated practice
+                  // backdrop in both theme modes, so theme-default dark text
+                  // is not reliably legible in light mode.
+                  color: AppColors.textPrimary,
                   height: 1.15,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -80,7 +83,7 @@ class TrainingSessionHeader extends StatelessWidget {
         Text(
           instruction,
           style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
+            color: AppColors.textSecondary,
             height: 1.35,
           ),
           maxLines: 2,
@@ -208,7 +211,10 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
                       size: 16,
                       color: _hovering || focused
                           ? AppColors.primary
-                          : context.elixTextPrimary,
+                          // Match the header copy: this control is displayed
+                          // over the saturated practice backdrop even in light
+                          // mode, where the theme-default dark icon is lost.
+                          : AppColors.textPrimary,
                     ),
                   ),
                 ),
