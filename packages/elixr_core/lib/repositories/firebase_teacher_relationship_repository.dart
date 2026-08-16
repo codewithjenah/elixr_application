@@ -2,12 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../database/firestore_collections.dart';
 import '../models/coach_code.dart';
-import '../models/teacher_invite.dart';
 import '../models/teacher_relationship_exception.dart';
+import '../models/teacher_roster_invite.dart';
 import '../models/teacher_student_link.dart';
 import 'teacher_relationship_repository.dart';
 
-/// Firestore-backed [TeacherRelationshipRepository].
 class FirebaseTeacherRelationshipRepository
     implements TeacherRelationshipRepository {
   FirebaseTeacherRelationshipRepository({
@@ -24,111 +23,392 @@ class FirebaseTeacherRelationshipRepository
 
   CollectionReference<Map<String, dynamic>> get _invites =>
       _firestore.collection(FirestoreCollections.teacherInvites);
-
   CollectionReference<Map<String, dynamic>> get _links =>
       _firestore.collection(FirestoreCollections.teacherStudentLinks);
-
-  DocumentReference<Map<String, dynamic>> _userRef(String userId) =>
-      _firestore.collection(FirestoreCollections.users).doc(userId);
+  DocumentReference<Map<String, dynamic>> _userRef(String id) =>
+      _firestore.collection(FirestoreCollections.users).doc(id);
 
   @override
-  Future<TeacherInvite> createOrRotateInvite({
-    required String traineeId,
-    required String traineeDisplayName,
+  Future<TeacherRosterInvite> createOrRotateRosterInvite({
+    required String teacherId,
+    required String teacherDisplayName,
   }) async {
-    final userRef = _userRef(traineeId);
-    final userSnap = await userRef.get();
-    final previousCode = userSnap.data()?['teacher_invite_code'];
-
+    final userRef = _userRef(teacherId);
+    final user = await userRef.get();
+    final previous = user.data()?['teacher_roster_invite_code'];
     for (var attempt = 0; attempt < maxCodeAttempts; attempt++) {
       final normalized = _generateNormalizedCode();
       if (!CoachCode.isNormalized(normalized)) continue;
-
       final inviteRef = _invites.doc(normalized);
-      final existing = await inviteRef.get();
-      if (existing.exists) continue;
-
-      final expiresAt = Timestamp.fromDate(
-        DateTime.now().toUtc().add(CoachCode.lifetime),
-      );
+      if ((await inviteRef.get()).exists) continue;
       final batch = _firestore.batch();
-      if (previousCode is String &&
-          previousCode.isNotEmpty &&
-          previousCode != normalized) {
-        batch.delete(_invites.doc(previousCode));
+      if (previous is String && previous.isNotEmpty && previous != normalized) {
+        batch.delete(_invites.doc(previous));
       }
       batch.set(inviteRef, {
-        'trainee_id': traineeId,
-        'trainee_display_name': traineeDisplayName,
+        'teacher_id': teacherId,
+        'teacher_display_name': teacherDisplayName,
         'created_at': FieldValue.serverTimestamp(),
-        'expires_at': expiresAt,
       });
-      batch.update(userRef, {'teacher_invite_code': normalized});
+      batch.update(userRef, {
+        'teacher_roster_invite_code': normalized,
+        // Retire a legacy Trainee-owned pointer if it is encountered.
+        'teacher_invite_code': FieldValue.delete(),
+      });
       try {
         await batch.commit();
       } on FirebaseException {
-        // Collision or TOCTOU: set() on an existing invite is an update, and
-        // teacher_invites deny updates, so the write cannot overwrite.
         continue;
       }
-
-      return TeacherInvite(
+      return TeacherRosterInvite(
         normalizedCode: normalized,
-        traineeId: traineeId,
-        traineeDisplayName: traineeDisplayName,
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
         createdAt: DateTime.now().toUtc(),
-        expiresAt: expiresAt.toDate().toUtc(),
       );
     }
-
     throw const TeacherRelationshipException(
       TeacherRelationshipError.collisionExhausted,
-      'Could not allocate a unique coach code.',
+      'Could not allocate a unique roster code.',
     );
   }
 
   @override
-  Future<void> revokeInvite({required String traineeId}) async {
-    final userRef = _userRef(traineeId);
-    final userSnap = await userRef.get();
-    final code = userSnap.data()?['teacher_invite_code'];
+  Future<TeacherRosterInvite?> getActiveRosterInvite({
+    required String teacherId,
+  }) async {
+    final user = await _userRef(teacherId).get();
+    final code = user.data()?['teacher_roster_invite_code'];
+    if (code is! String || !CoachCode.isNormalized(code)) return null;
+    final invite = await _invites.doc(code).get();
+    if (!invite.exists) return null;
+    final parsed = TeacherRosterInvite.tryFromMap(
+      invite.data() ?? const {},
+      id: invite.id,
+    );
+    return parsed?.teacherId == teacherId ? parsed : null;
+  }
+
+  @override
+  Future<void> revokeRosterInvite({required String teacherId}) async {
+    final userRef = _userRef(teacherId);
+    final user = await userRef.get();
+    final code = user.data()?['teacher_roster_invite_code'];
     final batch = _firestore.batch();
-    if (code is String && code.isNotEmpty) {
-      batch.delete(_invites.doc(code));
-    }
-    batch.update(userRef, {'teacher_invite_code': FieldValue.delete()});
+    if (code is String && code.isNotEmpty) batch.delete(_invites.doc(code));
+    batch.update(userRef, {'teacher_roster_invite_code': FieldValue.delete()});
     await batch.commit();
   }
 
   @override
-  Future<TeacherInvite?> getActiveInvite({required String traineeId}) async {
-    final userSnap = await _userRef(traineeId).get();
-    final code = userSnap.data()?['teacher_invite_code'];
-    if (code is! String || code.isEmpty) return null;
-    final snap = await _invites.doc(code).get();
-    if (!snap.exists) return null;
-    return TeacherInvite.tryFromMap(snap.data() ?? const {}, id: snap.id);
+  Future<TeacherRosterInvite> resolveRosterCode(String code) async {
+    final normalized = CoachCode.tryNormalize(code);
+    if (normalized == null) {
+      throw const TeacherRelationshipException(
+        TeacherRelationshipError.malformedCode,
+        'That roster code is not valid.',
+      );
+    }
+    final snapshot = await _invites.doc(normalized).get();
+    final invite = snapshot.exists
+        ? TeacherRosterInvite.tryFromMap(
+            snapshot.data() ?? const {},
+            id: snapshot.id,
+          )
+        : null;
+    if (invite == null) {
+      throw const TeacherRelationshipException(
+        TeacherRelationshipError.inviteNotFound,
+        'No Teacher is using that roster code.',
+      );
+    }
+    return invite;
+  }
+
+  @override
+  Future<TeacherStudentLink> requestTeacherJoin({
+    required String traineeId,
+    required String traineeDisplayName,
+    required String code,
+  }) async {
+    final invite = await resolveRosterCode(code);
+    if (invite.teacherId == traineeId) {
+      throw const TeacherRelationshipException(
+        TeacherRelationshipError.invalidParticipant,
+        'You cannot join your own roster.',
+      );
+    }
+    final id = TeacherStudentLink.documentId(
+      teacherId: invite.teacherId,
+      traineeId: traineeId,
+    );
+    final ref = _links.doc(id);
+    final existing = await _findOwnLink(
+      teacherId: invite.teacherId,
+      traineeId: traineeId,
+    );
+    if (existing?.isApproved == true) {
+      throw const TeacherRelationshipException(
+        TeacherRelationshipError.alreadyLinked,
+        'This Teacher is already linked.',
+      );
+    }
+    if (existing?.isPending == true && existing?.isV2Request == true) {
+      throw const TeacherRelationshipException(
+        TeacherRelationshipError.alreadyPending,
+        'A request is already waiting for this Teacher.',
+      );
+    }
+    final payload = <String, Object?>{
+      'teacher_id': invite.teacherId,
+      'trainee_id': traineeId,
+      'teacher_display_name': invite.teacherDisplayName,
+      'trainee_display_name': traineeDisplayName,
+      'status': TeacherStudentLinkStatus.pending.name,
+      'invite_id': invite.normalizedCode,
+      'request_version': TeacherStudentLink.currentRequestVersion,
+      'updated_at': FieldValue.serverTimestamp(),
+      'progress_access': TeacherProgressAccess.none.name,
+      'progress_access_version': FieldValue.delete(),
+      'progress_access_granted_at': FieldValue.delete(),
+      'evidence_access': FieldValue.delete(),
+      'evidence_access_version': FieldValue.delete(),
+      'evidence_access_granted_at': FieldValue.delete(),
+      if (existing == null) 'created_at': FieldValue.serverTimestamp(),
+    };
+    if (existing == null) {
+      await ref.set(payload);
+    } else {
+      await ref.update(payload);
+    }
+    final written = await ref.get();
+    return TeacherStudentLink.tryFromMap(
+          written.data() ?? const {},
+          id: written.id,
+        ) ??
+        TeacherStudentLink(
+          id: id,
+          teacherId: invite.teacherId,
+          traineeId: traineeId,
+          teacherDisplayName: invite.teacherDisplayName,
+          traineeDisplayName: traineeDisplayName,
+          status: TeacherStudentLinkStatus.pending,
+          inviteId: invite.normalizedCode,
+          requestVersion: TeacherStudentLink.currentRequestVersion,
+        );
+  }
+
+  @override
+  Future<void> approveJoin({
+    required String linkId,
+    required String teacherId,
+  }) => _updateStatus(
+    linkId: linkId,
+    participantField: 'teacher_id',
+    participantId: teacherId,
+    expected: TeacherStudentLinkStatus.pending,
+    next: TeacherStudentLinkStatus.approved,
+  );
+
+  @override
+  Future<void> rejectJoin({
+    required String linkId,
+    required String teacherId,
+  }) => _updateStatus(
+    linkId: linkId,
+    participantField: 'teacher_id',
+    participantId: teacherId,
+    expected: TeacherStudentLinkStatus.pending,
+    next: TeacherStudentLinkStatus.rejected,
+  );
+
+  @override
+  Future<void> cancelJoin({
+    required String linkId,
+    required String traineeId,
+  }) => _updateStatus(
+    linkId: linkId,
+    participantField: 'trainee_id',
+    participantId: traineeId,
+    expected: TeacherStudentLinkStatus.pending,
+    next: TeacherStudentLinkStatus.cancelled,
+  );
+
+  @override
+  Future<void> revokeLink({
+    required String linkId,
+    required String traineeId,
+  }) => _updateStatus(
+    linkId: linkId,
+    participantField: 'trainee_id',
+    participantId: traineeId,
+    expected: TeacherStudentLinkStatus.approved,
+    next: TeacherStudentLinkStatus.revoked,
+  );
+
+  Future<void> _updateStatus({
+    required String linkId,
+    required String participantField,
+    required String participantId,
+    required TeacherStudentLinkStatus expected,
+    required TeacherStudentLinkStatus next,
+  }) async {
+    final ref = _links.doc(linkId);
+    final snapshot = await ref.get();
+    final link = snapshot.exists
+        ? TeacherStudentLink.tryFromMap(
+            snapshot.data() ?? const {},
+            id: snapshot.id,
+          )
+        : null;
+    final actual = participantField == 'teacher_id'
+        ? link?.teacherId
+        : link?.traineeId;
+    final requiresV2Request = expected == TeacherStudentLinkStatus.pending;
+    if (link == null ||
+        actual != participantId ||
+        link.status != expected ||
+        (requiresV2Request && !link.isV2Request)) {
+      throw const TeacherRelationshipException(
+        TeacherRelationshipError.notFound,
+      );
+    }
+    await ref.update({
+      'status': next.name,
+      'updated_at': FieldValue.serverTimestamp(),
+      'progress_access': TeacherProgressAccess.none.name,
+      'progress_access_version': FieldValue.delete(),
+      'progress_access_granted_at': FieldValue.delete(),
+      'evidence_access': FieldValue.delete(),
+      'evidence_access_version': FieldValue.delete(),
+      'evidence_access_granted_at': FieldValue.delete(),
+    });
+  }
+
+  @override
+  Future<void> grantProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _setProgress(linkId, traineeId, true);
+
+  @override
+  Future<void> removeProgressAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _setProgress(linkId, traineeId, false);
+
+  Future<void> _setProgress(
+    String linkId,
+    String traineeId,
+    bool granted,
+  ) async {
+    final ref = _links.doc(linkId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final link = snapshot.exists
+          ? TeacherStudentLink.tryFromMap(
+              snapshot.data() ?? const {},
+              id: snapshot.id,
+            )
+          : null;
+      if (link == null || link.traineeId != traineeId || !link.isApproved) {
+        throw const TeacherRelationshipException(
+          TeacherRelationshipError.notFound,
+        );
+      }
+      transaction.update(ref, {
+        'progress_access': granted ? 'granted' : 'none',
+        'updated_at': FieldValue.serverTimestamp(),
+        'progress_access_version': granted ? 1 : FieldValue.delete(),
+        'progress_access_granted_at': granted
+            ? FieldValue.serverTimestamp()
+            : FieldValue.delete(),
+        if (!granted) 'evidence_access': FieldValue.delete(),
+        if (!granted) 'evidence_access_version': FieldValue.delete(),
+        if (!granted) 'evidence_access_granted_at': FieldValue.delete(),
+      });
+    });
+  }
+
+  @override
+  Future<void> grantEvidenceAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _setEvidence(linkId, traineeId, true);
+
+  @override
+  Future<void> removeEvidenceAccess({
+    required String linkId,
+    required String traineeId,
+  }) => _setEvidence(linkId, traineeId, false);
+
+  Future<void> _setEvidence(
+    String linkId,
+    String traineeId,
+    bool granted,
+  ) async {
+    final ref = _links.doc(linkId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final link = snapshot.exists
+          ? TeacherStudentLink.tryFromMap(
+              snapshot.data() ?? const {},
+              id: snapshot.id,
+            )
+          : null;
+      if (link == null ||
+          link.traineeId != traineeId ||
+          !link.hasEffectiveProgressAccess) {
+        throw const TeacherRelationshipException(
+          TeacherRelationshipError.notFound,
+        );
+      }
+      transaction.update(ref, {
+        'updated_at': FieldValue.serverTimestamp(),
+        'evidence_access': granted ? 'granted' : FieldValue.delete(),
+        'evidence_access_version': granted ? 1 : FieldValue.delete(),
+        'evidence_access_granted_at': granted
+            ? FieldValue.serverTimestamp()
+            : FieldValue.delete(),
+      });
+    });
+  }
+
+  @override
+  Future<void> revokeAllEvidenceAccess({required String traineeId}) async {
+    final snapshot = await _links
+        .where('trainee_id', isEqualTo: traineeId)
+        .get();
+    for (var offset = 0; offset < snapshot.docs.length; offset += 400) {
+      final batch = _firestore.batch();
+      for (final document in snapshot.docs.skip(offset).take(400)) {
+        if (!document.data().containsKey('evidence_access')) continue;
+        batch.update(document.reference, {
+          'updated_at': FieldValue.serverTimestamp(),
+          'evidence_access': FieldValue.delete(),
+          'evidence_access_version': FieldValue.delete(),
+          'evidence_access_granted_at': FieldValue.delete(),
+        });
+      }
+      await batch.commit();
+    }
   }
 
   @override
   Stream<List<TeacherStudentLink>> watchTraineeLinks({
     required String traineeId,
-  }) {
-    return _links
-        .where('trainee_id', isEqualTo: traineeId)
-        .snapshots()
-        .map(_linksFromSnapshot);
-  }
+  }) => _links
+      .where('trainee_id', isEqualTo: traineeId)
+      .snapshots()
+      .map(_linksFromSnapshot);
 
   @override
   Stream<List<TeacherStudentLink>> watchTeacherLinks({
     required String teacherId,
-  }) {
-    return _links
-        .where('teacher_id', isEqualTo: teacherId)
-        .snapshots()
-        .map(_linksFromSnapshot);
-  }
+  }) => _links
+      .where('teacher_id', isEqualTo: teacherId)
+      .snapshots()
+      .map(_linksFromSnapshot);
 
   @override
   Stream<TeacherStudentLinkSnapshot> watchLink({
@@ -139,273 +419,23 @@ class FirebaseTeacherRelationshipRepository
       teacherId: teacherId,
       traineeId: traineeId,
     );
-    return _links.doc(id).snapshots(includeMetadataChanges: true).map((
-      snapshot,
-    ) {
+    return _links.doc(id).snapshots(includeMetadataChanges: true).map((doc) {
       return TeacherStudentLinkSnapshot(
-        link: snapshot.exists
-            ? TeacherStudentLink.tryFromMap(snapshot.data() ?? const {}, id: id)
+        link: doc.exists
+            ? TeacherStudentLink.tryFromMap(doc.data() ?? const {}, id: id)
             : null,
-        isServerVerified: !snapshot.metadata.isFromCache,
+        isServerVerified: !doc.metadata.isFromCache,
       );
     });
   }
 
-  @override
-  Future<TeacherInvite> resolveCoachCode(String code) async {
-    final normalized = CoachCode.tryNormalize(code);
-    if (normalized == null) {
-      throw const TeacherRelationshipException(
-        TeacherRelationshipError.malformedCode,
-        'That coach code is not valid.',
-      );
-    }
-    final snap = await _invites.doc(normalized).get();
-    final invite = snap.exists
-        ? TeacherInvite.tryFromMap(snap.data() ?? const {}, id: snap.id)
-        : null;
-    if (invite == null) {
-      throw const TeacherRelationshipException(
-        TeacherRelationshipError.inviteNotFound,
-        'No trainee is using that coach code.',
-      );
-    }
-    if (invite.isExpired) {
-      throw const TeacherRelationshipException(
-        TeacherRelationshipError.inviteExpired,
-        'That coach code has expired.',
-      );
-    }
-    return invite;
-  }
-
-  @override
-  Future<TeacherStudentLink> requestLink({
-    required String teacherId,
-    required String teacherDisplayName,
-    required String code,
-  }) async {
-    final invite = await resolveCoachCode(code);
-    if (invite.traineeId == teacherId) {
-      throw const TeacherRelationshipException(
-        TeacherRelationshipError.invalidParticipant,
-        'You cannot link to your own coach code.',
-      );
-    }
-
-    final id = TeacherStudentLink.documentId(
-      teacherId: teacherId,
-      traineeId: invite.traineeId,
-    );
-    final ref = _links.doc(id);
-    final existing = await _findOwnLink(
-      teacherId: teacherId,
-      traineeId: invite.traineeId,
-    );
-    if (existing != null) {
-      if (existing.isApproved) {
-        throw const TeacherRelationshipException(
-          TeacherRelationshipError.alreadyLinked,
-          'This trainee is already on your roster.',
-        );
-      }
-      if (existing.isPending) {
-        throw const TeacherRelationshipException(
-          TeacherRelationshipError.alreadyPending,
-          'A request is already waiting for this trainee.',
-        );
-      }
-
-      await ref.update({
-        'teacher_display_name': teacherDisplayName,
-        'trainee_display_name': invite.traineeDisplayName,
-        'status': TeacherStudentLinkStatus.pending.name,
-        'invite_id': invite.normalizedCode,
-        'updated_at': FieldValue.serverTimestamp(),
-        'progress_access': TeacherProgressAccess.none.name,
-        'progress_access_version': FieldValue.delete(),
-        'progress_access_granted_at': FieldValue.delete(),
-      });
-    } else {
-      await ref.set({
-        'teacher_id': teacherId,
-        'trainee_id': invite.traineeId,
-        'teacher_display_name': teacherDisplayName,
-        'trainee_display_name': invite.traineeDisplayName,
-        'status': TeacherStudentLinkStatus.pending.name,
-        'invite_id': invite.normalizedCode,
-        'created_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-        'progress_access': TeacherProgressAccess.none.name,
-      });
-    }
-
-    final written = await ref.get();
-    return TeacherStudentLink.tryFromMap(
-          written.data() ?? const {},
-          id: written.id,
-        ) ??
-        TeacherStudentLink(
-          id: id,
-          teacherId: teacherId,
-          traineeId: invite.traineeId,
-          teacherDisplayName: teacherDisplayName,
-          traineeDisplayName: invite.traineeDisplayName,
-          status: TeacherStudentLinkStatus.pending,
-          inviteId: invite.normalizedCode,
-        );
-  }
-
-  @override
-  Future<void> approveLink({
-    required String linkId,
-    required String traineeId,
-  }) {
-    return _updateOwnLink(
-      linkId: linkId,
-      expectedField: 'trainee_id',
-      expectedId: traineeId,
-      status: TeacherStudentLinkStatus.approved,
-    );
-  }
-
-  @override
-  Future<void> rejectLink({required String linkId, required String traineeId}) {
-    return _updateOwnLink(
-      linkId: linkId,
-      expectedField: 'trainee_id',
-      expectedId: traineeId,
-      status: TeacherStudentLinkStatus.rejected,
-    );
-  }
-
-  @override
-  Future<void> revokeLink({required String linkId, required String traineeId}) {
-    return _updateOwnLink(
-      linkId: linkId,
-      expectedField: 'trainee_id',
-      expectedId: traineeId,
-      status: TeacherStudentLinkStatus.revoked,
-    );
-  }
-
-  @override
-  Future<void> grantProgressAccess({
-    required String linkId,
-    required String traineeId,
-  }) => _setProgressAccess(
-    linkId: linkId,
-    traineeId: traineeId,
-    access: TeacherProgressAccess.granted,
-  );
-
-  @override
-  Future<void> removeProgressAccess({
-    required String linkId,
-    required String traineeId,
-  }) => _setProgressAccess(
-    linkId: linkId,
-    traineeId: traineeId,
-    access: TeacherProgressAccess.none,
-  );
-
-  @override
-  Future<void> cancelLink({required String linkId, required String teacherId}) {
-    return _updateOwnLink(
-      linkId: linkId,
-      expectedField: 'teacher_id',
-      expectedId: teacherId,
-      status: TeacherStudentLinkStatus.cancelled,
-    );
-  }
-
-  Future<void> _updateOwnLink({
-    required String linkId,
-    required String expectedField,
-    required String expectedId,
-    required TeacherStudentLinkStatus status,
-  }) async {
-    final ref = _links.doc(linkId);
-    final snap = await ref.get();
-    final link = snap.exists
-        ? TeacherStudentLink.tryFromMap(snap.data() ?? const {}, id: snap.id)
-        : null;
-    if (link == null) {
-      throw const TeacherRelationshipException(
-        TeacherRelationshipError.notFound,
-      );
-    }
-    final actualId = expectedField == 'trainee_id'
-        ? link.traineeId
-        : link.teacherId;
-    if (actualId != expectedId) {
-      throw const TeacherRelationshipException(
-        TeacherRelationshipError.notFound,
-      );
-    }
-    await ref.update({
-      'status': status.name,
-      'updated_at': FieldValue.serverTimestamp(),
-      if (status != TeacherStudentLinkStatus.approved)
-        'progress_access': TeacherProgressAccess.none.name,
-      if (status != TeacherStudentLinkStatus.approved)
-        'progress_access_version': FieldValue.delete(),
-      if (status != TeacherStudentLinkStatus.approved)
-        'progress_access_granted_at': FieldValue.delete(),
-    });
-  }
-
-  Future<void> _setProgressAccess({
-    required String linkId,
-    required String traineeId,
-    required TeacherProgressAccess access,
-  }) async {
-    final ref = _links.doc(linkId);
-    await _firestore.runTransaction((transaction) async {
-      final snap = await transaction.get(ref);
-      final link = snap.exists
-          ? TeacherStudentLink.tryFromMap(snap.data() ?? const {}, id: snap.id)
-          : null;
-      if (link == null || link.traineeId != traineeId || !link.isApproved) {
-        throw const TeacherRelationshipException(
-          TeacherRelationshipError.notFound,
-        );
-      }
-      if (access == TeacherProgressAccess.granted &&
-          link.hasEffectiveProgressAccess) {
-        throw const TeacherRelationshipException(
-          TeacherRelationshipError.alreadyLinked,
-          'Progress sharing is already enabled.',
-        );
-      }
-      transaction.update(ref, {
-        'progress_access': access.name,
-        'updated_at': FieldValue.serverTimestamp(),
-        if (access == TeacherProgressAccess.granted)
-          'progress_access_version': 1,
-        if (access == TeacherProgressAccess.granted)
-          'progress_access_granted_at': FieldValue.serverTimestamp(),
-        if (access == TeacherProgressAccess.none)
-          'progress_access_version': FieldValue.delete(),
-        if (access == TeacherProgressAccess.none)
-          'progress_access_granted_at': FieldValue.delete(),
-      });
-    });
-  }
-
-  /// Authorized existing-row lookup for [requestLink].
-  ///
-  /// Exact get of a missing `teacher_student_links/{teacherId}_{traineeId}`
-  /// document is denied: `isLinkParticipant()` requires `resource.data`.
-  /// A query constrained to the authenticated teacher's `teacher_id` can be
-  /// proven by list rules and returns zero documents when none exist.
   Future<TeacherStudentLink?> _findOwnLink({
     required String teacherId,
     required String traineeId,
   }) async {
     final snapshot = await _links
-        .where('teacher_id', isEqualTo: teacherId)
         .where('trainee_id', isEqualTo: traineeId)
+        .where('teacher_id', isEqualTo: teacherId)
         .limit(1)
         .get();
     if (snapshot.docs.isEmpty) return null;
@@ -416,16 +446,15 @@ class FirebaseTeacherRelationshipRepository
   List<TeacherStudentLink> _linksFromSnapshot(
     QuerySnapshot<Map<String, dynamic>> snapshot,
   ) {
-    final result = <TeacherStudentLink>[];
-    for (final doc in snapshot.docs) {
-      final link = TeacherStudentLink.tryFromMap(doc.data(), id: doc.id);
-      if (link != null) result.add(link);
-    }
-    result.sort((a, b) {
-      final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return bTime.compareTo(aTime);
-    });
+    final result = snapshot.docs
+        .map((doc) => TeacherStudentLink.tryFromMap(doc.data(), id: doc.id))
+        .whereType<TeacherStudentLink>()
+        .where((link) => !link.isPending || link.isV2Request)
+        .toList();
+    result.sort(
+      (a, b) =>
+          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+    );
     return result;
   }
 }

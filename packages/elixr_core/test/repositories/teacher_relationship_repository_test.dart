@@ -1,322 +1,182 @@
-import 'package:elixr_core/models/teacher_invite.dart';
-import 'package:elixr_core/models/teacher_relationship_exception.dart';
-import 'package:elixr_core/models/teacher_student_link.dart';
-import 'package:elixr_core/repositories/in_memory_teacher_relationship_repository.dart';
+import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  late InMemoryTeacherRelationshipRepository repo;
+  late InMemoryTeacherRelationshipRepository repository;
   var codeIndex = 0;
   final codes = ['7KPMXR4DQ2WT', 'ABCD2345EFGH', 'ZZZZ2345YYYY'];
 
   setUp(() {
     codeIndex = 0;
-    repo = InMemoryTeacherRelationshipRepository(
+    repository = InMemoryTeacherRelationshipRepository(
       generateNormalizedCode: () => codes[codeIndex++ % codes.length],
-      now: () => DateTime.utc(2026, 8, 13, 8),
+      now: () => DateTime.utc(2026, 8, 16, 8),
     );
   });
 
-  tearDown(() {
-    repo.dispose();
-  });
+  tearDown(() => repository.dispose());
 
-  test('createOrRotateInvite stores a 7-day invite for the trainee', () async {
-    final invite = await repo.createOrRotateInvite(
-      traineeId: 'trainee-1',
-      traineeDisplayName: 'Ada Lovelace',
-    );
-
-    expect(invite.normalizedCode, '7KPMXR4DQ2WT');
-    expect(invite.displayCode, '7KPM-XR4D-Q2WT');
-    expect(invite.traineeId, 'trainee-1');
-    expect(invite.expiresAt, DateTime.utc(2026, 8, 20, 8));
-    expect(await repo.getActiveInvite(traineeId: 'trainee-1'), invite);
-  });
-
-  test(
-    'rotating invalidates the previous invite and retries collisions',
-    () async {
-      await repo.createOrRotateInvite(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-      );
-      repo.seedInvite(
-        TeacherInvite(
-          normalizedCode: 'ABCD2345EFGH',
-          traineeId: 'other',
-          traineeDisplayName: 'Other',
-          createdAt: DateTime.utc(2026, 8, 13),
-          expiresAt: DateTime.utc(2026, 8, 20),
-        ),
-      );
-
-      final rotated = await repo.createOrRotateInvite(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-      );
-
-      expect(rotated.normalizedCode, 'ZZZZ2345YYYY');
-      expect(repo.invites.containsKey('7KPMXR4DQ2WT'), isFalse);
-      expect(repo.invites['ABCD2345EFGH']?.traineeId, 'other');
-    },
-  );
-
-  test(
-    'collisionExhausted is thrown when every generated code exists',
-    () async {
-      repo = InMemoryTeacherRelationshipRepository(
-        generateNormalizedCode: () => '7KPMXR4DQ2WT',
-        maxCodeAttempts: 2,
-      );
-      repo.seedInvite(
-        TeacherInvite(
-          normalizedCode: '7KPMXR4DQ2WT',
-          traineeId: 'other',
-          traineeDisplayName: 'Other',
-          createdAt: DateTime.utc(2026, 8, 13),
-          expiresAt: DateTime.utc(2026, 8, 20),
-        ),
-      );
-
-      await expectLater(
-        repo.createOrRotateInvite(
-          traineeId: 'trainee-1',
-          traineeDisplayName: 'Ada',
-        ),
-        throwsA(
-          isA<TeacherRelationshipException>().having(
-            (e) => e.code,
-            'code',
-            TeacherRelationshipError.collisionExhausted,
-          ),
-        ),
-      );
-    },
-  );
-
-  test(
-    'resolveCoachCode rejects malformed, missing, and expired codes',
-    () async {
-      await expectLater(
-        repo.resolveCoachCode('pin-123'),
-        throwsA(
-          isA<TeacherRelationshipException>().having(
-            (e) => e.code,
-            'code',
-            TeacherRelationshipError.malformedCode,
-          ),
-        ),
-      );
-
-      await expectLater(
-        repo.resolveCoachCode('7KPM-XR4D-Q2WT'),
-        throwsA(
-          isA<TeacherRelationshipException>().having(
-            (e) => e.code,
-            'code',
-            TeacherRelationshipError.inviteNotFound,
-          ),
-        ),
-      );
-
-      repo.seedInvite(
-        TeacherInvite(
-          normalizedCode: '7KPMXR4DQ2WT',
-          traineeId: 'trainee-1',
-          traineeDisplayName: 'Ada Lovelace',
-          createdAt: DateTime.utc(2026, 8, 1),
-          expiresAt: DateTime.utc(2026, 8, 8),
-        ),
-      );
-
-      await expectLater(
-        repo.resolveCoachCode('7KPM-XR4D-Q2WT'),
-        throwsA(
-          isA<TeacherRelationshipException>().having(
-            (e) => e.code,
-            'code',
-            TeacherRelationshipError.inviteExpired,
-          ),
-        ),
-      );
-    },
-  );
-
-  test('requestLink creates a pending deterministic relationship', () async {
-    await repo.createOrRotateInvite(
-      traineeId: 'trainee-1',
-      traineeDisplayName: 'Ada Lovelace',
-    );
-
-    final link = await repo.requestLink(
+  test('Teacher roster invite is durable until rotated or revoked', () async {
+    final invite = await repository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
-      code: '7kpm-xr4d-q2wt',
+    );
+    expect(invite.displayCode, '7KPM-XR4D-Q2WT');
+    expect(invite.teacherId, 'teacher-1');
+    expect(invite.joinUri.toString(), 'elixr://join?code=7KPMXR4DQ2WT');
+    expect(
+      await repository.getActiveRosterInvite(teacherId: 'teacher-1'),
+      same(invite),
     );
 
+    final rotated = await repository.createOrRotateRosterInvite(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+    );
+    expect(rotated.normalizedCode, 'ABCD2345EFGH');
+    await expectLater(
+      repository.resolveRosterCode('7KPM-XR4D-Q2WT'),
+      throwsA(isA<TeacherRelationshipException>()),
+    );
+
+    await repository.revokeRosterInvite(teacherId: 'teacher-1');
+    expect(
+      await repository.getActiveRosterInvite(teacherId: 'teacher-1'),
+      isNull,
+    );
+  });
+
+  test('collisions are retried without overwriting another Teacher', () async {
+    repository.seedInvite(
+      TeacherRosterInvite(
+        normalizedCode: '7KPMXR4DQ2WT',
+        teacherId: 'other',
+        teacherDisplayName: 'Other Teacher',
+        createdAt: DateTime.utc(2026, 8, 1),
+      ),
+    );
+    final invite = await repository.createOrRotateRosterInvite(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+    );
+    expect(invite.normalizedCode, 'ABCD2345EFGH');
+    expect(repository.invites['7KPMXR4DQ2WT']?.teacherId, 'other');
+  });
+
+  test('Trainee creates V2 request and Teacher decides it', () async {
+    await repository.createOrRotateRosterInvite(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+    );
+    final link = await repository.requestTeacherJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: '7kpm-xr4d-q2wt',
+    );
     expect(link.id, 'teacher-1_trainee-1');
+    expect(link.requestVersion, 2);
     expect(link.status, TeacherStudentLinkStatus.pending);
-    expect(link.traineeDisplayName, 'Ada Lovelace');
+
+    await repository.approveJoin(linkId: link.id, teacherId: 'teacher-1');
+    expect(repository.links[link.id]?.isApproved, isTrue);
   });
 
   test(
-    'trainee can approve, then revoke; teacher can cancel pending',
+    'legacy non-approved row is superseded, approved row is preserved',
     () async {
-      await repo.createOrRotateInvite(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-      );
-      final link = await repo.requestLink(
+      await repository.createOrRotateRosterInvite(
         teacherId: 'teacher-1',
         teacherDisplayName: 'Grace Hopper',
-        code: '7KPMXR4DQ2WT',
       );
-
-      await repo.cancelLink(linkId: link.id, teacherId: 'teacher-1');
-      expect(repo.links[link.id]!.status, TeacherStudentLinkStatus.cancelled);
-
-      await repo.requestLink(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        code: '7KPMXR4DQ2WT',
-      );
-      await repo.approveLink(linkId: link.id, traineeId: 'trainee-1');
-      expect(repo.links[link.id]!.isApproved, isTrue);
-
-      await repo.revokeLink(linkId: link.id, traineeId: 'trainee-1');
-      expect(repo.links[link.id]!.status, TeacherStudentLinkStatus.revoked);
-    },
-  );
-
-  test(
-    'reject leaves the deterministic document for later re-request',
-    () async {
-      await repo.createOrRotateInvite(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-      );
-      final link = await repo.requestLink(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        code: '7KPMXR4DQ2WT',
-      );
-      await repo.rejectLink(linkId: link.id, traineeId: 'trainee-1');
-      expect(repo.links[link.id]!.status, TeacherStudentLinkStatus.rejected);
-
-      final again = await repo.requestLink(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        code: '7KPMXR4DQ2WT',
-      );
-      expect(again.status, TeacherStudentLinkStatus.pending);
-      expect(again.createdAt, link.createdAt);
-      expect(repo.links.length, 1);
-    },
-  );
-
-  test(
-    'requestLink discovers an existing row by teacher and trainee ids',
-    () async {
-      await repo.createOrRotateInvite(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-      );
-      repo.seedLink(
-        TeacherStudentLink(
+      repository.seedLink(
+        const TeacherStudentLink(
           id: 'teacher-1_trainee-1',
           teacherId: 'teacher-1',
           traineeId: 'trainee-1',
-          teacherDisplayName: 'Old Name',
+          teacherDisplayName: 'Old Teacher',
           traineeDisplayName: 'Old Trainee',
-          status: TeacherStudentLinkStatus.cancelled,
-          inviteId: 'OLDCODE12AB',
-          createdAt: DateTime.utc(2026, 8, 1),
+          status: TeacherStudentLinkStatus.rejected,
         ),
       );
-
-      final link = await repo.requestLink(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
+      final replaced = await repository.requestTeacherJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
         code: '7KPMXR4DQ2WT',
       );
+      expect(replaced.isV2Request, isTrue);
+      expect(replaced.teacherDisplayName, 'Grace Hopper');
 
-      expect(link.id, 'teacher-1_trainee-1');
-      expect(link.status, TeacherStudentLinkStatus.pending);
-      expect(link.createdAt, DateTime.utc(2026, 8, 1));
-      expect(link.teacherDisplayName, 'Grace Hopper');
-      expect(link.traineeDisplayName, 'Ada Lovelace');
-      expect(link.inviteId, '7KPMXR4DQ2WT');
-      expect(repo.links.length, 1);
+      await repository.approveJoin(linkId: replaced.id, teacherId: 'teacher-1');
+      await expectLater(
+        repository.requestTeacherJoin(
+          traineeId: 'trainee-1',
+          traineeDisplayName: 'Ada Lovelace',
+          code: '7KPMXR4DQ2WT',
+        ),
+        throwsA(
+          isA<TeacherRelationshipException>().having(
+            (error) => error.code,
+            'code',
+            TeacherRelationshipError.alreadyLinked,
+          ),
+        ),
+      );
     },
   );
 
-  test('requestLink does not duplicate a pending relationship', () async {
-    await repo.createOrRotateInvite(
-      traineeId: 'trainee-1',
-      traineeDisplayName: 'Ada Lovelace',
-    );
-    await repo.requestLink(
+  test('progress withdrawal and relationship revoke clear evidence', () async {
+    await repository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
+    );
+    final link = await repository.requestTeacherJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
       code: '7KPMXR4DQ2WT',
     );
-
-    await expectLater(
-      repo.requestLink(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        code: '7KPMXR4DQ2WT',
-      ),
-      throwsA(
-        isA<TeacherRelationshipException>()
-            .having(
-              (e) => e.code,
-              'code',
-              TeacherRelationshipError.alreadyPending,
-            )
-            .having(
-              (e) => e.message,
-              'message',
-              'A request is already waiting for this trainee.',
-            ),
-      ),
+    await repository.approveJoin(linkId: link.id, teacherId: 'teacher-1');
+    await repository.grantProgressAccess(
+      linkId: link.id,
+      traineeId: 'trainee-1',
     );
-    expect(repo.links.length, 1);
+    await repository.grantEvidenceAccess(
+      linkId: link.id,
+      traineeId: 'trainee-1',
+    );
+    expect(repository.links[link.id]?.hasEffectiveEvidenceAccess, isTrue);
+
+    await repository.removeProgressAccess(
+      linkId: link.id,
+      traineeId: 'trainee-1',
+    );
+    expect(repository.links[link.id]?.hasEffectiveEvidenceAccess, isFalse);
+    expect(
+      repository.links[link.id]?.evidenceAccess,
+      TeacherProgressAccess.none,
+    );
   });
 
-  test('requestLink does not mutate an approved relationship', () async {
-    await repo.createOrRotateInvite(
-      traineeId: 'trainee-1',
-      traineeDisplayName: 'Ada Lovelace',
-    );
-    final link = await repo.requestLink(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-      code: '7KPMXR4DQ2WT',
-    );
-    await repo.approveLink(linkId: link.id, traineeId: 'trainee-1');
-
-    await expectLater(
-      repo.requestLink(
+  test('Trainee can revoke a legacy approved relationship', () async {
+    repository.seedLink(
+      TeacherStudentLink(
+        id: 'teacher-1_trainee-1',
         teacherId: 'teacher-1',
+        traineeId: 'trainee-1',
         teacherDisplayName: 'Grace Hopper',
-        code: '7KPMXR4DQ2WT',
-      ),
-      throwsA(
-        isA<TeacherRelationshipException>()
-            .having(
-              (e) => e.code,
-              'code',
-              TeacherRelationshipError.alreadyLinked,
-            )
-            .having(
-              (e) => e.message,
-              'message',
-              'This trainee is already on your roster.',
-            ),
+        traineeDisplayName: 'Ada Lovelace',
+        status: TeacherStudentLinkStatus.approved,
+        createdAt: DateTime.utc(2025, 1, 1),
       ),
     );
-    expect(repo.links[link.id]!.isApproved, isTrue);
+
+    await repository.revokeLink(
+      linkId: 'teacher-1_trainee-1',
+      traineeId: 'trainee-1',
+    );
+
+    expect(
+      repository.links['teacher-1_trainee-1']?.status,
+      TeacherStudentLinkStatus.revoked,
+    );
   });
 }

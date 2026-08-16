@@ -15,6 +15,7 @@ class PublicProfileSession {
     required this.durationSeconds,
     required this.propType,
     this.createdAt,
+    this.evidenceAvailable,
   });
 
   final String sessionId;
@@ -29,6 +30,7 @@ class PublicProfileSession {
   final int durationSeconds;
   final TrainingProp propType;
   final String? createdAt;
+  final bool? evidenceAvailable;
 
   bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
 
@@ -70,6 +72,7 @@ class PublicProfileSession {
         durationSeconds: durationSeconds,
         propType: TrainingProp.fromProtocolValue(map['prop_type']),
         createdAt: _readTimestampString(map['created_at']),
+        evidenceAvailable: _readOptionalBool(map['evidence_available']),
       );
     }
 
@@ -93,6 +96,7 @@ class PublicProfileSession {
       durationSeconds: durationSeconds,
       propType: TrainingProp.fromProtocolValue(map['prop_type']),
       createdAt: _readTimestampString(map['created_at']),
+      evidenceAvailable: _readOptionalBool(map['evidence_available']),
     );
   }
 
@@ -108,6 +112,8 @@ class PublicProfileSession {
     }
     return null;
   }
+
+  static bool? _readOptionalBool(Object? value) => value is bool ? value : null;
 
   static String? _readTimestampString(dynamic value) {
     if (value == null) return null;

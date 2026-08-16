@@ -10,6 +10,21 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function hasTeacherEvidenceGrant(traineeId) {
+      let link = /databases/(default)/documents/teacher_student_links/$(request.auth.uid + '_' + traineeId);
+      return isSignedIn()
+        && firestore.exists(link)
+        && firestore.get(link).data.teacher_id == request.auth.uid
+        && firestore.get(link).data.trainee_id == traineeId
+        && firestore.get(link).data.status == 'approved'
+        && firestore.get(link).data.progress_access == 'granted'
+        && firestore.get(link).data.progress_access_version == 1
+        && firestore.get(link).data.progress_access_granted_at is timestamp
+        && firestore.get(link).data.evidence_access == 'granted'
+        && firestore.get(link).data.evidence_access_version == 1
+        && firestore.get(link).data.evidence_access_granted_at is timestamp;
+    }
+
     function isValidProfileImage() {
       return request.resource.size <= 5 * 1024 * 1024
         && request.resource.contentType in [
@@ -33,7 +48,8 @@ service firebase.storage {
     // Guided Practice session. The exact path prevents arbitrary file trees;
     // content and size checks match the client/backend contract.
     match /users/{userId}/session_evidence/{fileName} {
-      allow read: if isOwner(userId) && fileName.matches('^[^/]+\\.jpg$');
+      allow read: if fileName.matches('^[^/]+\\.jpg$')
+        && (isOwner(userId) || hasTeacherEvidenceGrant(userId));
       allow create, update: if isOwner(userId)
         && fileName.matches('^[^/]+\\.jpg$')
         && request.resource.contentType == 'image/jpeg'

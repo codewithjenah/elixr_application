@@ -4,6 +4,10 @@ import 'package:elixr_core/repositories/firebase_teacher_relationship_repository
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_progress_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
+import 'package:elixr_core/repositories/firebase_roster_leaderboard_repository.dart';
+import 'package:elixr_core/repositories/roster_leaderboard_repository.dart';
+import 'package:elixr_core/repositories/firebase_teacher_evidence_repository.dart';
+import 'package:elixr_core/repositories/teacher_evidence_repository.dart';
 import 'package:elixr_core/repositories/coaching_note_repository.dart';
 import 'package:elixr_core/repositories/firebase_coaching_note_repository.dart';
 import 'package:flutter/material.dart';
@@ -21,11 +25,15 @@ class ElixrTeacherApp extends StatefulWidget {
     required this.authController,
     this.relationshipRepository,
     this.progressRepository,
+    this.rankingRepository,
+    this.evidenceRepository,
   });
 
   final TeacherAuthController authController;
   final TeacherRelationshipRepository? relationshipRepository;
   final TeacherProgressRepository? progressRepository;
+  final RosterLeaderboardRepository? rankingRepository;
+  final TeacherEvidenceRepository? evidenceRepository;
 
   @override
   State<ElixrTeacherApp> createState() => _ElixrTeacherAppState();
@@ -59,6 +67,16 @@ class _ElixrTeacherAppState extends State<ElixrTeacherApp> {
         providers: [
           Provider<TeacherRelationshipRepository>.value(
             value: _relationshipRepository,
+          ),
+          Provider<RosterLeaderboardRepository>(
+            create: (_) =>
+                widget.rankingRepository ??
+                FirebaseRosterLeaderboardRepository(),
+          ),
+          Provider<TeacherEvidenceRepository>(
+            create: (_) =>
+                widget.evidenceRepository ??
+                FirebaseTeacherEvidenceRepository(),
           ),
           if (widget.progressRepository != null)
             Provider<TeacherProgressRepository>.value(

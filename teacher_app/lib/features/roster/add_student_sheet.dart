@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/theme/teacher_theme.dart';
 import 'roster_controller.dart';
 
+/// Teacher-owned invite surface. The historical filename is retained to avoid
+/// a noisy file move; Teachers no longer enter Trainee codes here.
 class AddStudentSheet extends StatelessWidget {
   const AddStudentSheet({super.key, required this.controller});
 
@@ -13,6 +17,7 @@ class AddStudentSheet extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
+        final invite = controller.invite;
         return Padding(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
           child: SingleChildScrollView(
@@ -21,18 +26,98 @@ class AddStudentSheet extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  controller.addStudentStep == AddStudentStep.enterCode
-                      ? 'Add student'
-                      : 'Confirm request',
+                  'Invite students',
                   style: Theme.of(
                     context,
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 12),
-                if (controller.addStudentStep == AddStudentStep.enterCode)
-                  _CodeStep(controller: controller)
-                else
-                  _ConfirmStep(controller: controller),
+                Text(
+                  'Students enter this durable roster code or open the join '
+                  'link. You approve each incoming request.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: TeacherColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (invite == null)
+                  FilledButton.icon(
+                    key: const Key('roster_generate_invite'),
+                    onPressed: controller.busy
+                        ? null
+                        : controller.generateOrRotateInvite,
+                    icon: const Icon(Icons.add_link),
+                    label: const Text('Generate roster code'),
+                  )
+                else ...[
+                  Center(
+                    child: QrImageView(
+                      key: const Key('roster_invite_qr'),
+                      data: invite.joinUri.toString(),
+                      size: 190,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SelectableText(
+                    invite.displayCode,
+                    key: const Key('roster_invite_code'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    invite.joinUri.toString(),
+                    key: const Key('roster_invite_uri'),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const Key('roster_copy_code'),
+                        onPressed: () => _copy(
+                          context,
+                          invite.displayCode,
+                          'Roster code copied',
+                        ),
+                        icon: const Icon(Icons.copy),
+                        label: const Text('Copy code'),
+                      ),
+                      OutlinedButton.icon(
+                        key: const Key('roster_copy_uri'),
+                        onPressed: () => _copy(
+                          context,
+                          invite.joinUri.toString(),
+                          'Join link copied',
+                        ),
+                        icon: const Icon(Icons.link),
+                        label: const Text('Copy link'),
+                      ),
+                      OutlinedButton(
+                        key: const Key('roster_rotate_invite'),
+                        onPressed: controller.busy
+                            ? null
+                            : () => _confirmRotate(context),
+                        child: const Text('Rotate'),
+                      ),
+                      TextButton(
+                        key: const Key('roster_revoke_invite'),
+                        onPressed: controller.busy
+                            ? null
+                            : controller.revokeInvite,
+                        child: const Text('Revoke'),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -40,112 +125,35 @@ class AddStudentSheet extends StatelessWidget {
       },
     );
   }
-}
 
-class _CodeStep extends StatelessWidget {
-  const _CodeStep({required this.controller});
-
-  final RosterController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Enter the coach code shared by the Trainee.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: TeacherColors.textSecondary,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          key: const Key('add_student_code_field'),
-          autofocus: true,
-          textCapitalization: TextCapitalization.characters,
-          decoration: const InputDecoration(labelText: 'Coach code'),
-          onChanged: controller.setCodeInput,
-        ),
-        if (controller.addStudentError != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            controller.addStudentError!,
-            key: const Key('add_student_error'),
-            style: const TextStyle(color: TeacherColors.error),
-          ),
-        ],
-        const SizedBox(height: 20),
-        FilledButton(
-          key: const Key('add_student_continue'),
-          onPressed: controller.busy ? null : controller.resolveEnteredCode,
-          child: controller.busy
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Continue'),
-        ),
-      ],
-    );
+  Future<void> _copy(BuildContext context, String value, String message) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
-}
 
-class _ConfirmStep extends StatelessWidget {
-  const _ConfirmStep({required this.controller});
-
-  final RosterController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final invite = controller.resolvedInvite;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Send a link request to this Trainee? They must approve before '
-          'appearing on your roster. Training data is not shared yet.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: TeacherColors.textSecondary,
-            height: 1.4,
+  Future<void> _confirmRotate(BuildContext context) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rotate roster code?'),
+        content: const Text(
+          'Rotation immediately invalidates the previous code and QR link.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          invite?.traineeDisplayName ?? '',
-          key: const Key('add_student_confirm_name'),
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        if (controller.addStudentError != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            controller.addStudentError!,
-            key: const Key('add_student_error'),
-            style: const TextStyle(color: TeacherColors.error),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Rotate'),
           ),
         ],
-        const SizedBox(height: 20),
-        FilledButton(
-          key: const Key('add_student_confirm'),
-          onPressed: controller.busy
-              ? null
-              : () async {
-                  final navigator = Navigator.of(context);
-                  final ok = await controller.confirmRequest();
-                  if (ok && navigator.mounted) navigator.pop();
-                },
-          child: const Text('Send request'),
-        ),
-        TextButton(
-          onPressed: controller.resetAddStudent,
-          child: const Text('Use a different code'),
-        ),
-      ],
+      ),
     );
+    if (accepted == true) await controller.generateOrRotateInvite();
   }
 }

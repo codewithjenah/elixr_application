@@ -948,12 +948,19 @@ class AuthRepository implements AuthRepositoryBase {
           .collection(FirestoreCollections.users)
           .doc(uid)
           .get();
-      final code = userSnap.data()?['teacher_invite_code'];
-      if (code is String && code.isNotEmpty) {
-        await _commitDeletes([
+      final data = userSnap.data();
+      final codes = <String>{
+        if (data?['teacher_roster_invite_code'] case final String value
+            when value.isNotEmpty)
+          value,
+        if (data?['teacher_invite_code'] case final String value
+            when value.isNotEmpty)
+          value,
+      };
+      await _commitDeletes([
+        for (final code in codes)
           _firestore.collection(FirestoreCollections.teacherInvites).doc(code),
-        ]);
-      }
+      ]);
     });
 
     await _runPurgeStage('teacher-student link purge', () async {

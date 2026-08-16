@@ -82,4 +82,19 @@ void main() {
       0,
     );
   });
+
+  test('session projection exposes only optional evidence availability', () {
+    final session = PublicProfileSession.tryFromMap({
+      'session_id': 's1',
+      'user_id': 'trainee',
+      'movement_name': 'Hand Stall',
+      'difficulty': 'Easy',
+      'score': 80,
+      'duration_seconds': 60,
+      'prop_type': 'bottle',
+      'evidence_available': true,
+      'evidence_storage_path': 'must-not-be-surfaced',
+    });
+    expect(session?.evidenceAvailable, isTrue);
+  });
 }

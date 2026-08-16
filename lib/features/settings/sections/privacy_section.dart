@@ -320,6 +320,7 @@ class PrivacySectionState extends State<PrivacySection> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SettingsToggleRow(
+              toggleKey: const Key('privacy_profile_lock_toggle'),
               label: 'Lock profile',
               description:
                   'When locked, other players cannot see your detailed stats, '
@@ -331,6 +332,7 @@ class PrivacySectionState extends State<PrivacySection> {
             ),
             const SizedBox(height: AppSpacing.md),
             SettingsToggleRow(
+              toggleKey: const Key('privacy_evidence_toggle'),
               label: 'Save confirmed movement images',
               description:
                   'Save one private annotated image from each successfully confirmed Guided Practice movement. Turning this off deletes saved images and their session references.',

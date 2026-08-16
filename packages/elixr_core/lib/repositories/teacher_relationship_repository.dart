@@ -1,19 +1,20 @@
-import '../models/teacher_invite.dart';
+import '../models/teacher_roster_invite.dart';
 import '../models/teacher_student_link.dart';
 
-/// Shared persistence for coach invites and Teacher↔Trainee relationships.
-///
-/// Does not enumerate users or invite codes. Callers pass an exact code or
-/// the authenticated participant uid.
+/// Shared persistence for Teacher-owned roster codes and relationships.
 abstract class TeacherRelationshipRepository {
-  Future<TeacherInvite> createOrRotateInvite({
-    required String traineeId,
-    required String traineeDisplayName,
+  Future<TeacherRosterInvite> createOrRotateRosterInvite({
+    required String teacherId,
+    required String teacherDisplayName,
   });
 
-  Future<void> revokeInvite({required String traineeId});
+  Future<TeacherRosterInvite?> getActiveRosterInvite({
+    required String teacherId,
+  });
 
-  Future<TeacherInvite?> getActiveInvite({required String traineeId});
+  Future<void> revokeRosterInvite({required String teacherId});
+
+  Future<TeacherRosterInvite> resolveRosterCode(String code);
 
   Stream<List<TeacherStudentLink>> watchTraineeLinks({
     required String traineeId,
@@ -23,23 +24,21 @@ abstract class TeacherRelationshipRepository {
     required String teacherId,
   });
 
-  /// Watches one deterministic link and reports whether it came from server.
   Stream<TeacherStudentLinkSnapshot> watchLink({
     required String teacherId,
     required String traineeId,
   });
 
-  Future<TeacherInvite> resolveCoachCode(String code);
-
-  Future<TeacherStudentLink> requestLink({
-    required String teacherId,
-    required String teacherDisplayName,
+  /// Creates or supersedes a deterministic non-approved link as a V2 request.
+  Future<TeacherStudentLink> requestTeacherJoin({
+    required String traineeId,
+    required String traineeDisplayName,
     required String code,
   });
 
-  Future<void> approveLink({required String linkId, required String traineeId});
-
-  Future<void> rejectLink({required String linkId, required String traineeId});
+  Future<void> approveJoin({required String linkId, required String teacherId});
+  Future<void> rejectJoin({required String linkId, required String teacherId});
+  Future<void> cancelJoin({required String linkId, required String traineeId});
 
   Future<void> revokeLink({required String linkId, required String traineeId});
 
@@ -53,7 +52,17 @@ abstract class TeacherRelationshipRepository {
     required String traineeId,
   });
 
-  Future<void> cancelLink({required String linkId, required String teacherId});
+  Future<void> grantEvidenceAccess({
+    required String linkId,
+    required String traineeId,
+  });
+
+  Future<void> removeEvidenceAccess({
+    required String linkId,
+    required String traineeId,
+  });
+
+  Future<void> revokeAllEvidenceAccess({required String traineeId});
 }
 
 class TeacherStudentLinkSnapshot {

@@ -6,7 +6,6 @@ import 'dart:math';
 /// with hyphens removed. The alphabet omits ambiguous characters (`I`, `O`,
 /// `0`, `1`).
 abstract final class CoachCode {
-  static const lifetime = Duration(days: 7);
   static const normalizedLength = 12;
   static const groupSize = 4;
   static const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

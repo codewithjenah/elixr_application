@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:elixr_core/elixr_core.dart';
 import 'package:elixr_teacher/features/student_progress/student_progress_session_card.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +30,32 @@ PublicProfileSession rubric() => PublicProfileSession(
   durationSeconds: 120,
   propType: TrainingProp.shaker,
 );
+
+PublicProfileSession withEvidence() => PublicProfileSession(
+  sessionId: 'evidence',
+  userId: 'trainee',
+  movementName: 'Hand Stall',
+  difficulty: 'Easy',
+  legacyScore: 80,
+  durationSeconds: 60,
+  propType: TrainingProp.bottle,
+  evidenceAvailable: true,
+);
+
+class _EvidenceRepository implements TeacherEvidenceRepository {
+  var calls = 0;
+
+  @override
+  Future<Uint8List?> downloadEvidence({
+    required String traineeId,
+    required String sessionId,
+  }) async {
+    calls++;
+    return base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    );
+  }
+}
 
 void main() {
   Future<void> pump(WidgetTester tester, PublicProfileSession value) =>
@@ -72,5 +101,40 @@ void main() {
         findsOneWidget,
       );
     }
+  });
+
+  testWidgets('saved evidence is loaded only after expansion', (tester) async {
+    final repository = _EvidenceRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StudentProgressSessionCard(
+            session: withEvidence(),
+            traineeId: 'trainee',
+            evidenceAllowed: true,
+            evidenceRepository: repository,
+          ),
+        ),
+      ),
+    );
+    expect(repository.calls, 0);
+
+    await tester.tap(find.text('View details'));
+    await tester.pumpAndSettle();
+
+    expect(repository.calls, 1);
+    expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('available evidence stays hidden without Teacher consent', (
+    tester,
+  ) async {
+    await pump(tester, withEvidence());
+    await tester.tap(find.text('View details'));
+    await tester.pump();
+    expect(
+      find.text('Saved image sharing is off for this Teacher.'),
+      findsOneWidget,
+    );
   });
 }

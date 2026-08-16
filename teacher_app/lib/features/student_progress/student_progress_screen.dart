@@ -46,6 +46,7 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
       progress: context.read<TeacherProgressRepository>(),
       teacherId: context.read<TeacherAuthController>().currentUser!.id!,
       traineeId: widget.traineeId,
+      ranking: _rankingRepository(context),
     )..start();
   }
 
@@ -157,6 +158,39 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
                   c.link?.traineeDisplayName ?? 'Student',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      foregroundImage: c.identity?.profilePictureUrl == null
+                          ? null
+                          : NetworkImage(c.identity!.profilePictureUrl!),
+                      child: Text(_initials(c.link?.traineeDisplayName ?? '')),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 20,
+                        runSpacing: 6,
+                        children: [
+                          Text(
+                            'Roster rank: ${c.identity?.rosterRank == null ? '—' : '#${c.identity!.rosterRank}'}',
+                          ),
+                          Text(
+                            'Global rank: ${c.globalRankUnavailable
+                                ? 'Unavailable'
+                                : !c.globalRankLoaded
+                                ? '…'
+                                : c.globalRank == null
+                                ? 'Unranked'
+                                : '#${c.globalRank}'}',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 16),
                 Text(
                   'Progress Overview',
@@ -223,7 +257,12 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
             itemCount: c.sessions.length,
             itemBuilder: (context, index) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: StudentProgressSessionCard(session: c.sessions[index]),
+              child: StudentProgressSessionCard(
+                session: c.sessions[index],
+                traineeId: widget.traineeId,
+                evidenceAllowed: c.link?.hasEffectiveEvidenceAccess == true,
+                evidenceRepository: _evidenceRepository(context),
+              ),
             ),
           ),
         ),
@@ -279,4 +318,28 @@ class _StudentProgressScreenState extends State<StudentProgressScreen>
     StudentProgressState.error => 'Could not load progress. Please retry.',
     _ => '',
   };
+
+  String _initials(String name) => name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .take(2)
+      .map((part) => part.characters.first.toUpperCase())
+      .join();
+
+  RosterLeaderboardRepository _rankingRepository(BuildContext context) {
+    try {
+      return context.read<RosterLeaderboardRepository>();
+    } on ProviderNotFoundException {
+      return FirebaseRosterLeaderboardRepository();
+    }
+  }
+
+  TeacherEvidenceRepository _evidenceRepository(BuildContext context) {
+    try {
+      return context.read<TeacherEvidenceRepository>();
+    } on ProviderNotFoundException {
+      return FirebaseTeacherEvidenceRepository();
+    }
+  }
 }

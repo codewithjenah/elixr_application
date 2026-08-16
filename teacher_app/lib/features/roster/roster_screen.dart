@@ -85,7 +85,6 @@ class _RosterScreenState extends State<RosterScreen> {
   Future<void> _openAddStudent() async {
     final controller = _controller;
     if (controller == null) return;
-    controller.resetAddStudent();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -119,6 +118,11 @@ class _RosterScreenState extends State<RosterScreen> {
         title: const Text('Roster'),
         actions: [
           IconButton(
+            tooltip: 'Roster ranking',
+            onPressed: () => context.push(TeacherRoutes.ranking),
+            icon: const Icon(Icons.leaderboard_outlined),
+          ),
+          IconButton(
             tooltip: 'Refresh',
             onPressed: controller == null || controller.loading
                 ? null
@@ -133,10 +137,10 @@ class _RosterScreenState extends State<RosterScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        key: const Key('roster_add_student'),
+        key: const Key('roster_invite_students'),
         onPressed: _openAddStudent,
         icon: const Icon(Icons.person_add_alt_1),
-        label: const Text('Add student'),
+        label: const Text('Invite students'),
       ),
       body: SafeArea(
         child: Padding(
@@ -170,9 +174,9 @@ class _RosterScreenState extends State<RosterScreen> {
                 ),
               ],
               Text(
-                'Students appear here only after they approve your request. '
-                'Linking alone does not share progress; each Trainee controls '
-                'separate progress access.',
+                'Students request to join using your Teacher-owned roster code. '
+                'Approve each request here. Progress and saved-image access remain '
+                'separate Trainee-controlled permissions.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: TeacherColors.textSecondary,
                   height: 1.4,
@@ -225,7 +229,7 @@ class _RosterBody extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Ask a Trainee for their coach code, then tap Add student.',
+                'Share your roster code, then approve incoming requests here.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: TeacherColors.textSecondary,
@@ -253,13 +257,23 @@ class _RosterBody extends StatelessWidget {
               color: TeacherColors.surfaceHigh,
               child: ListTile(
                 title: Text(link.traineeDisplayName),
-                subtitle: const Text('Waiting for Trainee approval'),
-                trailing: TextButton(
-                  key: Key('roster_cancel_${link.id}'),
-                  onPressed: roster.busy
-                      ? null
-                      : () => roster.cancelPending(link),
-                  child: const Text('Cancel'),
+                subtitle: const Text('Incoming join request'),
+                trailing: Wrap(
+                  spacing: 8,
+                  children: [
+                    FilledButton(
+                      key: Key('roster_approve_${link.id}'),
+                      onPressed: roster.busy
+                          ? null
+                          : () => roster.approve(link),
+                      child: const Text('Approve'),
+                    ),
+                    TextButton(
+                      key: Key('roster_reject_${link.id}'),
+                      onPressed: roster.busy ? null : () => roster.reject(link),
+                      child: const Text('Reject'),
+                    ),
+                  ],
                 ),
               ),
             ),

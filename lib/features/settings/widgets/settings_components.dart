@@ -98,19 +98,25 @@ class SettingsToggleRow extends StatelessWidget {
     this.description,
     required this.checked,
     required this.onChanged,
+    this.toggleKey,
   });
 
   final String label;
   final String? description;
   final bool checked;
   final ValueChanged<bool>? onChanged;
+  final Key? toggleKey;
 
   @override
   Widget build(BuildContext context) {
     return SettingsRow(
       label: label,
       description: description,
-      trailing: ToggleSwitch(checked: checked, onChanged: onChanged),
+      trailing: ToggleSwitch(
+        key: toggleKey,
+        checked: checked,
+        onChanged: onChanged,
+      ),
     );
   }
 }

@@ -206,16 +206,20 @@ void main() {
     expect(find.text('Lock profile'), findsOneWidget);
     expect(find.text('Public profile'), findsNothing);
 
-    final toggle = tester.widget<ToggleSwitch>(find.byType(ToggleSwitch));
+    final toggle = tester.widget<ToggleSwitch>(
+      find.byKey(const Key('privacy_profile_lock_toggle')),
+    );
     expect(toggle.checked, isFalse);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pumpAndSettle();
 
     expect(repository.updateVisibilityCalls, 1);
     expect(repository.lastUpdatedVisibility, ProfileVisibility.private);
 
-    final locked = tester.widget<ToggleSwitch>(find.byType(ToggleSwitch));
+    final locked = tester.widget<ToggleSwitch>(
+      find.byKey(const Key('privacy_profile_lock_toggle')),
+    );
     expect(locked.checked, isTrue);
   });
 
@@ -243,10 +247,12 @@ void main() {
 
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
 
-    final toggle = tester.widget<ToggleSwitch>(find.byType(ToggleSwitch));
+    final toggle = tester.widget<ToggleSwitch>(
+      find.byKey(const Key('privacy_profile_lock_toggle')),
+    );
     expect(toggle.checked, isTrue);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pumpAndSettle();
 
     expect(repository.updateVisibilityCalls, 1);
@@ -261,7 +267,7 @@ void main() {
       ..updateError = StateError('denied');
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pumpAndSettle();
 
     expect(find.text('Saving...'), findsNothing);
@@ -270,7 +276,11 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_profile_lock_toggle')),
+          )
+          .checked,
       isFalse,
     );
   });
@@ -290,14 +300,18 @@ void main() {
         reconciliationDeadline: const Duration(milliseconds: 1),
       );
 
-      await tester.tap(find.byType(ToggleSwitch));
+      await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
       await tester.pump(const Duration(milliseconds: 2));
       await tester.pumpAndSettle();
 
       expect(find.text('Saving...'), findsNothing);
       expect(find.textContaining('Could not confirm'), findsOneWidget);
       expect(
-        tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).onChanged,
+        tester
+            .widget<ToggleSwitch>(
+              find.byKey(const Key('privacy_profile_lock_toggle')),
+            )
+            .onChanged,
         isNotNull,
       );
       pending.complete();
@@ -312,7 +326,7 @@ void main() {
       ..nextUpdate = pending.future;
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump();
     expect(find.text('Saving...'), findsOneWidget);
     pending.complete();
@@ -320,7 +334,11 @@ void main() {
 
     expect(find.text('Saving...'), findsNothing);
     expect(
-      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_profile_lock_toggle')),
+          )
+          .checked,
       isTrue,
     );
   });
@@ -340,12 +358,16 @@ void main() {
       reconciliationDeadline: const Duration(milliseconds: 1),
     );
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump(const Duration(milliseconds: 2));
     await tester.pumpAndSettle();
 
     expect(
-      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_profile_lock_toggle')),
+          )
+          .checked,
       isTrue,
     );
     pending.complete();
@@ -368,12 +390,16 @@ void main() {
       reconciliationDeadline: const Duration(milliseconds: 1),
     );
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump(const Duration(milliseconds: 2));
     await tester.pumpAndSettle();
 
     expect(
-      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_profile_lock_toggle')),
+          )
+          .checked,
       isFalse,
     );
     expect(find.textContaining('Could not confirm'), findsOneWidget);
@@ -390,13 +416,17 @@ void main() {
       ..nextUpdate = pending.future;
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump();
     pending.completeError(StateError('offline'));
     await tester.pumpAndSettle();
 
     expect(
-      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_profile_lock_toggle')),
+          )
+          .checked,
       isTrue,
     );
     expect(
@@ -412,9 +442,9 @@ void main() {
       ..nextUpdate = pending.future;
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump();
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump();
 
     expect(repository.updateVisibilityCalls, 1);
@@ -438,11 +468,11 @@ void main() {
       reconciliationDeadline: const Duration(milliseconds: 1),
     );
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump(const Duration(milliseconds: 2));
     await tester.pumpAndSettle();
     repository.nextUpdate = second.future;
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump();
     second.completeError(StateError('second write failed'));
     await tester.pumpAndSettle();
@@ -450,7 +480,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).checked,
+      tester
+          .widget<ToggleSwitch>(
+            find.byKey(const Key('privacy_profile_lock_toggle')),
+          )
+          .checked,
       isFalse,
     );
   });
@@ -466,7 +500,7 @@ void main() {
     final repository = _repository(ProfileVisibility.public);
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
 
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(repository.updateVisibilityCalls, 0);
@@ -481,7 +515,7 @@ void main() {
     final repository = _repository(ProfileVisibility.public)
       ..nextUpdate = pending.future;
     await pumpPrivacy(tester: tester, repository: repository, auth: auth);
-    await tester.tap(find.byType(ToggleSwitch));
+    await tester.tap(find.byKey(const Key('privacy_profile_lock_toggle')));
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
     pending.complete();

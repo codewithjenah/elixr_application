@@ -39,34 +39,35 @@ class FakeTeacherRelationshipRepository
       listeners[listener < 0 ? listeners.length - 1 : listener].addError(error);
 
   @override
-  Future<TeacherInvite> createOrRotateInvite({
-    required String traineeId,
-    required String traineeDisplayName,
-  }) => throw UnimplementedError();
-  @override
-  Future<TeacherInvite?> getActiveInvite({required String traineeId}) =>
-      throw UnimplementedError();
-  @override
-  Future<void> revokeInvite({required String traineeId}) =>
-      throw UnimplementedError();
-  @override
-  Future<TeacherInvite> resolveCoachCode(String code) =>
-      throw UnimplementedError();
-  @override
-  Future<TeacherStudentLink> requestLink({
+  Future<TeacherRosterInvite> createOrRotateRosterInvite({
     required String teacherId,
     required String teacherDisplayName,
+  }) => throw UnimplementedError();
+  @override
+  Future<TeacherRosterInvite?> getActiveRosterInvite({
+    required String teacherId,
+  }) => throw UnimplementedError();
+  @override
+  Future<void> revokeRosterInvite({required String teacherId}) =>
+      throw UnimplementedError();
+  @override
+  Future<TeacherRosterInvite> resolveRosterCode(String code) =>
+      throw UnimplementedError();
+  @override
+  Future<TeacherStudentLink> requestTeacherJoin({
+    required String traineeId,
+    required String traineeDisplayName,
     required String code,
   }) => throw UnimplementedError();
   @override
-  Future<void> approveLink({
+  Future<void> approveJoin({
     required String linkId,
-    required String traineeId,
+    required String teacherId,
   }) => throw UnimplementedError();
   @override
-  Future<void> rejectLink({
+  Future<void> rejectJoin({
     required String linkId,
-    required String traineeId,
+    required String teacherId,
   }) => throw UnimplementedError();
   @override
   Future<void> revokeLink({
@@ -84,10 +85,23 @@ class FakeTeacherRelationshipRepository
     required String traineeId,
   }) => throw UnimplementedError();
   @override
-  Future<void> cancelLink({
+  Future<void> cancelJoin({
     required String linkId,
-    required String teacherId,
+    required String traineeId,
   }) => throw UnimplementedError();
+  @override
+  Future<void> grantEvidenceAccess({
+    required String linkId,
+    required String traineeId,
+  }) => throw UnimplementedError();
+  @override
+  Future<void> removeEvidenceAccess({
+    required String linkId,
+    required String traineeId,
+  }) => throw UnimplementedError();
+  @override
+  Future<void> revokeAllEvidenceAccess({required String traineeId}) =>
+      throw UnimplementedError();
   @override
   Stream<List<TeacherStudentLink>> watchTraineeLinks({
     required String traineeId,

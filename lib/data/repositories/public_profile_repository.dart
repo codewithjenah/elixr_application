@@ -423,6 +423,9 @@ class PublicProfileRepository {
           'duration_seconds': data['duration_seconds'],
           'prop_type': data['prop_type'],
           'created_at': _readCreatedAt(data['created_at']),
+          'evidence_storage_path': data['evidence_storage_path'],
+          'evidence_kind': data['evidence_kind'],
+          'evidence_size_bytes': data['evidence_size_bytes'],
         });
 
         if (!projectedIds.contains(doc.id)) {
@@ -618,6 +621,9 @@ class PublicProfileRepository {
       'duration_seconds': session.durationSeconds,
       'prop_type': session.propType.protocolValue,
       'created_at': session.createdAt ?? FieldValue.serverTimestamp(),
+      if (session.evidenceStoragePath != null &&
+          session.evidenceKind == 'hold_confirmed')
+        'evidence_available': true,
     };
     if (session.isRubricAssessed && session.rubric != null) {
       payload.addAll(session.rubric!.toFirestoreFields());

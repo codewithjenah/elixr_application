@@ -31,7 +31,7 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
     SettingsSection.teacherAccess =>
-      'Generate a coach code and manage Teachers who request to link with you.',
+      'Join a Teacher roster and manage what linked Teachers can access.',
   };
 
   IconData get icon => switch (this) {

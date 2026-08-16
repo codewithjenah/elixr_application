@@ -1,39 +1,14 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_section.dart';
-import 'package:elixr_core/models/teacher_student_link.dart';
-import 'package:elixr_core/repositories/in_memory_teacher_relationship_repository.dart';
+import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-TeacherStudentLink pendingLink() {
-  return TeacherStudentLink(
-    id: 'teacher-1_trainee-1',
-    teacherId: 'teacher-1',
-    traineeId: 'trainee-1',
-    teacherDisplayName: 'Grace Hopper',
-    traineeDisplayName: 'Ada Lovelace',
-    status: TeacherStudentLinkStatus.pending,
-    createdAt: DateTime.utc(2026, 8, 13, 4),
-  );
-}
-
-TeacherStudentLink approvedLink() {
-  return TeacherStudentLink(
-    id: 'teacher-1_trainee-1',
-    teacherId: 'teacher-1',
-    traineeId: 'trainee-1',
-    teacherDisplayName: 'Grace Hopper',
-    traineeDisplayName: 'Ada Lovelace',
-    status: TeacherStudentLinkStatus.approved,
-    createdAt: DateTime.utc(2026, 8, 12, 4),
-  );
-}
-
 Future<void> pumpAccess(
-  WidgetTester tester, {
-  required TeacherAccessController controller,
-}) async {
+  WidgetTester tester,
+  TeacherAccessController controller,
+) async {
   await tester.pumpWidget(
     FluentApp(
       theme: AppTheme.dark,
@@ -44,26 +19,27 @@ Future<void> pumpAccess(
       ),
     ),
   );
-  // The section starts the controller; pump to flush FakeAsync futures.
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 150));
+  await tester.pump(const Duration(milliseconds: 100));
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   late InMemoryTeacherRelationshipRepository repository;
   late TeacherAccessController controller;
 
-  setUp(() {
+  setUp(() async {
     repository = InMemoryTeacherRelationshipRepository(
       generateNormalizedCode: () => '7KPMXR4DQ2WT',
-      now: () => DateTime.utc(2026, 8, 13, 8),
+      now: () => DateTime.utc(2026, 8, 16),
+    );
+    await repository.createOrRotateRosterInvite(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
     );
     controller = TeacherAccessController(
       repository: repository,
       traineeId: 'trainee-1',
       traineeDisplayName: 'Ada Lovelace',
+      privateImageSavingEnabled: true,
     );
   });
 
@@ -72,86 +48,58 @@ void main() {
     repository.dispose();
   });
 
-  testWidgets('empty state shows generate action and empty lists', (
+  testWidgets('resolves Teacher and requires explicit join confirmation', (
     tester,
   ) async {
-    await pumpAccess(tester, controller: controller);
+    await pumpAccess(tester, controller);
+    await tester.enterText(
+      find.byKey(const Key('teacher_access_roster_code')),
+      '7KPM-XR4D-Q2WT',
+    );
+    await tester.tap(find.byKey(const Key('teacher_access_resolve_code')));
+    await tester.pump();
+    expect(find.text('Grace Hopper'), findsOneWidget);
+    expect(repository.links, isEmpty);
 
-    expect(find.text('Generate coach code'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('teacher_access_confirm_join')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(controller.pending.single.requestVersion, 2);
+    expect(find.text('Waiting for Teacher approval'), findsOneWidget);
+  });
+
+  testWidgets('pending request is Trainee-cancellable', (tester) async {
+    final link = await repository.requestTeacherJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: '7KPMXR4DQ2WT',
+    );
+    await pumpAccess(tester, controller);
+    await tester.tap(find.byKey(Key('teacher_access_cancel_${link.id}')));
+    await tester.pump(const Duration(milliseconds: 100));
     expect(
       find.byKey(const Key('teacher_access_pending_empty')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const Key('teacher_access_linked_empty')),
-      findsOneWidget,
-    );
   });
 
-  testWidgets('pending request can be approved or rejected', (tester) async {
-    repository.seedLink(pendingLink());
-    await pumpAccess(tester, controller: controller);
-
-    expect(find.text('Grace Hopper'), findsOneWidget);
-    expect(find.text('Approve'), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const Key('teacher_access_approve_teacher-1_trainee-1')),
+  testWidgets('evidence sharing appears only after progress access', (
+    tester,
+  ) async {
+    final link = await repository.requestTeacherJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: '7KPMXR4DQ2WT',
     );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
-
+    await repository.approveJoin(linkId: link.id, teacherId: 'teacher-1');
+    await repository.grantProgressAccess(
+      linkId: link.id,
+      traineeId: 'trainee-1',
+    );
+    await pumpAccess(tester, controller);
     expect(
-      find.text('Relationship: Linked\nProgress sharing: Off'),
+      find.byKey(Key('teacher_access_evidence_${link.id}')),
       findsOneWidget,
     );
-    expect(find.text('Revoke Teacher'), findsOneWidget);
-  });
-
-  testWidgets('reject removes the pending request', (tester) async {
-    repository.seedLink(pendingLink());
-    await pumpAccess(tester, controller: controller);
-
-    await tester.tap(
-      find.byKey(const Key('teacher_access_reject_teacher-1_trainee-1')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
-
-    expect(
-      find.byKey(const Key('teacher_access_pending_empty')),
-      findsOneWidget,
-    );
-    expect(find.text('Approve'), findsNothing);
-  });
-
-  testWidgets('linked teacher can be revoked', (tester) async {
-    repository.seedLink(approvedLink());
-    await pumpAccess(tester, controller: controller);
-
-    expect(find.text('Grace Hopper'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const Key('teacher_access_revoke_teacher-1_trainee-1')),
-    );
-    await tester.pump();
-    expect(find.text('Revoke this Teacher?'), findsOneWidget);
-    await tester.tap(find.text('Revoke Teacher').last);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
-
-    expect(
-      find.byKey(const Key('teacher_access_linked_empty')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('generate shows formatted coach code', (tester) async {
-    await pumpAccess(tester, controller: controller);
-    await tester.tap(find.byKey(const Key('teacher_access_generate')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
-
-    expect(find.text('7KPM-XR4D-Q2WT'), findsOneWidget);
-    expect(find.textContaining('Expires'), findsOneWidget);
+    expect(find.text('Share saved images'), findsOneWidget);
   });
 }

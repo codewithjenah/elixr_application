@@ -37,6 +37,8 @@ dependencies:
   firebase_core: ^4.11.0
   firebase_auth: ^6.5.4
   cloud_firestore: ^6.6.0
+  firebase_storage: ^13.4.3
+  qr_flutter: ^4.1.0
   elixr_core:
     path: ../packages/elixr_core
 

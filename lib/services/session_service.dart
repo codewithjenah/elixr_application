@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/database/firestore_helper.dart';
@@ -36,13 +37,15 @@ class SessionService extends ChangeNotifier {
     String Function()? allocateSessionIdOverride,
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
     SessionEvidenceRepository? evidenceRepository,
+    TeacherRelationshipRepository? teacherRelationshipRepository,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
        _publicProfileRepositoryOrNull = publicProfileRepository,
        _saveCompletedSessionAtomicOverride = saveCompletedSessionAtomicOverride,
        _allocateSessionIdOverride = allocateSessionIdOverride,
        _recordCompletedSessionOverride = recordCompletedSessionOverride,
-       _evidenceRepositoryOrNull = evidenceRepository;
+       _evidenceRepositoryOrNull = evidenceRepository,
+       _teacherRelationshipRepository = teacherRelationshipRepository;
 
   SessionRepository? _repositoryOrNull;
   LeaderboardRepository? _leaderboardRepositoryOrNull;
@@ -51,6 +54,7 @@ class SessionService extends ChangeNotifier {
   final String Function()? _allocateSessionIdOverride;
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
   SessionEvidenceRepository? _evidenceRepositoryOrNull;
+  final TeacherRelationshipRepository? _teacherRelationshipRepository;
 
   SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
 
@@ -79,6 +83,11 @@ class SessionService extends ChangeNotifier {
   }
 
   Future<void> revokeSessionEvidence(String userId) async {
+    // Remove the authorization edge first so a Teacher cannot begin another
+    // read while retained objects are being purged.
+    await _teacherRelationshipRepository?.revokeAllEvidenceAccess(
+      traineeId: userId,
+    );
     await _evidenceRepository.deleteAllForUser(userId);
     await setSessionEvidenceEnabled(userId: userId, enabled: false);
     notifyListeners();

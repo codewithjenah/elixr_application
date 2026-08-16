@@ -19,6 +19,7 @@ import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
 import 'services/settings_service.dart';
 import 'services/tutorial_progress_service.dart';
+import 'services/join_link_service.dart';
 
 class ElixrApp extends StatefulWidget {
   const ElixrApp({super.key});
@@ -34,6 +35,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final TutorialProgressService _tutorialProgressService;
   late final PublicProfileRepository _publicProfileRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
+  late final JoinLinkService _joinLinkService;
   late final GoRouter _router;
   bool _splashFinished = false;
 
@@ -42,6 +44,7 @@ class _ElixrAppState extends State<ElixrApp> {
     super.initState();
     _publicProfileRepository = PublicProfileRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
+    _joinLinkService = JoinLinkService();
     _authService = AuthService(
       leaderboardRepository: LeaderboardRepository(),
       publicProfileRepository: _publicProfileRepository,
@@ -49,12 +52,20 @@ class _ElixrAppState extends State<ElixrApp> {
     _settingsService = SettingsService()..initialize();
     _cameraDeviceService = CameraDeviceService();
     _tutorialProgressService = TutorialProgressService();
-    _router = AppRouter.create(_authService, _tutorialProgressService);
+    // Subscription setup is synchronous on the first call, so cold links are
+    // retained before the router begins evaluating redirects.
+    unawaited(_joinLinkService.initialize());
+    _router = AppRouter.create(
+      _authService,
+      _tutorialProgressService,
+      _joinLinkService,
+    );
   }
 
   @override
   void dispose() {
     _cameraDeviceService.dispose();
+    _joinLinkService.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -66,6 +77,7 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _authService),
         ChangeNotifierProvider.value(value: _settingsService),
         ChangeNotifierProvider.value(value: _cameraDeviceService),
+        ChangeNotifierProvider.value(value: _joinLinkService),
         ChangeNotifierProxyProvider<AuthService, TutorialProgressService>(
           create: (_) => _tutorialProgressService,
           update: (_, auth, tutorial) {
@@ -76,8 +88,10 @@ class _ElixrAppState extends State<ElixrApp> {
           },
         ),
         ChangeNotifierProvider(
-          create: (_) =>
-              SessionService(publicProfileRepository: _publicProfileRepository),
+          create: (_) => SessionService(
+            publicProfileRepository: _publicProfileRepository,
+            teacherRelationshipRepository: _teacherRelationshipRepository,
+          ),
         ),
         Provider<PublicProfileRepository>.value(
           value: _publicProfileRepository,

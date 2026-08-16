@@ -61,7 +61,10 @@ abstract final class ElixrLegalDocuments {
     'Confirmed movement images: if you opt in, ELIXR stores one private, '
         'annotated still image from the camera frame that confirmed a Guided '
         'Practice movement. It is not video, is not shared to public profiles, '
-        'leaderboards, or Teachers, and is accessible only to your account. '
+        'leaderboards, and is accessible only to your account unless you '
+        'separately grant one linked Teacher saved-image access. That '
+        'per-Teacher permission covers retained historical and future stills '
+        'while progress sharing remains active, and can be revoked at any time. '
         'You can disable this in Settings > Privacy to delete saved images and '
         'their session references; account deletion also removes them.',
     'Public Profile: by default, other signed-in players can view your '
@@ -72,9 +75,9 @@ abstract final class ElixrLegalDocuments {
     'Training and session data are kept while your account is active. If you '
         'delete your account via Settings > Security, we permanently remove '
         'all associated data.',
-    'Teacher Access: you can generate a short-lived coach code in Settings > '
-        'Teacher Access and approve or reject a Teacher who requests to link '
-        'with you. Linking alone does not share progress. You can separately '
+    'Teacher Access: a Teacher can create a durable roster code. You may enter '
+        'that exact code to request to join, and the Teacher may approve or '
+        'reject the request. Linking alone does not share progress. You can separately '
         'enable sanitized, read-only summary and practice/assessment history '
         'for each linked Teacher. Linked Teachers may send stored instructional '
         'notes without progress sharing; stop sharing affects progress only, while '
@@ -82,7 +85,8 @@ abstract final class ElixrLegalDocuments {
         'Notes exclude raw video and protected assessment internals. You can stop sharing or revoke that Teacher at '
         'any time. Raw video, credentials, private settings, feedback internals, '
         'achievements, and unrestricted account data are never shared. Each '
-        'per-relationship Share Progress confirmation is the consent event.',
+        'per-relationship Share Progress and Share Saved Images confirmations '
+        'are independent consent events.',
     'Use Settings > Security > Delete Account to exercise your right to '
         'erasure.',
   ];
@@ -95,14 +99,17 @@ abstract final class ElixrLegalDocuments {
         'data, publish a public player profile, or maintain a leaderboard in '
         'this application.',
     'Roster linking: the Teacher application may store Teacher↔Trainee '
-        'relationship records after you enter a coach code that a Trainee '
-        'intentionally shared. You only see Trainees who explicitly approve '
-        'your request. Linking alone does not share progress. A Trainee may '
+        'relationship records after you create a durable roster code and a '
+        'Trainee intentionally requests to join. You must approve each request. '
+        'Linking alone does not share progress. A Trainee may '
         'separately authorize sanitized, read-only progress summary and '
         'practice/assessment history, then stop sharing or revoke the '
         'relationship at any time. Raw video, credentials, private settings, '
         'feedback internals, achievements, and unrestricted account data are '
-        'not shared. The Teacher app cannot create or edit Trainee sessions or scores.',
+        'not shared. If the Trainee separately enables saved-image access, the '
+        'Teacher may lazily view retained annotated stills for sanitized session '
+        'rows until permission is revoked. The Teacher app cannot create or edit '
+        'Trainee sessions or scores.',
     'The Teacher application does not currently include in-app account '
         'deletion. You retain the right under RA 10173 to request access, '
         'correction, or erasure of your Teacher account data.',
@@ -126,7 +133,7 @@ abstract final class ElixrLegalDocuments {
 
   static const teacherTermsOfServiceParagraphs = <String>[
     'Teacher accounts are for instructor use of the Teacher application. '
-        'A Teacher roster lists only Trainees who approve a relationship. '
+        'A Teacher roster lists only Trainees whose join request the Teacher approves. '
         'Student progress review is read-only when separately authorized by '
         'the Trainee. Teachers may send stored coaching notes to approved Trainees; '
         'progress review remains read-only and separately consented. Assignments '

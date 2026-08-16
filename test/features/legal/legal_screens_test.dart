@@ -56,7 +56,7 @@ void main() {
     expect(containing('pose/hand landmark detection'), findsOneWidget);
     expect(containing('raw camera video is never uploaded'), findsOneWidget);
     expect(containing('claimed achievements'), findsOneWidget);
-    expect(containing('Settings > Privacy'), findsOneWidget);
+    expect(containing('Settings > Privacy'), findsWidgets);
     expect(containing('leaderboard identity'), findsOneWidget);
     expect(containing('Settings > Security'), findsWidgets);
     expect(containing('not yet active'), findsNothing);

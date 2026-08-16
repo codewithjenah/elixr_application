@@ -23,6 +23,8 @@ import '../../features/progress/progress_screen.dart';
 import '../../data/models/training_prop.dart';
 import '../../services/auth_service.dart';
 import '../../services/tutorial_progress_service.dart';
+import '../../services/join_link_service.dart';
+import '../../features/teacher_access/join_teacher_screen.dart';
 import '../widgets/app_shell.dart';
 import 'page_transitions.dart';
 
@@ -30,10 +32,15 @@ class AppRouter {
   static GoRouter create(
     AuthService authService,
     TutorialProgressService tutorialProgress,
+    JoinLinkService joinLinks,
   ) {
     return GoRouter(
       initialLocation: '/login',
-      refreshListenable: Listenable.merge([authService, tutorialProgress]),
+      refreshListenable: Listenable.merge([
+        authService,
+        tutorialProgress,
+        joinLinks,
+      ]),
       redirect: (context, state) {
         if (authService.isLoading) return null;
 
@@ -48,6 +55,9 @@ class AppRouter {
         final isPublicRoute = isAuthRoute || isPublicLegalRoute;
 
         if (!isAuth && !isPublicRoute) return '/login';
+        if (isAuth && joinLinks.hasPendingCode && location != '/join-coach') {
+          return '/join-coach';
+        }
         if (isAuth && isAuthRoute) return '/dashboard';
         if (isAuth &&
             location == '/practice' &&
@@ -100,6 +110,13 @@ class AppRouter {
           pageBuilder: (context, state) => fadeTransitionPage(
             key: state.pageKey,
             child: const TermsOfServiceScreen(),
+          ),
+        ),
+        GoRoute(
+          path: '/join-coach',
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: const JoinTeacherScreen(),
           ),
         ),
         GoRoute(

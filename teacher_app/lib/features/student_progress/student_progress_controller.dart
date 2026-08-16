@@ -21,13 +21,20 @@ class StudentProgressController extends ChangeNotifier {
     required this.progress,
     required this.teacherId,
     required this.traineeId,
+    this.ranking,
   });
   final TeacherRelationshipRepository relationships;
   final TeacherProgressRepository progress;
   final String teacherId;
   final String traineeId;
+  final RosterLeaderboardRepository? ranking;
   TeacherStudentLink? link;
   PublicProfileSummary? summary;
+  RosterLeaderboardEntry? identity;
+  int? globalRank;
+  bool globalRankLoaded = false;
+  bool globalRankUnavailable = false;
+  bool identityLoading = false;
   List<PublicProfileSession> sessions = const [];
   TeacherProgressCursor? _cursor;
   bool hasMore = false;
@@ -54,6 +61,12 @@ class StudentProgressController extends ChangeNotifier {
     _dataEpoch++;
     _pageEpoch++;
     _active = true;
+    link = null;
+    identity = null;
+    globalRank = null;
+    globalRankLoaded = false;
+    globalRankUnavailable = false;
+    identityLoading = false;
     // Detach and clear synchronously. A delayed stream cancellation must never
     // leave protected progress visible while a fresh relationship is verified.
     final previousSummarySub = _summarySub;
@@ -87,6 +100,7 @@ class StudentProgressController extends ChangeNotifier {
     }
     if (!wasApproved) {
       _hadEffectiveAccess = false;
+      _loadIdentity(epoch);
     }
     if (!link!.hasEffectiveProgressAccess) {
       return _clear(
@@ -98,6 +112,39 @@ class StudentProgressController extends ChangeNotifier {
     _hadEffectiveAccess = true;
     if (_summarySub == null) {
       _beginLoading(epoch);
+    }
+  }
+
+  Future<void> _loadIdentity(int epoch) async {
+    final repository = ranking;
+    if (repository == null || !_isCurrentAccess(epoch)) return;
+    identityLoading = true;
+    notifyListeners();
+    try {
+      final roster = await repository.fetchRosterRanking(teacherId);
+      if (!_isCurrentAccess(epoch)) return;
+      for (final entry in roster) {
+        if (entry.userId == traineeId) {
+          identity = entry;
+          break;
+        }
+      }
+    } catch (_) {
+      // Identity/rank failure must never block protected progress.
+    }
+    try {
+      final rank = await repository.fetchGlobalRank(traineeId);
+      if (_isCurrentAccess(epoch)) {
+        globalRank = rank;
+        globalRankLoaded = true;
+      }
+    } catch (_) {
+      if (_isCurrentAccess(epoch)) globalRankUnavailable = true;
+    } finally {
+      if (_isCurrentAccess(epoch)) {
+        identityLoading = false;
+        notifyListeners();
+      }
     }
   }
 

@@ -1,8 +1,6 @@
-import 'package:elixr_core/models/teacher_invite.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +9,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
+import '../../data/repositories/session_evidence_repository.dart';
 import '../settings/widgets/settings_components.dart';
 import 'teacher_access_controller.dart';
 
@@ -71,6 +70,9 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
       repository: repository,
       traineeId: userId,
       traineeDisplayName: user!.fullName,
+      privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
+      reconcileEvidenceAvailability: (traineeId) => SessionEvidenceRepository()
+          .reconcilePublicEvidenceAvailability(traineeId),
     );
     _owned!.addListener(_onControllerTick);
     _active = _owned;
@@ -111,7 +113,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        if (controller.loading && controller.invite == null) {
+        if (controller.loading) {
           return const Center(child: ProgressRing());
         }
 
@@ -121,9 +123,9 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Share a coach code so a Teacher can request to link with you. '
-                'Linking alone does not share your progress. You can separately '
-                'choose whether each linked Teacher may view it.',
+                'Join a Teacher with their roster code. The Teacher must approve '
+                'your request. Progress and saved movement images remain private '
+                'until you enable each permission separately.',
                 style: AppTheme.bodySecondary.copyWith(
                   color: context.elixTextSecondary,
                   height: 1.4,
@@ -134,7 +136,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                 SettingsStatusBanner(message: controller.errorMessage!),
                 const SizedBox(height: AppSpacing.md),
               ],
-              _CoachCodeCard(controller: controller),
+              _JoinTeacherCard(controller: controller),
               const SizedBox(height: AppSpacing.lg),
               _PendingRequestsCard(controller: controller),
               const SizedBox(height: AppSpacing.lg),
@@ -147,112 +149,133 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
   }
 }
 
-class _CoachCodeCard extends StatelessWidget {
-  const _CoachCodeCard({required this.controller});
+class _JoinTeacherCard extends StatefulWidget {
+  const _JoinTeacherCard({required this.controller});
 
   final TeacherAccessController controller;
 
   @override
-  Widget build(BuildContext context) {
-    final invite = controller.invite;
-    final expired = invite?.isExpired ?? false;
+  State<_JoinTeacherCard> createState() => _JoinTeacherCardState();
+}
 
+class _JoinTeacherCardState extends State<_JoinTeacherCard> {
+  late final TextEditingController _textController;
+
+  TeacherAccessController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController(text: controller.codeInput);
+  }
+
+  @override
+  void didUpdateWidget(covariant _JoinTeacherCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_textController.text != controller.codeInput &&
+        controller.codeInput.isNotEmpty) {
+      _textController.value = TextEditingValue(
+        text: controller.codeInput,
+        selection: TextSelection.collapsed(offset: controller.codeInput.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SettingsGroup(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Coach Code',
+            'Join a Teacher',
             style: AppTheme.headingMedium.copyWith(
               fontSize: 16,
               color: context.elixTextPrimary,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          if (invite == null) ...[
+          if (controller.joinStep == JoinTeacherStep.enterCode) ...[
             Text(
-              'No active coach code. Generate one to let a Teacher find you.',
+              'Enter the durable roster code shared by your Teacher.',
               style: AppTheme.bodySecondary.copyWith(
                 color: context.elixTextSecondary,
               ),
             ),
             const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
+            TextBox(
+              key: const Key('teacher_access_roster_code'),
+              placeholder: 'XXXX-XXXX-XXXX',
+              controller: _textController,
+              onChanged: controller.setCodeInput,
+            ),
+            if (controller.joinError != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                controller.joinError!,
+                key: const Key('teacher_access_join_error'),
+                style: const TextStyle(color: AppColors.error),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
             ElixPrimaryButton(
-              key: const Key('teacher_access_generate'),
-              label: 'Generate coach code',
+              key: const Key('teacher_access_resolve_code'),
+              label: 'Continue',
               expanded: false,
               isLoading: controller.busy,
-              onPressed: controller.busy ? null : controller.generateOrRotate,
+              onPressed: controller.busy ? null : controller.resolveCode,
             ),
           ] else ...[
-            SelectableText(
-              invite.displayCode,
-              key: const Key('teacher_access_code'),
+            Text(
+              controller.resolvedInvite?.teacherDisplayName ?? 'Teacher',
+              key: const Key('teacher_access_confirm_teacher'),
               style: AppTheme.headingMedium.copyWith(
-                letterSpacing: 1.4,
-                color: expired ? AppColors.warning : context.elixTextPrimary,
+                color: context.elixTextPrimary,
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              expired
-                  ? 'Expired ${_formatTime(invite.expiresAt)}. Generate a replacement.'
-                  : 'Expires ${_formatTime(invite.expiresAt)}.',
+              'Send a join request? Nothing is shared until the Teacher approves, '
+              'and progress and images remain off by default.',
               style: AppTheme.caption.copyWith(
-                color: expired ? AppColors.warning : context.elixTextSecondary,
+                color: context.elixTextSecondary,
               ),
             ),
+            if (controller.joinError != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                controller.joinError!,
+                key: const Key('teacher_access_join_error'),
+                style: const TextStyle(color: AppColors.error),
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             Wrap(
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: [
-                Button(
-                  key: const Key('teacher_access_copy'),
-                  onPressed: () => _copy(context, invite),
-                  child: const Text('Copy'),
+                ElixPrimaryButton(
+                  key: const Key('teacher_access_confirm_join'),
+                  label: 'Send request',
+                  expanded: false,
+                  isLoading: controller.busy,
+                  onPressed: controller.busy ? null : controller.confirmJoin,
                 ),
-                if (expired)
-                  ElixPrimaryButton(
-                    key: const Key('teacher_access_generate'),
-                    label: 'Generate replacement',
-                    expanded: false,
-                    isLoading: controller.busy,
-                    onPressed: controller.busy
-                        ? null
-                        : controller.generateOrRotate,
-                  )
-                else ...[
-                  Button(
-                    key: const Key('teacher_access_rotate'),
-                    onPressed: controller.busy
-                        ? null
-                        : controller.generateOrRotate,
-                    child: const Text('Rotate'),
-                  ),
-                  Button(
-                    key: const Key('teacher_access_revoke_code'),
-                    onPressed: controller.busy ? null : controller.revokeInvite,
-                    child: const Text('Revoke'),
-                  ),
-                ],
+                Button(
+                  onPressed: controller.busy ? null : controller.resetJoin,
+                  child: const Text('Use a different code'),
+                ),
               ],
             ),
           ],
         ],
-      ),
-    );
-  }
-
-  Future<void> _copy(BuildContext context, TeacherInvite invite) async {
-    await Clipboard.setData(ClipboardData(text: invite.displayCode));
-    if (!context.mounted) return;
-    await displayInfoBar(
-      context,
-      builder: (context, close) => InfoBar(
-        title: const Text('Coach code copied'),
-        severity: InfoBarSeverity.success,
-        onClose: close,
       ),
     );
   }
@@ -270,7 +293,7 @@ class _PendingRequestsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Pending Teacher Requests',
+            'Pending Join Requests',
             style: AppTheme.headingMedium.copyWith(
               fontSize: 16,
               color: context.elixTextPrimary,
@@ -289,26 +312,13 @@ class _PendingRequestsCard extends StatelessWidget {
             for (final link in controller.pending) ...[
               _RequestRow(
                 link: link,
-                trailing: Wrap(
-                  spacing: AppSpacing.sm,
-                  children: [
-                    ElixPrimaryButton(
-                      key: Key('teacher_access_approve_${link.id}'),
-                      label: 'Approve',
-                      expanded: false,
-                      dense: true,
-                      onPressed: controller.busy
-                          ? null
-                          : () => controller.approve(link),
-                    ),
-                    Button(
-                      key: Key('teacher_access_reject_${link.id}'),
-                      onPressed: controller.busy
-                          ? null
-                          : () => controller.reject(link),
-                      child: const Text('Reject'),
-                    ),
-                  ],
+                subtitleOverride: 'Waiting for Teacher approval',
+                trailing: Button(
+                  key: Key('teacher_access_cancel_${link.id}'),
+                  onPressed: controller.busy
+                      ? null
+                      : () => controller.cancelPending(link),
+                  child: const Text('Cancel'),
                 ),
               ),
               if (link != controller.pending.last)
@@ -353,7 +363,9 @@ class _LinkedTeachersCard extends StatelessWidget {
                 link: link,
                 subtitleOverride:
                     'Relationship: Linked\nProgress sharing: '
-                    '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}',
+                    '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}\n'
+                    'Saved movement images: '
+                    '${link.hasEffectiveEvidenceAccess ? 'On' : 'Off'}',
                 trailing: Wrap(
                   spacing: AppSpacing.sm,
                   children: [
@@ -380,6 +392,25 @@ class _LinkedTeachersCard extends StatelessWidget {
                                 link,
                               ),
                         child: const Text('Share progress'),
+                      ),
+                    if (link.hasEffectiveProgressAccess &&
+                        controller.privateImageSavingEnabled)
+                      Button(
+                        key: Key('teacher_access_evidence_${link.id}'),
+                        onPressed: controller.busy
+                            ? null
+                            : link.hasEffectiveEvidenceAccess
+                            ? () => controller.stopSharingEvidence(link)
+                            : () => _confirmShareEvidence(
+                                context,
+                                controller,
+                                link,
+                              ),
+                        child: Text(
+                          link.hasEffectiveEvidenceAccess
+                              ? 'Stop sharing images'
+                              : 'Share saved images',
+                        ),
                       ),
                     Button(
                       key: Key('teacher_access_revoke_${link.id}'),
@@ -465,6 +496,35 @@ Future<void> _confirmStopSharing(
   if (accepted == true) await controller.stopSharingProgress(link);
 }
 
+Future<void> _confirmShareEvidence(
+  BuildContext context,
+  TeacherAccessController controller,
+  TeacherStudentLink link,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Share saved movement images?'),
+      content: const Text(
+        'Retained historical and future annotated still images will become '
+        'readable by this Teacher until you revoke this permission. Progress '
+        'sharing must remain on. No video or arbitrary Storage path is shared.',
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          child: const Text('Share saved images'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.shareEvidence(link);
+}
+
 Future<void> _confirmRevokeTeacher(
   BuildContext context,
   TeacherAccessController controller,
@@ -507,28 +567,20 @@ class _RequestRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                link.teacherDisplayName,
-                style: AppTheme.body.copyWith(color: context.elixTextPrimary),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitleOverride ?? 'Requested ${_formatTime(link.createdAt)}',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
-          ),
+        Text(
+          link.teacherDisplayName,
+          style: AppTheme.body.copyWith(color: context.elixTextPrimary),
         ),
-        trailing,
+        const SizedBox(height: 2),
+        Text(
+          subtitleOverride ?? 'Requested ${_formatTime(link.createdAt)}',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Align(alignment: Alignment.centerLeft, child: trailing),
       ],
     );
   }

@@ -1,14 +1,10 @@
 import 'dart:async';
 
-import 'package:elixr_core/models/teacher_invite.dart';
-import 'package:elixr_core/models/teacher_relationship_exception.dart';
+import 'package:elixr_core/models/teacher_roster_invite.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
-enum AddStudentStep { enterCode, confirm }
-
-/// Teacher-side roster state.
 class RosterController extends ChangeNotifier {
   RosterController({
     required this.repository,
@@ -20,17 +16,12 @@ class RosterController extends ChangeNotifier {
   final String teacherId;
   final String teacherDisplayName;
 
+  TeacherRosterInvite? invite;
   List<TeacherStudentLink> pending = const [];
   List<TeacherStudentLink> approved = const [];
   bool loading = false;
   bool busy = false;
   String? errorMessage;
-
-  AddStudentStep addStudentStep = AddStudentStep.enterCode;
-  String codeInput = '';
-  TeacherInvite? resolvedInvite;
-  String? addStudentError;
-
   StreamSubscription<List<TeacherStudentLink>>? _linksSub;
 
   Future<void> start() async {
@@ -38,14 +29,23 @@ class RosterController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
+      invite = await repository.getActiveRosterInvite(teacherId: teacherId);
       await _linksSub?.cancel();
       final first = Completer<void>();
       _linksSub = repository
           .watchTeacherLinks(teacherId: teacherId)
           .listen(
             (links) {
-              _onLinks(links);
+              pending = [
+                for (final link in links)
+                  if (link.isPending && link.isV2Request) link,
+              ];
+              approved = [
+                for (final link in links)
+                  if (link.isApproved) link,
+              ];
               if (!first.isCompleted) first.complete();
+              notifyListeners();
             },
             onError: (Object error) {
               errorMessage = 'Could not load your roster.';
@@ -64,109 +64,41 @@ class RosterController extends ChangeNotifier {
 
   Future<void> refresh() => start();
 
-  void resetAddStudent() {
-    addStudentStep = AddStudentStep.enterCode;
-    codeInput = '';
-    resolvedInvite = null;
-    addStudentError = null;
-    notifyListeners();
-  }
+  Future<void> generateOrRotateInvite() => _run(() async {
+    invite = await repository.createOrRotateRosterInvite(
+      teacherId: teacherId,
+      teacherDisplayName: teacherDisplayName,
+    );
+  }, 'Could not generate a roster code.');
 
-  void setCodeInput(String value) {
-    codeInput = value;
-    addStudentError = null;
-    notifyListeners();
-  }
+  Future<void> revokeInvite() => _run(() async {
+    await repository.revokeRosterInvite(teacherId: teacherId);
+    invite = null;
+  }, 'Could not revoke the roster code.');
 
-  Future<void> resolveEnteredCode() async {
-    if (busy) return;
-    busy = true;
-    addStudentError = null;
-    notifyListeners();
-    try {
-      resolvedInvite = await repository.resolveCoachCode(codeInput);
-      addStudentStep = AddStudentStep.confirm;
-    } on TeacherRelationshipException catch (error) {
-      addStudentError = switch (error.code) {
-        TeacherRelationshipError.malformedCode =>
-          'That coach code is not valid.',
-        TeacherRelationshipError.inviteNotFound =>
-          'No trainee is using that coach code.',
-        TeacherRelationshipError.inviteExpired =>
-          'That coach code has expired.',
-        _ => error.message ?? 'Could not look up that code.',
-      };
-    } catch (_) {
-      addStudentError = 'Could not look up that code.';
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
-  }
+  Future<void> approve(TeacherStudentLink link) => _run(
+    () => repository.approveJoin(linkId: link.id, teacherId: teacherId),
+    'Could not approve that request.',
+  );
 
-  Future<bool> confirmRequest() async {
-    final invite = resolvedInvite;
-    if (invite == null || busy) return false;
-    busy = true;
-    addStudentError = null;
-    notifyListeners();
-    try {
-      await repository.requestLink(
-        teacherId: teacherId,
-        teacherDisplayName: teacherDisplayName,
-        code: invite.normalizedCode,
-      );
-      resetAddStudent();
-      return true;
-    } on TeacherRelationshipException catch (error) {
-      addStudentError = switch (error.code) {
-        TeacherRelationshipError.alreadyPending =>
-          'A request is already waiting for this trainee.',
-        TeacherRelationshipError.alreadyLinked =>
-          'This trainee is already on your roster.',
-        TeacherRelationshipError.inviteExpired =>
-          'That coach code has expired.',
-        TeacherRelationshipError.malformedCode =>
-          'That coach code is not valid.',
-        TeacherRelationshipError.inviteNotFound =>
-          'No trainee is using that coach code.',
-        _ => error.message ?? 'Could not send that request.',
-      };
-      return false;
-    } catch (_) {
-      addStudentError = 'Could not send that request.';
-      return false;
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
-  }
+  Future<void> reject(TeacherStudentLink link) => _run(
+    () => repository.rejectJoin(linkId: link.id, teacherId: teacherId),
+    'Could not reject that request.',
+  );
 
-  Future<void> cancelPending(TeacherStudentLink link) async {
+  Future<void> _run(Future<void> Function() action, String failure) async {
     if (busy) return;
     busy = true;
     errorMessage = null;
     notifyListeners();
     try {
-      await repository.cancelLink(linkId: link.id, teacherId: teacherId);
+      await action();
     } catch (_) {
-      errorMessage = 'Could not cancel that request.';
+      errorMessage = failure;
     } finally {
       busy = false;
       notifyListeners();
     }
-  }
-
-  void _onLinks(List<TeacherStudentLink> links) {
-    pending = [
-      for (final link in links)
-        if (link.isPending) link,
-    ];
-    approved = [
-      for (final link in links)
-        if (link.isApproved) link,
-    ];
-    notifyListeners();
   }
 
   @override

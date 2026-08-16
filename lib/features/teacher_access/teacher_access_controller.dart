@@ -1,28 +1,39 @@
 import 'dart:async';
 
-import 'package:elixr_core/models/teacher_invite.dart';
+import 'package:elixr_core/models/teacher_relationship_exception.dart';
+import 'package:elixr_core/models/teacher_roster_invite.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
-/// Trainee-side Teacher Access state.
+enum JoinTeacherStep { enterCode, confirm }
+
 class TeacherAccessController extends ChangeNotifier {
   TeacherAccessController({
     required this.repository,
     required this.traineeId,
     required this.traineeDisplayName,
+    this.privateImageSavingEnabled = false,
+    this.reconcileEvidenceAvailability,
+    this.onJoinCompleted,
   });
 
   final TeacherRelationshipRepository repository;
   final String traineeId;
   final String traineeDisplayName;
+  final bool privateImageSavingEnabled;
+  final Future<void> Function(String traineeId)? reconcileEvidenceAvailability;
+  final VoidCallback? onJoinCompleted;
 
-  TeacherInvite? invite;
   List<TeacherStudentLink> pending = const [];
   List<TeacherStudentLink> approved = const [];
   bool loading = false;
   bool busy = false;
   String? errorMessage;
+  String codeInput = '';
+  JoinTeacherStep joinStep = JoinTeacherStep.enterCode;
+  TeacherRosterInvite? resolvedInvite;
+  String? joinError;
   StreamSubscription<List<TeacherStudentLink>>? _linksSub;
 
   Future<void> start() async {
@@ -30,18 +41,25 @@ class TeacherAccessController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      invite = await repository.getActiveInvite(traineeId: traineeId);
       await _linksSub?.cancel();
       final first = Completer<void>();
       _linksSub = repository
           .watchTraineeLinks(traineeId: traineeId)
           .listen(
             (links) {
-              _onLinks(links);
+              pending = [
+                for (final link in links)
+                  if (link.isPending && link.isV2Request) link,
+              ];
+              approved = [
+                for (final link in links)
+                  if (link.isApproved) link,
+              ];
               if (!first.isCompleted) first.complete();
+              notifyListeners();
             },
             onError: (Object error) {
-              errorMessage = 'Could not load Teacher requests.';
+              errorMessage = 'Could not load Teacher Access.';
               if (!first.isCompleted) first.completeError(error);
               notifyListeners();
             },
@@ -55,79 +73,128 @@ class TeacherAccessController extends ChangeNotifier {
     }
   }
 
-  Future<void> generateOrRotate() async {
+  void prefillCode(String code) {
+    codeInput = code;
+    joinStep = JoinTeacherStep.enterCode;
+    resolvedInvite = null;
+    joinError = null;
+    notifyListeners();
+  }
+
+  void setCodeInput(String value) {
+    codeInput = value;
+    joinError = null;
+    notifyListeners();
+  }
+
+  void resetJoin() {
+    codeInput = '';
+    joinStep = JoinTeacherStep.enterCode;
+    resolvedInvite = null;
+    joinError = null;
+    notifyListeners();
+  }
+
+  Future<void> resolveCode() async {
     if (busy) return;
     busy = true;
-    errorMessage = null;
+    joinError = null;
     notifyListeners();
     try {
-      invite = await repository.createOrRotateInvite(
+      resolvedInvite = await repository.resolveRosterCode(codeInput);
+      joinStep = JoinTeacherStep.confirm;
+    } on TeacherRelationshipException catch (error) {
+      joinError = switch (error.code) {
+        TeacherRelationshipError.malformedCode =>
+          'That roster code is not valid.',
+        TeacherRelationshipError.inviteNotFound =>
+          'No Teacher is using that roster code.',
+        _ => error.message ?? 'Could not look up that roster code.',
+      };
+    } catch (_) {
+      joinError = 'Could not look up that roster code.';
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> confirmJoin() async {
+    final invite = resolvedInvite;
+    if (busy || invite == null) return false;
+    busy = true;
+    joinError = null;
+    notifyListeners();
+    try {
+      final link = await repository.requestTeacherJoin(
         traineeId: traineeId,
         traineeDisplayName: traineeDisplayName,
+        code: invite.normalizedCode,
       );
+      pending = [link, ...pending.where((item) => item.id != link.id)];
+      resetJoin();
+      onJoinCompleted?.call();
+      return true;
+    } on TeacherRelationshipException catch (error) {
+      joinError = switch (error.code) {
+        TeacherRelationshipError.alreadyPending =>
+          'A request is already waiting for this Teacher.',
+        TeacherRelationshipError.alreadyLinked =>
+          'This Teacher is already linked.',
+        _ => error.message ?? 'Could not send that request.',
+      };
+      return false;
     } catch (_) {
-      errorMessage = 'Could not generate a coach code. Please try again.';
+      joinError = 'Could not send that request.';
+      return false;
     } finally {
       busy = false;
       notifyListeners();
     }
   }
 
-  Future<void> revokeInvite() async {
-    if (busy) return;
-    busy = true;
-    errorMessage = null;
-    notifyListeners();
-    try {
-      await repository.revokeInvite(traineeId: traineeId);
-      invite = null;
-    } catch (_) {
-      errorMessage = 'Could not revoke the coach code.';
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
-  }
+  Future<void> cancelPending(TeacherStudentLink link) => _run(() async {
+    await repository.cancelJoin(linkId: link.id, traineeId: traineeId);
+    pending = pending.where((item) => item.id != link.id).toList();
+  }, 'Could not cancel that request.');
 
-  Future<void> approve(TeacherStudentLink link) {
-    return _runLinkAction(
-      () => repository.approveLink(linkId: link.id, traineeId: traineeId),
-      failure: 'Could not approve that request.',
-    );
-  }
+  Future<void> revokeTeacher(TeacherStudentLink link) => _run(
+    () => repository.revokeLink(linkId: link.id, traineeId: traineeId),
+    'Could not revoke that Teacher.',
+  );
 
-  Future<void> reject(TeacherStudentLink link) {
-    return _runLinkAction(
-      () => repository.rejectLink(linkId: link.id, traineeId: traineeId),
-      failure: 'Could not reject that request.',
-    );
-  }
+  Future<void> shareProgress(TeacherStudentLink link) => _run(
+    () => repository.grantProgressAccess(linkId: link.id, traineeId: traineeId),
+    'Could not enable progress sharing. Check your connection and try again.',
+  );
 
-  Future<void> revokeTeacher(TeacherStudentLink link) {
-    return _runLinkAction(
-      () => repository.revokeLink(linkId: link.id, traineeId: traineeId),
-      failure: 'Could not revoke that Teacher.',
-    );
-  }
+  Future<void> stopSharingProgress(TeacherStudentLink link) => _run(
+    () =>
+        repository.removeProgressAccess(linkId: link.id, traineeId: traineeId),
+    'Could not stop progress sharing. Check your connection and try again.',
+  );
 
-  Future<void> shareProgress(TeacherStudentLink link) {
-    return _runLinkAction(
-      () => repository.grantProgressAccess(linkId: link.id, traineeId: traineeId),
-      failure: 'Could not enable progress sharing. Check your connection and try again.',
-    );
-  }
+  Future<void> shareEvidence(TeacherStudentLink link) => _run(
+    () async {
+      if (!privateImageSavingEnabled) {
+        throw StateError('Private image saving is disabled');
+      }
+      await reconcileEvidenceAvailability?.call(traineeId);
+      await repository.grantEvidenceAccess(
+        linkId: link.id,
+        traineeId: traineeId,
+      );
+    },
+    'Could not enable saved-image sharing. Check your connection and try again.',
+  );
 
-  Future<void> stopSharingProgress(TeacherStudentLink link) {
-    return _runLinkAction(
-      () => repository.removeProgressAccess(linkId: link.id, traineeId: traineeId),
-      failure: 'Could not stop progress sharing. Check your connection and try again.',
-    );
-  }
+  Future<void> stopSharingEvidence(TeacherStudentLink link) => _run(
+    () =>
+        repository.removeEvidenceAccess(linkId: link.id, traineeId: traineeId),
+    'Could not stop saved-image sharing.',
+  );
 
-  Future<void> _runLinkAction(
-    Future<void> Function() action, {
-    required String failure,
-  }) async {
+  Future<void> _run(Future<void> Function() action, String failure) async {
     if (busy) return;
     busy = true;
     errorMessage = null;
@@ -140,18 +207,6 @@ class TeacherAccessController extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
-  }
-
-  void _onLinks(List<TeacherStudentLink> links) {
-    pending = [
-      for (final link in links)
-        if (link.isPending) link,
-    ];
-    approved = [
-      for (final link in links)
-        if (link.isApproved) link,
-    ];
-    notifyListeners();
   }
 
   @override

@@ -166,4 +166,60 @@ void main() {
     expect(controller.state, StudentProgressState.connectionRequired);
     expect(controller.summary, isNull);
   });
+
+  test(
+    'approved identity ranks load independently from progress access',
+    () async {
+      final ranking = InMemoryRosterLeaderboardRepository(
+        rosterRows: {
+          'teacher': const [
+            RosterLeaderboardEntry(
+              userId: 'trainee',
+              displayName: 'Trainee',
+              totalXp: 25,
+              sessionsCompleted: 1,
+              bestScore: 8,
+              rosterRank: 0,
+            ),
+          ],
+        },
+        globalRows: const [
+          RosterLeaderboardEntry(
+            userId: 'leader',
+            displayName: 'Leader',
+            totalXp: 50,
+            sessionsCompleted: 2,
+            bestScore: 10,
+            rosterRank: 0,
+          ),
+          RosterLeaderboardEntry(
+            userId: 'trainee',
+            displayName: 'Trainee',
+            totalXp: 25,
+            sessionsCompleted: 1,
+            bestScore: 8,
+            rosterRank: 0,
+          ),
+        ],
+      );
+      final ranked = StudentProgressController(
+        relationships: relationships,
+        progress: progress,
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        ranking: ranking,
+      );
+      addTearDown(ranked.dispose);
+
+      await ranked.start();
+      relationships.add(approvedLink(access: false));
+      await pumpEventQueue();
+
+      expect(ranked.state, StudentProgressState.waitingForAccess);
+      expect(ranked.identity?.rosterRank, 1);
+      expect(ranked.globalRank, 2);
+      expect(ranked.globalRankLoaded, isTrue);
+      expect(progress.requests, isEmpty);
+    },
+  );
 }

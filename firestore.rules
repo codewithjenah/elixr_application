@@ -1531,7 +1531,8 @@ service cloud.firestore {
         'assessment_version',
         'rubric',
         'rubric_total',
-        'performance_level'
+        'performance_level',
+        'evidence_available'
       ];
     }
 
@@ -1544,7 +1545,8 @@ service cloud.firestore {
         'score',
         'duration_seconds',
         'prop_type',
-        'created_at'
+        'created_at',
+        'evidence_available'
       ];
     }
 
@@ -1560,7 +1562,8 @@ service cloud.firestore {
         'assessment_version',
         'rubric',
         'rubric_total',
-        'performance_level'
+        'performance_level',
+        'evidence_available'
       ];
     }
 
@@ -1629,6 +1632,11 @@ service cloud.firestore {
         && data.prop_type is string
         && exists(sessionPath(sessionId))
         && get(sessionPath(sessionId)).data.user_id == userId
+        && (!data.keys().hasAny(['evidence_available'])
+          || (data.evidence_available == true
+            && get(sessionPath(sessionId)).data.evidence_storage_path
+              == 'users/' + userId + '/session_evidence/' + sessionId + '.jpg'
+            && get(sessionPath(sessionId)).data.evidence_kind == 'hold_confirmed'))
         && (
           (
             data.keys().hasOnly(publicProfileSessionKeysV1())
@@ -1763,26 +1771,23 @@ service cloud.firestore {
     }
 
     function inviteKeys() {
-      return ['trainee_id', 'trainee_display_name', 'created_at', 'expires_at'];
-    }
-
-    function validInviteExpiry(createdAt, expiresAt) {
-      return expiresAt is timestamp
-        && expiresAt >= createdAt + duration.value(7, 'd') - duration.value(1, 'h')
-        && expiresAt <= createdAt + duration.value(7, 'd') + duration.value(1, 'h');
+      return ['teacher_id', 'teacher_display_name', 'created_at'];
     }
 
     function validInviteCreate(data, inviteId) {
-      return isNormalizedCoachCode(inviteId)
+      return hasVerifiedEmail()
+        && isNormalizedCoachCode(inviteId)
         && data.keys().hasOnly(inviteKeys())
         && data.keys().hasAll(inviteKeys())
-        && data.trainee_id == request.auth.uid
-        && isParticipantId(data.trainee_id)
-        && isDisplayName(data.trainee_display_name)
+        && data.teacher_id == request.auth.uid
+        && isParticipantId(data.teacher_id)
+        && isDisplayName(data.teacher_display_name)
         && exists(userPath(request.auth.uid))
-        && data.trainee_display_name == userFullName(request.auth.uid)
-        && data.created_at == request.time
-        && validInviteExpiry(data.created_at, data.expires_at);
+        && get(userPath(request.auth.uid)).data.get('role', '') == 'Teacher'
+        && data.teacher_display_name == userFullName(request.auth.uid)
+        && getAfter(userPath(request.auth.uid)).data.teacher_roster_invite_code
+          == inviteId
+        && data.created_at == request.time;
     }
 
     function linkKeys() {
@@ -1800,9 +1805,14 @@ service cloud.firestore {
 
     function linkAllowedKeys() {
       return linkKeys().concat([
+        'request_version',
         'progress_access',
         'progress_access_version',
         'progress_access_granted_at'
+      ]).concat([
+        'evidence_access',
+        'evidence_access_version',
+        'evidence_access_granted_at'
       ]);
     }
 
@@ -1823,6 +1833,26 @@ service cloud.firestore {
           && data.progress_access == 'granted'
           && data.progress_access_version == 1
           && data.progress_access_granted_at is timestamp);
+    }
+
+    function evidenceAccessIsNone(data) {
+      return !data.keys().hasAny([
+        'evidence_access',
+        'evidence_access_version',
+        'evidence_access_granted_at'
+      ]);
+    }
+
+    function validEvidenceAccessShape(data) {
+      return evidenceAccessIsNone(data)
+        || (data.keys().hasAll([
+            'evidence_access',
+            'evidence_access_version',
+            'evidence_access_granted_at'
+          ])
+          && data.evidence_access == 'granted'
+          && data.evidence_access_version == 1
+          && data.evidence_access_granted_at is timestamp);
     }
 
     function teacherStudentLinkPath(teacherId, traineeId) {
@@ -1846,6 +1876,16 @@ service cloud.firestore {
           is timestamp;
     }
 
+    function hasApprovedEvidenceAccess(traineeId) {
+      return hasApprovedProgressAccess(traineeId)
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.evidence_access
+          == 'granted'
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.evidence_access_version
+          == 1
+        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.evidence_access_granted_at
+          is timestamp;
+    }
+
     function isLinkStatus(value) {
       return value in ['pending', 'approved', 'rejected', 'cancelled', 'revoked'];
     }
@@ -1865,28 +1905,34 @@ service cloud.firestore {
         && linkId == data.teacher_id + '_' + data.trainee_id;
     }
 
-    function liveInviteMatchesTrainee(data) {
+    function liveInviteMatchesTeacher(data) {
       return isNormalizedCoachCode(data.invite_id)
         && exists(invitePath(data.invite_id))
-        && get(invitePath(data.invite_id)).data.trainee_id == data.trainee_id
-        && get(invitePath(data.invite_id)).data.expires_at > request.time
-        && data.trainee_display_name
-          == get(invitePath(data.invite_id)).data.trainee_display_name;
+        && exists(userPath(data.teacher_id))
+        && get(invitePath(data.invite_id)).data.teacher_id == data.teacher_id
+        && get(userPath(data.teacher_id)).data.get(
+          'teacher_roster_invite_code', ''
+        ) == data.invite_id
+        && data.teacher_display_name
+          == get(invitePath(data.invite_id)).data.teacher_display_name;
     }
 
     function validPendingLinkCreate(data, linkId) {
       return hasVerifiedEmail()
         && data.keys().hasOnly(linkAllowedKeys())
         && data.keys().hasAll(linkKeys())
-        && data.teacher_id == request.auth.uid
+        && data.trainee_id == request.auth.uid
         && data.status == 'pending'
+        && data.request_version == 2
         && progressAccessIsNone(data)
+        && evidenceAccessIsNone(data)
         && linkIdsMatchDocument(data, linkId)
         && isDisplayName(data.teacher_display_name)
         && isDisplayName(data.trainee_display_name)
         && exists(userPath(request.auth.uid))
-        && data.teacher_display_name == userFullName(request.auth.uid)
-        && liveInviteMatchesTrainee(data)
+        && get(userPath(request.auth.uid)).data.get('role', '') == 'Trainee'
+        && data.trainee_display_name == userFullName(request.auth.uid)
+        && liveInviteMatchesTeacher(data)
         && data.created_at == request.time
         && data.updated_at == request.time;
     }
@@ -1902,7 +1948,9 @@ service cloud.firestore {
           == resource.data.teacher_display_name
         && request.resource.data.trainee_display_name
           == resource.data.trainee_display_name
-        && request.resource.data.invite_id == resource.data.invite_id;
+        && request.resource.data.invite_id == resource.data.invite_id
+        && request.resource.data.get('request_version', 0)
+          == resource.data.get('request_version', 0);
     }
 
     function validLinkUpdateShape(data) {
@@ -1910,54 +1958,76 @@ service cloud.firestore {
         && data.keys().hasAll(linkKeys())
         && isLinkStatus(data.status)
         && data.updated_at == request.time
-        && validProgressAccessShape(data);
+        && validProgressAccessShape(data)
+        && validEvidenceAccessShape(data);
     }
 
-    function validTraineeLinkTransition() {
+    function validTraineeLinkTransition(linkId) {
       return resource.data.trainee_id == request.auth.uid
         && linkParticipantsUnchanged()
-        && linkIdentitySnapshotsUnchanged()
         && (
           (resource.data.status == 'approved'
             && request.resource.data.status == 'approved'
+            && linkIdentitySnapshotsUnchanged()
             && ((progressAccessIsNone(resource.data)
                 && request.resource.data.progress_access == 'granted'
                 && request.resource.data.progress_access_version == 1
-                && request.resource.data.progress_access_granted_at == request.time)
+                && request.resource.data.progress_access_granted_at == request.time
+                && evidenceAccessIsNone(request.resource.data))
               || (resource.data.progress_access == 'granted'
-                && progressAccessIsNone(request.resource.data))))
+                && progressAccessIsNone(request.resource.data)
+                && evidenceAccessIsNone(request.resource.data))
+              || (resource.data.progress_access == 'granted'
+                && request.resource.data.progress_access == 'granted'
+                && resource.data.progress_access_version
+                  == request.resource.data.progress_access_version
+                && resource.data.progress_access_granted_at
+                  == request.resource.data.progress_access_granted_at
+                && ((evidenceAccessIsNone(resource.data)
+                    && request.resource.data.evidence_access == 'granted'
+                    && request.resource.data.evidence_access_version == 1
+                    && request.resource.data.evidence_access_granted_at == request.time)
+                  || (resource.data.evidence_access == 'granted'
+                    && evidenceAccessIsNone(request.resource.data))))))
           || (resource.data.status == 'pending'
-            && request.resource.data.status in ['approved', 'rejected']
-            && progressAccessIsNone(request.resource.data))
+            && resource.data.get('request_version', 0) == 2
+            && request.resource.data.status == 'cancelled'
+            && linkIdentitySnapshotsUnchanged()
+            && progressAccessIsNone(request.resource.data)
+            && evidenceAccessIsNone(request.resource.data))
           || (resource.data.status == 'approved'
             && request.resource.data.status == 'revoked'
-            && progressAccessIsNone(request.resource.data))
+            && linkIdentitySnapshotsUnchanged()
+            && progressAccessIsNone(request.resource.data)
+            && evidenceAccessIsNone(request.resource.data))
+          || (resource.data.status != 'approved'
+            && (resource.data.status != 'pending'
+              || resource.data.get('request_version', 0) != 2)
+            && request.resource.data.status == 'pending'
+            && request.resource.data.request_version == 2
+            && linkParticipantsUnchanged()
+            && linkIdsMatchDocument(request.resource.data, linkId)
+            && isDisplayName(request.resource.data.teacher_display_name)
+            && isDisplayName(request.resource.data.trainee_display_name)
+            && get(userPath(request.auth.uid)).data.get('role', '') == 'Trainee'
+            && request.resource.data.trainee_display_name
+              == userFullName(request.auth.uid)
+            && liveInviteMatchesTeacher(request.resource.data)
+            && progressAccessIsNone(request.resource.data)
+            && evidenceAccessIsNone(request.resource.data))
         )
         ;
     }
 
-    function validTeacherCancelTransition() {
+    function validTeacherDecisionTransition() {
       return resource.data.teacher_id == request.auth.uid
         && resource.data.status == 'pending'
-        && request.resource.data.status == 'cancelled'
+        && resource.data.get('request_version', 0) == 2
+        && request.resource.data.status in ['approved', 'rejected']
         && linkParticipantsUnchanged()
         && linkIdentitySnapshotsUnchanged()
-        && progressAccessIsNone(request.resource.data);
-    }
-
-    function validTeacherRerequestTransition() {
-      return hasVerifiedEmail()
-        && resource.data.teacher_id == request.auth.uid
-        && resource.data.status in ['rejected', 'cancelled', 'revoked']
-        && request.resource.data.status == 'pending'
-        && linkParticipantsUnchanged()
-        && isDisplayName(request.resource.data.teacher_display_name)
-        && isDisplayName(request.resource.data.trainee_display_name)
-        && exists(userPath(request.auth.uid))
-        && request.resource.data.teacher_display_name
-          == userFullName(request.auth.uid)
-        && liveInviteMatchesTrainee(request.resource.data)
-        && progressAccessIsNone(request.resource.data);
+        && progressAccessIsNone(request.resource.data)
+        && evidenceAccessIsNone(request.resource.data);
     }
 
     match /teacher_invites/{inviteId} {
@@ -1967,7 +2037,9 @@ service cloud.firestore {
       allow create: if isSignedIn() && validInviteCreate(request.resource.data, inviteId);
       allow update: if false;
       allow delete: if isSignedIn()
-        && (resource == null || resource.data.trainee_id == request.auth.uid);
+        && (resource == null
+          || resource.data.get('teacher_id', '') == request.auth.uid
+          || resource.data.get('trainee_id', '') == request.auth.uid);
     }
 
     match /teacher_student_links/{linkId} {
@@ -1982,9 +2054,8 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && validLinkUpdateShape(request.resource.data)
         && (
-          validTraineeLinkTransition()
-          || validTeacherCancelTransition()
-          || validTeacherRerequestTransition()
+          validTraineeLinkTransition(linkId)
+          || validTeacherDecisionTransition()
         );
 
       // Participant delete supports account erasure; UI does not delete

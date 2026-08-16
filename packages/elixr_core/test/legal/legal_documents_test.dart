@@ -31,9 +31,9 @@ void main() {
       expect(text, contains('Settings > Security'));
       expect(text, contains('Delete Account'));
       expect(text, contains('Teacher Access'));
-      expect(text, contains('coach code'));
+      expect(text, contains('durable roster code'));
       expect(text, contains('Linking alone does not share progress'));
-      expect(text, contains('per-relationship Share Progress confirmation'));
+      expect(text, contains('Share Progress and Share Saved Images'));
     });
   });
 
@@ -52,7 +52,8 @@ void main() {
         expect(text, contains('email verification'));
         expect(text, contains('password reset'));
         expect(text, contains('Teacher↔Trainee relationship records'));
-        expect(text, contains('explicitly approve'));
+        expect(text, contains('approve each request'));
+        expect(text, contains('saved-image access'));
         expect(text, contains('revoke'));
         expect(text, contains('sanitized, read-only progress summary'));
         expect(
@@ -91,14 +92,14 @@ void main() {
             ElixrLegalClient.teacherAndroid,
           ),
         );
-        expect(text, contains('approve a relationship'));
+        expect(text, contains('Teacher approves'));
         expect(text, contains('read-only when separately authorized'));
         expect(text, isNot(contains('Leaderboard scores')));
       },
     );
   });
 
-  test('registration privacy consent version remains v2', () {
-    expect(RegistrationPrivacyConsent.policyVersion, 'v2');
+  test('registration privacy consent version is v3', () {
+    expect(RegistrationPrivacyConsent.policyVersion, 'v3');
   });
 }

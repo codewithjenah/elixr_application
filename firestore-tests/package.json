@@ -5,7 +5,7 @@
   "description": "Firebase Emulator security-rules tests for firestore.rules (daily quest board/claim + leaderboard XP). Not part of the Flutter app build.",
   "type": "module",
   "scripts": {
-    "test": "firebase emulators:exec --project demo-elixr --only firestore \"node --test rules.test.mjs\""
+    "test": "firebase emulators:exec --project demo-elixr --only firestore,storage \"node --test --test-concurrency=1 rules.test.mjs roster_v2.test.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
