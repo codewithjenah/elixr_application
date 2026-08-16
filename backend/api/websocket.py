@@ -31,6 +31,10 @@ from assessment.scoring import RubricTracker
 from assessment.rubric import RubricAssessment
 from config import (
     FPS_LOG_INTERVAL,
+    EVIDENCE_JPEG_QUALITY,
+    EVIDENCE_MAX_BYTES,
+    EVIDENCE_MAX_HEIGHT,
+    EVIDENCE_MAX_WIDTH,
     JPEG_QUALITY,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
@@ -78,6 +82,45 @@ SESSION_ACTIVE = "active"
 SESSION_CLOSED = "closed"
 
 SendText = Callable[[str], Awaitable[None]]
+
+
+def encode_evidence_jpeg(frame) -> bytes | None:
+    """Encode an annotated evidence image within the Storage size contract.
+
+    This runs in the existing frame worker, never in the asyncio event loop.
+    Returning ``None`` makes evidence best-effort: an encoding problem must
+    not turn an otherwise valid movement assessment into a failed session.
+    """
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return None
+    height, width = frame.shape[:2]
+    scale = min(1.0, EVIDENCE_MAX_WIDTH / width, EVIDENCE_MAX_HEIGHT / height)
+    image = frame
+    if scale < 1.0:
+        image = cv2.resize(
+            frame,
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    for quality in (EVIDENCE_JPEG_QUALITY, 55, 45, 35):
+        ok, encoded = cv2.imencode(
+            ".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+        )
+        if ok and len(encoded) <= EVIDENCE_MAX_BYTES:
+            return encoded.tobytes()
+    # Resolution reduction is bounded so pathological images cannot produce
+    # unbounded CPU work or oversized uploads.
+    for _ in range(3):
+        next_width = max(1, image.shape[1] // 2)
+        next_height = max(1, image.shape[0] // 2)
+        image = cv2.resize(image, (next_width, next_height), interpolation=cv2.INTER_AREA)
+        ok, encoded = cv2.imencode(
+            ".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 35]
+        )
+        if ok and len(encoded) <= EVIDENCE_MAX_BYTES:
+            return encoded.tobytes()
+    return None
 
 
 def _assessment_payload(assessment: RubricAssessment) -> AssessmentPayload:
@@ -486,6 +529,7 @@ class VisionSession:
         self._model_checked = False
         self._lifecycle = SESSION_PREPARED
         self._hold_validator = HoldValidator()
+        self._evidence_emitted = False
         self._readiness_tracker: ReadinessTracker | None = None
         self._latest_readiness_snapshot: ReadinessSnapshot | None = None
         # Monotonic timestamp of the latest readiness observation/snapshot.
@@ -686,6 +730,7 @@ class VisionSession:
         if self._is_dual_prop:
             self.prop_detector.reset_cache()
         self._frame_index = 0
+        self._evidence_emitted = False
         self._readiness_tracker = None
         self._latest_readiness_snapshot = None
         self._latest_readiness_observed_at = None
@@ -752,6 +797,7 @@ class VisionSession:
 
         t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
+
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=False,
@@ -1133,6 +1179,18 @@ class VisionSession:
 
         t0 = time.perf_counter()
         frame_b64 = base64.b64encode(buffer).decode("ascii")
+        evidence_b64 = None
+        if hold.hold_confirmed and not self._evidence_emitted:
+            # Never substitute a later frame if this best-effort encode fails:
+            # evidence, when present, must correspond to the confirming frame.
+            self._evidence_emitted = True
+            try:
+                evidence_jpeg = encode_evidence_jpeg(annotated)
+            except cv2.error:
+                logger.exception("Could not encode hold-confirmed evidence")
+                evidence_jpeg = None
+            if evidence_jpeg is not None:
+                evidence_b64 = base64.b64encode(evidence_jpeg).decode("ascii")
         feedback_code = rule_result.feedback_code
         category = category_for(feedback_code)
         message = self._stamp(
@@ -1145,6 +1203,7 @@ class VisionSession:
                 feedback_type=rule_result.feedback_type,
                 posture_status=rule_result.posture_status,
                 frame_jpeg_base64=frame_b64,
+                evidence_jpeg_base64=evidence_b64,
                 camera_ready=True,
                 session_state="active",
                 hold_progress=hold.hold_progress,

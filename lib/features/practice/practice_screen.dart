@@ -119,6 +119,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   bool _isShowingSummary = false;
   bool _movementConfirmedShowing = false;
   bool _commandInFlight = false;
+  Uint8List? _confirmedEvidenceJpegBytes;
 
   late final AnimationController _scorePulseController;
   late final Animation<double> _scorePulse;
@@ -304,6 +305,10 @@ class _PracticeScreenState extends State<PracticeScreen>
     // Only active training updates score UI / combo / history / hold.
     if (!_run.isTrainingActive) return;
 
+    // Capture before any async stop/camera teardown. The backend only emits
+    // this optional payload on the confirming frame.
+    _confirmedEvidenceJpegBytes ??= feedback.evidenceJpegBytes;
+
     final result = _feedback.applyActiveFeedback(feedback);
 
     _publishFrame(feedback.frameJpegBytes);
@@ -472,6 +477,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     // One completion dialog for beginners (skip separate victory screen).
     await _stopSession(heldSteady: true);
     _movementConfirmedShowing = false;
+    _confirmedEvidenceJpegBytes = null;
   }
 
   Future<void> _connect() async {
@@ -723,6 +729,22 @@ class _PracticeScreenState extends State<PracticeScreen>
       rubric: summaryRubric,
       heldSteady: heldSteady,
     );
+    var saveEvidence = false;
+    final evidence = _confirmedEvidenceJpegBytes;
+    if (heldSteady && evidence != null) {
+      final preference = await sessionService.sessionEvidenceEnabled(userId);
+      if (!mounted) return;
+      if (preference == null) {
+        saveEvidence = await _askEvidenceConsent() ?? false;
+        await sessionService.setSessionEvidenceEnabled(
+          userId: userId,
+          enabled: saveEvidence,
+        );
+        if (!mounted) return;
+      } else {
+        saveEvidence = preference;
+      }
+    }
     _isShowingSummary = true;
     try {
       // Play congrats when the Session Complete dialog appears.
@@ -736,6 +758,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         durationSeconds: summaryDuration,
         assessment: sessionAssessment,
         nextMovement: nextMovement,
+        evidenceJpegBytes: evidence,
         onSave: (existingSessionId) => sessionService.saveCompletedSession(
           existingSessionId: existingSessionId,
           userId: userId,
@@ -747,6 +770,8 @@ class _PracticeScreenState extends State<PracticeScreen>
           rubric: summaryRubric,
           durationSeconds: summaryDuration,
           sessionImprovements: sessionAssessment.improvementFeedbacks,
+          evidenceJpegBytes: evidence,
+          saveEvidence: saveEvidence,
         ),
       );
 
@@ -799,6 +824,70 @@ class _PracticeScreenState extends State<PracticeScreen>
     } finally {
       _isShowingSummary = false;
     }
+  }
+
+  Future<bool?> _askEvidenceConsent() {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => ContentDialog(
+        constraints: const BoxConstraints(maxWidth: 500),
+        title: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(FluentIcons.camera, size: 19),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            const Expanded(child: Text('Save your confirmed movement?')),
+          ],
+        ),
+        content: Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: context.elixBackground,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: context.elixBorder),
+          ),
+          child: const Text(
+            'We captured one annotated image from the exact frame that '
+            'confirmed your movement. It is private to your account, never '
+            'shared to profiles or leaderboards, and can be deleted anytime '
+            'in Settings → Privacy.',
+            style: TextStyle(fontSize: 15, height: 1.45),
+          ),
+        ),
+        actions: [
+          SizedBox(
+            width: 198,
+            height: 56,
+            child: Button(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Save without image',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 198,
+            height: 56,
+            child: FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(
+                'Enable & save image',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatDuration(int seconds) {

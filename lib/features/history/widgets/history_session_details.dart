@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 
@@ -6,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/models/feedback.dart' as models;
 import '../../../data/models/rubric_assessment.dart';
 import '../../../data/models/session.dart';
+import '../../../data/repositories/session_evidence_repository.dart';
 import '../history_format.dart';
 
 class HistorySessionDetails extends StatelessWidget {
@@ -59,6 +62,8 @@ class HistorySessionDetails extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           _AssessmentBlock(session: session),
+          const SizedBox(height: AppSpacing.md),
+          _SessionEvidenceCard(session: session),
           const SizedBox(height: AppSpacing.md),
           Text(
             'Session Feedback',
@@ -141,6 +146,106 @@ class HistorySessionDetails extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _SessionEvidenceCard extends StatefulWidget {
+  const _SessionEvidenceCard({required this.session});
+  final Session session;
+
+  @override
+  State<_SessionEvidenceCard> createState() => _SessionEvidenceCardState();
+}
+
+class _SessionEvidenceCardState extends State<_SessionEvidenceCard> {
+  SessionEvidenceRepository? _repository;
+  Future<Uint8List?>? _image;
+
+  @override
+  void didUpdateWidget(covariant _SessionEvidenceCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session.evidenceStoragePath !=
+        widget.session.evidenceStoragePath) {
+      _image = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final path = widget.session.evidenceStoragePath;
+    if (path == null || widget.session.evidenceKind != 'hold_confirmed') {
+      return Text(
+        'No confirmed movement image',
+        style: AppTheme.bodySecondary.copyWith(
+          color: context.elixTextSecondary,
+          fontSize: 13,
+        ),
+      );
+    }
+    final repository = _repository ??= SessionEvidenceRepository();
+    _image ??= repository.download(path);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Confirmed movement image',
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AspectRatio(
+          aspectRatio: 4 / 3,
+          child: FutureBuilder<Uint8List?>(
+            future: _image,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: ProgressRing());
+              }
+              final image = snapshot.data;
+              if (snapshot.hasError || image == null) {
+                return Button(
+                  onPressed: () =>
+                      setState(() => _image = repository.download(path)),
+                  child: const Text('Image unavailable — Retry'),
+                );
+              }
+              return GestureDetector(
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => ContentDialog(
+                    title: const Text('Confirmed movement image'),
+                    content: Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.diagonal3Values(-1, 1, 1),
+                      child: Image.memory(image),
+                    ),
+                    actions: [
+                      Button(
+                        child: const Text('Close'),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: ColoredBox(
+                    color: Colors.black,
+                    child: Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.diagonal3Values(-1, 1, 1),
+                      child: Image.memory(image, fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

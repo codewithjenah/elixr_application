@@ -18,6 +18,7 @@ class User {
     this.profilePictureStoragePath,
     this.privacyConsentAt,
     this.privacyPolicyVersion,
+    this.sessionEvidenceEnabled,
   });
 
   final String? id;
@@ -47,6 +48,9 @@ class User {
   /// Privacy Policy version acknowledged at registration (e.g. `v1`).
   final String? privacyPolicyVersion;
 
+  /// Null means the user has not yet been asked about private session images.
+  final bool? sessionEvidenceEnabled;
+
   bool get isTrainee => role == roleTrainee;
   bool get isTeacher => role == roleTeacher;
   bool get isAdmin => role == roleAdmin;
@@ -71,6 +75,7 @@ class User {
     String? profilePictureStoragePath,
     DateTime? privacyConsentAt,
     String? privacyPolicyVersion,
+    bool? sessionEvidenceEnabled,
   }) {
     return User(
       id: id ?? this.id,
@@ -86,6 +91,8 @@ class User {
           profilePictureStoragePath ?? this.profilePictureStoragePath,
       privacyConsentAt: privacyConsentAt ?? this.privacyConsentAt,
       privacyPolicyVersion: privacyPolicyVersion ?? this.privacyPolicyVersion,
+      sessionEvidenceEnabled:
+          sessionEvidenceEnabled ?? this.sessionEvidenceEnabled,
     );
   }
 
@@ -108,6 +115,8 @@ class User {
         'privacy_consent_at': privacyConsentAt!.toIso8601String(),
       if (privacyPolicyVersion != null)
         'privacy_policy_version': privacyPolicyVersion,
+      if (sessionEvidenceEnabled != null)
+        'session_evidence_enabled': sessionEvidenceEnabled,
     };
 
     if (createdAt != null) {
@@ -148,6 +157,7 @@ class User {
             map['profile_picture_storage_path'] as String?,
         privacyConsentAt: privacyConsentAt,
         privacyPolicyVersion: privacyPolicyVersion,
+        sessionEvidenceEnabled: map['session_evidence_enabled'] as bool?,
       );
     }
 
@@ -167,6 +177,7 @@ class User {
       profilePictureStoragePath: map['profile_picture_storage_path'] as String?,
       privacyConsentAt: privacyConsentAt,
       privacyPolicyVersion: privacyPolicyVersion,
+      sessionEvidenceEnabled: map['session_evidence_enabled'] as bool?,
     );
   }
 }

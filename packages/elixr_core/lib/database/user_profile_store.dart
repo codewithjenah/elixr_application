@@ -81,6 +81,7 @@ class FirebaseUserProfileStore implements UserProfileStore {
       'profile_picture_storage_path': data['profile_picture_storage_path'],
       'privacy_consent_at': readCreatedAt(data['privacy_consent_at']),
       'privacy_policy_version': data['privacy_policy_version'],
+      'session_evidence_enabled': data['session_evidence_enabled'],
     };
   }
 

@@ -64,6 +64,9 @@ class FirestoreHelper implements UserProfileStore {
       'rubric': data['rubric'],
       'rubric_total': data['rubric_total'],
       'performance_level': data['performance_level'],
+      'evidence_storage_path': data['evidence_storage_path'],
+      'evidence_kind': data['evidence_kind'],
+      'evidence_size_bytes': data['evidence_size_bytes'],
     };
   }
 
@@ -147,6 +150,11 @@ class FirestoreHelper implements UserProfileStore {
       'duration_seconds': session.durationSeconds,
       'prop_type': session.propType.protocolValue,
       'created_at': FieldValue.serverTimestamp(),
+      if (session.evidenceStoragePath != null)
+        'evidence_storage_path': session.evidenceStoragePath,
+      if (session.evidenceKind != null) 'evidence_kind': session.evidenceKind,
+      if (session.evidenceSizeBytes != null)
+        'evidence_size_bytes': session.evidenceSizeBytes,
     };
     if (session.isRubricAssessed && session.rubric != null) {
       sessionPayload.addAll(session.rubric!.toFirestoreFields());

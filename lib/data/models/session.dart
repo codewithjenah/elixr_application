@@ -13,6 +13,9 @@ class Session {
     required this.durationSeconds,
     this.createdAt,
     this.propType = TrainingProp.bottle,
+    this.evidenceStoragePath,
+    this.evidenceKind,
+    this.evidenceSizeBytes,
   });
 
   final String? id;
@@ -32,6 +35,9 @@ class Session {
   final int durationSeconds;
   final String? createdAt;
   final TrainingProp propType;
+  final String? evidenceStoragePath;
+  final String? evidenceKind;
+  final int? evidenceSizeBytes;
 
   bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
 
@@ -50,6 +56,10 @@ class Session {
       'created_at': createdAt,
       'prop_type': propType.protocolValue,
       'assessment_version': assessmentVersion,
+      if (evidenceStoragePath != null)
+        'evidence_storage_path': evidenceStoragePath,
+      if (evidenceKind != null) 'evidence_kind': evidenceKind,
+      if (evidenceSizeBytes != null) 'evidence_size_bytes': evidenceSizeBytes,
     };
     if (isRubricAssessed && rubric != null) {
       map.addAll(rubric!.toFirestoreFields());
@@ -84,6 +94,9 @@ class Session {
         durationSeconds: (map['duration_seconds'] as num).toInt(),
         createdAt: map['created_at'] as String?,
         propType: TrainingProp.fromProtocolValue(map['prop_type']),
+        evidenceStoragePath: map['evidence_storage_path'] as String?,
+        evidenceKind: map['evidence_kind'] as String?,
+        evidenceSizeBytes: (map['evidence_size_bytes'] as num?)?.toInt(),
       );
     }
 
@@ -97,6 +110,9 @@ class Session {
       durationSeconds: (map['duration_seconds'] as num).toInt(),
       createdAt: map['created_at'] as String?,
       propType: TrainingProp.fromProtocolValue(map['prop_type']),
+      evidenceStoragePath: map['evidence_storage_path'] as String?,
+      evidenceKind: map['evidence_kind'] as String?,
+      evidenceSizeBytes: (map['evidence_size_bytes'] as num?)?.toInt(),
     );
   }
 }

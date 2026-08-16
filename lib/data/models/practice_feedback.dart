@@ -72,6 +72,7 @@ class PracticeFeedback {
     required this.feedbackType,
     required this.postureStatus,
     this.frameJpegBytes,
+    this.evidenceJpegBytes,
     this.errorCode,
     this.cameraReady,
     this.sessionState,
@@ -103,6 +104,10 @@ class PracticeFeedback {
   final String feedbackType;
   final String postureStatus;
   final Uint8List? frameJpegBytes;
+
+  /// Private annotated still from the one frame that first confirmed a hold.
+  /// Invalid/missing wire data is intentionally treated as unavailable.
+  final Uint8List? evidenceJpegBytes;
   final String? errorCode;
 
   /// Optional: true when a usable preview/active JPEG is present.
@@ -229,6 +234,15 @@ class PracticeFeedback {
     if (frameB64 != null && frameB64.isNotEmpty) {
       frameBytes = base64Decode(frameB64);
     }
+    Uint8List? evidenceBytes;
+    final evidenceB64 = json['evidence_jpeg_base64'];
+    if (evidenceB64 is String && evidenceB64.isNotEmpty) {
+      try {
+        evidenceBytes = base64Decode(evidenceB64);
+      } on FormatException {
+        // Evidence is optional and must never make session completion fail.
+      }
+    }
 
     final rawTarget = json['hold_target_ms'];
     final holdTargetMs = rawTarget is num ? rawTarget.toInt() : 0;
@@ -247,6 +261,7 @@ class PracticeFeedback {
       feedbackType: json['feedback_type'] as String? ?? 'positive',
       postureStatus: json['posture_status'] as String? ?? 'unknown',
       frameJpegBytes: frameBytes,
+      evidenceJpegBytes: evidenceBytes,
       errorCode: json['error_code'] as String?,
       cameraReady: json['camera_ready'] as bool?,
       sessionState: json['session_state'] as String?,

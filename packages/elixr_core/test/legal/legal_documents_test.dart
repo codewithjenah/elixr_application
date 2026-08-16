@@ -98,7 +98,7 @@ void main() {
     );
   });
 
-  test('registration privacy consent version remains v1', () {
-    expect(RegistrationPrivacyConsent.policyVersion, 'v1');
+  test('registration privacy consent version remains v2', () {
+    expect(RegistrationPrivacyConsent.policyVersion, 'v2');
   });
 }

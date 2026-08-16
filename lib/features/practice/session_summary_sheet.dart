@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -46,6 +47,7 @@ class SessionSummarySheet extends StatelessWidget {
     this.saving = false,
     this.saveError,
     this.nextMovementName,
+    this.evidenceJpegBytes,
   });
 
   final String movement;
@@ -57,6 +59,7 @@ class SessionSummarySheet extends StatelessWidget {
   final bool saving;
   final String? saveError;
   final String? nextMovementName;
+  final Uint8List? evidenceJpegBytes;
 
   RubricAssessment get _rubric => assessment.rubric;
 
@@ -75,6 +78,7 @@ class SessionSummarySheet extends StatelessWidget {
     required SessionAssessment assessment,
     required Future<String> Function(String? existingSessionId) onSave,
     Movement? nextMovement,
+    Uint8List? evidenceJpegBytes,
   }) {
     return showDialog<SessionSummaryResult>(
       context: context,
@@ -131,6 +135,7 @@ class SessionSummarySheet extends StatelessWidget {
                           saving: saving,
                           saveError: saveError,
                           nextMovementName: nextMovement?.name,
+                          evidenceJpegBytes: evidenceJpegBytes,
                           onDiscard: () {
                             if (saving) return;
                             Navigator.of(
@@ -263,6 +268,7 @@ class SessionSummarySheet extends StatelessWidget {
                     movement: movement,
                     heldSteady: _heldSteady,
                     level: _level,
+                    evidenceJpegBytes: evidenceJpegBytes,
                   ),
                   Flexible(
                     fit: FlexFit.loose,
@@ -310,11 +316,13 @@ class _SummaryHeader extends StatelessWidget {
     required this.movement,
     required this.heldSteady,
     required this.level,
+    this.evidenceJpegBytes,
   });
 
   final String movement;
   final bool heldSteady;
   final PerformanceLevel level;
+  final Uint8List? evidenceJpegBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -383,8 +391,74 @@ class _SummaryHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
+          if (evidenceJpegBytes != null) ...[
+            _EvidenceThumbnail(bytes: evidenceJpegBytes!),
+            const SizedBox(width: AppSpacing.sm),
+          ],
           RankBadge(level: level),
         ],
+      ),
+    );
+  }
+}
+
+/// A compact affordance keeps the completion screen one-page while preserving
+/// access to the complete, uncropped confirmation frame.
+class _EvidenceThumbnail extends StatelessWidget {
+  const _EvidenceThumbnail({required this.bytes});
+
+  final Uint8List bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'View confirmed frame',
+      child: GestureDetector(
+        onTap: () => showDialog<void>(
+          context: context,
+          builder: (_) => ContentDialog(
+            constraints: const BoxConstraints(maxWidth: 760),
+            title: const Text('Confirmed movement frame'),
+            content: AspectRatio(
+              aspectRatio: 4 / 3,
+              child: ColoredBox(
+                color: Colors.black,
+                child: Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.diagonal3Values(-1, 1, 1),
+                  child: Image.memory(bytes, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+            actions: [
+              Button(
+                child: const Text('Close'),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+        ),
+        child: Semantics(
+          button: true,
+          label: 'View confirmed movement frame',
+          child: Container(
+            width: 64,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.35),
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(-1, 1, 1),
+              child: Image.memory(bytes, fit: BoxFit.contain),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -9,6 +9,14 @@ FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 JPEG_QUALITY = 70
 
+# A private, annotated snapshot is emitted only when a Guided Practice hold is
+# first confirmed.  Keep it small enough for the client-side Firebase upload
+# contract; this is deliberately separate from the live-preview JPEG quality.
+EVIDENCE_MAX_WIDTH = 480
+EVIDENCE_MAX_HEIGHT = 360
+EVIDENCE_JPEG_QUALITY = 65
+EVIDENCE_MAX_BYTES = 256 * 1024
+
 # Auto-select try order uses ephemeral OpenCV/DirectShow runtime indices.
 # These are NOT stable physical-camera identities across machines or reconnects.
 # Explicit selection must use camera_device_id from discovery.

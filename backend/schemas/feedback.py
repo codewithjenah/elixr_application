@@ -93,6 +93,9 @@ class FeedbackMessage(BaseModel):
     feedback_type: str
     posture_status: str
     frame_jpeg_base64: Optional[str] = None
+    # Private evidence snapshot. Present at most once per active session, on
+    # the frame that first confirms a hold. Live preview remains above.
+    evidence_jpeg_base64: Optional[str] = None
     error_code: Optional[str] = None
     # Optional lifecycle fields (backward-compatible defaults).
     # session_state: preparing | readying | active | recovering | unavailable

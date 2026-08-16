@@ -813,6 +813,22 @@ class AuthRepository implements AuthRepositoryBase {
   }
 
   Future<void> _purgeUserData(String uid) async {
+    // Evidence can contain private annotated images and must be purged before
+    // session documents/auth are removed. A non-not-found failure is allowed
+    // to fail closed so account deletion never leaves known image data behind.
+    await _runPurgeStage('session evidence Storage purge', () async {
+      final listed = await _storage
+          .ref('users/$uid/session_evidence')
+          .listAll();
+      for (final item in listed.items) {
+        try {
+          await item.delete();
+        } on FirebaseException catch (error) {
+          if (error.code != 'object-not-found') rethrow;
+        }
+      }
+    });
+
     final sessionSnap = await _runPurgeStage('sessions query', () {
       return _firestore
           .collection(FirestoreCollections.sessions)

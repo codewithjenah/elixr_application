@@ -113,7 +113,9 @@ const _navIndicatorGap = 5.0;
 const _navIconSlot = 28.0;
 const _navIconSize = 18.0;
 const _navIconLabelGap = 10.0;
-const _navItemHeight = 40.0;
+// The sidebar is a one-screen navigation surface. Compact rows keep every
+// destination and the profile card visible at normal desktop heights.
+const _navItemHeight = 36.0;
 const _navGroupLabelLeft =
     _navOuterPadding + _navInnerPadding + _navIndicatorWidth + _navIndicatorGap;
 // Switch to collapsed chrome before expanded rows need more than ~168px.
@@ -274,11 +276,20 @@ class _ElixSidebarState extends State<ElixSidebar> {
                 ),
               ),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: _buildGroupedItems(context, showCollapsedLayout),
+                child: LayoutBuilder(
+                  builder: (context, navConstraints) => FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(
+                      width: navConstraints.maxWidth,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: _buildGroupedItems(
+                          context,
+                          showCollapsedLayout,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -312,8 +323,8 @@ class _ElixSidebarState extends State<ElixSidebar> {
             padding: const EdgeInsets.only(
               left: _navGroupLabelLeft,
               right: _navOuterPadding,
-              top: AppSpacing.md,
-              bottom: AppSpacing.xs,
+              top: AppSpacing.sm,
+              bottom: 2,
             ),
             child: Text(
               title.toUpperCase(),
@@ -472,9 +483,9 @@ class _ElixSidebarState extends State<ElixSidebar> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
-        AppSpacing.lg,
+        AppSpacing.md,
         AppSpacing.sm,
-        AppSpacing.sm,
+        AppSpacing.xs,
       ),
       child: Row(
         children: [
@@ -609,7 +620,7 @@ class _SidebarTileState extends State<_SidebarTile> {
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: _navOuterPadding,
-          vertical: 2,
+          vertical: 1,
         ),
         child: MouseRegion(
           cursor: soon ? SystemMouseCursors.basic : SystemMouseCursors.click,

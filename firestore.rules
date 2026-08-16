@@ -312,6 +312,32 @@ service cloud.firestore {
         && data.performance_level == performanceLevelFor(data.rubric_total);
     }
 
+    // Evidence is private session metadata, never a public URL. It is written
+    // only with the initial session create after a successful owner upload.
+    function validSessionEvidence(data, sessionId) {
+      return !data.keys().hasAny(['evidence_storage_path', 'evidence_kind', 'evidence_size_bytes'])
+        || (
+          data.keys().hasAll(['evidence_storage_path', 'evidence_kind', 'evidence_size_bytes'])
+          && data.evidence_storage_path is string
+          && data.evidence_storage_path == 'users/' + request.auth.uid + '/session_evidence/' + sessionId + '.jpg'
+          && data.evidence_kind == 'hold_confirmed'
+          && data.evidence_size_bytes is int
+          && data.evidence_size_bytes >= 1024
+          && data.evidence_size_bytes <= 256 * 1024
+        );
+    }
+
+    // Privacy revocation may remove evidence metadata; it may never replace
+    // an existing reference or attach one to an old session.
+    function sessionEvidenceUnchangedOrRemoved() {
+      return (!resource.data.keys().hasAny(['evidence_storage_path', 'evidence_kind', 'evidence_size_bytes'])
+          && !request.resource.data.keys().hasAny(['evidence_storage_path', 'evidence_kind', 'evidence_size_bytes']))
+        || (!request.resource.data.keys().hasAny(['evidence_storage_path', 'evidence_kind', 'evidence_size_bytes']))
+        || (resource.data.evidence_storage_path == request.resource.data.evidence_storage_path
+          && resource.data.evidence_kind == request.resource.data.evidence_kind
+          && resource.data.evidence_size_bytes == request.resource.data.evidence_size_bytes);
+    }
+
     function isNonNegNumber(value) {
       return value is number && value >= 0;
     }
@@ -1150,12 +1176,14 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.user_id == request.auth.uid
         && validRubricSession(request.resource.data)
+        && validSessionEvidence(request.resource.data, sessionId)
         && request.resource.data.created_at is timestamp
         && request.resource.data.created_at == request.time;
       allow update: if isSignedIn()
         && resource.data.user_id == request.auth.uid
         && request.resource.data.user_id == resource.data.user_id
         && request.resource.data.created_at == resource.data.created_at
+        && sessionEvidenceUnchangedOrRemoved()
         && (
           (
             resource.data.keys().hasAny(['score'])

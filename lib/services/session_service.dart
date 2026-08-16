@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/database/firestore_helper.dart';
@@ -9,6 +10,7 @@ import '../data/models/training_prop.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
 import '../data/repositories/session_repository.dart';
+import '../data/repositories/session_evidence_repository.dart';
 
 typedef LeaderboardSessionRecorder =
     Future<void> Function({
@@ -33,12 +35,14 @@ class SessionService extends ChangeNotifier {
     CompletedSessionAtomicSaver? saveCompletedSessionAtomicOverride,
     String Function()? allocateSessionIdOverride,
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
+    SessionEvidenceRepository? evidenceRepository,
   }) : _repositoryOrNull = repository,
        _leaderboardRepositoryOrNull = leaderboardRepository,
        _publicProfileRepositoryOrNull = publicProfileRepository,
        _saveCompletedSessionAtomicOverride = saveCompletedSessionAtomicOverride,
        _allocateSessionIdOverride = allocateSessionIdOverride,
-       _recordCompletedSessionOverride = recordCompletedSessionOverride;
+       _recordCompletedSessionOverride = recordCompletedSessionOverride,
+       _evidenceRepositoryOrNull = evidenceRepository;
 
   SessionRepository? _repositoryOrNull;
   LeaderboardRepository? _leaderboardRepositoryOrNull;
@@ -46,11 +50,39 @@ class SessionService extends ChangeNotifier {
   final CompletedSessionAtomicSaver? _saveCompletedSessionAtomicOverride;
   final String Function()? _allocateSessionIdOverride;
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
+  SessionEvidenceRepository? _evidenceRepositoryOrNull;
 
   SessionRepository get repository => _repositoryOrNull ??= SessionRepository();
 
   LeaderboardRepository get _leaderboardRepository =>
       _leaderboardRepositoryOrNull ??= LeaderboardRepository();
+
+  SessionEvidenceRepository get _evidenceRepository =>
+      _evidenceRepositoryOrNull ??= SessionEvidenceRepository();
+
+  /// Null means no evidence decision has been recorded yet.
+  Future<bool?> sessionEvidenceEnabled(String userId) async {
+    return (await FirestoreHelper.instance.getUserById(
+      userId,
+    ))?.sessionEvidenceEnabled;
+  }
+
+  Future<void> setSessionEvidenceEnabled({
+    required String userId,
+    required bool enabled,
+  }) {
+    return FirestoreHelper.instance.updateUserProfileField(userId, {
+      'session_evidence_enabled': enabled,
+      'session_evidence_policy_version': 'v1',
+      'session_evidence_decision_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> revokeSessionEvidence(String userId) async {
+    await _evidenceRepository.deleteAllForUser(userId);
+    await setSessionEvidenceEnabled(userId: userId, enabled: false);
+    notifyListeners();
+  }
 
   Future<String> saveCompletedSession({
     required String userId,
@@ -63,10 +95,24 @@ class SessionService extends ChangeNotifier {
     TrainingProp prop = TrainingProp.bottle,
     String? profilePictureUrl,
     String? existingSessionId,
+    Uint8List? evidenceJpegBytes,
+    bool saveEvidence = false,
   }) async {
     final allocateSessionId =
         _allocateSessionIdOverride ?? repository.allocateSessionId;
     final sessionId = existingSessionId ?? allocateSessionId();
+    String? evidencePath;
+    if (saveEvidence && evidenceJpegBytes != null) {
+      await _evidenceRepository.upload(
+        userId: userId,
+        sessionId: sessionId,
+        jpegBytes: evidenceJpegBytes,
+      );
+      evidencePath = SessionEvidenceRepository.pathFor(
+        userId: userId,
+        sessionId: sessionId,
+      );
+    }
     final session = Session(
       id: sessionId,
       userId: userId,
@@ -76,6 +122,11 @@ class SessionService extends ChangeNotifier {
       assessmentVersion: 2,
       durationSeconds: durationSeconds,
       propType: prop,
+      evidenceStoragePath: evidencePath,
+      evidenceKind: evidencePath == null ? null : 'hold_confirmed',
+      evidenceSizeBytes: evidencePath == null
+          ? null
+          : evidenceJpegBytes!.lengthInBytes,
     );
     final feedbacks = _buildSessionImprovementFeedbacks(
       sessionId,

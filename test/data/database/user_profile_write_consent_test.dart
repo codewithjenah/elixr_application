@@ -21,7 +21,7 @@ void main() {
         );
 
         expect(data['privacy_consent_at'], 'SERVER_TS');
-        expect(data['privacy_policy_version'], 'v1');
+        expect(data['privacy_policy_version'], 'v2');
         expect(data['first_name'], 'Ada');
         expect(data['email'], 'ada@example.com');
       },

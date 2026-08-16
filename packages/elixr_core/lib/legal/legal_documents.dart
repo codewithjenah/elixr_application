@@ -58,6 +58,12 @@ abstract final class ElixrLegalDocuments {
         'our servers. It is processed locally on your device during practice '
         'sessions only.',
     'Profile photos are stored in Cloud Storage for display across the app.',
+    'Confirmed movement images: if you opt in, ELIXR stores one private, '
+        'annotated still image from the camera frame that confirmed a Guided '
+        'Practice movement. It is not video, is not shared to public profiles, '
+        'leaderboards, or Teachers, and is accessible only to your account. '
+        'You can disable this in Settings > Privacy to delete saved images and '
+        'their session references; account deletion also removes them.',
     'Public Profile: by default, other signed-in players can view your '
         'detailed stats, claimed achievements, completed movements, and '
         'practice history. You can lock your profile at any time in '

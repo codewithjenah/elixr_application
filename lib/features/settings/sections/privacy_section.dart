@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../data/models/public_profile.dart';
+import '../../../services/session_service.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import '../widgets/settings_components.dart';
@@ -39,6 +41,8 @@ class PrivacySectionState extends State<PrivacySection> {
   bool _rootNeedsRepair = false;
   int _operationId = 0;
   String? _error;
+  bool? _evidenceEnabled;
+  bool _updatingEvidence = false;
 
   @override
   void didUpdateWidget(covariant PrivacySection oldWidget) {
@@ -66,6 +70,10 @@ class PrivacySectionState extends State<PrivacySection> {
         _visibility = profile?.visibility ?? ProfileVisibility.private;
         _rootNeedsRepair = profile == null;
         _loading = false;
+        _evidenceEnabled = context
+            .read<AuthService>()
+            .currentUser
+            ?.sessionEvidenceEnabled;
       });
     } catch (error, stackTrace) {
       _logFailure('load', error, stackTrace);
@@ -75,6 +83,63 @@ class PrivacySectionState extends State<PrivacySection> {
         _error = 'Could not load privacy settings.';
       });
     }
+  }
+
+  Future<void> _setEvidenceEnabled(bool enabled) async {
+    final userId = context.read<AuthService>().currentUser?.id;
+    if (userId == null || _updatingEvidence) return;
+    setState(() {
+      _updatingEvidence = true;
+      _error = null;
+    });
+    try {
+      final service = context.read<SessionService>();
+      if (enabled) {
+        await service.setSessionEvidenceEnabled(userId: userId, enabled: true);
+      } else {
+        await service.revokeSessionEvidence(userId);
+      }
+      if (mounted) setState(() => _evidenceEnabled = enabled);
+    } catch (error, stackTrace) {
+      _logFailure('update session evidence', error, stackTrace);
+      if (mounted) {
+        setState(
+          () =>
+              _error = 'Could not update session image privacy. Please retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _updatingEvidence = false);
+    }
+  }
+
+  Future<void> _changeEvidenceSetting(bool enabled) async {
+    if (enabled || _evidenceEnabled != true) {
+      await _setEvidenceEnabled(enabled);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: const Text('Delete saved movement images?'),
+        content: const Text(
+          'Turning this off permanently deletes your saved confirmed-movement '
+          'images. Your session scores and feedback will remain.',
+        ),
+        actions: [
+          Button(
+            child: const Text('Keep images'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+          ),
+          FilledButton(
+            child: const Text('Delete images and turn off'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _setEvidenceEnabled(false);
   }
 
   Future<void> _setLocked(bool isLocked) async {
@@ -264,6 +329,32 @@ class PrivacySectionState extends State<PrivacySection> {
               checked: _visibility == ProfileVisibility.private,
               onChanged: _saving || _reconciling ? null : _setLocked,
             ),
+            const SizedBox(height: AppSpacing.md),
+            SettingsToggleRow(
+              label: 'Save confirmed movement images',
+              description:
+                  'Save one private annotated image from each successfully confirmed Guided Practice movement. Turning this off deletes saved images and their session references.',
+              checked: _evidenceEnabled ?? false,
+              onChanged: _saving || _reconciling || _updatingEvidence
+                  ? null
+                  : _changeEvidenceSetting,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Text(
+                _evidenceEnabled == true
+                    ? 'Enabled — new confirmed images can be saved.'
+                    : 'Off — confirmed images are not saved.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ),
+            if (_updatingEvidence)
+              const Padding(
+                padding: EdgeInsets.only(top: AppSpacing.sm),
+                child: Text('Updating private session images...'),
+              ),
             if (_saving)
               const Padding(
                 padding: EdgeInsets.only(top: AppSpacing.sm),

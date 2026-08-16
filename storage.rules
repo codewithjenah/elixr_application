@@ -29,6 +29,19 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    // A single private, annotated still may be retained for a confirmed
+    // Guided Practice session. The exact path prevents arbitrary file trees;
+    // content and size checks match the client/backend contract.
+    match /users/{userId}/session_evidence/{fileName} {
+      allow read: if isOwner(userId) && fileName.matches('^[^/]+\\.jpg$');
+      allow create, update: if isOwner(userId)
+        && fileName.matches('^[^/]+\\.jpg$')
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size >= 1024
+        && request.resource.size <= 256 * 1024;
+      allow delete: if isOwner(userId);
+    }
+
     // No other paths are provisioned; deny by default.
     match /{allPaths=**} {
       allow read, write: if false;
