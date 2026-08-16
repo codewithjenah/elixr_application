@@ -105,78 +105,106 @@ class _HistorySessionRowState extends State<HistorySessionRow> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: _toggleExpanded,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm + 2,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: active
+              ? context.elixCardSurface
+              : context.elixCardSurface.withValues(
+                  alpha: context.isDarkTheme ? 0.85 : 1,
+                ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _expanded
+                ? AppColors.accent.withValues(
+                    alpha: context.isDarkTheme ? 0.55 : 0.42,
+                  )
+                : active
+                ? AppColors.accent.withValues(
+                    alpha: context.isDarkTheme ? 0.45 : 0.35,
+                  )
+                : context.elixBorder,
           ),
-          decoration: BoxDecoration(
-            color: active
-                ? context.elixCardSurface
-                : context.elixCardSurface.withValues(
-                    alpha: context.isDarkTheme ? 0.85 : 1,
-                  ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: active
-                  ? AppColors.accent.withValues(
-                      alpha: context.isDarkTheme ? 0.45 : 0.35,
-                    )
-                  : context.elixBorder,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Stack(
             children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final wide = constraints.maxWidth >= 700;
-                  if (wide) {
-                    return _WideRow(
-                      movementName: s.movementName,
-                      name: s.movementName,
-                      difficulty: s.difficulty,
-                      difficultyColor: diffColor,
-                      time: time,
-                      duration: duration,
-                      resultValue: resultValue,
-                      resultLabel: resultLabel,
-                      resultColor: resultColor,
-                      expanded: _expanded,
-                      active: active,
-                    );
-                  }
-                  return _NarrowRow(
-                    movementName: s.movementName,
-                    name: s.movementName,
-                    difficulty: s.difficulty,
-                    time: time,
-                    duration: duration,
-                    resultValue: resultValue,
-                    resultColor: resultColor,
-                    expanded: _expanded,
-                    active: active,
-                  );
-                },
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm + 2,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _toggleExpanded,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final wide = constraints.maxWidth >= 700;
+                            if (wide) {
+                              return _WideRow(
+                                movementName: s.movementName,
+                                name: s.movementName,
+                                difficulty: s.difficulty,
+                                difficultyColor: diffColor,
+                                time: time,
+                                duration: duration,
+                                resultValue: resultValue,
+                                resultLabel: resultLabel,
+                                resultColor: resultColor,
+                                expanded: _expanded,
+                                active: active,
+                              );
+                            }
+                            return _NarrowRow(
+                              movementName: s.movementName,
+                              name: s.movementName,
+                              difficulty: s.difficulty,
+                              time: time,
+                              duration: duration,
+                              resultValue: resultValue,
+                              resultColor: resultColor,
+                              expanded: _expanded,
+                              active: active,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                      alignment: Alignment.topCenter,
+                      child: _expanded
+                          ? HistorySessionDetails(
+                              session: s,
+                              loading: _feedbackLoading,
+                              feedbacks: _feedbacks,
+                              errorMessage: _feedbackError,
+                            )
+                          : const SizedBox(width: double.infinity),
+                    ),
+                  ],
+                ),
               ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                alignment: Alignment.topCenter,
-                child: _expanded
-                    ? HistorySessionDetails(
-                        session: s,
-                        loading: _feedbackLoading,
-                        feedbacks: _feedbacks,
-                        errorMessage: _feedbackError,
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
+              if (_expanded)
+                const Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      color: AppColors.accent,
+                      child: SizedBox(width: 3),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

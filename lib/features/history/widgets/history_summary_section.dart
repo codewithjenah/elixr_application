@@ -152,19 +152,22 @@ class _SummaryCard extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm + 4,
+          vertical: AppSpacing.sm + 2,
+        ),
         decoration: AppTheme.cardDecoration(context),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 color: accent.withValues(
                   alpha: context.isDarkTheme ? 0.16 : 0.12,
                 ),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, size: 14, color: accent),
+              child: Icon(icon, size: 13, color: accent),
             ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
@@ -180,11 +183,11 @@ class _SummaryCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     value,
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.w800,
                       color: context.elixTextPrimary,
                       height: 1.1,

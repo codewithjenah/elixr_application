@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
@@ -15,6 +18,8 @@ Session _rubricSession({
   int completion = 3,
   int propPositioning = 2,
   String movementName = 'Hand Stall',
+  String? evidenceStoragePath,
+  String? evidenceKind,
 }) {
   return Session(
     userId: _userId,
@@ -29,6 +34,8 @@ Session _rubricSession({
     assessmentVersion: 2,
     durationSeconds: 90,
     createdAt: '2026-08-02T10:00:00.000',
+    evidenceStoragePath: evidenceStoragePath,
+    evidenceKind: evidenceKind,
   );
 }
 
@@ -43,13 +50,47 @@ Session _legacySession({int legacyScore = 84}) {
   );
 }
 
-Widget _wrap(Widget child) {
+/// 1x1 PNG so Image.memory can decode without Firebase Storage.
+final Uint8List _onePixelPng = Uint8List.fromList(
+  base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  ),
+);
+
+Widget _wrap(Widget child, {double width = 900}) {
   return FluentApp(
     theme: AppTheme.dark,
     home: ScaffoldPage(
-      content: SingleChildScrollView(child: SizedBox(width: 900, child: child)),
+      content: SingleChildScrollView(
+        child: SizedBox(width: width, child: child),
+      ),
     ),
   );
+}
+
+Future<void> _pumpDetails(
+  WidgetTester tester, {
+  required Session session,
+  double width = 900,
+  Future<Uint8List?> Function(String path)? loadEvidence,
+}) async {
+  tester.view.physicalSize = Size(width, 900);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  await tester.pumpWidget(
+    _wrap(
+      HistorySessionDetails(
+        session: session,
+        loading: false,
+        feedbacks: const [],
+        loadEvidence: loadEvidence,
+      ),
+      width: width,
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -76,16 +117,7 @@ void main() {
     testWidgets('Assessment V2 session shows the four criteria', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _wrap(
-          HistorySessionDetails(
-            session: _rubricSession(),
-            loading: false,
-            feedbacks: const [],
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await _pumpDetails(tester, session: _rubricSession());
 
       expect(find.text('Performance'), findsOneWidget);
       expect(find.text('Proficient'), findsOneWidget);
@@ -100,21 +132,13 @@ void main() {
       expect(find.text('2 / 3'), findsNWidgets(2));
 
       expect(find.textContaining('Legacy Score'), findsNothing);
+      expect(find.text('No confirmed movement image'), findsOneWidget);
     });
 
     testWidgets('legacy session shows the legacy score read-out', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _wrap(
-          HistorySessionDetails(
-            session: _legacySession(),
-            loading: false,
-            feedbacks: const [],
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await _pumpDetails(tester, session: _legacySession());
 
       expect(find.text('Legacy Score: 84/100'), findsOneWidget);
       expect(find.text('Correct Technique'), findsNothing);
@@ -132,20 +156,73 @@ void main() {
         durationSeconds: 60,
       );
 
-      await tester.pumpWidget(
-        _wrap(
-          const HistorySessionDetails(
-            session: session,
-            loading: false,
-            feedbacks: [],
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await _pumpDetails(tester, session: session);
 
       expect(find.text('No score recorded'), findsOneWidget);
       expect(find.textContaining('/ 12'), findsNothing);
       expect(find.textContaining('/100'), findsNothing);
+      expect(find.text('No confirmed movement image'), findsOneWidget);
+    });
+
+    testWidgets('wide layout shows criteria and a capped still, not 4:3', (
+      tester,
+    ) async {
+      await _pumpDetails(
+        tester,
+        width: 900,
+        session: _rubricSession(
+          evidenceStoragePath: 'users/history-user/session_evidence/s1.jpg',
+          evidenceKind: 'hold_confirmed',
+        ),
+        loadEvidence: (_) async => _onePixelPng,
+      );
+
+      expect(find.text('Correct Technique'), findsOneWidget);
+      expect(find.text('Confirmed movement image'), findsOneWidget);
+      expect(find.text('Click to enlarge'), findsOneWidget);
+      expect(find.byKey(const Key('history-evidence-preview')), findsOneWidget);
+      expect(find.byType(AspectRatio), findsNothing);
+    });
+
+    testWidgets('narrow layout keeps a height-capped still without 4:3', (
+      tester,
+    ) async {
+      await _pumpDetails(
+        tester,
+        width: 400,
+        session: _rubricSession(
+          evidenceStoragePath: 'users/history-user/session_evidence/s1.jpg',
+          evidenceKind: 'hold_confirmed',
+        ),
+        loadEvidence: (_) async => _onePixelPng,
+      );
+
+      expect(find.text('Confirmed movement image'), findsOneWidget);
+      expect(find.byKey(const Key('history-evidence-preview')), findsOneWidget);
+      expect(find.byType(AspectRatio), findsNothing);
+    });
+
+    testWidgets('enlarging the still uses a 4:3 dialog only', (tester) async {
+      await _pumpDetails(
+        tester,
+        width: 900,
+        session: _rubricSession(
+          evidenceStoragePath: 'users/history-user/session_evidence/s1.jpg',
+          evidenceKind: 'hold_confirmed',
+        ),
+        loadEvidence: (_) async => _onePixelPng,
+      );
+
+      expect(find.byType(AspectRatio), findsNothing);
+      await tester.tap(find.byKey(const Key('history-evidence-preview')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AspectRatio), findsOneWidget);
+      expect(find.text('Click to enlarge'), findsOneWidget);
+
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AspectRatio), findsNothing);
     });
   });
 
