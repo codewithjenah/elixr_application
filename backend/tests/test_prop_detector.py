@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import config
+import vision.prop_detector as prop_detector_mod
 from vision.prop_detector import (
     CombinedDetectionResult,
     CombinedPropDetector,
@@ -29,15 +30,16 @@ class _FakeResult:
 
 
 class _FakeModel:
-    def __init__(self, names, boxes):
+    def __init__(self, names, boxes, expected_conf: float = 0.4):
         self.names = names
         self._boxes = boxes
+        self._expected_conf = expected_conf
         self.call_count = 0
 
     def __call__(self, frame, **kwargs):
         self.call_count += 1
         assert frame.shape == (32, 32, 3)
-        assert kwargs["conf"] == pytest.approx(0.4)
+        assert kwargs["conf"] == pytest.approx(self._expected_conf)
         assert kwargs["iou"] == pytest.approx(0.45)
         assert kwargs["max_det"] == 4
         assert kwargs["imgsz"] == 640
@@ -176,6 +178,38 @@ def test_missing_model_raises_clear_load_error(tmp_path: Path):
 
     with pytest.raises(ModelLoadError, match="missing"):
         detector.ensure_ready()
+
+
+def test_gap_confidence_keeps_shaker_and_drops_bottle(tmp_path: Path, monkeypatch):
+    """Shaker boxes in the bottle/shaker threshold gap are kept; bottles are not."""
+    bottle_threshold = 0.50
+    shaker_threshold = 0.35
+    gap_confidence = 0.40
+    monkeypatch.setattr(prop_detector_mod, "YOLO_BOTTLE_CONFIDENCE", bottle_threshold)
+    monkeypatch.setattr(prop_detector_mod, "YOLO_SHAKER_CONFIDENCE", shaker_threshold)
+
+    model_path = tmp_path / "best.pt"
+    model_path.write_bytes(b"weights")
+    model = _FakeModel(
+        _verified_names(),
+        [
+            _FakeBox(0, gap_confidence, [1, 1, 10, 10]),
+            _FakeBox(1, gap_confidence, [2, 3, 12, 20]),
+        ],
+        expected_conf=shaker_threshold,
+    )
+    detector = CombinedPropDetector(
+        model_path=model_path,
+        model_loader=lambda _: model,
+    )
+
+    result = detector.detect_all(np.zeros((32, 32, 3), dtype=np.uint8))
+
+    assert model.call_count == 1
+    assert result.bottles == []
+    assert len(result.shakers) == 1
+    assert result.shakers[0].confidence == pytest.approx(gap_confidence)
+    assert result.shakers[0].x1 == 2
 
 
 def test_yolo_is_loaded_lazily(tmp_path: Path):

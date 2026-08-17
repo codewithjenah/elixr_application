@@ -59,7 +59,12 @@ YOLO_MODEL_PATH = Path(
 
 # Custom YOLO model settings. PropDetector resolves class IDs from the
 # combined model's declared names at load time; do not assume class zero.
-YOLO_CONFIDENCE = 0.4
+# Per-class confidence. Override without editing this file, e.g.:
+#   $env:YOLO_BOTTLE_CONFIDENCE = "0.5"; $env:YOLO_SHAKER_CONFIDENCE = "0.3"; .\run.ps1
+YOLO_BOTTLE_CONFIDENCE = float(os.getenv("YOLO_BOTTLE_CONFIDENCE", "0.4"))
+YOLO_SHAKER_CONFIDENCE = float(os.getenv("YOLO_SHAKER_CONFIDENCE", "0.4"))
+# Deprecated compatibility alias. Prefer YOLO_BOTTLE_CONFIDENCE.
+YOLO_CONFIDENCE = YOLO_BOTTLE_CONFIDENCE
 # NMS IoU threshold: collapse overlapping boxes on the same bottle.
 YOLO_IOU = 0.45
 # Kept as a compatibility constant for older imports; PropDetector performs

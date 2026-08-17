@@ -10,7 +10,15 @@ from typing import Callable, Literal, Optional
 import numpy as np
 from ultralytics import YOLO
 
-from config import MAX_BOTTLES, YOLO_CONFIDENCE, YOLO_IMGSZ, YOLO_IOU, YOLO_MODEL_PATH
+from config import (
+    MAX_BOTTLES,
+    YOLO_BOTTLE_CONFIDENCE,
+    YOLO_CONFIDENCE,
+    YOLO_IMGSZ,
+    YOLO_IOU,
+    YOLO_MODEL_PATH,
+    YOLO_SHAKER_CONFIDENCE,
+)
 from vision.types import PropDetection
 
 logger = logging.getLogger(__name__)
@@ -244,11 +252,14 @@ class CombinedPropDetector:
         assert self._bottle_class_id is not None
         assert self._shaker_class_id is not None
 
+        # Ultralytics accepts one global conf; run at the lower threshold, then
+        # post-filter each class against its own (higher-or-equal) cutoff.
+        inference_conf = min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE)
         try:
             results = model(
                 frame,
                 verbose=False,
-                conf=self._confidence,
+                conf=inference_conf,
                 iou=YOLO_IOU,
                 max_det=MAX_BOTTLES * 2,
                 imgsz=YOLO_IMGSZ,
@@ -276,9 +287,15 @@ class CombinedPropDetector:
                     y2=y2,
                     confidence=confidence,
                 )
-                if cls_id == self._bottle_class_id:
+                if (
+                    cls_id == self._bottle_class_id
+                    and confidence >= YOLO_BOTTLE_CONFIDENCE
+                ):
                     bottles.append(detection)
-                elif cls_id == self._shaker_class_id:
+                elif (
+                    cls_id == self._shaker_class_id
+                    and confidence >= YOLO_SHAKER_CONFIDENCE
+                ):
                     shakers.append(detection)
 
         bottles.sort(key=lambda detection: detection.confidence, reverse=True)
