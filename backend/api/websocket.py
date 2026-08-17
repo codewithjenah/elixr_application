@@ -551,9 +551,17 @@ class VisionSession:
         bottles: list[PropDetection],
         shakers: list[PropDetection],
     ) -> _NormalizedFrameDetections:
-        """Map raw detector output into typed bottle/shaker/primary lists."""
-        bottle_list = tuple(bottles)
-        shaker_list = tuple(shakers)
+        """Expose only currently YOLO-confirmed props to rules/UI."""
+        bottle_list = tuple(
+            detection
+            for detection in bottles
+            if detection.yolo_confirmed
+        )
+        shaker_list = tuple(
+            detection
+            for detection in shakers
+            if detection.yolo_confirmed
+        )
         if self._is_dual_prop:
             primary = bottle_list
             annotation = bottle_list + shaker_list
