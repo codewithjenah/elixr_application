@@ -2,9 +2,12 @@ import math
 from typing import Optional
 
 from config import (
-    ONE_FINGER_STALL_BASE_TO_INDEX_TIP,
-    ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT,
+    FRAME_HEIGHT,
+    FRAME_WIDTH,
+    ONE_FINGER_STALL_BASE_TO_THENAR,
+    ONE_FINGER_STALL_BELOW_THENAR_REJECT,
     ONE_FINGER_STALL_INDEX_EXTENSION_RATIO,
+    ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO,
     ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET,
     ONE_FINGER_STALL_MAX_OTHER_EXTENDED_FINGERS,
     ONE_FINGER_STALL_MIN_STRAIGHT_ANGLE_DEG,
@@ -27,6 +30,7 @@ from vision.types import (
 )
 
 _REQUIRED_INDEX_LANDMARKS = (0, 5, 6, 7, 8)
+_THENAR_LANDMARKS = (1, 2, 5)
 _OTHER_FINGER_LANDMARKS = ((9, 12), (13, 16), (17, 20))
 
 
@@ -56,13 +60,35 @@ def _is_upright(prop: BottleDetection) -> bool:
     return (height / width) >= ONE_FINGER_STALL_UPRIGHT_ASPECT_RATIO
 
 
-def _index_support_point(hand: HandLandmarks) -> Optional[Point2D]:
+def _index_is_horizontal(hand: HandLandmarks) -> bool:
+    mcp = hand.points.get(5)
+    tip = hand.points.get(8)
+    if mcp is None or tip is None:
+        return False
+    horizontal = abs(tip.x - mcp.x) * FRAME_WIDTH
+    vertical = abs(tip.y - mcp.y) * FRAME_HEIGHT
+    return horizontal >= vertical * ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO
+
+
+def _index_chain_point(hand: HandLandmarks) -> Optional[Point2D]:
     if any(index not in hand.points for index in _REQUIRED_INDEX_LANDMARKS):
         return None
     return hand.points[8]
 
 
-def _usable_hands_with_index(
+def _thenar_support_point(hand: HandLandmarks) -> Optional[Point2D]:
+    if any(index not in hand.points for index in _THENAR_LANDMARKS):
+        return None
+    thumb_cmc = hand.points[1]
+    thumb_mcp = hand.points[2]
+    index_mcp = hand.points[5]
+    return Point2D(
+        x=(thumb_cmc.x + thumb_mcp.x + index_mcp.x) / 3.0,
+        y=(thumb_cmc.y + thumb_mcp.y + index_mcp.y) / 3.0,
+    )
+
+
+def _usable_hands_with_thenar(
     hands: Optional[HandsResult],
 ) -> list[tuple[HandLandmarks, Point2D]]:
     if hands is None or not hands.hands:
@@ -70,9 +96,11 @@ def _usable_hands_with_index(
 
     usable: list[tuple[HandLandmarks, Point2D]] = []
     for hand in hands.hands:
-        index_tip = _index_support_point(hand)
-        if index_tip is not None:
-            usable.append((hand, index_tip))
+        if _index_chain_point(hand) is None:
+            continue
+        thenar = _thenar_support_point(hand)
+        if thenar is not None:
+            usable.append((hand, thenar))
     return usable
 
 
@@ -163,8 +191,22 @@ def evaluate(
     if bottle_check:
         return bottle_check, prev_hip_center, movement_state
 
-    usable = _usable_hands_with_index(hands)
+    usable = _usable_hands_with_thenar(hands)
     if not usable:
+        has_index = False
+        if hands is not None:
+            has_index = any(
+                _index_chain_point(hand) is not None for hand in hands.hands
+            )
+        if has_index:
+            return (
+                uncertain_result(
+                    "Keep the base of your thumb visible.",
+                    code=FeedbackCode.THENAR_NOT_VISIBLE,
+                ),
+                prev_hip_center,
+                movement_state,
+            )
         return (
             uncertain_result(
                 "Keep your index finger fully visible.",
@@ -175,7 +217,7 @@ def evaluate(
         )
 
     prop_base = bottle.bottom_center_normalized(640, 480)
-    hand, index_tip = _nearest_usable_hand_to_prop_base(usable, prop_base)
+    hand, thenar = _nearest_usable_hand_to_prop_base(usable, prop_base)
 
     technique_fail = None
     if not _index_is_extended_and_straight(hand):
@@ -185,16 +227,18 @@ def evaluate(
         > ONE_FINGER_STALL_MAX_OTHER_EXTENDED_FINGERS
     ):
         technique_fail = FeedbackCode.OTHER_FINGERS_NOT_CURLED.value
+    elif not _index_is_horizontal(hand):
+        technique_fail = FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL.value
     elif not _is_upright(bottle):
         technique_fail = FeedbackCode.PROP_NOT_UPRIGHT.value
 
     positioning_fail = None
-    if prop_base.y > index_tip.y + ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT:
-        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_INDEX.value
-    elif abs(prop_base.x - index_tip.x) > ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET:
-        positioning_fail = FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value
-    elif _dist(prop_base, index_tip) > ONE_FINGER_STALL_BASE_TO_INDEX_TIP:
-        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_INDEX.value
+    if prop_base.y > thenar.y + ONE_FINGER_STALL_BELOW_THENAR_REJECT:
+        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_THENAR.value
+    elif abs(prop_base.x - thenar.x) > ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET:
+        positioning_fail = FeedbackCode.PROP_NOT_CENTERED_ON_THENAR.value
+    elif _dist(prop_base, thenar) > ONE_FINGER_STALL_BASE_TO_THENAR:
+        positioning_fail = FeedbackCode.PROP_BASE_NOT_ON_THENAR.value
 
     if technique_fail is None and positioning_fail is None:
         state, stable = track_bottle_stability(movement_state, bottle)
@@ -245,11 +289,28 @@ def evaluate(
             state,
         )
 
+    if technique_fail == FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Hold your index finger horizontally.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL.value,
+                )
+            ),
+            prev_hip_center,
+            state,
+        )
+
     if technique_fail == FeedbackCode.PROP_NOT_UPRIGHT.value:
         return (
             _credited(
                 RuleResult(
-                    feedback=f"Keep the {prop_name_lower} upright on your index finger.",
+                    feedback=(
+                        f"Keep the {prop_name_lower} upright on the "
+                        "thenar eminence."
+                    ),
                     feedback_type="warning",
                     posture_status="unstable",
                     feedback_code=FeedbackCode.PROP_NOT_UPRIGHT.value,
@@ -259,52 +320,52 @@ def evaluate(
             state,
         )
 
-    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_INDEX.value and (
-        prop_base.y > index_tip.y + ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT
+    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_THENAR.value and (
+        prop_base.y > thenar.y + ONE_FINGER_STALL_BELOW_THENAR_REJECT
     ):
         return (
             _credited(
                 RuleResult(
                     feedback=(
-                        f"Place the {prop_name_lower} base on the tip of your "
-                        "index finger."
+                        f"Place the {prop_name_lower} on the thenar eminence "
+                        "(the pad at the base of your thumb)."
                     ),
                     feedback_type="warning",
                     posture_status="unstable",
-                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_INDEX.value,
+                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_THENAR.value,
                 )
             ),
             prev_hip_center,
             state,
         )
 
-    if positioning_fail == FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value:
+    if positioning_fail == FeedbackCode.PROP_NOT_CENTERED_ON_THENAR.value:
         return (
             _credited(
                 RuleResult(
                     feedback=(
-                        f"Center the {prop_name_lower} over your index fingertip."
+                        f"Center the {prop_name_lower} over the thenar eminence."
                     ),
                     feedback_type="warning",
                     posture_status="unstable",
-                    feedback_code=FeedbackCode.PROP_NOT_CENTERED_ON_INDEX.value,
+                    feedback_code=FeedbackCode.PROP_NOT_CENTERED_ON_THENAR.value,
                 )
             ),
             prev_hip_center,
             state,
         )
 
-    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_INDEX.value:
+    if positioning_fail == FeedbackCode.PROP_BASE_NOT_ON_THENAR.value:
         return (
             _credited(
                 RuleResult(
                     feedback=(
-                        f"Place the {prop_name_lower} base on the tip of your "
-                        "index finger."
+                        f"Place the {prop_name_lower} on the thenar eminence "
+                        "(the pad at the base of your thumb)."
                     ),
                     feedback_type="warning",
                     posture_status="unstable",
-                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_INDEX.value,
+                    feedback_code=FeedbackCode.PROP_BASE_NOT_ON_THENAR.value,
                 )
             ),
             prev_hip_center,
@@ -315,7 +376,7 @@ def evaluate(
         return (
             _credited(
                 RuleResult(
-                    feedback=f"Hold the {prop_name_lower} steady on one finger.",
+                    feedback=f"Hold the {prop_name_lower} steady on the thenar eminence.",
                     feedback_type="warning",
                     posture_status="unstable",
                     feedback_code=FeedbackCode.PROP_NOT_STEADY.value,

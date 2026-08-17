@@ -237,7 +237,7 @@ void main() {
           maxHoldProgress: 0,
           holdTargetMs: 0,
         );
-        expect(oneFinger.reason, contains('index fingertip'));
+        expect(oneFinger.reason, contains('thenar'));
         expect(oneFinger.reason, isNot(contains('seconds')));
         expect(oneFinger.targetUsesHoldMs, isFalse);
 

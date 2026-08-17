@@ -120,6 +120,14 @@ void main() {
     );
     expect(
       focusCopyForCode(
+        'index_finger_not_horizontal',
+        prop: TrainingProp.bottle,
+        fallbackMessage: 'fallback',
+      ),
+      'Hold your index finger horizontally',
+    );
+    expect(
+      focusCopyForCode(
         'prop_not_positioned_on_target',
         prop: TrainingProp.shaker,
         fallbackMessage: 'fallback',
@@ -197,7 +205,7 @@ void main() {
         'One Finger Stall',
         TrainingProp.bottle,
       ),
-      contains('index fingertip'),
+      contains('thenar'),
     );
     expect(
       unconfirmedRecommendationReasonFor(

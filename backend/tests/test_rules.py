@@ -11,6 +11,9 @@ from config import (
     DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF,
     DOUBLE_HAND_MIN_PALM_SEPARATION,
     DOUBLE_HAND_UPRIGHT_ASPECT_RATIO,
+    FRAME_HEIGHT,
+    FRAME_WIDTH,
+    ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO,
     SHOULDER_ABOVE_OFFSET,
     SHOULDER_STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
@@ -66,6 +69,7 @@ def _grip_hand(
     middle_mcp: Point2D,
     fingertips: tuple[Point2D, Point2D, Point2D, Point2D],
     thumb_tip: Point2D | None = None,
+    extra_points: dict[int, Point2D] | None = None,
     handedness: str = "Right",
 ) -> HandLandmarks:
     points = {0: wrist, 9: middle_mcp}
@@ -77,6 +81,8 @@ def _grip_hand(
     )
     if thumb_tip is not None:
         points[4] = thumb_tip
+    if extra_points:
+        points.update(extra_points)
     return HandLandmarks(points=points, handedness=handedness)
 
 
@@ -227,6 +233,53 @@ def _bartender_hand(
         points.update(overrides)
     for index in missing:
         points.pop(index, None)
+
+    return HandLandmarks(
+        points=points,
+        handedness="Left" if mirrored else "Right",
+    )
+
+
+def _sideways_normal_wrap_hand(
+    *,
+    mirrored: bool = False,
+    overrides: dict[int, Point2D] | None = None,
+) -> HandLandmarks:
+    # Real-world false positive: a normal/hammer fist wrap around the
+    # neck with the forearm reaching in from the side. Thumb and index
+    # stay close, the wrist-MCP axis looks sideways, and the index wraps
+    # around the neck instead of running along it.
+    points = {
+        0: Point2D(0.62, 0.47),
+        1: Point2D(0.58, 0.46),
+        2: Point2D(0.55, 0.455),
+        3: Point2D(0.52, 0.45),
+        4: Point2D(0.49, 0.44),
+        5: Point2D(0.52, 0.45),
+        6: Point2D(0.50, 0.445),
+        7: Point2D(0.485, 0.448),
+        8: Point2D(0.47, 0.455),
+        9: Point2D(0.53, 0.46),
+        10: Point2D(0.505, 0.46),
+        11: Point2D(0.49, 0.465),
+        12: Point2D(0.475, 0.47),
+        13: Point2D(0.535, 0.475),
+        14: Point2D(0.51, 0.478),
+        15: Point2D(0.495, 0.482),
+        16: Point2D(0.48, 0.485),
+        17: Point2D(0.54, 0.49),
+        18: Point2D(0.515, 0.492),
+        19: Point2D(0.50, 0.495),
+        20: Point2D(0.485, 0.50),
+    }
+
+    if mirrored:
+        points = {
+            index: Point2D(1.0 - point.x, point.y)
+            for index, point in points.items()
+        }
+    if overrides:
+        points.update(overrides)
 
     return HandLandmarks(
         points=points,
@@ -478,6 +531,59 @@ def test_bartenders_grip_rejects_vertical_normal_grip():
     )
 
 
+@pytest.mark.parametrize(
+    "hand",
+    [
+        _sideways_normal_wrap_hand(),
+        _sideways_normal_wrap_hand(mirrored=True),
+    ],
+    ids=["right-side", "left-side"],
+)
+def test_bartenders_grip_rejects_sideways_normal_neck_wrap(hand):
+    result = _evaluate_bartenders_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == "bartender_index_extension"
+    assert result.feedback == (
+        "Extend your index finger along the bottle neck."
+    )
+
+
+def test_bartenders_grip_rejects_index_wrapping_across_the_neck():
+    result = _evaluate_bartenders_grip(
+        _bartender_hand(
+            overrides={
+                6: Point2D(0.495, 0.476),
+                7: Point2D(0.515, 0.477),
+                8: Point2D(0.505, 0.482),
+            }
+        )
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Extend your index finger along the bottle neck."
+    )
+
+
+def test_bartenders_grip_accepts_index_just_along_the_neck():
+    result = _evaluate_bartenders_grip(
+        _bartender_hand(
+            overrides={
+                6: Point2D(0.495, 0.474),
+                7: Point2D(0.515, 0.486),
+                8: Point2D(0.505, 0.496),
+            }
+        )
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback_code == "bartender_grip_locked"
+
+
 def test_bartenders_grip_rejects_sideways_underhand_hold():
     hand = _bartender_hand(
         overrides={
@@ -537,6 +643,7 @@ def test_bartenders_grip_handles_incomplete_landmarks(missing):
         _grip_hand(
             wrist=Point2D(0.43, 0.49),
             middle_mcp=Point2D(0.47, 0.43),
+            thumb_tip=Point2D(0.46, 0.41),
             fingertips=(
                 Point2D(0.48, 0.44),
                 Point2D(0.50, 0.45),
@@ -548,6 +655,7 @@ def test_bartenders_grip_handles_incomplete_landmarks(missing):
         _grip_hand(
             wrist=Point2D(0.57, 0.49),
             middle_mcp=Point2D(0.53, 0.43),
+            thumb_tip=Point2D(0.54, 0.41),
             fingertips=(
                 Point2D(0.52, 0.44),
                 Point2D(0.50, 0.45),
@@ -567,6 +675,30 @@ def test_normal_grip_accepts_reference_like_full_wrap(hand):
     assert result.feedback == (
         "Bottle held securely with a full overhand neck grip."
     )
+
+
+def test_normal_grip_accepts_full_wrap_with_finger_mcps():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.46, 0.41),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+        extra_points={
+            5: Point2D(0.46, 0.43),
+            13: Point2D(0.49, 0.45),
+            17: Point2D(0.50, 0.46),
+        },
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
 
 
 def test_normal_grip_rejects_hand_around_bottle_body():
@@ -627,6 +759,187 @@ def test_normal_grip_rejects_two_finger_pinch():
     assert result.feedback == (
         "Wrap at least three fingers around the bottle neck."
     )
+
+
+def test_normal_grip_rejects_extended_index_and_middle_in_neck_zone():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.46, 0.41),
+        fingertips=(
+            Point2D(0.43, 0.44),
+            Point2D(0.44, 0.45),
+            Point2D(0.51, 0.46),
+            Point2D(0.53, 0.47),
+        ),
+        extra_points={
+            5: Point2D(0.46, 0.43),
+            13: Point2D(0.49, 0.45),
+            17: Point2D(0.50, 0.46),
+        },
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Wrap at least three fingers around the bottle neck."
+    )
+
+
+def test_normal_grip_rejects_pinch_with_unused_fingers_curled_in_zone():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.46, 0.41),
+        fingertips=(
+            Point2D(0.50, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.44, 0.47),
+            Point2D(0.43, 0.48),
+        ),
+        extra_points={
+            5: Point2D(0.47, 0.43),
+            13: Point2D(0.45, 0.46),
+            17: Point2D(0.44, 0.47),
+        },
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == (
+        "Wrap at least three fingers around the bottle neck."
+    )
+
+
+def test_normal_grip_rejects_top_down_clutch():
+    hand = _grip_hand(
+        wrist=Point2D(0.50, 0.42),
+        middle_mcp=Point2D(0.49, 0.39),
+        thumb_tip=Point2D(0.47, 0.40),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.46),
+            Point2D(0.54, 0.47),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == "normal_not_top_down"
+    assert result.feedback == "Grip the neck from the side, not from above."
+
+
+def test_normal_grip_rejects_horizontal_neck_choke():
+    hand = _grip_hand(
+        wrist=Point2D(0.58, 0.47),
+        middle_mcp=Point2D(0.50, 0.44),
+        thumb_tip=Point2D(0.49, 0.43),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.46),
+            Point2D(0.54, 0.47),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback == "Rotate your wrist into an overhand grip."
+
+
+def test_normal_grip_rejects_inverted_thumb_toward_base():
+    hand = _grip_hand(
+        wrist=Point2D(0.47, 0.51),
+        middle_mcp=Point2D(0.49, 0.42),
+        thumb_tip=Point2D(0.50, 0.50),
+        fingertips=(
+            Point2D(0.48, 0.43),
+            Point2D(0.50, 0.42),
+            Point2D(0.52, 0.41),
+            Point2D(0.53, 0.40),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == "normal_thumb_pinky_orientation"
+    assert result.feedback == (
+        "Point your thumb toward the bottle mouth and pinky toward the base."
+    )
+
+
+def test_normal_grip_handles_missing_thumb():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback == (
+        "Keep your full hand visible around the bottle neck."
+    )
+
+
+def test_normal_grip_accepts_overhand_at_upright_ratio_boundary():
+    # Vertical pixel rise equals horizontal span (ratio 1.0).
+    horizontal_norm = 0.04
+    vertical_norm = (horizontal_norm * FRAME_WIDTH) / FRAME_HEIGHT
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.43 + vertical_norm),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.46, 0.41),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+
+
+def test_normal_grip_rejects_thumb_level_with_pinky():
+    hand = _grip_hand(
+        wrist=Point2D(0.43, 0.49),
+        middle_mcp=Point2D(0.47, 0.43),
+        thumb_tip=Point2D(0.50, 0.48),
+        fingertips=(
+            Point2D(0.48, 0.44),
+            Point2D(0.50, 0.45),
+            Point2D(0.52, 0.47),
+            Point2D(0.54, 0.48),
+        ),
+    )
+
+    result = _evaluate_normal_grip(hand)
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == "normal_thumb_pinky_orientation"
 
 
 def test_normal_grip_handles_missing_palm_landmarks():
@@ -2445,25 +2758,47 @@ def _one_finger_hand(
     *,
     x: float = 0.50,
     tip_y: float = 0.35,
+    pointing: str = "sideways",
     handedness: str = "Right",
     mirrored: bool = False,
     other_fingers_extended: int = 0,
     overrides: dict[int, Point2D] | None = None,
     missing: tuple[int, ...] = (),
 ) -> HandLandmarks:
-    points = {
-        0: Point2D(x, tip_y + 0.28),
-        5: Point2D(x, tip_y + 0.20),
-        6: Point2D(x, tip_y + 0.13),
-        7: Point2D(x, tip_y + 0.06),
-        8: Point2D(x, tip_y),
-        9: Point2D(x + 0.035, tip_y + 0.19),
-        12: Point2D(x + 0.035, tip_y + 0.21),
-        13: Point2D(x + 0.070, tip_y + 0.20),
-        16: Point2D(x + 0.070, tip_y + 0.22),
-        17: Point2D(x + 0.105, tip_y + 0.19),
-        20: Point2D(x + 0.105, tip_y + 0.21),
-    }
+    if pointing == "up":
+        points = {
+            0: Point2D(x, tip_y + 0.28),
+            1: Point2D(x - 0.04, tip_y + 0.24),
+            2: Point2D(x - 0.05, tip_y + 0.16),
+            5: Point2D(x, tip_y + 0.20),
+            6: Point2D(x, tip_y + 0.13),
+            7: Point2D(x, tip_y + 0.06),
+            8: Point2D(x, tip_y),
+            9: Point2D(x + 0.035, tip_y + 0.19),
+            12: Point2D(x + 0.035, tip_y + 0.21),
+            13: Point2D(x + 0.070, tip_y + 0.20),
+            16: Point2D(x + 0.070, tip_y + 0.22),
+            17: Point2D(x + 0.105, tip_y + 0.19),
+            20: Point2D(x + 0.105, tip_y + 0.21),
+        }
+    elif pointing == "sideways":
+        points = {
+            0: Point2D(x - 0.28, tip_y),
+            1: Point2D(x - 0.24, tip_y + 0.06),
+            2: Point2D(x - 0.20, tip_y + 0.08),
+            5: Point2D(x - 0.20, tip_y),
+            6: Point2D(x - 0.13, tip_y),
+            7: Point2D(x - 0.06, tip_y),
+            8: Point2D(x, tip_y),
+            9: Point2D(x - 0.18, tip_y + 0.04),
+            12: Point2D(x - 0.18, tip_y + 0.06),
+            13: Point2D(x - 0.14, tip_y + 0.05),
+            16: Point2D(x - 0.14, tip_y + 0.07),
+            17: Point2D(x - 0.10, tip_y + 0.06),
+            20: Point2D(x - 0.10, tip_y + 0.08),
+        }
+    else:
+        raise ValueError(f"unsupported pointing={pointing!r}")
 
     if mirrored:
         points = {
@@ -2472,9 +2807,13 @@ def _one_finger_hand(
         }
 
     other_pairs = ((9, 12), (13, 16), (17, 20))
+    wrist = points[0]
     for mcp_index, tip_index in other_pairs[:other_fingers_extended]:
         mcp = points[mcp_index]
-        points[tip_index] = Point2D(mcp.x, tip_y - 0.02)
+        points[tip_index] = Point2D(
+            mcp.x + (mcp.x - wrist.x) * 1.5,
+            mcp.y + (mcp.y - wrist.y) * 1.5,
+        )
 
     if overrides:
         points.update(overrides)
@@ -2482,6 +2821,47 @@ def _one_finger_hand(
         points.pop(index, None)
 
     return HandLandmarks(points=points, handedness=handedness)
+
+
+def _thenar_point(hand: HandLandmarks) -> Point2D:
+    thumb_cmc = hand.points[1]
+    thumb_mcp = hand.points[2]
+    index_mcp = hand.points[5]
+    return Point2D(
+        x=(thumb_cmc.x + thumb_mcp.x + index_mcp.x) / 3.0,
+        y=(thumb_cmc.y + thumb_mcp.y + index_mcp.y) / 3.0,
+    )
+
+
+def _one_finger_hand_with_index_vector(*, dx: float, dy: float) -> HandLandmarks:
+    """Build a straight index whose MCP→tip vector is (dx, dy). Tip stays at (0.50, 0.35)."""
+    tip = Point2D(0.50, 0.35)
+    length = (dx * dx + dy * dy) ** 0.5
+    ux, uy = dx / length, dy / length
+
+    def back(distance: float) -> Point2D:
+        return Point2D(tip.x - ux * distance, tip.y - uy * distance)
+
+    mcp = back(0.20)
+    wrist = back(0.28)
+    return HandLandmarks(
+        points={
+            8: tip,
+            7: back(0.06),
+            6: back(0.13),
+            5: mcp,
+            2: Point2D(mcp.x, mcp.y + 0.08),
+            1: Point2D(wrist.x + 0.04, wrist.y + 0.06),
+            0: wrist,
+            9: Point2D(mcp.x, mcp.y + 0.04),
+            12: Point2D(mcp.x, mcp.y + 0.06),
+            13: Point2D(mcp.x + 0.03, mcp.y + 0.05),
+            16: Point2D(mcp.x + 0.03, mcp.y + 0.07),
+            17: Point2D(mcp.x + 0.06, mcp.y + 0.06),
+            20: Point2D(mcp.x + 0.06, mcp.y + 0.08),
+        },
+        handedness="Right",
+    )
 
 
 def _bottle_on_index_tip(
@@ -2494,6 +2874,27 @@ def _bottle_on_index_tip(
     tip = hand.points[8]
     base_x = tip.x + offset[0]
     base_y = tip.y + offset[1]
+    bx = int(round(base_x * 640))
+    by = int(round(base_y * 480))
+    return BottleDetection(
+        x1=bx - width // 2,
+        y1=by - height,
+        x2=bx + width // 2,
+        y2=by,
+        confidence=0.9,
+    )
+
+
+def _bottle_on_thenar(
+    hand: HandLandmarks,
+    *,
+    offset: tuple[float, float] = (0.0, 0.0),
+    width: int = 40,
+    height: int = 80,
+) -> BottleDetection:
+    thenar = _thenar_point(hand)
+    base_x = thenar.x + offset[0]
+    base_y = thenar.y + offset[1]
     bx = int(round(base_x * 640))
     by = int(round(base_y * 480))
     return BottleDetection(
@@ -2525,7 +2926,7 @@ def _evaluate_one_finger(
 
 def test_one_finger_stall_accepts_right_hand_reference_geometry():
     hand = _one_finger_hand(handedness="Right")
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2544,7 +2945,7 @@ def test_one_finger_stall_accepts_left_mirrored_geometry():
         handedness="Left",
         mirrored=True,
     )
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2557,7 +2958,7 @@ def test_one_finger_stall_accepts_left_mirrored_geometry():
 
 def test_one_finger_stall_accepts_unknown_handedness():
     hand = _one_finger_hand(handedness="Unknown")
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2571,7 +2972,7 @@ def test_one_finger_stall_accepts_unknown_handedness():
 def test_one_finger_stall_selects_nearest_index_tip_regardless_of_hand_order():
     supporting_hand = _one_finger_hand(x=0.34, handedness="Left")
     distant_hand = _one_finger_hand(x=0.72, handedness="Right")
-    bottle = _bottle_on_index_tip(supporting_hand)
+    bottle = _bottle_on_thenar(supporting_hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2584,7 +2985,7 @@ def test_one_finger_stall_selects_nearest_index_tip_regardless_of_hand_order():
 
 def test_one_finger_stall_rejects_missing_hand():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(bottle, HandsResult(hands=[]))
 
@@ -2595,7 +2996,7 @@ def test_one_finger_stall_rejects_missing_hand():
 
 def test_one_finger_stall_rejects_incomplete_required_index_landmarks():
     hand = _one_finger_hand(missing=(6,))
-    bottle = _bottle_on_index_tip(
+    bottle = _bottle_on_thenar(
         _one_finger_hand(),
     )
 
@@ -2615,7 +3016,7 @@ def test_one_finger_stall_rejects_curled_or_bent_index():
             6: Point2D(0.56, 0.48),
         }
     )
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2629,7 +3030,7 @@ def test_one_finger_stall_rejects_curled_or_bent_index():
 
 def test_one_finger_stall_rejects_open_palm_with_too_many_extended_fingers():
     hand = _one_finger_hand(other_fingers_extended=3)
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2644,7 +3045,7 @@ def test_one_finger_stall_rejects_open_palm_with_too_many_extended_fingers():
 
 def test_one_finger_stall_allows_one_other_extended_finger():
     hand = _one_finger_hand(other_fingers_extended=1)
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2657,7 +3058,7 @@ def test_one_finger_stall_allows_one_other_extended_finger():
 
 def test_one_finger_stall_ignores_missing_optional_other_finger_landmarks():
     hand = _one_finger_hand(missing=(9, 12, 13, 16, 17, 20))
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2668,9 +3069,39 @@ def test_one_finger_stall_ignores_missing_optional_other_finger_landmarks():
     assert result.feedback_type == "positive"
 
 
-def test_one_finger_stall_rejects_tilted_or_wide_prop_bbox():
-    hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand, width=100, height=60)
+def test_one_finger_stall_rejects_upward_index_finger():
+    hand = _one_finger_hand(pointing="up")
+    bottle = _bottle_on_thenar(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "index finger" in result.feedback.lower()
+    assert "horizontal" in result.feedback.lower()
+    assert result.feedback_code == "index_finger_not_horizontal"
+
+
+def test_one_finger_stall_accepts_sideways_index_with_upright_bottle():
+    hand = _one_finger_hand(pointing="sideways")
+    bottle = _bottle_on_thenar(hand, width=40, height=80)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+
+
+def test_one_finger_stall_rejects_horizontal_prop_bbox():
+    hand = _one_finger_hand(pointing="sideways")
+    bottle = _bottle_on_thenar(hand, width=100, height=60)
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2679,11 +3110,89 @@ def test_one_finger_stall_rejects_tilted_or_wide_prop_bbox():
 
     assert result.feedback_type == "warning"
     assert "upright" in result.feedback.lower()
+    assert result.feedback_code == "prop_not_upright"
+
+
+def test_one_finger_stall_accepts_index_horizontal_ratio_boundary():
+    dy = 0.15
+    dx = (
+        dy * FRAME_HEIGHT * ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO
+    ) / FRAME_WIDTH
+    # Inclusive boundary: nudge past binary-float rounding below 1.10.
+    hand = _one_finger_hand_with_index_vector(dx=dx + 1e-6, dy=-dy)
+    bottle = _bottle_on_thenar(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+
+
+def test_one_finger_stall_rejects_just_below_index_horizontal_ratio():
+    dy = 0.15
+    dx = (
+        dy * FRAME_HEIGHT * ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO
+    ) / FRAME_WIDTH
+    hand = _one_finger_hand_with_index_vector(dx=dx * 0.99, dy=-dy)
+    bottle = _bottle_on_thenar(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.feedback_code == "index_finger_not_horizontal"
+
+
+def test_one_finger_stall_rejects_bottle_on_index_tip_instead_of_thenar():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert "thenar" in result.feedback.lower()
+
+
+def test_one_finger_stall_accepts_bottle_on_thenar():
+    hand = _one_finger_hand()
+    bottle = _bottle_on_thenar(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+        _stable_state(bottle),
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+
+
+def test_one_finger_stall_rejects_missing_thenar_landmarks():
+    hand = _one_finger_hand(missing=(1, 2))
+    bottle = _bottle_on_index_tip(hand)
+
+    result, _, _ = _evaluate_one_finger(
+        bottle,
+        HandsResult(hands=[hand]),
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert "thumb" in result.feedback.lower()
 
 
 def test_one_finger_stall_rejects_prop_horizontally_away_from_fingertip():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand, offset=(0.08, 0.0))
+    bottle = _bottle_on_thenar(hand, offset=(0.08, 0.0))
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2691,12 +3200,12 @@ def test_one_finger_stall_rejects_prop_horizontally_away_from_fingertip():
     )
 
     assert result.feedback_type == "warning"
-    assert result.feedback == "Center the bottle over your index fingertip."
+    assert result.feedback == "Center the bottle over the thenar eminence."
 
 
 def test_one_finger_stall_rejects_prop_clearly_below_fingertip():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand, offset=(0.0, 0.05))
+    bottle = _bottle_on_thenar(hand, offset=(0.0, 0.05))
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2704,12 +3213,12 @@ def test_one_finger_stall_rejects_prop_clearly_below_fingertip():
     )
 
     assert result.feedback_type == "warning"
-    assert result.feedback == "Place the bottle base on the tip of your index finger."
+    assert "thenar eminence" in result.feedback.lower()
 
 
 def test_one_finger_stall_rejects_excessive_fingertip_distance():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand, offset=(0.06, -0.09))
+    bottle = _bottle_on_thenar(hand, offset=(0.06, -0.09))
 
     result, _, _ = _evaluate_one_finger(
         bottle,
@@ -2717,15 +3226,15 @@ def test_one_finger_stall_rejects_excessive_fingertip_distance():
     )
 
     assert result.feedback_type == "warning"
-    assert result.feedback == "Place the bottle base on the tip of your index finger."
+    assert "thenar eminence" in result.feedback.lower()
 
 
 def test_one_finger_stall_rejects_unstable_bottle_history():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
     state = None
     for index in range(6):
-        moving = _bottle_on_index_tip(
+        moving = _bottle_on_thenar(
             hand,
             offset=(index * 0.05, 0.0),
         )
@@ -2738,12 +3247,12 @@ def test_one_finger_stall_rejects_unstable_bottle_history():
     )
 
     assert result.feedback_type == "warning"
-    assert result.feedback == "Hold the bottle steady on one finger."
+    assert result.feedback == "Hold the bottle steady on the thenar eminence."
 
 
 def test_one_finger_stall_accepts_valid_stable_history():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
 
     result, _, state = _evaluate_one_finger(
         bottle,
@@ -2772,7 +3281,7 @@ def test_one_finger_stall_registry_and_requirements():
     assert movement_requires_pose("One Finger Stall") is False
 
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand)
+    bottle = _bottle_on_thenar(hand)
     result, _, _ = _evaluate_one_finger(
         bottle,
         HandsResult(hands=[hand]),
@@ -2782,8 +3291,8 @@ def test_one_finger_stall_registry_and_requirements():
 
 def test_one_finger_stall_invalid_geometry_does_not_update_history():
     hand = _one_finger_hand()
-    bottle = _bottle_on_index_tip(hand, offset=(0.08, 0.0))
-    state = _stable_state(_bottle_on_index_tip(hand))
+    bottle = _bottle_on_thenar(hand, offset=(0.08, 0.0))
+    state = _stable_state(_bottle_on_thenar(hand))
 
     result, _, returned_state = _evaluate_one_finger(
         bottle,

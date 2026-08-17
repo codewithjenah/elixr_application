@@ -393,11 +393,13 @@ def test_hand_stall_fail_fast_branches_are_coded():
     )
 
 
-def test_one_finger_tilted_prop_coded():
-    tilted = _bottle(w=100, h=50)
+def test_one_finger_upward_index_coded():
+    upright = _bottle(w=40, h=90)
     tip_hand = HandLandmarks(
         points={
             0: Point2D(0.5, 0.55),
+            1: Point2D(0.46, 0.53),
+            2: Point2D(0.45, 0.50),
             5: Point2D(0.5, 0.50),
             6: Point2D(0.5, 0.47),
             7: Point2D(0.5, 0.44),
@@ -407,6 +409,35 @@ def test_one_finger_tilted_prop_coded():
             16: Point2D(0.56, 0.53),
             20: Point2D(0.58, 0.54),
             4: Point2D(0.46, 0.52),
+        },
+        handedness="Right",
+    )
+    result, _, _ = one_finger_stall.evaluate(
+        upright, None, HandsResult(hands=[tip_hand]), None
+    )
+    _assert_coded(
+        result,
+        expected_code=FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL.value,
+        expected_category=FeedbackCategory.TECHNIQUE,
+    )
+
+
+def test_one_finger_tilted_prop_coded():
+    tilted = _bottle(w=100, h=50)
+    tip_hand = HandLandmarks(
+        points={
+            0: Point2D(0.22, 0.40),
+            1: Point2D(0.26, 0.46),
+            2: Point2D(0.30, 0.48),
+            5: Point2D(0.30, 0.40),
+            6: Point2D(0.37, 0.40),
+            7: Point2D(0.44, 0.40),
+            8: Point2D(0.50, 0.40),
+            9: Point2D(0.32, 0.44),
+            12: Point2D(0.32, 0.46),
+            16: Point2D(0.36, 0.47),
+            20: Point2D(0.40, 0.48),
+            4: Point2D(0.26, 0.42),
         },
         handedness="Right",
     )

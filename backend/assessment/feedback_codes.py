@@ -37,6 +37,7 @@ class FeedbackCode(str, Enum):
     HAND_NOT_VISIBLE = "hand_not_visible"
     HAND_NOT_FULLY_VISIBLE = "hand_not_fully_visible"
     INDEX_FINGER_NOT_VISIBLE = "index_finger_not_visible"
+    THENAR_NOT_VISIBLE = "thenar_not_visible"
     POSE_ARM_NOT_VISIBLE = "pose_arm_not_visible"
     SHOULDERS_NOT_VISIBLE = "shoulders_not_visible"
     BOTH_BOTTLES_NOT_VISIBLE = "both_bottles_not_visible"
@@ -64,6 +65,8 @@ class FeedbackCode(str, Enum):
     HAND_NOT_AT_NECK = "hand_not_at_neck"
     OVERHAND_GRIP_REQUIRED = "overhand_grip_required"
     INSUFFICIENT_NECK_FINGER_WRAP = "insufficient_neck_finger_wrap"
+    NORMAL_NOT_TOP_DOWN = "normal_not_top_down"
+    NORMAL_THUMB_PINKY_ORIENTATION = "normal_thumb_pinky_orientation"
     NORMAL_GRIP_LOCKED = "normal_grip_locked"
 
     # --- Bartender's Grip ---
@@ -97,9 +100,12 @@ class FeedbackCode(str, Enum):
 
     # --- One Finger Stall ---
     INDEX_FINGER_NOT_EXTENDED = "index_finger_not_extended"
+    INDEX_FINGER_NOT_HORIZONTAL = "index_finger_not_horizontal"
     OTHER_FINGERS_NOT_CURLED = "other_fingers_not_curled"
     PROP_BASE_NOT_ON_INDEX = "prop_base_not_on_index"
     PROP_NOT_CENTERED_ON_INDEX = "prop_not_centered_on_index"
+    PROP_BASE_NOT_ON_THENAR = "prop_base_not_on_thenar"
+    PROP_NOT_CENTERED_ON_THENAR = "prop_not_centered_on_thenar"
     ONE_FINGER_STALL_LOCKED = "one_finger_stall_locked"
 
     # --- Forearm / Elbow stalls ---
@@ -137,6 +143,7 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.HAND_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.HAND_NOT_FULLY_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.INDEX_FINGER_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
+    FeedbackCode.THENAR_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.POSE_ARM_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.SHOULDERS_NOT_VISIBLE: FeedbackCategory.VISIBILITY,
     FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE: FeedbackCategory.ENVIRONMENT,
@@ -162,6 +169,8 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.HAND_NOT_AT_NECK: FeedbackCategory.TECHNIQUE,
     FeedbackCode.OVERHAND_GRIP_REQUIRED: FeedbackCategory.TECHNIQUE,
     FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.NORMAL_NOT_TOP_DOWN: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION: FeedbackCategory.TECHNIQUE,
     FeedbackCode.NORMAL_GRIP_LOCKED: FeedbackCategory.TECHNIQUE,
     # Bartender's Grip
     FeedbackCode.BARTENDER_GRIP_POSITION: FeedbackCategory.TECHNIQUE,
@@ -190,9 +199,12 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.HAND_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     # One Finger Stall
     FeedbackCode.INDEX_FINGER_NOT_EXTENDED: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL: FeedbackCategory.TECHNIQUE,
     FeedbackCode.OTHER_FINGERS_NOT_CURLED: FeedbackCategory.TECHNIQUE,
     FeedbackCode.PROP_BASE_NOT_ON_INDEX: FeedbackCategory.TECHNIQUE,
     FeedbackCode.PROP_NOT_CENTERED_ON_INDEX: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_BASE_NOT_ON_THENAR: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.PROP_NOT_CENTERED_ON_THENAR: FeedbackCategory.TECHNIQUE,
     FeedbackCode.ONE_FINGER_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     # Forearm / Elbow
     FeedbackCode.FOREARM_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
@@ -227,6 +239,7 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.HAND_NOT_VISIBLE: None,
     FeedbackCode.HAND_NOT_FULLY_VISIBLE: None,
     FeedbackCode.INDEX_FINGER_NOT_VISIBLE: None,
+    FeedbackCode.THENAR_NOT_VISIBLE: None,
     FeedbackCode.POSE_ARM_NOT_VISIBLE: None,
     FeedbackCode.SHOULDERS_NOT_VISIBLE: None,
     FeedbackCode.BOTH_BOTTLES_NOT_VISIBLE: None,
@@ -244,6 +257,7 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.OVERHAND_GRIP_REQUIRED: RubricCriterion.TECHNIQUE,
     FeedbackCode.UNDERHAND_GRIP_REQUIRED: RubricCriterion.TECHNIQUE,
     FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP: RubricCriterion.TECHNIQUE,
+    FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION: RubricCriterion.TECHNIQUE,
     FeedbackCode.REVERSE_PINKY_THUMB_ORIENTATION: RubricCriterion.TECHNIQUE,
     FeedbackCode.BARTENDER_PINCH_REQUIRED: RubricCriterion.TECHNIQUE,
     FeedbackCode.BARTENDER_HAND_ORIENTATION: RubricCriterion.TECHNIQUE,
@@ -256,6 +270,7 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.CLAW_THUMB_SUPPORT: RubricCriterion.TECHNIQUE,
     FeedbackCode.CLAW_MORE_FINGERS_CURLED: RubricCriterion.TECHNIQUE,
     FeedbackCode.INDEX_FINGER_NOT_EXTENDED: RubricCriterion.TECHNIQUE,
+    FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL: RubricCriterion.TECHNIQUE,
     FeedbackCode.OTHER_FINGERS_NOT_CURLED: RubricCriterion.TECHNIQUE,
     FeedbackCode.PINCH_NOT_CLOSED: RubricCriterion.TECHNIQUE,
     FeedbackCode.BOTH_PALMS_HEIGHT_MISMATCH: RubricCriterion.TECHNIQUE,
@@ -264,9 +279,12 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.PROP_NOT_ABOVE_PALM: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.PROP_BASE_NOT_ON_INDEX: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.PROP_NOT_CENTERED_ON_INDEX: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_BASE_NOT_ON_THENAR: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.PROP_NOT_CENTERED_ON_THENAR: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.PROP_NOT_POSITIONED_ON_TARGET: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.HAND_BOTTLE_TOO_FAR: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.HAND_NOT_AT_NECK: RubricCriterion.PROP_POSITIONING,
+    FeedbackCode.NORMAL_NOT_TOP_DOWN: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BARTENDER_GRIP_POSITION: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.BARTENDER_PALM_TOO_LOW: RubricCriterion.PROP_POSITIONING,
     FeedbackCode.CLAW_WRIST_ABOVE_NECK: RubricCriterion.PROP_POSITIONING,

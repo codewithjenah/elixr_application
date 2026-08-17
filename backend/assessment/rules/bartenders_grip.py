@@ -29,6 +29,7 @@ from vision.types import (
 _MAX_CONTROL_GAP_RATIO = 0.45
 _MIN_SIDEWAYS_RATIO = 1.10
 _MIN_INDEX_EXTENSION = 0.55
+_MIN_INDEX_ALONG_BOTTLE = 0.25
 _INDEX_CHAIN = (5, 6, 7, 8)
 _OTHER_FINGERTIPS = (12, 16, 20)
 _REQUIRED_OTHER_FINGERTIPS = 2
@@ -82,6 +83,25 @@ def _index_extension(hand: HandLandmarks) -> Optional[float]:
         return None
 
     return _pixel_distance(complete[0], complete[-1]) / path_length
+
+
+def _index_along_bottle(hand: HandLandmarks) -> Optional[float]:
+    """How much the index MCP→tip vector follows the upright bottle axis.
+
+    A bartender pinch runs the index along the neck. A normal/hammer wrap
+    sends the index around the neck, which looks almost horizontal.
+    """
+    mcp = hand.points.get(5)
+    tip = hand.points.get(8)
+    if mcp is None or tip is None:
+        return None
+
+    dx = (tip.x - mcp.x) * FRAME_WIDTH
+    dy = (tip.y - mcp.y) * FRAME_HEIGHT
+    length = math.hypot(dx, dy)
+    if length <= 0:
+        return None
+    return abs(dy) / length
 
 
 def _warning(
@@ -158,6 +178,7 @@ def evaluate(
     index = hand.points.get(8)
     middle_mcp = hand.points.get(9)
     index_extension = _index_extension(hand)
+    index_along_bottle = _index_along_bottle(hand)
     other_tips = [
         hand.points.get(index)
         for index in _OTHER_FINGERTIPS
@@ -169,6 +190,7 @@ def evaluate(
         or index is None
         or middle_mcp is None
         or index_extension is None
+        or index_along_bottle is None
         or sum(point is not None for point in other_tips)
         < _REQUIRED_OTHER_FINGERTIPS
     ):
@@ -213,7 +235,10 @@ def evaluate(
         vertical = abs(middle_mcp.y - wrist.y) * FRAME_HEIGHT
         if horizontal < vertical * _MIN_SIDEWAYS_RATIO:
             technique_fail = FeedbackCode.BARTENDER_HAND_ORIENTATION.value
-        elif index_extension < _MIN_INDEX_EXTENSION:
+        elif (
+            index_extension < _MIN_INDEX_EXTENSION
+            or index_along_bottle < _MIN_INDEX_ALONG_BOTTLE
+        ):
             technique_fail = FeedbackCode.BARTENDER_INDEX_EXTENSION.value
         else:
             wrap_zone = bartender_contact_zone(

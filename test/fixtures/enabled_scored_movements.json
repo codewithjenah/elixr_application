@@ -8,7 +8,9 @@
       "rule_module": "normal_grip.py",
       "technique_codes": [
         "hand_not_at_neck",
+        "normal_not_top_down",
         "overhand_grip_required",
+        "normal_thumb_pinky_orientation",
         "insufficient_neck_finger_wrap"
       ]
     },
@@ -76,10 +78,11 @@
       "rule_module": "one_finger_stall.py",
       "technique_codes": [
         "index_finger_not_extended",
+        "index_finger_not_horizontal",
         "other_fingers_not_curled",
         "prop_not_upright",
-        "prop_base_not_on_index",
-        "prop_not_centered_on_index",
+        "prop_base_not_on_thenar",
+        "prop_not_centered_on_thenar",
         "prop_not_steady"
       ]
     },

@@ -148,18 +148,18 @@ const Map<String, MovementCoachingProfile> movementCoachingProfiles = {
         'Balance the {prop} upright on the open palm through one confirmed hold',
   ),
   'One Finger Stall': MovementCoachingProfile(
-    confirmedStrengthMessage: 'Index-fingertip balance confirmed',
-    formStrengthMessage: 'Correct one-finger balance position detected',
+    confirmedStrengthMessage: 'Thenar-eminence balance confirmed',
+    formStrengthMessage: 'Correct thenar stall position detected',
     cleanSessionMessage:
-        'No recurring balance issues — index-fingertip centering stayed controlled.',
+        'No recurring balance issues — thenar-eminence centering stayed controlled.',
     successfulRecommendationReason:
-        'Repeat index-fingertip balancing to build a longer confirmed hold.',
+        'Repeat thenar-eminence balancing to build a longer confirmed hold.',
     lowDataRecommendationReason:
-        'Show the {prop} centered over the index fingertip longer so ELIXR can evaluate the balance position.',
+        'Show the {prop} upright on the thenar eminence longer so ELIXR can evaluate the balance position.',
     unconfirmedRecommendationReason:
-        'Keep the {prop} centered over the extended index fingertip long enough to complete a confirmed hold.',
+        'Keep the {prop} upright on the thenar eminence long enough to complete a confirmed hold.',
     holdTargetInstruction:
-        'Center the {prop} over the extended index fingertip through one confirmed hold',
+        'Balance the {prop} upright on the thenar eminence through one confirmed hold',
   ),
   'Forearm Stall': MovementCoachingProfile(
     confirmedStrengthMessage: 'Forearm balance point held steady',
@@ -343,12 +343,16 @@ String focusCopyForCode(
     // Normal / reverse grips
     case 'hand_not_at_neck':
       return 'Move your hand to the upper bottle neck';
+    case 'normal_not_top_down':
+      return 'Grip the neck from the side, not from above';
     case 'overhand_grip_required':
       return 'Rotate your wrist into an overhand grip';
     case 'underhand_grip_required':
       return 'Rotate your wrist into a reverse grip';
     case 'insufficient_neck_finger_wrap':
       return 'Wrap at least three fingers around the bottle neck';
+    case 'normal_thumb_pinky_orientation':
+      return 'Point your thumb toward the bottle mouth and pinky toward the base';
     case 'reverse_pinky_thumb_orientation':
       return 'Point your pinky toward the bottle mouth and thumb toward the base';
     case 'normal_grip_locked':
@@ -399,12 +403,20 @@ String focusCopyForCode(
       return 'Maintain a locked-in hand stall';
     case 'index_finger_not_extended':
       return 'Extend one index finger straight';
+    case 'index_finger_not_horizontal':
+      return 'Hold your index finger horizontally';
     case 'other_fingers_not_curled':
       return 'Curl your other fingers and keep only the index finger extended';
+    case 'thenar_not_visible':
+      return 'Keep the base of your thumb visible';
     case 'prop_base_not_on_index':
       return 'Place the $label base on the tip of your index finger';
     case 'prop_not_centered_on_index':
       return 'Center the $label over your index fingertip';
+    case 'prop_base_not_on_thenar':
+      return 'Place the $label on the thenar eminence';
+    case 'prop_not_centered_on_thenar':
+      return 'Center the $label over the thenar eminence';
     case 'one_finger_stall_locked':
       return 'Maintain a locked-in one finger stall';
 

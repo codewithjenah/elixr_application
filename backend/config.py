@@ -153,17 +153,21 @@ HAND_STALL_MAX_HORIZONTAL_OFFSET = 0.09
 # Reject when bottle bottom-center sits clearly below the palm (image y).
 HAND_STALL_BELOW_PALM_REJECT = 0.03
 
-# One Finger Stall: one upright prop balanced on an extended index fingertip.
+# One Finger Stall: one upright prop balanced on the thenar eminence
+# (thumb-base pad), with the index finger extended horizontally.
+# Thenar point is the centroid of thumb CMC, thumb MCP, and index MCP.
+# Finger sideways check uses pixel-space MCP→tip span (FRAME_WIDTH/HEIGHT).
 # All positional values use normalized image coordinates (0-1).
 ONE_FINGER_STALL_UPRIGHT_ASPECT_RATIO = 1.25
+ONE_FINGER_STALL_INDEX_HORIZONTAL_RATIO = 1.10
 ONE_FINGER_STALL_INDEX_EXTENSION_RATIO = 1.30
 ONE_FINGER_STALL_MIN_STRAIGHT_ANGLE_DEG = 145.0
 ONE_FINGER_STALL_OTHER_FINGER_EXTENSION_RATIO = 1.15
 ONE_FINGER_STALL_MAX_OTHER_EXTENDED_FINGERS = 1
-ONE_FINGER_STALL_BASE_TO_INDEX_TIP = 0.10
+ONE_FINGER_STALL_BASE_TO_THENAR = 0.10
 ONE_FINGER_STALL_MAX_HORIZONTAL_OFFSET = 0.07
-# Reject when the prop bottom-center sits clearly below the fingertip (image y).
-ONE_FINGER_STALL_BELOW_FINGERTIP_REJECT = 0.035
+# Reject when the prop bottom-center sits clearly below the thenar (image y).
+ONE_FINGER_STALL_BELOW_THENAR_REJECT = 0.035
 
 # Double Hand Stall: two upright bottles, one on each open palm.
 # All geometry thresholds use normalized image coordinates (0-1).

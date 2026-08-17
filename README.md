@@ -16,7 +16,7 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
   - Easy: Normal Grip, Bartender's Grip, Reverse Grip, Claw Grip
     (Claw Grip is an upright top-down hold with curled fingers around the upper neck)
   - Medium: Hand Stall, One Finger Stall, Forearm Stall, Elbow Stall
-    (One Finger Stall balances one upright selected prop on one extended index fingertip)
+    (One Finger Stall balances one upright selected prop on the thenar eminence, with the index finger extended horizontally)
   - Hard: Reverse Forearm Stall, Shoulder Stall, Double Hand Stall, Bottle in a tin
     (Double Hand Stall balances two upright bottles simultaneously,
     one on each open palm — not a single bottle between the hands, and not a handoff;

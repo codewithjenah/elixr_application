@@ -45,7 +45,7 @@ const movementCatalog = <Movement>[
     name: 'One Finger Stall',
     difficulty: 'Medium',
     description:
-        'Balance the selected prop upright on one extended index finger.',
+        'Balance the selected prop upright on the thenar eminence with the index finger extended horizontally.',
     requiresHandsDetection: true,
     enabled: true,
     supportedProps: _bottleOrShaker,

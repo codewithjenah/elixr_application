@@ -25,7 +25,10 @@ _MIN_TOP_MARGIN = 0.02
 _MIN_HORIZONTAL_MARGIN = 0.04
 _MIN_OVERHAND_RISE = 0.01
 _OVERHAND_RISE_RATIO = 0.20
-_FINGERTIP_INDICES = (8, 12, 16, 20)
+_MIN_UPRIGHT_RATIO = 1.00
+_MIN_THUMB_PINKY_SEPARATION = 0.01
+_THUMB_PINKY_SEPARATION_RATIO = 0.15
+_FINGER_MCP_AND_TIP = ((5, 8), (9, 12), (13, 16), (17, 20))
 _REQUIRED_FINGERTIPS = 3
 
 ContactZone = tuple[float, float, float, float]
@@ -111,7 +114,66 @@ def _is_overhand(hand: HandLandmarks) -> Optional[bool]:
         _MIN_OVERHAND_RISE,
         _distance(wrist, middle_mcp) * _OVERHAND_RISE_RATIO,
     )
-    return wrist.y - middle_mcp.y >= required_rise
+    if wrist.y - middle_mcp.y < required_rise:
+        return False
+
+    horizontal = abs(middle_mcp.x - wrist.x) * FRAME_WIDTH
+    vertical = abs(middle_mcp.y - wrist.y) * FRAME_HEIGHT
+    return vertical >= horizontal * _MIN_UPRIGHT_RATIO
+
+
+def _is_thumb_toward_mouth(hand: HandLandmarks) -> Optional[bool]:
+    thumb_tip = hand.points.get(4)
+    pinky_tip = hand.points.get(20)
+    if thumb_tip is None or pinky_tip is None:
+        return None
+
+    required_separation = max(
+        _MIN_THUMB_PINKY_SEPARATION,
+        _distance(thumb_tip, pinky_tip) * _THUMB_PINKY_SEPARATION_RATIO,
+    )
+    return thumb_tip.y + required_separation <= pinky_tip.y
+
+
+def _is_top_down_clutch(
+    wrist: Optional[Point2D],
+    palm: Point2D,
+    bottle: BottleDetection,
+) -> bool:
+    if wrist is None:
+        return False
+    bottle_top = bottle.y1 / FRAME_HEIGHT
+    return wrist.y < bottle_top or palm.y < bottle_top
+
+
+def _finger_wraps_neck(
+    hand: HandLandmarks,
+    mcp_index: int,
+    tip_index: int,
+    zone: ContactZone,
+    anchor: Point2D,
+) -> bool:
+    tip = hand.points.get(tip_index)
+    if not _is_in_zone(tip, zone):
+        return False
+    mcp = hand.points.get(mcp_index)
+    if mcp is None or tip is None:
+        return True
+    toward_bottle = (tip.x - mcp.x) * (anchor.x - mcp.x) + (
+        tip.y - mcp.y
+    ) * (anchor.y - mcp.y)
+    return toward_bottle > 0
+
+
+def _wrapped_finger_count(
+    hand: HandLandmarks,
+    zone: ContactZone,
+    anchor: Point2D,
+) -> int:
+    return sum(
+        _finger_wraps_neck(hand, mcp_index, tip_index, zone, anchor)
+        for mcp_index, tip_index in _FINGER_MCP_AND_TIP
+    )
 
 
 def evaluate(
@@ -144,9 +206,12 @@ def evaluate(
         )
 
     contact_zone = _neck_contact_zone(bottle)
+    wrist = hand.points.get(0)
     positioning_fail = None
     if not _is_in_zone(palm, contact_zone):
         positioning_fail = FeedbackCode.HAND_NOT_AT_NECK.value
+    elif _is_top_down_clutch(wrist, palm, bottle):
+        positioning_fail = FeedbackCode.NORMAL_NOT_TOP_DOWN.value
 
     overhand = _is_overhand(hand)
     if overhand is None:
@@ -159,13 +224,18 @@ def evaluate(
             movement_state,
         )
 
+    thumb_toward_mouth = _is_thumb_toward_mouth(hand)
+
     technique_fail = None
     if not overhand:
         technique_fail = FeedbackCode.OVERHAND_GRIP_REQUIRED.value
-    else:
-        engaged_fingertips = sum(
-            _is_in_zone(hand.points.get(index), contact_zone)
-            for index in _FINGERTIP_INDICES
+    elif thumb_toward_mouth is False:
+        technique_fail = FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION.value
+    elif thumb_toward_mouth is True:
+        engaged_fingertips = _wrapped_finger_count(
+            hand,
+            contact_zone,
+            _neck_anchor(bottle),
         )
         if engaged_fingertips < _REQUIRED_FINGERTIPS:
             technique_fail = FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP.value
@@ -194,6 +264,20 @@ def evaluate(
             movement_state,
         )
 
+    if positioning_fail == FeedbackCode.NORMAL_NOT_TOP_DOWN.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback="Grip the neck from the side, not from above.",
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.NORMAL_NOT_TOP_DOWN.value,
+                )
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
     if technique_fail == FeedbackCode.OVERHAND_GRIP_REQUIRED.value:
         return (
             _credited(
@@ -202,6 +286,33 @@ def evaluate(
                     feedback_type="warning",
                     posture_status="unstable",
                     feedback_code=FeedbackCode.OVERHAND_GRIP_REQUIRED.value,
+                )
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    if thumb_toward_mouth is None:
+        return (
+            uncertain_result(
+                "Keep your full hand visible around the bottle neck.",
+                code=FeedbackCode.HAND_NOT_FULLY_VISIBLE,
+            ),
+            prev_hip_center,
+            movement_state,
+        )
+
+    if technique_fail == FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION.value:
+        return (
+            _credited(
+                RuleResult(
+                    feedback=(
+                        "Point your thumb toward the bottle mouth "
+                        "and pinky toward the base."
+                    ),
+                    feedback_type="warning",
+                    posture_status="unstable",
+                    feedback_code=FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION.value,
                 )
             ),
             prev_hip_center,
