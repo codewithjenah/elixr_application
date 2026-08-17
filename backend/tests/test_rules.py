@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -2207,6 +2209,33 @@ def test_double_hand_stall_detection_order_change_preserves_state():
     _, _, state = _eval_double_hand([left_b, right_b], hands, state)
     assert len(state["left_palm"]["bottle_history"]) == left_len + 2
     assert len(state["right_palm"]["bottle_history"]) == right_len + 2
+
+
+def test_double_hand_stall_track_id_survives_geometric_swap():
+    """Left/right slots follow track_id, not the nearer palm, once assigned."""
+    hands = _two_open_palms()
+    first_left = replace(_bottle_on_palm(0.48, 0.55), track_id=1)
+    first_right = replace(_bottle_on_palm(0.52, 0.55), track_id=2)
+
+    _, _, state = _eval_double_hand([first_left, first_right], hands)
+    assert state["left_track_id"] == 1
+    assert state["right_track_id"] == 2
+
+    swapped_left = replace(_bottle_on_palm(0.51, 0.55), track_id=1)
+    swapped_right = replace(_bottle_on_palm(0.49, 0.55), track_id=2)
+    _, _, state = _eval_double_hand(
+        [swapped_right, swapped_left], hands, state
+    )
+
+    assert state["left_track_id"] == 1
+    assert state["right_track_id"] == 2
+    expected = swapped_left.center_normalized(640, 480)
+    assert state["left_palm"]["bottle_history"][-1] == (expected.x, expected.y)
+    expected_right = swapped_right.center_normalized(640, 480)
+    assert state["right_palm"]["bottle_history"][-1] == (
+        expected_right.x,
+        expected_right.y,
+    )
 
 
 def test_double_hand_stall_session_receives_both_detections(monkeypatch):

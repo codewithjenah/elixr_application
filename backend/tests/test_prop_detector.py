@@ -231,3 +231,73 @@ def test_yolo_is_loaded_lazily(tmp_path: Path):
     detector.ensure_ready()
     assert loaded_paths == [str(model_path.resolve())]
     assert detector.resolved_class_id == 1
+
+
+def _combined_detector(
+    tmp_path: Path, boxes: list[_FakeBox]
+) -> tuple[CombinedPropDetector, _FakeModel]:
+    model_path = tmp_path / "best.pt"
+    model_path.write_bytes(b"weights")
+    model = _FakeModel(_verified_names(), boxes)
+    return CombinedPropDetector(
+        model_path=model_path,
+        model_loader=lambda _: model,
+    ), model
+
+
+def test_detect_all_assigns_stable_track_ids_across_frames(tmp_path: Path):
+    detector, model = _combined_detector(
+        tmp_path,
+        [
+            _FakeBox(0, 0.95, [20, 10, 100, 90]),
+            _FakeBox(0, 0.90, [220, 10, 300, 90]),
+        ],
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    first = detector.detect_all(frame)
+    assert {bottle.track_id for bottle in first.bottles} == {1, 2}
+
+    model._boxes = [
+        _FakeBox(0, 0.91, [40, 10, 120, 90]),
+        _FakeBox(0, 0.88, [200, 10, 280, 90]),
+    ]
+    second = detector.detect_all(frame)
+
+    first_by_x = sorted(first.bottles, key=lambda bottle: bottle.x1)
+    second_by_x = sorted(second.bottles, key=lambda bottle: bottle.x1)
+    assert second_by_x[0].track_id == first_by_x[0].track_id
+    assert second_by_x[1].track_id == first_by_x[1].track_id
+
+
+def test_bottles_and_shakers_use_independent_trackers(tmp_path: Path):
+    detector, _model = _combined_detector(
+        tmp_path,
+        [
+            _FakeBox(0, 0.99, [1, 1, 10, 40]),
+            _FakeBox(1, 0.91, [20, 1, 60, 15]),
+        ],
+    )
+
+    result = detector.detect_all(np.zeros((32, 32, 3), dtype=np.uint8))
+
+    assert len(result.bottles) == 1
+    assert len(result.shakers) == 1
+    assert result.bottles[0].track_id == 1
+    assert result.shakers[0].track_id == 1
+
+
+def test_reset_tracks_restarts_bottle_ids(tmp_path: Path):
+    detector, model = _combined_detector(
+        tmp_path,
+        [_FakeBox(0, 0.99, [1, 1, 10, 40])],
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    first = detector.detect_all(frame)
+    assert first.bottles[0].track_id == 1
+
+    detector.reset_tracks()
+    model._boxes = [_FakeBox(0, 0.99, [200, 1, 240, 40])]
+    second = detector.detect_all(frame)
+    assert second.bottles[0].track_id == 1

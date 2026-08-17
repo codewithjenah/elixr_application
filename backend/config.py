@@ -72,6 +72,11 @@ YOLO_IOU = 0.45
 CUSTOM_BOTTLE_CLASS_ID = 0
 # Hard cap on how many selected props can be detected/tracked at once.
 MAX_BOTTLES = 2
+# Per-class IoU identity tracker (greedy matching; no Kalman filter).
+# Tracks persist across brief YOLO misses; unmatched longer than this
+# receive a new track_id. Threshold is IoU against the previous box.
+PROP_TRACK_MIN_IOU = 0.3
+PROP_TRACK_MAX_MISSED_FRAMES = 5
 
 
 def _load_yolo_imgsz() -> int:

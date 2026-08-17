@@ -116,6 +116,24 @@ def test_reset_cache_remains_compatible():
     assert len(result.shakers) == 1
 
 
+class _StubCombinedDetectorWithTracks(_StubCombinedDetector):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.reset_tracks_calls = 0
+
+    def reset_tracks(self) -> None:
+        self.reset_tracks_calls += 1
+
+
+def test_reset_cache_resets_combined_prop_tracks():
+    combined = _StubCombinedDetectorWithTracks(bottles=[_bottle()], shakers=[_shaker()])
+    dual = DualPropDetector(combined_detector=combined)
+
+    dual.reset_cache()
+
+    assert combined.reset_tracks_calls == 1
+
+
 def test_disabled_detector_returns_empty_results_without_inference():
     combined = _StubCombinedDetector(bottles=[_bottle()], shakers=[_shaker()])
     dual = DualPropDetector(enabled=False, combined_detector=combined)

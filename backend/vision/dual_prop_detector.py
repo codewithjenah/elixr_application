@@ -66,11 +66,10 @@ class DualPropDetector:
         self._combined.ensure_ready()
 
     def reset_cache(self) -> None:
-        """Compatibility hook for session activation resets.
-
-        The combined detector does not retain stale per-class caches between
-        calls; each ``detect`` reflects only the current frame.
-        """
+        """Clear per-session prop identities before a new activation."""
+        reset = getattr(self._combined, "reset_tracks", None)
+        if callable(reset):
+            reset()
 
     def detect(self, frame) -> DualPropResult:
         """Run one combined inference and return current-frame detections."""

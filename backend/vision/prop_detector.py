@@ -19,6 +19,7 @@ from config import (
     YOLO_MODEL_PATH,
     YOLO_SHAKER_CONFIDENCE,
 )
+from vision.prop_tracker import PropTracker
 from vision.types import PropDetection
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,8 @@ class CombinedPropDetector:
         self._bottle_class_id: int | None = None
         self._shaker_class_id: int | None = None
         self._class_names: dict[int, str] = {}
+        self._bottle_tracker = PropTracker()
+        self._shaker_tracker = PropTracker()
 
         logger.info(
             "Configured combined prop detector: model_path=%s",
@@ -187,6 +190,11 @@ class CombinedPropDetector:
     @property
     def class_names(self) -> dict[int, str]:
         return dict(self._class_names)
+
+    def reset_tracks(self) -> None:
+        """Drop live identities so the next frame starts a new track_id sequence."""
+        self._bottle_tracker.reset()
+        self._shaker_tracker.reset()
 
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""
@@ -301,8 +309,8 @@ class CombinedPropDetector:
         bottles.sort(key=lambda detection: detection.confidence, reverse=True)
         shakers.sort(key=lambda detection: detection.confidence, reverse=True)
         return CombinedDetectionResult(
-            bottles=bottles[:MAX_BOTTLES],
-            shakers=shakers[:MAX_BOTTLES],
+            bottles=self._bottle_tracker.update(bottles[:MAX_BOTTLES]),
+            shakers=self._shaker_tracker.update(shakers[:MAX_BOTTLES]),
         )
 
 

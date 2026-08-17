@@ -15,6 +15,7 @@ class PropDetection:
     x2: int
     y2: int
     confidence: float
+    track_id: int | None = None
 
     @property
     def center(self) -> Point2D:

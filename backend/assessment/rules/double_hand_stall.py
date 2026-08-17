@@ -47,6 +47,27 @@ def _pair_bottles_to_palms(
     return b1, b0
 
 
+def _assign_left_right_bottles(
+    bottles: list[BottleDetection],
+    left_palm: Point2D,
+    right_palm: Point2D,
+    movement_state: dict,
+) -> tuple[BottleDetection, BottleDetection]:
+    """Reuse prior track_id slots when both identities are still present."""
+    by_id = {
+        bottle.track_id: bottle
+        for bottle in bottles
+        if bottle.track_id is not None
+    }
+    left_id = movement_state.get("left_track_id")
+    right_id = movement_state.get("right_track_id")
+    left = by_id.get(left_id) if isinstance(left_id, int) else None
+    right = by_id.get(right_id) if isinstance(right_id, int) else None
+    if left is not None and right is not None and left is not right:
+        return left, right
+    return _pair_bottles_to_palms(bottles, left_palm, right_palm)
+
+
 def _credited(
     result: RuleResult,
     *,
@@ -99,7 +120,7 @@ def evaluate(
             movement_state,
         )
 
-    # Cap at two detections; pairing below is purely geometric.
+    # Cap at two detections; assignment prefers track_id continuity.
     if len(bottle_list) > 2:
         bottle_list = sorted(
             bottle_list, key=lambda b: b.confidence, reverse=True
@@ -121,9 +142,14 @@ def evaluate(
     left_hand, left_palm = ordered[0]
     right_hand, right_palm = ordered[-1]
 
-    left_bottle, right_bottle = _pair_bottles_to_palms(
-        bottle_list, left_palm, right_palm
+    current = dict(movement_state or {})
+    left_bottle, right_bottle = _assign_left_right_bottles(
+        bottle_list, left_palm, right_palm, current
     )
+    if left_bottle.track_id is not None:
+        current["left_track_id"] = left_bottle.track_id
+    if right_bottle.track_id is not None:
+        current["right_track_id"] = right_bottle.track_id
     left_base = left_bottle.bottom_center_normalized(640, 480)
     right_base = right_bottle.bottom_center_normalized(640, 480)
 
@@ -160,7 +186,6 @@ def evaluate(
     ):
         positioning_fail = FeedbackCode.BOTTLES_NOT_ONE_PER_PALM.value
 
-    current = dict(movement_state or {})
     left_sub, left_stable = track_bottle_stability(
         current.get("left_palm"),
         left_bottle,
