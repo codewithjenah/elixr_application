@@ -5,6 +5,7 @@ from config import (
     SHOULDER_BELOW_REJECT,
     SHOULDER_STALL_PROXIMITY,
 )
+from assessment.calibration import scaled_proximity
 from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
 from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
@@ -69,7 +70,9 @@ def evaluate(
     positioning_fail = None
     if bottle_center.y > shoulder.y + SHOULDER_BELOW_REJECT:
         positioning_fail = FeedbackCode.PROP_BELOW_SHOULDER.value
-    elif _dist(bottle_center, target) > SHOULDER_STALL_PROXIMITY:
+    elif _dist(bottle_center, target) > scaled_proximity(
+        SHOULDER_STALL_PROXIMITY, state
+    ):
         positioning_fail = FeedbackCode.PROP_NOT_ON_SHOULDER.value
 
     # Headline coaching still uses the original first-failure order.

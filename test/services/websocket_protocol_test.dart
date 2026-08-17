@@ -172,6 +172,26 @@ void main() {
       expect(ack.sessionState, 'active');
     });
 
+    test('command acknowledgment parses optional calibration fields', () {
+      final decoded = decoder.decode(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'command_ack',
+          'request_id': 'req-1',
+          'session_id': 'session-1',
+          'action': 'confirm_readiness',
+          'accepted': true,
+          'session_state': 'readying',
+          'calibration_scale': 0.9,
+          'calibration_source': 'palm_fallback',
+        }),
+      );
+      expect(decoded, isA<WsCommandAckMessage>());
+      final ack = (decoded as WsCommandAckMessage).ack;
+      expect(ack.calibrationScale, closeTo(0.9, 0.001));
+      expect(ack.calibrationSource, 'palm_fallback');
+    });
+
     test('malformed and unknown messages are observable without crashing', () {
       expect(decoder.decode('{bad'), isA<WsMalformedMessage>());
       expect(

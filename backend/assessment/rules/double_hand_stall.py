@@ -189,10 +189,12 @@ def evaluate(
     left_sub, left_stable = track_bottle_stability(
         current.get("left_palm"),
         left_bottle,
+        movement_state=current,
     )
     right_sub, right_stable = track_bottle_stability(
         current.get("right_palm"),
         right_bottle,
+        movement_state=current,
     )
     current["left_palm"] = left_sub
     current["right_palm"] = right_sub

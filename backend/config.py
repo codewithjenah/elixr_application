@@ -105,11 +105,26 @@ HAND_BOTTLE_PROXIMITY = 0.15
 STALL_PROXIMITY = 0.12
 # Wider tolerance for arm/elbow stalls, which rest away from the palm.
 ARM_STALL_PROXIMITY = 0.22
-# Tolerance when the stall point comes from MediaPipe Pose joints (wrist/elbow),
-# which sit slightly off from where the bottle actually rests.
+# Unused dead config (kept for a later cleanup). Do not scale it in this task.
 POSE_STALL_PROXIMITY = 0.18
 # Max bottle drift (normalized) allowed while a stall is held.
 STALL_STABILITY_THRESHOLD = 0.06
+
+# Per-session proximity calibration. Scale = observed / reference, clamped
+# to [CALIBRATION_SCALE_MIN, CALIBRATION_SCALE_MAX] before multiplying
+# HAND_BOTTLE_PROXIMITY / STALL_* / ARM_STALL_* / UPPER_FOREARM_STALL_* /
+# SHOULDER_STALL_PROXIMITY.
+#
+# Shoulder width 0.30 is the normalized distance between Pose landmarks 11
+# and 12 in the readiness _pose_upper_body fixture (x=0.35 and x=0.65 at
+# y=0.3) in backend/tests/test_readiness_requirements.py.
+CALIBRATION_REFERENCE_SHOULDER_WIDTH = 0.30
+# Palm length 0.04 is wrist (0) → middle MCP (9) in the same file's _hand()
+# fixture: wrist at (cx, cy+0.04), MCP at (cx, cy). That is the readiness
+# analog of the shoulder fixture, not a live-capture anthropometric study.
+CALIBRATION_REFERENCE_PALM_LENGTH = 0.04
+CALIBRATION_SCALE_MIN = 0.6
+CALIBRATION_SCALE_MAX = 1.6
 STALL_HISTORY_FRAMES = 12
 
 PINCH_DISTANCE = 0.06

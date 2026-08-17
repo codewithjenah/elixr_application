@@ -149,10 +149,10 @@ def evaluate(
 
     current = dict(movement_state or {})
     bottle_sub, bottle_stable = track_bottle_stability(
-        current.get("bottle"), bottle
+        current.get("bottle"), bottle, movement_state=current
     )
     shaker_sub, shaker_stable = track_bottle_stability(
-        current.get("shaker"), shaker
+        current.get("shaker"), shaker, movement_state=current
     )
     current["bottle"] = bottle_sub
     current["shaker"] = shaker_sub

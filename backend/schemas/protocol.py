@@ -21,6 +21,8 @@ class CommandAck(BaseModel):
     session_state: Optional[str] = None
     error_code: Optional[str] = None
     message: Optional[str] = None
+    calibration_scale: Optional[float] = None
+    calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
 
 
 class ProtocolError(BaseModel):

@@ -92,6 +92,8 @@ class PracticeFeedback {
     this.readinessComplete,
     this.readinessStable,
     this.readinessStableProgress,
+    this.calibrationScale,
+    this.calibrationSource,
   });
 
   final bool bottleDetected;
@@ -147,6 +149,12 @@ class PracticeFeedback {
 
   /// Progress toward stable readiness confirmation (0.0–1.0). Absent when not readying.
   final double? readinessStableProgress;
+
+  /// Session proximity scale from readiness calibration. Null until measured.
+  final double? calibrationScale;
+
+  /// `shoulders`, `palm_fallback`, or `default`. Null until measured.
+  final String? calibrationSource;
 
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
@@ -209,6 +217,8 @@ class PracticeFeedback {
         readinessComplete == other.readinessComplete &&
         readinessStable == other.readinessStable &&
         readinessStableProgress == other.readinessStableProgress &&
+        calibrationScale == other.calibrationScale &&
+        calibrationSource == other.calibrationSource &&
         _readinessItemsEqual(readinessItems, other.readinessItems);
   }
 
@@ -304,6 +314,10 @@ class PracticeFeedback {
       readinessComplete: json['readiness_complete'] as bool?,
       readinessStable: json['readiness_stable'] as bool?,
       readinessStableProgress: readinessStableProgress,
+      calibrationScale: json['calibration_scale'] is num
+          ? (json['calibration_scale'] as num).toDouble()
+          : null,
+      calibrationSource: json['calibration_source'] as String?,
     );
   }
 

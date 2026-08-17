@@ -68,6 +68,7 @@ def evaluate(
         threshold=ARM_STALL_PROXIMITY,
         prop_label=prop_name,
         success_code=FeedbackCode.ELBOW_STALL_LOCKED.value,
+        movement_state=state,
     )
 
     if stall.feedback_type != "positive":

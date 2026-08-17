@@ -121,6 +121,8 @@ class FeedbackMessage(BaseModel):
     readiness_complete: Optional[bool] = None
     readiness_stable: Optional[bool] = None
     readiness_stable_progress: Optional[float] = None
+    calibration_scale: Optional[float] = None
+    calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
 
     def with_session(self, session_id: str | None) -> "FeedbackMessage":
         """Stamp protocol v1 identity fields when a session_id is known."""

@@ -16,6 +16,8 @@ class CommandAck {
     this.sessionState,
     this.errorCode,
     this.message,
+    this.calibrationScale,
+    this.calibrationSource,
   });
 
   final int protocolVersion;
@@ -26,6 +28,8 @@ class CommandAck {
   final String? sessionState;
   final String? errorCode;
   final String? message;
+  final double? calibrationScale;
+  final String? calibrationSource;
 
   factory CommandAck.fromJson(Map<String, dynamic> json) {
     return CommandAck(
@@ -37,6 +41,10 @@ class CommandAck {
       sessionState: json['session_state'] as String?,
       errorCode: json['error_code'] as String?,
       message: json['message'] as String?,
+      calibrationScale: json['calibration_scale'] is num
+          ? (json['calibration_scale'] as num).toDouble()
+          : null,
+      calibrationSource: json['calibration_source'] as String?,
     );
   }
 

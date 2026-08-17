@@ -138,6 +138,17 @@ def validate_movement_difficulty(
     return expected, None
 
 
+def _stamp_calibration_scale(
+    result: tuple[RuleResult, Optional[Point2D], Optional[dict]],
+    calibration_scale: float,
+) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
+    rule_result, hip, state = result
+    if state is None:
+        return rule_result, hip, {"calibration_scale": calibration_scale}
+    state["calibration_scale"] = calibration_scale
+    return rule_result, hip, state
+
+
 def evaluate_movement(
     movement: str,
     bottle: Optional[BottleDetection],
@@ -151,18 +162,27 @@ def evaluate_movement(
     prop_type: str = "bottle",
     prop_label: str | None = None,
     shakers: Optional[list[BottleDetection]] = None,
+    calibration_scale: float = 1.0,
 ) -> tuple[RuleResult, Optional[Point2D], Optional[dict]]:
     resolved_prop_label = prop_label or (
         "Cocktail Shaker" if prop_type == "shaker" else "Bottle"
     )
+    if movement_state is None:
+        state: dict = {"calibration_scale": calibration_scale}
+    else:
+        movement_state["calibration_scale"] = calibration_scale
+        state = movement_state
 
     if not bottle_detection_enabled and bottle is None:
-        return evaluate_posture_only(
-            movement,
-            pose,
-            hands,
-            prev_hip_center,
-            prop_label=resolved_prop_label,
+        return _stamp_calibration_scale(
+            evaluate_posture_only(
+                movement,
+                pose,
+                hands,
+                prev_hip_center,
+                prop_label=resolved_prop_label,
+            ),
+            calibration_scale,
         )
 
     # Bottle in a tin needs bottle and shaker detections kept separate.
@@ -173,13 +193,16 @@ def evaluate_movement(
             else ([bottle] if bottle is not None else [])
         )
         shaker_list = list(shakers) if shakers is not None else []
-        return bottle_in_a_tin.evaluate(
-            bottle_list[0] if bottle_list else None,
-            shaker_list[0] if shaker_list else None,
-            pose,
-            hands,
-            prev_hip_center,
-            movement_state,
+        return _stamp_calibration_scale(
+            bottle_in_a_tin.evaluate(
+                bottle_list[0] if bottle_list else None,
+                shaker_list[0] if shaker_list else None,
+                pose,
+                hands,
+                prev_hip_center,
+                state,
+            ),
+            calibration_scale,
         )
 
     # Double Hand Stall scores two bottles; keep other movements on primary bottle.
@@ -189,25 +212,37 @@ def evaluate_movement(
             if bottles is not None
             else ([bottle] if bottle is not None else [])
         )
-        return double_hand_stall.evaluate(
-            bottle,
-            pose,
-            hands,
-            prev_hip_center,
-            movement_state,
-            bottles=bottle_list,
+        return _stamp_calibration_scale(
+            double_hand_stall.evaluate(
+                bottle,
+                pose,
+                hands,
+                prev_hip_center,
+                state,
+                bottles=bottle_list,
+            ),
+            calibration_scale,
         )
 
     if movement in _RULES:
         evaluate = _RULES[movement]
         if movement in _PROP_AWARE_MOVEMENTS:
-            return evaluate(
-                bottle,
-                pose,
-                hands,
-                prev_hip_center,
-                movement_state,
-                prop_label=resolved_prop_label,
+            return _stamp_calibration_scale(
+                evaluate(
+                    bottle,
+                    pose,
+                    hands,
+                    prev_hip_center,
+                    state,
+                    prop_label=resolved_prop_label,
+                ),
+                calibration_scale,
             )
-        return evaluate(bottle, pose, hands, prev_hip_center, movement_state)
-    return coming_soon.evaluate(bottle, pose, hands, prev_hip_center, movement_state)
+        return _stamp_calibration_scale(
+            evaluate(bottle, pose, hands, prev_hip_center, state),
+            calibration_scale,
+        )
+    return _stamp_calibration_scale(
+        coming_soon.evaluate(bottle, pose, hands, prev_hip_center, state),
+        calibration_scale,
+    )

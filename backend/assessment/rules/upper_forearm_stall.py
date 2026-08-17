@@ -6,6 +6,7 @@ from config import (
     UPPER_FOREARM_RATIO,
     UPPER_FOREARM_STALL_PROXIMITY,
 )
+from assessment.calibration import scaled_proximity
 from assessment.feedback_codes import FeedbackCode, evaluable_criterion_results
 from assessment.rules.base import RuleResult, attach_criteria
 from assessment.rules.common_checks import (
@@ -75,7 +76,7 @@ def evaluate(
         positioning_fail = FeedbackCode.PROP_TOO_NEAR_ELBOW.value
     elif dist_mid <= UPPER_FOREARM_MID_ZONE and dist_mid < dist_upper:
         positioning_fail = FeedbackCode.PROP_TOO_NEAR_MID_FOREARM.value
-    elif dist_upper > UPPER_FOREARM_STALL_PROXIMITY:
+    elif dist_upper > scaled_proximity(UPPER_FOREARM_STALL_PROXIMITY, state):
         positioning_fail = FeedbackCode.PROP_NOT_ON_REVERSE_FOREARM.value
 
     if positioning_fail == FeedbackCode.PROP_TOO_NEAR_ELBOW.value:

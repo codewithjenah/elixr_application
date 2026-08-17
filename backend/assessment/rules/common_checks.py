@@ -12,6 +12,7 @@ from config import (
     DOUBLE_HAND_OPEN_PALM_EXTENSION_RATIO,
     DOUBLE_HAND_MIN_EXTENDED_FINGERS,
 )
+from assessment.calibration import scaled_proximity
 from assessment.feedback_codes import FeedbackCode
 from assessment.rules.base import FeedbackType, RuleResult
 from vision.types import (
@@ -235,6 +236,7 @@ def check_hand_bottle_proximity(
     far_message: str = "Move the bottle closer to your hand.",
     near_message: str = "Good hand-bottle alignment.",
     success_code: str | None = None,
+    movement_state: Optional[dict] = None,
 ) -> RuleResult:
     if target is None:
         return uncertain_result(
@@ -244,7 +246,7 @@ def check_hand_bottle_proximity(
 
     bottle_center = bottle.center_normalized(640, 480)
     dist = _dist(bottle_center, target)
-    if dist > threshold:
+    if dist > scaled_proximity(threshold, movement_state):
         return RuleResult(
             feedback=far_message,
             feedback_type="warning",
@@ -267,6 +269,7 @@ def check_stall_proximity(
     threshold: float = STALL_PROXIMITY,
     prop_label: str = "Bottle",
     success_code: str | None = None,
+    movement_state: Optional[dict] = None,
 ) -> RuleResult:
     if target is None:
         return uncertain_result(
@@ -276,7 +279,7 @@ def check_stall_proximity(
 
     bottle_center = bottle.center_normalized(640, 480)
     dist = _dist(bottle_center, target)
-    if dist > threshold:
+    if dist > scaled_proximity(threshold, movement_state):
         prop_name = _prop_name(prop_label)
         return RuleResult(
             feedback=f"Align the {prop_name.lower()} over the stall point.",
@@ -388,6 +391,7 @@ def track_bottle_stability(
     *,
     max_frames: int = STALL_HISTORY_FRAMES,
     threshold: float = STALL_STABILITY_THRESHOLD,
+    movement_state: Optional[dict] = None,
 ) -> tuple[dict, bool]:
     """Track recent bottle centers and report whether it is holding steady."""
     current = dict(state or {})
@@ -404,7 +408,8 @@ def track_bottle_stability(
     xs = [p[0] for p in history]
     ys = [p[1] for p in history]
     spread = max(max(xs) - min(xs), max(ys) - min(ys))
-    return current, spread <= threshold
+    scale_state = movement_state if movement_state is not None else current
+    return current, spread <= scaled_proximity(threshold, scale_state)
 
 
 def check_pinch_grip(
@@ -414,6 +419,7 @@ def check_pinch_grip(
     threshold: float = PINCH_DISTANCE,
     success_message: str = "Good pinch grip.",
     success_code: str | None = None,
+    movement_state: Optional[dict] = None,
 ) -> RuleResult:
     thumb = hand.points.get(4)
     index = hand.points.get(8)
@@ -437,7 +443,7 @@ def check_pinch_grip(
             posture_status="unstable",
             feedback_code=FeedbackCode.PINCH_NOT_CLOSED.value,
         )
-    if bottle_dist > HAND_BOTTLE_PROXIMITY:
+    if bottle_dist > scaled_proximity(HAND_BOTTLE_PROXIMITY, movement_state):
         return RuleResult(
             feedback="Move the bottle into the pinch.",
             feedback_type="warning",

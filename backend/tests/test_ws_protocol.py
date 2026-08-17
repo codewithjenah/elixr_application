@@ -1164,6 +1164,8 @@ def test_activate_accepted_after_begin_readiness_and_confirm(monkeypatch):
         confirm_ack = await _wait_for_ack(ws, "req-cr1")()
         assert confirm_ack["accepted"] is True
         assert confirm_ack["session_state"] == "readying"
+        assert confirm_ack["calibration_scale"] == 1.0
+        assert confirm_ack["calibration_source"] == "default"
 
         await ws.push(
             {

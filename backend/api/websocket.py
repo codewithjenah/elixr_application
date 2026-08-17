@@ -10,6 +10,7 @@ import cv2
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from assessment.calibration import CalibrationTracker
 from assessment.feedback_codes import category_for
 from assessment.hold_validator import HoldValidator
 from assessment.readiness import (
@@ -17,7 +18,6 @@ from assessment.readiness import (
     ReadinessSnapshot,
     ReadinessTracker,
     readiness_needs_hands,
-    readiness_needs_pose,
 )
 from assessment.rule_engine import (
     evaluate_movement,
@@ -536,6 +536,7 @@ class VisionSession:
         self._latest_readiness_observed_at: float | None = None
         self._readiness_confirmed = False
         self._frozen_readiness_snapshot: ReadinessSnapshot | None = None
+        self._calibration = CalibrationTracker()
         self.timings = _PipelineTimings()
         # Wall-clock start of the latest process_* call (for end_to_end timing).
         self._pipeline_started_at: float | None = None
@@ -647,13 +648,14 @@ class VisionSession:
         if self._prop_detection_only:
             return
         needs_h = readiness_needs_hands(self.movement, self.prop_type)
-        needs_p = readiness_needs_pose(self.movement, self.prop_type)
         if needs_h and self.hands_detector is None:
             self.hands_detector = HandsDetector(
                 rotated_fallback=self._hands_rotated_fallback,
                 bartender_roi_fallback=self._hands_bartender_roi,
             )
-        if needs_p and self.pose_detector is None:
+        # Pose is sampled opportunistically for calibration even when the
+        # readiness checklist does not require it. Checklist items are unchanged.
+        if self.pose_detector is None:
             self.pose_detector = PoseDetector()
 
     def begin_readiness(self) -> bool:
@@ -672,6 +674,7 @@ class VisionSession:
         self._latest_readiness_observed_at = None
         self._readiness_confirmed = False
         self._frozen_readiness_snapshot = None
+        self._calibration.reset()
         self._lifecycle = SESSION_READYING
         return True
 
@@ -702,6 +705,7 @@ class VisionSession:
 
         self._readiness_confirmed = True
         self._frozen_readiness_snapshot = snapshot
+        self._calibration.lock()
         return True, None
 
     @property
@@ -729,6 +733,9 @@ class VisionSession:
             return False, "readiness_not_confirmed"
 
         self._ensure_detectors()
+        if not self._pose_needed and self.pose_detector is not None:
+            self.pose_detector.close()
+            self.pose_detector = None
         self.rubric.activate()
         if not self._prop_detection_only:
             self._hold_validator.activate()
@@ -864,7 +871,6 @@ class VisionSession:
         shakers = list(normalized.shakers)
 
         needs_h = readiness_needs_hands(self.movement, self.prop_type)
-        needs_p = readiness_needs_pose(self.movement, self.prop_type)
 
         hands = None
         if needs_h and self.hands_detector is not None:
@@ -876,10 +882,13 @@ class VisionSession:
             self.timings.add("hands", time.perf_counter() - t0)
 
         pose = None
-        if needs_p and self.pose_detector is not None:
+        if self.pose_detector is not None:
             t0 = time.perf_counter()
             pose = self.pose_detector.detect(frame)
             self.timings.add("pose", time.perf_counter() - t0)
+
+        if not self._calibration.locked:
+            self._calibration.sample(pose, hands)
 
         obs = ReadinessObservation(
             has_camera_frame=True,
@@ -948,6 +957,8 @@ class VisionSession:
                 readiness_complete=readiness_complete,
                 readiness_stable=readiness_stable,
                 readiness_stable_progress=readiness_stable_progress,
+                calibration_scale=self._calibration.scale,
+                calibration_source=self._calibration.source,
             )
         )
         self.timings.add("encode", time.perf_counter() - t0)
@@ -1141,6 +1152,7 @@ class VisionSession:
             prop_type=self.prop_type,
             prop_label=self.prop_display_name,
             shakers=rule_shakers,
+            calibration_scale=self._calibration.resolved[0],
         )
         self.timings.add("evaluate", time.perf_counter() - t0)
 
@@ -1245,6 +1257,7 @@ class VisionSession:
         self._latest_readiness_observed_at = None
         self._frozen_readiness_snapshot = None
         self._readiness_confirmed = False
+        self._calibration.reset()
         self._hold_validator.reset()
         self.camera.release()
         if self.hands_detector is not None:
@@ -1622,6 +1635,8 @@ async def websocket_endpoint(websocket: WebSocket):
         session_state: str | None,
         error_code: str | None = None,
         message: str | None = None,
+        calibration_scale: float | None = None,
+        calibration_source: str | None = None,
     ) -> None:
         ack = CommandAck(
             protocol_version=PROTOCOL_VERSION,
@@ -1632,6 +1647,8 @@ async def websocket_endpoint(websocket: WebSocket):
             session_state=session_state,
             error_code=error_code,
             message=message,
+            calibration_scale=calibration_scale,
+            calibration_source=calibration_source,
         )
         await safe_send(ack.model_dump_json())
 
@@ -1930,12 +1947,15 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
+        cal_scale, cal_source = session._calibration.resolved
         await send_ack(
             request_id=command.request_id,
             session_id=command.session_id,
             action="confirm_readiness",
             accepted=True,
             session_state="readying",
+            calibration_scale=cal_scale,
+            calibration_source=cal_source,
         )
 
     async def handle_v1_activate(command: ActivateCommand) -> None:

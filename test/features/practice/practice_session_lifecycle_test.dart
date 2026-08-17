@@ -615,6 +615,36 @@ void main() {
       expect(feedback.readinessItems, isNull);
     });
 
+    test('parses calibration_scale and calibration_source when present', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Checking',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+        'calibration_scale': 1.2,
+        'calibration_source': 'shoulders',
+      });
+      expect(feedback.calibrationScale, closeTo(1.2, 0.001));
+      expect(feedback.calibrationSource, 'shoulders');
+    });
+
+    test('calibration fields absent remain null', () {
+      final feedback = PracticeFeedback.fromJson({
+        'bottle_detected': false,
+        'movement': 'Hand Stall',
+        'score': 0,
+        'feedback': 'Checking',
+        'feedback_type': 'positive',
+        'posture_status': 'unknown',
+        'session_state': 'readying',
+      });
+      expect(feedback.calibrationScale, isNull);
+      expect(feedback.calibrationSource, isNull);
+    });
+
     test('readiness_stable true and complete true are parsed', () {
       final feedback = PracticeFeedback.fromJson({
         'bottle_detected': true,
