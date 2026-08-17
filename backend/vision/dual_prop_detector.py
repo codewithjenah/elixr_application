@@ -85,7 +85,7 @@ class DualPropDetector:
         return list(bottles), list(shakers)
 
     def detect(self, frame) -> DualPropResult:
-        """Run one combined inference and return current-frame detections."""
+        """Run one combined inference and return live bottle/shaker tracks."""
         if not self._enabled:
             return DualPropResult(bottles=[], shakers=[])
 

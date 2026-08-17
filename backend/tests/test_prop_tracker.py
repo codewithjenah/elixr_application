@@ -147,3 +147,59 @@ def test_extrapolate_clamps_lead_time_when_yolo_stalls():
     assert stalled[0].x2 == capped[0].x2
     # Unclamped 5s of 200 px/s would move 1000px; clamp keeps it near 40px.
     assert stalled[0].x1 == pytest.approx(60 + 200.0 * max_lead_s, abs=1.5)
+
+
+def test_live_detections_coasts_unmatched_track_after_one_missed_frame():
+    """A YOLO miss still returns the live track, coasted, not YOLO-confirmed."""
+    tracker = PropTracker()
+    yolo_dt = YOLO_FRAME_SKIP / TARGET_FPS
+    velocity_px_s = 200.0
+    start_x = 40
+    second_x = start_x + int(round(velocity_px_s * yolo_dt))
+
+    tracker.update([_box(start_x)], timestamp=0.0)
+    confirmed = tracker.update([_box(second_x)], timestamp=yolo_dt)
+    assert confirmed[0].yolo_confirmed is True
+
+    miss_at = 2 * yolo_dt
+    frame_accurate = tracker.update([], timestamp=miss_at)
+    live = tracker.live_detections(miss_at)
+
+    assert frame_accurate == []
+    assert len(live) == 1
+    assert live[0].track_id == confirmed[0].track_id
+    assert live[0].yolo_confirmed is False
+    expected_x = start_x + velocity_px_s * miss_at
+    assert live[0].x1 == pytest.approx(expected_x, abs=1.5)
+    assert live[0].x2 == pytest.approx(expected_x + 40, abs=1.5)
+    assert live[0].y1 == 10
+    assert live[0].y2 == 90
+
+
+def test_live_detections_drops_track_after_max_missed_frames():
+    tracker = PropTracker()
+    yolo_dt = YOLO_FRAME_SKIP / TARGET_FPS
+    tracker.update([_box(40)], timestamp=0.0)
+    tracker.update([_box(60)], timestamp=yolo_dt)
+
+    now = yolo_dt
+    for _ in range(PROP_TRACK_MAX_MISSED_FRAMES + 1):
+        now += yolo_dt
+        assert tracker.update([], timestamp=now) == []
+
+    assert tracker.live_detections(now) == []
+
+
+def test_update_return_stays_frame_accurate_on_miss():
+    """Grace-period tracks must not leak into update()'s return value."""
+    tracker = PropTracker()
+    tracker.update([_box(40)], timestamp=0.0)
+    tracker.update([_box(60)], timestamp=1.0)
+
+    missed = tracker.update([], timestamp=2.0)
+    still_present = tracker.update([_box(80)], timestamp=3.0)
+
+    assert missed == []
+    assert len(still_present) == 1
+    assert still_present[0].yolo_confirmed is True
+    assert still_present[0].x1 == 80

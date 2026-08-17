@@ -304,6 +304,36 @@ def test_reset_tracks_restarts_bottle_ids(tmp_path: Path):
     assert second.bottles[0].track_id == 1
 
 
+def test_one_frame_yolo_miss_keeps_tracked_bottle_and_shaker(tmp_path: Path):
+    """A momentary empty YOLO result must not collapse live prop lists."""
+    detector, model = _combined_detector(
+        tmp_path,
+        [
+            _FakeBox(0, 0.99, [20, 10, 100, 90]),
+            _FakeBox(1, 0.91, [2, 3, 12, 20]),
+        ],
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    first = detector.detect_all(frame)
+    assert len(first.bottles) == 1
+    assert len(first.shakers) == 1
+    assert first.bottles[0].yolo_confirmed is True
+    assert first.shakers[0].yolo_confirmed is True
+    bottle_id = first.bottles[0].track_id
+    shaker_id = first.shakers[0].track_id
+
+    model._boxes = []
+    missed = detector.detect_all(frame)
+
+    assert len(missed.bottles) == 1
+    assert len(missed.shakers) == 1
+    assert missed.bottles[0].track_id == bottle_id
+    assert missed.shakers[0].track_id == shaker_id
+    assert missed.bottles[0].yolo_confirmed is False
+    assert missed.shakers[0].yolo_confirmed is False
+
+
 def test_extrapolate_detections_falls_back_when_track_is_new(tmp_path: Path):
     detector, _model = _combined_detector(
         tmp_path,

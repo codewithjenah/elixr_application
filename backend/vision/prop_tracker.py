@@ -3,7 +3,10 @@
 Simplified SORT without a Kalman filter: each current detection is matched to
 the previous box with the highest IoU above ``PROP_TRACK_MIN_IOU``. Unmatched
 detections receive a new incrementing ``track_id``. Tracks that go unmatched
-for more than ``PROP_TRACK_MAX_MISSED_FRAMES`` are dropped.
+for more than ``PROP_TRACK_MAX_MISSED_FRAMES`` are dropped from
+``self._tracks``. ``update()`` returns only detections present in the current
+input; ``live_detections()`` also includes still-alive unmatched tracks
+coasted by last-known velocity.
 
 Each track also keeps the last two YOLO-confirmed ``(timestamp, bbox)``
 observations so skipped frames can coast the box by last-known velocity
@@ -64,16 +67,6 @@ class _Track:
     just_created: bool = False
 
 
-def _translate(detection: PropDetection, dx: float, dy: float) -> PropDetection:
-    return replace(
-        detection,
-        x1=int(round(detection.x1 + dx)),
-        y1=int(round(detection.y1 + dy)),
-        x2=int(round(detection.x2 + dx)),
-        y2=int(round(detection.y2 + dy)),
-    )
-
-
 class PropTracker:
     """Assign stable ``track_id`` values to detections of one object class."""
 
@@ -129,7 +122,9 @@ class PropTracker:
                 previous = self._tracks[track_index]
                 track_id = previous.track_id
                 just_created = False
-                stamped = replace(detection, track_id=track_id)
+                stamped = replace(
+                    detection, track_id=track_id, yolo_confirmed=True
+                )
                 observations = (
                     previous.observations + (_Observation(now, stamped),)
                 )[-2:]
@@ -137,7 +132,9 @@ class PropTracker:
                 track_id = self._next_id
                 self._next_id += 1
                 just_created = True
-                stamped = replace(detection, track_id=track_id)
+                stamped = replace(
+                    detection, track_id=track_id, yolo_confirmed=True
+                )
                 observations = (_Observation(now, stamped),)
             tracked.append(stamped)
             next_tracks.append(
@@ -167,6 +164,24 @@ class PropTracker:
 
         self._tracks = next_tracks
         return tracked
+
+    def live_detections(self, now: float) -> list[PropDetection]:
+        """Return this-tick YOLO matches plus still-alive unmatched tracks.
+
+        Matched or newly created tracks have ``yolo_confirmed=True``. Tracks
+        that were not matched this frame but remain within
+        ``max_missed_frames`` are included with ``yolo_confirmed=False`` and
+        coasted by last-known velocity. Call after ``update()``.
+        """
+        lead_cap = max_extrapolation_lead_s()
+        live: list[PropDetection] = []
+        for track in self._tracks:
+            if track.missed_frames == 0:
+                live.append(replace(track.detection, yolo_confirmed=True))
+                continue
+            unmatched = replace(track.detection, yolo_confirmed=False)
+            live.append(self._coast_detection(unmatched, track, now, lead_cap))
+        return live
 
     def extrapolate(
         self,
@@ -213,4 +228,14 @@ class PropTracker:
         lead = min(elapsed, lead_cap)
         if lead <= 0:
             return detection
-        return _translate(detection, vx * lead, vy * lead)
+        # Predict from the last YOLO-confirmed box so an already-coasted
+        # input (grace-period live_detections stored in the skip-frame cache)
+        # is not translated a second time.
+        base = latest.detection
+        return replace(
+            detection,
+            x1=int(round(base.x1 + vx * lead)),
+            y1=int(round(base.y1 + vy * lead)),
+            x2=int(round(base.x2 + vx * lead)),
+            y2=int(round(base.y2 + vy * lead)),
+        )

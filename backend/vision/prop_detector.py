@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -321,9 +322,12 @@ class CombinedPropDetector:
 
         bottles.sort(key=lambda detection: detection.confidence, reverse=True)
         shakers.sort(key=lambda detection: detection.confidence, reverse=True)
+        now = time.monotonic()
+        self._bottle_tracker.update(bottles[:MAX_BOTTLES], timestamp=now)
+        self._shaker_tracker.update(shakers[:MAX_BOTTLES], timestamp=now)
         return CombinedDetectionResult(
-            bottles=self._bottle_tracker.update(bottles[:MAX_BOTTLES]),
-            shakers=self._shaker_tracker.update(shakers[:MAX_BOTTLES]),
+            bottles=self._bottle_tracker.live_detections(now),
+            shakers=self._shaker_tracker.live_detections(now),
         )
 
 

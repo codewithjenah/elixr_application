@@ -16,6 +16,7 @@ class PropDetection:
     y2: int
     confidence: float
     track_id: int | None = None
+    yolo_confirmed: bool = True
 
     @property
     def center(self) -> Point2D:
