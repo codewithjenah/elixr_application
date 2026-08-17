@@ -1676,9 +1676,9 @@ def test_hands_detector_created_once_across_readiness_and_activate(monkeypatch):
     session.close()
 
 
-def test_pose_only_movement_creates_pose_on_readiness_hands_on_activate(monkeypatch):
-    """For Reverse Forearm Stall (pose only for readiness), begin_readiness
-    creates pose; activate then creates hands (for active use) but not a second pose."""
+def test_pose_only_movement_creates_pose_on_readiness_not_hands_on_activate(monkeypatch):
+    """Reverse Forearm Stall loads Pose for readiness and must not construct
+    Hands on activate. Pose is reused, not recreated."""
     _patch_vision(monkeypatch)
 
     hands_inits = {"n": 0}
@@ -1717,10 +1717,103 @@ def test_pose_only_movement_creates_pose_on_readiness_hands_on_activate(monkeypa
     assert pose_inits["n"] == 1
     assert hands_inits["n"] == 0
 
-    # activate: _ensure_detectors creates hands; pose already exists.
     _activate_after_readiness(session)
     assert pose_inits["n"] == 1, "pose must not be re-created on activate"
-    assert hands_inits["n"] == 1, "hands created once on activate"
+    assert hands_inits["n"] == 0, "pose-only stalls must not construct Hands"
+    assert session.hands_detector is None
+    assert session.pose_detector is not None
+    session.close()
+
+
+def test_pose_only_active_frame_never_calls_hands_detect(monkeypatch):
+    """Shoulder Stall active frames run Pose, never Hands.detect, and pass
+    hands=None into evaluate_movement."""
+    _patch_vision(monkeypatch)
+
+    class TrackingHands(StubHandsDetector):
+        detect_total = 0
+
+        def detect(self, current_frame, bottle=None):
+            TrackingHands.detect_total += 1
+            return super().detect(current_frame, bottle)
+
+    class TrackingPose(StubPoseDetector):
+        pass
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
+
+    from assessment.rules.base import RuleResult
+
+    captured = {}
+
+    def tracking_evaluate(movement, bottle, pose, hands, *args, **kwargs):
+        captured["hands"] = hands
+        return (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        )
+
+    monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
+
+    session = websocket_api.VisionSession("Shoulder Stall")
+    session.start()
+    session.begin_readiness()
+    _activate_after_readiness(session)
+
+    assert session.hands_detector is None
+    assert session.pose_detector is not None
+
+    msg = session.process_frame()
+    assert msg is not None
+    assert session.hands_detector is None
+    assert TrackingHands.detect_total == 0
+    assert session.pose_detector.detect_calls >= 1
+    assert captured.get("hands") is None
+    session.close()
+
+
+def test_hand_stall_active_calls_hands_and_drops_pose(monkeypatch):
+    """Hand Stall keeps HandsDetector, calls Hands.detect, and does not keep Pose."""
+    _patch_vision(monkeypatch)
+
+    class TrackingHands(StubHandsDetector):
+        pass
+
+    class TrackingPose(StubPoseDetector):
+        pass
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
+
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
+            None,
+            None,
+        ),
+    )
+
+    session = websocket_api.VisionSession("Hand Stall")
+    session.start()
+    session.begin_readiness()
+    assert session.hands_detector is not None
+    assert session.pose_detector is not None
+
+    _activate_after_readiness(session)
+    assert session.hands_detector is not None
+    assert session.pose_detector is None
+
+    msg = session.process_frame()
+    assert msg is not None
+    assert session.hands_detector is not None
+    assert session.hands_detector.detect_calls >= 1
+    assert session.pose_detector is None
     session.close()
 
 

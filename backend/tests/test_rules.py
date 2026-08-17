@@ -11,6 +11,7 @@ from config import (
     DOUBLE_HAND_MAX_PALM_HEIGHT_DIFF,
     DOUBLE_HAND_MIN_PALM_SEPARATION,
     DOUBLE_HAND_UPRIGHT_ASPECT_RATIO,
+    MOVEMENT_CONFIG,
     SHOULDER_ABOVE_OFFSET,
     SHOULDER_STALL_PROXIMITY,
     STALL_STABILITY_THRESHOLD,
@@ -1357,11 +1358,41 @@ def test_session_passes_primary_bottle_to_hand_detector(
 
 def test_movement_requires_hands():
     assert movement_requires_hands("Hand Stall") is True
-    assert movement_requires_hands("Forearm Stall") is True
-    assert movement_requires_hands("Arm Stall") is True  # legacy alias
-    assert movement_requires_hands("Elbow Stall") is True
     assert movement_requires_hands("Normal Grip") is True
     assert movement_requires_hands("Claw Grip") is True
+    assert movement_requires_hands("Forearm Stall") is False
+    assert movement_requires_hands("Arm Stall") is False  # legacy alias
+    assert movement_requires_hands("Elbow Stall") is False
+    assert movement_requires_hands("Reverse Forearm Stall") is False
+    assert movement_requires_hands("Shoulder Stall") is False
+
+
+# Explicit (requires_hands, requires_pose) for every MOVEMENT_CONFIG entry so a
+# new movement cannot silently default Hands on.
+_EXPECTED_DETECTOR_REQUIREMENTS = {
+    "Normal Grip": (True, False),
+    "Bartender's Grip": (True, False),
+    "Reverse Grip": (True, False),
+    "Claw Grip": (True, False),
+    "Hand Stall": (True, False),
+    "One Finger Stall": (True, False),
+    "Double Hand Stall": (True, False),
+    "Bottle in a tin": (True, False),
+    "Forearm Stall": (False, True),
+    "Elbow Stall": (False, True),
+    "Reverse Forearm Stall": (False, True),
+    "Shoulder Stall": (False, True),
+    "Arm Stall": (False, True),
+    "Upper Forearm Stall": (False, True),
+    "Free Practice": (False, False),
+}
+
+
+def test_movement_config_detector_requirements_are_explicit():
+    assert set(MOVEMENT_CONFIG) == set(_EXPECTED_DETECTOR_REQUIREMENTS)
+    for name, (hands, pose) in _EXPECTED_DETECTOR_REQUIREMENTS.items():
+        assert movement_requires_hands(name) is hands, name
+        assert movement_requires_pose(name) is pose, name
 
 
 @pytest.mark.parametrize(

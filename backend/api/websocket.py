@@ -513,6 +513,9 @@ class VisionSession:
         self._hands_bartender_roi = (
             not self._prop_detection_only and movement == "Bartender's Grip"
         )
+        self._hands_needed = (
+            not self._prop_detection_only and movement_requires_hands(movement)
+        )
         self._pose_needed = (
             not self._prop_detection_only and movement_requires_pose(movement)
         )
@@ -635,7 +638,7 @@ class VisionSession:
     def _ensure_detectors(self) -> None:
         if self._prop_detection_only:
             return
-        if self.hands_detector is None:
+        if self._hands_needed and self.hands_detector is None:
             self.hands_detector = HandsDetector(
                 rotated_fallback=self._hands_rotated_fallback,
                 bartender_roi_fallback=self._hands_bartender_roi,
@@ -733,6 +736,9 @@ class VisionSession:
             return False, "readiness_not_confirmed"
 
         self._ensure_detectors()
+        if not self._hands_needed and self.hands_detector is not None:
+            self.hands_detector.close()
+            self.hands_detector = None
         if not self._pose_needed and self.pose_detector is not None:
             self.pose_detector.close()
             self.pose_detector = None
@@ -1109,16 +1115,16 @@ class VisionSession:
         # Important fix:
         # Do not use previous hand landmarks when the current frame has no hand.
         # This prevents "naiiwan yung daliri" / ghost hand dots.
-        assert self.hands_detector is not None
-        if movement_requires_hands(self.movement):
+        # Missing Hands when required is a lifecycle bug, not a detection miss.
+        hands = None
+        if self._hands_needed:
+            assert self.hands_detector is not None
             t0 = time.perf_counter()
             hands = self.hands_detector.detect(
                 frame,
                 bottle=hand_reference,
             )
             self.timings.add("hands", time.perf_counter() - t0)
-        else:
-            hands = None
 
         if self.pose_detector:
             t0 = time.perf_counter()
