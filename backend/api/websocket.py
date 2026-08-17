@@ -587,9 +587,18 @@ class VisionSession:
         return self._normalize_detections(bottles=detected, shakers=[])
 
     def _cached_normalized_props(self) -> _NormalizedFrameDetections:
+        bottles = list(self._last_bottles)
+        shakers = list(self._last_shakers)
+        extrapolate = getattr(self.prop_detector, "extrapolate_detections", None)
+        if callable(extrapolate):
+            bottles, shakers = extrapolate(
+                bottles=bottles,
+                shakers=shakers,
+                now=time.monotonic(),
+            )
         return self._normalize_detections(
-            bottles=list(self._last_bottles),
-            shakers=list(self._last_shakers),
+            bottles=list(bottles),
+            shakers=list(shakers),
         )
 
     def _store_normalized_props(self, normalized: _NormalizedFrameDetections) -> None:

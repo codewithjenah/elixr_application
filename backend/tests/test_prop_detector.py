@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -301,3 +302,21 @@ def test_reset_tracks_restarts_bottle_ids(tmp_path: Path):
     model._boxes = [_FakeBox(0, 0.99, [200, 1, 240, 40])]
     second = detector.detect_all(frame)
     assert second.bottles[0].track_id == 1
+
+
+def test_extrapolate_detections_falls_back_when_track_is_new(tmp_path: Path):
+    detector, _model = _combined_detector(
+        tmp_path,
+        [_FakeBox(0, 0.99, [40, 10, 80, 90])],
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    result = detector.detect_all(frame)
+
+    bottles, shakers = detector.extrapolate_detections(
+        bottles=result.bottles,
+        shakers=result.shakers,
+        now=time.monotonic() + 1.0,
+    )
+
+    assert bottles == result.bottles
+    assert shakers == result.shakers

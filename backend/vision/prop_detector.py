@@ -196,6 +196,19 @@ class CombinedPropDetector:
         self._bottle_tracker.reset()
         self._shaker_tracker.reset()
 
+    def extrapolate_detections(
+        self,
+        *,
+        bottles: list[PropDetection],
+        shakers: list[PropDetection],
+        now: float,
+    ) -> tuple[list[PropDetection], list[PropDetection]]:
+        """Coast last YOLO boxes by per-track velocity for skipped frames."""
+        return (
+            self._bottle_tracker.extrapolate(bottles, now),
+            self._shaker_tracker.extrapolate(shakers, now),
+        )
+
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""
         self._ensure_model()
@@ -376,6 +389,20 @@ class PropDetector:
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""
         self._combined.ensure_ready()
+
+    def extrapolate_detections(
+        self,
+        *,
+        bottles: list[PropDetection],
+        shakers: list[PropDetection],
+        now: float,
+    ) -> tuple[list[PropDetection], list[PropDetection]]:
+        """Coast last YOLO boxes by per-track velocity for skipped frames."""
+        return self._combined.extrapolate_detections(
+            bottles=bottles,
+            shakers=shakers,
+            now=now,
+        )
 
     def detect_all(self, frame: np.ndarray) -> CombinedDetectionResult:
         """Run one combined inference and return both prop lists."""

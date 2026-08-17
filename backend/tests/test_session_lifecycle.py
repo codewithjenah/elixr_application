@@ -549,6 +549,89 @@ def test_activate_reuses_same_camera_and_resets_state(monkeypatch):
     session.close()
 
 
+def test_skipped_yolo_frames_extrapolate_cached_props(monkeypatch):
+    """Guided, free-practice, and readiness skip frames all coast via the detector."""
+    from config import YOLO_FRAME_SKIP
+    from vision.types import PropDetection
+
+    _patch_vision(monkeypatch)
+
+    class TrackingDetector:
+        instances: list["TrackingDetector"] = []
+
+        def __init__(self, *args, enabled: bool = True, prop_type: str = "bottle", **kwargs):
+            self.enabled = enabled
+            self.prop_type = prop_type
+            self.detect_calls = 0
+            self.extrapolate_calls = 0
+            TrackingDetector.instances.append(self)
+
+        def ensure_ready(self):
+            pass
+
+        def detect(self, current_frame):
+            self.detect_calls += 1
+            return [
+                PropDetection(
+                    x1=10, y1=10, x2=50, y2=90, confidence=0.9, track_id=1
+                )
+            ]
+
+        def extrapolate_detections(self, *, bottles, shakers, now):
+            self.extrapolate_calls += 1
+            assert now > 0
+            return bottles, shakers
+
+    monkeypatch.setattr(websocket_api, "BottleDetector", TrackingDetector)
+    monkeypatch.setattr(websocket_api, "PropDetector", TrackingDetector)
+
+    from assessment.rules.base import RuleResult
+
+    monkeypatch.setattr(
+        websocket_api,
+        "evaluate_movement",
+        lambda *a, **k: (
+            RuleResult(
+                feedback="ok",
+                feedback_type="positive",
+                posture_status="stable",
+            ),
+            None,
+            None,
+        ),
+    )
+
+    def _drive_skip_frames(session: websocket_api.VisionSession) -> TrackingDetector:
+        detector = TrackingDetector.instances[-1]
+        for _ in range(YOLO_FRAME_SKIP):
+            msg = session.process_tick()
+            assert msg is not None
+        assert detector.detect_calls == 1
+        assert detector.extrapolate_calls == YOLO_FRAME_SKIP - 1
+        return detector
+
+    TrackingDetector.instances = []
+    guided = websocket_api.VisionSession("Hand Stall")
+    guided.start()
+    _activate_prepared(guided)
+    _drive_skip_frames(guided)
+    guided.close()
+
+    TrackingDetector.instances = []
+    free = websocket_api.VisionSession("Free Practice", prop_type="shaker")
+    free.start()
+    _activate_prepared(free)
+    _drive_skip_frames(free)
+    free.close()
+
+    TrackingDetector.instances = []
+    readiness = websocket_api.VisionSession("Hand Stall")
+    readiness.start()
+    readiness.begin_readiness()
+    _drive_skip_frames(readiness)
+    readiness.close()
+
+
 def test_repeated_activate_is_idempotent(monkeypatch):
     _patch_vision(monkeypatch)
     session = websocket_api.VisionSession("Hand Stall")

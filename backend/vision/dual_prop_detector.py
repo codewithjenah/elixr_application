@@ -71,6 +71,19 @@ class DualPropDetector:
         if callable(reset):
             reset()
 
+    def extrapolate_detections(
+        self,
+        *,
+        bottles: list[PropDetection],
+        shakers: list[PropDetection],
+        now: float,
+    ) -> tuple[list[PropDetection], list[PropDetection]]:
+        """Coast last YOLO boxes by per-track velocity for skipped frames."""
+        extrapolate = getattr(self._combined, "extrapolate_detections", None)
+        if callable(extrapolate):
+            return extrapolate(bottles=bottles, shakers=shakers, now=now)
+        return list(bottles), list(shakers)
+
     def detect(self, frame) -> DualPropResult:
         """Run one combined inference and return current-frame detections."""
         if not self._enabled:

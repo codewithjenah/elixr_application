@@ -134,6 +134,40 @@ def test_reset_cache_resets_combined_prop_tracks():
     assert combined.reset_tracks_calls == 1
 
 
+def test_extrapolate_detections_delegates_to_combined():
+    class Combined(_StubCombinedDetector):
+        def __init__(self):
+            super().__init__(bottles=[_bottle()], shakers=[_shaker()])
+            self.extrapolate_now: float | None = None
+
+        def extrapolate_detections(self, *, bottles, shakers, now):
+            self.extrapolate_now = now
+            shifted = [
+                PropDetection(
+                    x1=b.x1 + 3,
+                    y1=b.y1,
+                    x2=b.x2 + 3,
+                    y2=b.y2,
+                    confidence=b.confidence,
+                    track_id=b.track_id,
+                )
+                for b in bottles
+            ]
+            return shifted, shakers
+
+    combined = Combined()
+    dual = DualPropDetector(combined_detector=combined)
+    bottles, shakers = dual.extrapolate_detections(
+        bottles=[_bottle()],
+        shakers=[_shaker()],
+        now=1.25,
+    )
+
+    assert combined.extrapolate_now == 1.25
+    assert bottles[0].x1 == _bottle().x1 + 3
+    assert shakers == [_shaker()]
+
+
 def test_disabled_detector_returns_empty_results_without_inference():
     combined = _StubCombinedDetector(bottles=[_bottle()], shakers=[_shaker()])
     dual = DualPropDetector(enabled=False, combined_detector=combined)
