@@ -471,7 +471,6 @@ class _PracticeScreenState extends State<PracticeScreen>
     _movementConfirmedShowing = true;
 
     _run.markCompleted();
-    await _music.stop();
     if (mounted) setState(() {});
 
     // One completion dialog for beginners (skip separate victory screen).
@@ -695,8 +694,9 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (_run.phase == PracticeRunPhase.active) {
       _run.markCompleted();
     }
-    await _music.stop();
-    await _sfx.stop();
+    unawaited(_music.stop());
+    // Do not await _sfx.stop() here. playCongrats() already stops then
+    // plays on the same AudioPlayer; a parallel stop can race and mute it.
 
     if (!_hasSessionData && _run.elapsedSeconds == 0) {
       // Still show summary for an activated session with zero elapsed when
@@ -746,10 +746,9 @@ class _PracticeScreenState extends State<PracticeScreen>
       }
     }
     _isShowingSummary = true;
+    if (mounted) setState(() {});
     try {
-      // Play congrats when the Session Complete dialog appears.
-      await _sfx.setVolume(sfxVolume);
-      await _sfx.playCongrats();
+      unawaited(_playCongratsBestEffort(sfxVolume));
       if (!mounted) return;
       final nextMovement = nextEnabledMovementAfter(_movement);
       final result = await SessionSummarySheet.show(
@@ -823,6 +822,16 @@ class _PracticeScreenState extends State<PracticeScreen>
       );
     } finally {
       _isShowingSummary = false;
+    }
+  }
+
+  Future<void> _playCongratsBestEffort(double volume) async {
+    try {
+      await _sfx.setVolume(volume);
+      await _sfx.playCongrats();
+    } catch (error, stackTrace) {
+      debugPrint('Congrats SFX failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 

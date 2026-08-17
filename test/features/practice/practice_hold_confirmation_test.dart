@@ -1,23 +1,60 @@
+import 'dart:async';
+
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/features/practice/practice_run_phase.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Mirrors [PracticeScreen] hold-completion gating for unit tests.
+///
+/// Audio stop and congrats playback are launched with [unawaited] so a hung
+/// or throwing `audioplayers` call cannot block Session Summary.
 class _HoldCompletionHarness {
   bool movementConfirmedShowing = false;
+  bool isShowingSummary = false;
   int completionCount = 0;
+  int websocketStopCount = 0;
+  int summaryShowCount = 0;
+  int congratsStartedCount = 0;
+
+  Future<void> Function() playCongrats = () async {};
+  Future<void> Function() musicStop = () async {};
 
   void onFeedback(PracticeFeedback feedback, {required bool isTrainingActive}) {
     if (!isTrainingActive) return;
     if (feedback.holdConfirmed) {
-      onMovementConfirmed();
+      unawaited(onMovementConfirmed());
     }
   }
 
-  void onMovementConfirmed() {
+  Future<void> onMovementConfirmed() async {
     if (movementConfirmedShowing) return;
     movementConfirmedShowing = true;
     completionCount++;
+    // No music.stop() here — _stopSession owns audio cleanup.
+    await stopSession(heldSteady: true);
+    movementConfirmedShowing = false;
+  }
+
+  Future<void> stopSession({bool heldSteady = false}) async {
+    if (isShowingSummary) return;
+    websocketStopCount++;
+    unawaited(musicStop().catchError((Object _, StackTrace _) {}));
+    isShowingSummary = true;
+    try {
+      unawaited(_playCongratsBestEffort());
+      summaryShowCount++;
+    } finally {
+      isShowingSummary = false;
+    }
+  }
+
+  Future<void> _playCongratsBestEffort() async {
+    congratsStartedCount++;
+    try {
+      await playCongrats();
+    } catch (_) {
+      // Audio is optional.
+    }
   }
 
   void clearSessionState() {
@@ -132,13 +169,14 @@ void main() {
   });
 
   group('backend hold completion gating', () {
-    test('hold_confirmed completes the session exactly once', () {
+    test('hold_confirmed completes the session exactly once', () async {
       final harness = _HoldCompletionHarness();
       final confirmed = _activeHoldFeedback(holdConfirmed: true);
 
       harness.onFeedback(confirmed, isTrainingActive: true);
       harness.onFeedback(confirmed, isTrainingActive: true);
       harness.onFeedback(confirmed, isTrainingActive: true);
+      await Future<void>.delayed(Duration.zero);
 
       expect(harness.completionCount, 1);
     });
@@ -164,12 +202,13 @@ void main() {
       expect(harness.completionCount, 0);
     });
 
-    test('Try Again clears prior confirmation state', () {
+    test('Try Again clears prior confirmation state', () async {
       final harness = _HoldCompletionHarness();
       harness.onFeedback(
         _activeHoldFeedback(holdConfirmed: true),
         isTrainingActive: true,
       );
+      await Future<void>.delayed(Duration.zero);
       expect(harness.completionCount, 1);
 
       harness.clearSessionState();
@@ -179,7 +218,71 @@ void main() {
         _activeHoldFeedback(holdConfirmed: true),
         isTrainingActive: true,
       );
+      await Future<void>.delayed(Duration.zero);
       expect(harness.completionCount, 2);
+    });
+
+    test('summary appears when congrats SFX never completes', () async {
+      final hang = Completer<void>();
+      final harness = _HoldCompletionHarness();
+      harness.playCongrats = () => hang.future;
+
+      harness.onFeedback(
+        _activeHoldFeedback(holdConfirmed: true),
+        isTrainingActive: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(harness.summaryShowCount, 1);
+      expect(harness.websocketStopCount, 1);
+      expect(hang.isCompleted, isFalse);
+    });
+
+    test('summary appears when congrats SFX throws', () async {
+      final harness = _HoldCompletionHarness();
+      harness.playCongrats = () async {
+        throw StateError('audioplayers platform thread');
+      };
+
+      harness.onFeedback(
+        _activeHoldFeedback(holdConfirmed: true),
+        isTrainingActive: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(harness.summaryShowCount, 1);
+    });
+
+    test('summary appears when music stop never completes', () async {
+      final hang = Completer<void>();
+      final harness = _HoldCompletionHarness();
+      harness.musicStop = () => hang.future;
+
+      harness.onFeedback(
+        _activeHoldFeedback(holdConfirmed: true),
+        isTrainingActive: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(harness.summaryShowCount, 1);
+      expect(hang.isCompleted, isFalse);
+    });
+
+    test('hold_confirmed stops websocket and shows summary once', () async {
+      final hang = Completer<void>();
+      final harness = _HoldCompletionHarness();
+      harness.playCongrats = () => hang.future;
+      final confirmed = _activeHoldFeedback(holdConfirmed: true);
+
+      harness.onFeedback(confirmed, isTrainingActive: true);
+      harness.onFeedback(confirmed, isTrainingActive: true);
+      harness.onFeedback(confirmed, isTrainingActive: true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(harness.completionCount, 1);
+      expect(harness.websocketStopCount, 1);
+      expect(harness.summaryShowCount, 1);
+      expect(harness.congratsStartedCount, 1);
     });
   });
 
