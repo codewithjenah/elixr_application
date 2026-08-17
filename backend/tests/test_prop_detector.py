@@ -334,6 +334,52 @@ def test_one_frame_yolo_miss_keeps_tracked_bottle_and_shaker(tmp_path: Path):
     assert missed.shakers[0].yolo_confirmed is False
 
 
+def test_spatial_jump_returns_one_live_bottle(tmp_path: Path):
+    """A far YOLO box must not leave the previous unmatched bottle in detect_all()."""
+    detector, model = _combined_detector(
+        tmp_path,
+        [_FakeBox(0, 0.99, [10, 10, 50, 90])],
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    first = detector.detect_all(frame)
+    assert len(first.bottles) == 1
+    first_id = first.bottles[0].track_id
+
+    model._boxes = [_FakeBox(0, 0.99, [200, 10, 240, 90])]
+    jumped = detector.detect_all(frame)
+
+    assert len(jumped.bottles) == 1
+    assert jumped.bottles[0].track_id != first_id
+    assert jumped.bottles[0].x1 == 200
+    assert jumped.bottles[0].yolo_confirmed is True
+
+
+def test_one_of_two_bottles_occluded_keeps_unmatched_live_box(tmp_path: Path):
+    """Double-hand occlusion: one YOLO box still returns two live bottles."""
+    detector, model = _combined_detector(
+        tmp_path,
+        [
+            _FakeBox(0, 0.99, [10, 10, 50, 90]),
+            _FakeBox(0, 0.90, [200, 10, 240, 90]),
+        ],
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    first = detector.detect_all(frame)
+    assert len(first.bottles) == 2
+    left_id = next(bottle.track_id for bottle in first.bottles if bottle.x1 == 10)
+    right_id = next(bottle.track_id for bottle in first.bottles if bottle.x1 == 200)
+
+    model._boxes = [_FakeBox(0, 0.99, [12, 10, 52, 90])]
+    occluded = detector.detect_all(frame)
+
+    assert len(occluded.bottles) == 2
+    by_id = {bottle.track_id: bottle for bottle in occluded.bottles}
+    assert by_id[left_id].yolo_confirmed is True
+    assert by_id[right_id].yolo_confirmed is False
+
+
 def test_extrapolate_detections_falls_back_when_track_is_new(tmp_path: Path):
     detector, _model = _combined_detector(
         tmp_path,

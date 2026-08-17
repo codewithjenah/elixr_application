@@ -203,3 +203,88 @@ def test_update_return_stays_frame_accurate_on_miss():
     assert len(still_present) == 1
     assert still_present[0].yolo_confirmed is True
     assert still_present[0].x1 == 80
+
+
+def test_spatial_jump_does_not_leave_unmatched_ghost():
+    """A far YOLO box replaces identity; live_detections must not keep the old AABB."""
+    tracker = PropTracker()
+    first = tracker.update([_det(10, 10, 50, 90)], timestamp=0.0)
+    assert first[0].track_id == 1
+
+    jumped = tracker.update([_det(200, 10, 240, 90)], timestamp=1.0)
+    live = tracker.live_detections(1.0)
+
+    assert len(jumped) == 1
+    assert jumped[0].track_id != first[0].track_id
+    assert jumped[0].x1 == 200
+    assert jumped[0].yolo_confirmed is True
+    assert len(live) == 1
+    assert live[0].track_id == jumped[0].track_id
+    assert live[0].x1 == 200
+    assert live[0].yolo_confirmed is True
+
+
+def test_both_boxes_jumping_does_not_leave_ghosts():
+    tracker = PropTracker()
+    first = tracker.update(
+        [_det(10, 10, 50, 90), _det(80, 10, 120, 90)],
+        timestamp=0.0,
+    )
+
+    jumped = tracker.update(
+        [_det(200, 10, 240, 90), _det(280, 10, 320, 90)],
+        timestamp=1.0,
+    )
+    live = tracker.live_detections(1.0)
+
+    assert len(jumped) == 2
+    assert {det.track_id for det in jumped}.isdisjoint(
+        {det.track_id for det in first}
+    )
+    assert len(live) == 2
+    assert {det.track_id for det in live} == {det.track_id for det in jumped}
+    assert all(det.yolo_confirmed for det in live)
+
+
+def test_one_of_two_yolo_boxes_keeps_unmatched_track():
+    """Occlusion: fewer YOLO boxes than live tracks still coasts the missing one."""
+    tracker = PropTracker()
+    first = tracker.update(
+        [_det(10, 10, 50, 90), _det(200, 10, 240, 90)],
+        timestamp=0.0,
+    )
+    left_id = next(det.track_id for det in first if det.x1 == 10)
+    right_id = next(det.track_id for det in first if det.x1 == 200)
+
+    occluded = tracker.update([_det(12, 10, 52, 90)], timestamp=1.0)
+    live = tracker.live_detections(1.0)
+
+    assert len(occluded) == 1
+    assert occluded[0].track_id == left_id
+    assert occluded[0].yolo_confirmed is True
+    assert len(live) == 2
+    live_by_id = {det.track_id: det for det in live}
+    assert live_by_id[left_id].yolo_confirmed is True
+    assert live_by_id[right_id].yolo_confirmed is False
+
+
+def test_unmatched_yolo_with_fewer_boxes_does_not_grow_live_set():
+    """A jump while YOLO count drops must not grow past max(yolo_n, previous_n)."""
+    tracker = PropTracker()
+    first = tracker.update(
+        [_det(10, 10, 50, 90), _det(200, 10, 240, 90)],
+        timestamp=0.0,
+    )
+
+    jumped = tracker.update([_det(400, 10, 440, 90)], timestamp=1.0)
+    live = tracker.live_detections(1.0)
+
+    assert len(jumped) == 1
+    assert jumped[0].track_id not in {det.track_id for det in first}
+    assert len(live) == 2
+    confirmed = [det for det in live if det.yolo_confirmed]
+    unmatched = [det for det in live if not det.yolo_confirmed]
+    assert len(confirmed) == 1
+    assert confirmed[0].x1 == 400
+    assert len(unmatched) == 1
+    assert unmatched[0].track_id in {det.track_id for det in first}

@@ -2,11 +2,14 @@
 
 Simplified SORT without a Kalman filter: each current detection is matched to
 the previous box with the highest IoU above ``PROP_TRACK_MIN_IOU``. Unmatched
-detections receive a new incrementing ``track_id``. Tracks that go unmatched
-for more than ``PROP_TRACK_MAX_MISSED_FRAMES`` are dropped from
-``self._tracks``. ``update()`` returns only detections present in the current
-input; ``live_detections()`` also includes still-alive unmatched tracks
-coasted by last-known velocity.
+detections receive a new incrementing ``track_id``. Unmatched previous tracks
+are kept only when this tick's detection count is less than the previous
+live-track count (true miss or occlusion). When YOLO returns as many or more
+boxes, unmatched tracks are retired immediately so an identity jump cannot
+leave a ghost box. Tracks that stay unmatched for more than
+``PROP_TRACK_MAX_MISSED_FRAMES`` are also dropped. ``update()`` returns only
+detections present in the current input; ``live_detections()`` also includes
+still-alive unmatched tracks coasted by last-known velocity.
 
 Each track also keeps the last two YOLO-confirmed ``(timestamp, bbox)``
 observations so skipped frames can coast the box by last-known velocity
@@ -96,6 +99,8 @@ class PropTracker:
         omitted) stored for skipped-frame velocity extrapolation.
         """
         now = time.monotonic() if timestamp is None else timestamp
+        previous_n = len(self._tracks)
+        yolo_n = len(detections)
         pairs: list[tuple[float, int, int]] = []
         for track_index, track in enumerate(self._tracks):
             for det_index, detection in enumerate(detections):
@@ -147,11 +152,19 @@ class PropTracker:
                 )
             )
 
-        for track_index, track in enumerate(self._tracks):
-            if track_index in used_tracks:
-                continue
-            missed = track.missed_frames + 1
-            if missed <= self._max_missed_frames:
+        # Identity jump: YOLO returned as many or more boxes than last time, so
+        # previous objects were matched or replaced. Keep unmatched tracks only
+        # on a true miss (fewer boxes), and never grow past max(yolo_n, previous_n).
+        if yolo_n < previous_n:
+            unmatched_budget = previous_n - yolo_n
+            for track_index, track in enumerate(self._tracks):
+                if unmatched_budget <= 0:
+                    break
+                if track_index in used_tracks:
+                    continue
+                missed = track.missed_frames + 1
+                if missed > self._max_missed_frames:
+                    continue
                 next_tracks.append(
                     _Track(
                         track_id=track.track_id,
@@ -161,6 +174,7 @@ class PropTracker:
                         just_created=False,
                     )
                 )
+                unmatched_budget -= 1
 
         self._tracks = next_tracks
         return tracked
@@ -171,7 +185,8 @@ class PropTracker:
         Matched or newly created tracks have ``yolo_confirmed=True``. Tracks
         that were not matched this frame but remain within
         ``max_missed_frames`` are included with ``yolo_confirmed=False`` and
-        coasted by last-known velocity. Call after ``update()``.
+        coasted by last-known velocity, only when this tick had fewer YOLO
+        boxes than the previous live-track count. Call after ``update()``.
         """
         lead_cap = max_extrapolation_lead_s()
         live: list[PropDetection] = []
