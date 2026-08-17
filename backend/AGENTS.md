@@ -71,10 +71,13 @@ Keep Flutter independent of these implementation details except for the document
 - Readiness lives in `assessment/readiness.py` and checks camera/prop/landmark
   observability only (not palm openness, grip orientation, proximity, or
   steadiness). Pose-required movements include `upper_body_visible` (both
-  shoulders plus one complete arm chain). Guided readiness also loads Pose for
-  every scored movement so `assessment.calibration` can sample shoulder width
-  (or palm-length fallback) without adding checklist rows; the locked scale
-  multiplies proximity/stability thresholds during active evaluation.
+  shoulders plus one complete arm chain). Guided readiness loads only the
+  landmark detectors required by `readiness_needs_hands` / `readiness_needs_pose`
+  (Hands-only grips/stalls never construct Pose; Pose-only stalls never
+  construct Hands). Calibration samples the already-running modality — palm
+  length or shoulder width — and must not start an extra detector solely for
+  scale. The locked scale multiplies proximity/stability thresholds during
+  active evaluation.
   Stabilization uses per-item consecutive pass/fail frames plus a monotonic
   global `READINESS_STABLE_DURATION_S`. `confirm_readiness` freezes the
   approved snapshot through countdown. Stable snapshots older than

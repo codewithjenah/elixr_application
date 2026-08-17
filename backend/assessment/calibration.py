@@ -1,9 +1,10 @@
-"""Per-session distance calibration from pose/hand landmarks.
+"""Per-session distance calibration from already-running landmark detectors.
 
 Proximity and stall-stability thresholds in config.py are normalized image
-space. This module derives a scale factor from shoulder width (preferred) or
-palm length (fallback) so those thresholds stay physically comparable when
-the user is closer or farther from the webcam.
+space. This module derives a scale factor from the landmarks the current
+movement already requires: shoulder width when Pose is running, or palm
+length when Hands is running. Callers must not start an extra detector
+solely to obtain a scale. Default ``1.0`` if neither sample is available.
 """
 
 from __future__ import annotations
@@ -41,9 +42,12 @@ def compute_calibration_scale(
     *,
     min_visibility: float = 0.5,
 ) -> tuple[float, str]:
-    """Return ``(scale, source)`` from the best available body-size cue.
+    """Return ``(scale, source)`` from landmarks the caller already produced.
 
-    Source is ``"shoulders"``, ``"palm_fallback"``, or ``"default"``.
+    Pass only the in-use modality (Pose for pose-required movements, Hands
+    for hand-required movements). Source is ``"shoulders"``,
+    ``"palm_fallback"``, or ``"default"``. When both are supplied, shoulder
+    width still wins so a dual-modality caller cannot be overwritten by palm.
     """
     if pose is not None:
         left = pose.get(11, min_visibility=min_visibility)

@@ -18,6 +18,7 @@ from assessment.readiness import (
     ReadinessSnapshot,
     ReadinessTracker,
     readiness_needs_hands,
+    readiness_needs_pose,
 )
 from assessment.rule_engine import (
     evaluate_movement,
@@ -635,31 +636,43 @@ class VisionSession:
     def _stamp(self, message: FeedbackMessage) -> FeedbackMessage:
         return message.with_session(self.session_id)
 
+    def _sync_landmark_detectors(self, *, needs_hands: bool, needs_pose: bool) -> None:
+        """Create required Hands/Pose detectors and close any unused instances."""
+        if needs_hands:
+            if self.hands_detector is None:
+                self.hands_detector = HandsDetector(
+                    rotated_fallback=self._hands_rotated_fallback,
+                    bartender_roi_fallback=self._hands_bartender_roi,
+                )
+        elif self.hands_detector is not None:
+            self.hands_detector.close()
+            self.hands_detector = None
+
+        if needs_pose:
+            if self.pose_detector is None:
+                self.pose_detector = PoseDetector()
+        elif self.pose_detector is not None:
+            self.pose_detector.close()
+            self.pose_detector = None
+
     def _ensure_detectors(self) -> None:
         if self._prop_detection_only:
+            self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
             return
-        if self._hands_needed and self.hands_detector is None:
-            self.hands_detector = HandsDetector(
-                rotated_fallback=self._hands_rotated_fallback,
-                bartender_roi_fallback=self._hands_bartender_roi,
-            )
-        if self._pose_needed and self.pose_detector is None:
-            self.pose_detector = PoseDetector()
+        self._sync_landmark_detectors(
+            needs_hands=self._hands_needed,
+            needs_pose=self._pose_needed,
+        )
 
     def _ensure_readiness_detectors(self) -> None:
         """Create only the detectors required for readiness observation."""
         if self._prop_detection_only:
+            self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
             return
-        needs_h = readiness_needs_hands(self.movement, self.prop_type)
-        if needs_h and self.hands_detector is None:
-            self.hands_detector = HandsDetector(
-                rotated_fallback=self._hands_rotated_fallback,
-                bartender_roi_fallback=self._hands_bartender_roi,
-            )
-        # Pose is sampled opportunistically for calibration even when the
-        # readiness checklist does not require it. Checklist items are unchanged.
-        if self.pose_detector is None:
-            self.pose_detector = PoseDetector()
+        self._sync_landmark_detectors(
+            needs_hands=readiness_needs_hands(self.movement, self.prop_type),
+            needs_pose=readiness_needs_pose(self.movement, self.prop_type),
+        )
 
     def begin_readiness(self) -> bool:
         """Transition prepared → readying. Idempotent when already READYING.
@@ -736,12 +749,6 @@ class VisionSession:
             return False, "readiness_not_confirmed"
 
         self._ensure_detectors()
-        if not self._hands_needed and self.hands_detector is not None:
-            self.hands_detector.close()
-            self.hands_detector = None
-        if not self._pose_needed and self.pose_detector is not None:
-            self.pose_detector.close()
-            self.pose_detector = None
         self.rubric.activate()
         if not self._prop_detection_only:
             self._hold_validator.activate()
@@ -877,6 +884,7 @@ class VisionSession:
         shakers = list(normalized.shakers)
 
         needs_h = readiness_needs_hands(self.movement, self.prop_type)
+        needs_p = readiness_needs_pose(self.movement, self.prop_type)
 
         hands = None
         if needs_h and self.hands_detector is not None:
@@ -888,7 +896,7 @@ class VisionSession:
             self.timings.add("hands", time.perf_counter() - t0)
 
         pose = None
-        if self.pose_detector is not None:
+        if needs_p and self.pose_detector is not None:
             t0 = time.perf_counter()
             pose = self.pose_detector.detect(frame)
             self.timings.add("pose", time.perf_counter() - t0)
@@ -1126,12 +1134,12 @@ class VisionSession:
             )
             self.timings.add("hands", time.perf_counter() - t0)
 
-        if self.pose_detector:
+        pose = None
+        if self._pose_needed:
+            assert self.pose_detector is not None
             t0 = time.perf_counter()
             pose = self.pose_detector.detect(frame)
             self.timings.add("pose", time.perf_counter() - t0)
-        else:
-            pose = None
 
         # Generic rules expect the selected prop in `bottle` / `bottles`.
         rule_bottles = (
@@ -1266,10 +1274,7 @@ class VisionSession:
         self._calibration.reset()
         self._hold_validator.reset()
         self.camera.release()
-        if self.hands_detector is not None:
-            self.hands_detector.close()
-        if self.pose_detector is not None:
-            self.pose_detector.close()
+        self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
 
 
 def _signal_prepare_gate(

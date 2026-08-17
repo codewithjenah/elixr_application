@@ -1803,7 +1803,7 @@ def test_hand_stall_active_calls_hands_and_drops_pose(monkeypatch):
     session.start()
     session.begin_readiness()
     assert session.hands_detector is not None
-    assert session.pose_detector is not None
+    assert session.pose_detector is None
 
     _activate_after_readiness(session)
     assert session.hands_detector is not None

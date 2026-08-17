@@ -293,26 +293,67 @@ def test_stall_proximity_and_stability_use_scaled_threshold():
     assert tight_ok is False
 
 
-def test_hand_stall_readiness_loads_pose_without_changing_checklist(monkeypatch):
+def test_hand_stall_readiness_does_not_load_pose_or_change_checklist(monkeypatch):
     from api import websocket as websocket_api
     from assessment.readiness import requirements_for
-    from test_session_lifecycle import _patch_vision
+    from test_session_lifecycle import StubPoseDetector, _patch_vision
 
     _patch_vision(monkeypatch)
+    pose_inits = {"n": 0}
+
+    class TrackingPose(StubPoseDetector):
+        def __init__(self, **kwargs):
+            pose_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
     codes = [req.code for req in requirements_for("Hand Stall")]
     assert "upper_body_visible" not in codes
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
     session.begin_readiness()
-    assert session.pose_detector is not None
+    assert session.hands_detector is not None
+    assert session.pose_detector is None
+    assert pose_inits["n"] == 0
     msg = session.process_readiness_frame()
     assert msg is not None
     assert [item.code for item in msg.readiness_items] == codes
+    assert pose_inits["n"] == 0
     session.close()
 
 
-def test_session_prefers_shoulders_over_later_palm_fallback(monkeypatch):
+def test_normal_grip_readiness_calibrates_from_palm_without_pose(monkeypatch):
+    from api import websocket as websocket_api
+    from test_session_lifecycle import StubHandsDetector, StubPoseDetector, _patch_vision
+
+    _patch_vision(monkeypatch)
+    pose_inits = {"n": 0}
+
+    class PalmHands(StubHandsDetector):
+        def detect(self, current_frame, bottle=None):
+            return _hands_palm(Point2D(0.5, 0.56), Point2D(0.5, 0.50))
+
+    class TrackingPose(StubPoseDetector):
+        def __init__(self, **kwargs):
+            pose_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", PalmHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
+
+    session = websocket_api.VisionSession("Normal Grip")
+    session.start()
+    session.begin_readiness()
+    msg = session.process_readiness_frame()
+    assert session.pose_detector is None
+    assert pose_inits["n"] == 0
+    assert msg.calibration_source == "palm_fallback"
+    assert msg.calibration_scale == pytest.approx(0.06 / 0.04)
+    session.close()
+
+
+def test_shoulder_stall_readiness_calibrates_from_pose_without_hands(monkeypatch):
     from api import websocket as websocket_api
     from test_session_lifecycle import (
         StubHandsDetector,
@@ -322,37 +363,27 @@ def test_session_prefers_shoulders_over_later_palm_fallback(monkeypatch):
     )
 
     _patch_vision(monkeypatch)
+    hands_inits = {"n": 0}
 
-    class SequencedPose(StubPoseDetector):
+    class TrackingHands(StubHandsDetector):
         def __init__(self, **kwargs):
+            hands_inits["n"] += 1
             super().__init__(**kwargs)
-            self._n = 0
 
+    class ShoulderPose(StubPoseDetector):
         def detect(self, current_frame):
-            self._n += 1
-            if self._n == 1:
-                return _pose_shoulders()
-            return None
+            return _pose_shoulders()
 
-    class SequencedHands(StubHandsDetector):
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            self._n = 0
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+    monkeypatch.setattr(websocket_api, "PoseDetector", ShoulderPose)
 
-        def detect(self, current_frame, bottle=None):
-            self._n += 1
-            if self._n == 1:
-                return None
-            return _hands_palm(Point2D(0.5, 0.90), Point2D(0.5, 0.10))
-
-    monkeypatch.setattr(websocket_api, "PoseDetector", SequencedPose)
-    monkeypatch.setattr(websocket_api, "HandsDetector", SequencedHands)
-
-    session = websocket_api.VisionSession("Hand Stall")
+    session = websocket_api.VisionSession("Shoulder Stall")
     session.start()
     session.begin_readiness()
     first = session.process_readiness_frame()
     second = session.process_readiness_frame()
+    assert session.hands_detector is None
+    assert hands_inits["n"] == 0
     assert first.calibration_source == "shoulders"
     assert first.calibration_scale == pytest.approx(1.0)
     assert second.calibration_source == "shoulders"
@@ -361,33 +392,102 @@ def test_session_prefers_shoulders_over_later_palm_fallback(monkeypatch):
     _activate_after_readiness(session)
     assert session._calibration.source == "shoulders"
     assert session._calibration.locked is True
-    assert session.pose_detector is None
+    assert session.hands_detector is None
+    assert hands_inits["n"] == 0
     session.close()
 
 
-def test_session_palm_fallback_when_shoulders_absent(monkeypatch):
+def test_session_palm_calibration_when_hands_visible(monkeypatch):
     from api import websocket as websocket_api
     from test_session_lifecycle import StubHandsDetector, StubPoseDetector, _patch_vision
 
     _patch_vision(monkeypatch)
+    pose_inits = {"n": 0}
 
     class PalmHands(StubHandsDetector):
         def detect(self, current_frame, bottle=None):
             return _hands_palm(Point2D(0.5, 0.56), Point2D(0.5, 0.50))
 
-    class EmptyPose(StubPoseDetector):
-        def detect(self, current_frame):
-            return None
+    class TrackingPose(StubPoseDetector):
+        def __init__(self, **kwargs):
+            pose_inits["n"] += 1
+            super().__init__(**kwargs)
 
     monkeypatch.setattr(websocket_api, "HandsDetector", PalmHands)
-    monkeypatch.setattr(websocket_api, "PoseDetector", EmptyPose)
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
 
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
     session.begin_readiness()
     msg = session.process_readiness_frame()
+    assert pose_inits["n"] == 0
+    assert session.pose_detector is None
     assert msg.calibration_source == "palm_fallback"
     assert msg.calibration_scale == pytest.approx(0.06 / 0.04)
+    session.close()
+
+
+def test_missing_palm_sample_does_not_start_pose(monkeypatch):
+    from api import websocket as websocket_api
+    from test_session_lifecycle import (
+        StubPoseDetector,
+        _confirm_session_readiness,
+        _patch_vision,
+    )
+
+    _patch_vision(monkeypatch)
+    pose_inits = {"n": 0}
+
+    class TrackingPose(StubPoseDetector):
+        def __init__(self, **kwargs):
+            pose_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "PoseDetector", TrackingPose)
+
+    session = websocket_api.VisionSession("Normal Grip")
+    session.start()
+    session.begin_readiness()
+    msg = session.process_readiness_frame()
+    assert msg.calibration_scale is None
+    assert msg.calibration_source is None
+    assert pose_inits["n"] == 0
+    assert session.pose_detector is None
+    _confirm_session_readiness(session)
+    assert session._calibration.resolved == (1.0, "default")
+    assert pose_inits["n"] == 0
+    session.close()
+
+
+def test_missing_shoulder_sample_does_not_start_hands(monkeypatch):
+    from api import websocket as websocket_api
+    from test_session_lifecycle import (
+        StubHandsDetector,
+        _confirm_session_readiness,
+        _patch_vision,
+    )
+
+    _patch_vision(monkeypatch)
+    hands_inits = {"n": 0}
+
+    class TrackingHands(StubHandsDetector):
+        def __init__(self, **kwargs):
+            hands_inits["n"] += 1
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+
+    session = websocket_api.VisionSession("Shoulder Stall")
+    session.start()
+    session.begin_readiness()
+    msg = session.process_readiness_frame()
+    assert msg.calibration_scale is None
+    assert msg.calibration_source is None
+    assert hands_inits["n"] == 0
+    assert session.hands_detector is None
+    _confirm_session_readiness(session)
+    assert session._calibration.resolved == (1.0, "default")
+    assert hands_inits["n"] == 0
     session.close()
 
 
@@ -423,20 +523,20 @@ def test_free_practice_does_not_measure_calibration(monkeypatch):
 
 def test_begin_readiness_idempotent_does_not_clear_calibration(monkeypatch):
     from api import websocket as websocket_api
-    from test_session_lifecycle import StubPoseDetector, _patch_vision
+    from test_session_lifecycle import StubHandsDetector, _patch_vision
 
     _patch_vision(monkeypatch)
 
-    class ShoulderPose(StubPoseDetector):
-        def detect(self, current_frame):
-            return _pose_shoulders()
+    class PalmHands(StubHandsDetector):
+        def detect(self, current_frame, bottle=None):
+            return _hands_palm(Point2D(0.5, 0.56), Point2D(0.5, 0.50))
 
-    monkeypatch.setattr(websocket_api, "PoseDetector", ShoulderPose)
+    monkeypatch.setattr(websocket_api, "HandsDetector", PalmHands)
     session = websocket_api.VisionSession("Hand Stall")
     session.start()
     session.begin_readiness()
     session.process_readiness_frame()
-    assert session._calibration.source == "shoulders"
+    assert session._calibration.source == "palm_fallback"
     assert session.begin_readiness() is True
-    assert session._calibration.source == "shoulders"
+    assert session._calibration.source == "palm_fallback"
     session.close()

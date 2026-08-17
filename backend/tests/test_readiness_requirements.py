@@ -244,15 +244,49 @@ def test_enabled_movements_have_declared_non_camera_only_profiles():
     assert_readiness_profiles_complete()
 
 
+# Explicit Hands/Pose matrix for every public movement plus legacy aliases and
+# Free Practice. Session lifecycle tests import this so production code cannot
+# silently start both modalities for a catalog movement.
+EXPECTED_READINESS_DETECTORS: dict[str, tuple[bool, bool]] = {
+    "Normal Grip": (True, False),
+    "Bartender's Grip": (True, False),
+    "Reverse Grip": (True, False),
+    "Claw Grip": (True, False),
+    "Hand Stall": (True, False),
+    "One Finger Stall": (True, False),
+    "Double Hand Stall": (True, False),
+    "Bottle in a tin": (True, False),
+    "Forearm Stall": (False, True),
+    "Elbow Stall": (False, True),
+    "Reverse Forearm Stall": (False, True),
+    "Shoulder Stall": (False, True),
+    "Arm Stall": (False, True),
+    "Upper Forearm Stall": (False, True),
+    "Free Practice": (False, False),
+}
+
+
 def test_detector_requirements_derived_from_profiles():
     from assessment.readiness import readiness_needs_hands, readiness_needs_pose
+    from assessment.rule_engine import (
+        movement_requires_hands,
+        movement_requires_pose,
+    )
+    from config import MOVEMENT_CONFIG
 
-    assert readiness_needs_hands("Normal Grip") is True
-    assert readiness_needs_pose("Normal Grip") is False
-    assert readiness_needs_hands("Forearm Stall") is False
-    assert readiness_needs_pose("Forearm Stall") is True
-    assert readiness_needs_hands("Bottle in a tin") is True
-    assert readiness_needs_pose("Bottle in a tin") is False
+    for movement, (need_hands, need_pose) in EXPECTED_READINESS_DETECTORS.items():
+        assert readiness_needs_hands(movement) is need_hands, movement
+        assert readiness_needs_pose(movement) is need_pose, movement
+        assert not (need_hands and need_pose), movement
+
+    assert set(MOVEMENT_CONFIG) == set(EXPECTED_READINESS_DETECTORS)
+    for movement in MOVEMENT_CONFIG:
+        assert readiness_needs_hands(movement) is movement_requires_hands(
+            movement
+        ), movement
+        assert readiness_needs_pose(movement) is movement_requires_pose(
+            movement
+        ), movement
 
 
 @pytest.mark.parametrize("movement", list(enabled_catalog_movements()))
