@@ -6,6 +6,7 @@ import asyncio
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
 from api import websocket as websocket_api
 from assessment.readiness import (
@@ -1676,8 +1677,21 @@ def test_hands_detector_created_once_across_readiness_and_activate(monkeypatch):
     session.close()
 
 
-def test_pose_only_movement_creates_pose_on_readiness_not_hands_on_activate(monkeypatch):
-    """Reverse Forearm Stall loads Pose for readiness and must not construct
+_POSE_ONLY_STALLS = (
+    "Forearm Stall",
+    "Elbow Stall",
+    "Reverse Forearm Stall",
+    "Shoulder Stall",
+    "Arm Stall",
+    "Upper Forearm Stall",
+)
+
+
+@pytest.mark.parametrize("movement", _POSE_ONLY_STALLS)
+def test_pose_only_movement_creates_pose_on_readiness_not_hands_on_activate(
+    monkeypatch, movement
+):
+    """Pose-only stalls load Pose for readiness and must not construct
     Hands on activate. Pose is reused, not recreated."""
     _patch_vision(monkeypatch)
 
@@ -1709,25 +1723,27 @@ def test_pose_only_movement_creates_pose_on_readiness_not_hands_on_activate(monk
         ),
     )
 
-    session = websocket_api.VisionSession("Reverse Forearm Stall")
+    session = websocket_api.VisionSession(movement)
     session.start()
 
-    # Reverse Forearm Stall: readiness_needs_hands=False, readiness_needs_pose=True.
     session.begin_readiness()
+    assert session.hands_detector is None, movement
+    assert session.pose_detector is not None, movement
     assert pose_inits["n"] == 1
     assert hands_inits["n"] == 0
 
     _activate_after_readiness(session)
     assert pose_inits["n"] == 1, "pose must not be re-created on activate"
     assert hands_inits["n"] == 0, "pose-only stalls must not construct Hands"
-    assert session.hands_detector is None
-    assert session.pose_detector is not None
+    assert session.hands_detector is None, movement
+    assert session.pose_detector is not None, movement
     session.close()
 
 
-def test_pose_only_active_frame_never_calls_hands_detect(monkeypatch):
-    """Shoulder Stall active frames run Pose, never Hands.detect, and pass
-    hands=None into evaluate_movement."""
+@pytest.mark.parametrize("movement", _POSE_ONLY_STALLS)
+def test_pose_only_active_frame_never_calls_hands_detect(monkeypatch, movement):
+    """Pose-only active frames run Pose, never Hands.detect, and pass
+    hands=None into evaluate_movement. Hands must not appear in CV PERF."""
     _patch_vision(monkeypatch)
 
     class TrackingHands(StubHandsDetector):
@@ -1747,7 +1763,7 @@ def test_pose_only_active_frame_never_calls_hands_detect(monkeypatch):
 
     captured = {}
 
-    def tracking_evaluate(movement, bottle, pose, hands, *args, **kwargs):
+    def tracking_evaluate(eval_movement, bottle, pose, hands, *args, **kwargs):
         captured["hands"] = hands
         return (
             RuleResult(feedback="ok", feedback_type="positive", posture_status="stable"),
@@ -1757,20 +1773,23 @@ def test_pose_only_active_frame_never_calls_hands_detect(monkeypatch):
 
     monkeypatch.setattr(websocket_api, "evaluate_movement", tracking_evaluate)
 
-    session = websocket_api.VisionSession("Shoulder Stall")
+    session = websocket_api.VisionSession(movement)
     session.start()
     session.begin_readiness()
     _activate_after_readiness(session)
 
-    assert session.hands_detector is None
-    assert session.pose_detector is not None
+    assert session.hands_detector is None, movement
+    assert session.pose_detector is not None, movement
 
     msg = session.process_frame()
     assert msg is not None
-    assert session.hands_detector is None
-    assert TrackingHands.detect_total == 0
-    assert session.pose_detector.detect_calls >= 1
-    assert captured.get("hands") is None
+    assert session.hands_detector is None, movement
+    assert TrackingHands.detect_total == 0, movement
+    assert session.pose_detector.detect_calls >= 1, movement
+    assert captured.get("hands") is None, movement
+    timing = session.timings.format_averages_ms(frame_budget_ms=33.3)
+    assert "hands=" not in timing, timing
+    assert "pose=" in timing, timing
     session.close()
 
 

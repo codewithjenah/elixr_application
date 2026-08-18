@@ -350,23 +350,23 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "requires_hands": True,
         "requires_pose": False,
     },
-    "Forearm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
-    "Elbow Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
+    "Forearm Stall": {"difficulty": "Medium", "requires_hands": False, "requires_pose": True},
+    "Elbow Stall": {"difficulty": "Medium", "requires_hands": False, "requires_pose": True},
     "Reverse Forearm Stall": {
         "difficulty": "Hard",
-        "requires_hands": True,
+        "requires_hands": False,
         "requires_pose": True,
     },
     # Legacy movement names for historical sessions and backward compatibility.
-    "Arm Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": True},
+    "Arm Stall": {"difficulty": "Medium", "requires_hands": False, "requires_pose": True},
     "Upper Forearm Stall": {
         "difficulty": "Hard",
-        "requires_hands": True,
+        "requires_hands": False,
         "requires_pose": True,
     },
     "Shoulder Stall": {
         "difficulty": "Hard",
-        "requires_hands": True,
+        "requires_hands": False,
         "requires_pose": True,
     },
     "Double Hand Stall": {

@@ -49,6 +49,7 @@ backend/.venv/
 # Local real-image YOLO parity captures (may contain private webcam frames)
 backend/parity_frames/
 **/prop_parity_frames/
+backend/hands_bench_frames/
 
 # Symbolication related
 app.*.symbols

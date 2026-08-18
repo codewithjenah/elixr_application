@@ -319,3 +319,28 @@ def test_format_perf_line_includes_yolo_runtime_metadata():
     assert "yolo_provider=CPUExecutionProvider" in line
     assert "yolo_threads=8" in line
     assert "\n" not in line
+
+
+def test_format_perf_line_appends_hands_diagnostics():
+    timings = PipelineTimings()
+    timings.add("hands", 0.062)
+    timings.add("end_to_end", 0.090)
+    line = format_perf_line(
+        timings,
+        preview_fps=18.0,
+        ai_fps=11.0,
+        capture_fps=18.0,
+        elapsed_s=3.0,
+        overwrite_delta=1,
+        target_fps=20.0,
+        yolo_skip=2,
+        imgsz=640,
+        lifecycle="active",
+        processed=54,
+        ticks=54,
+        hands_diag="hands_primary=61.8ms p95=88.0ms n=27 hands_fallback=12.0%",
+    )
+    assert "hands=62.0ms" in line
+    assert "hands_primary=61.8ms" in line
+    assert "hands_fallback=12.0%" in line
+    assert "\n" not in line

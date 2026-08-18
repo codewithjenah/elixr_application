@@ -426,6 +426,7 @@ def format_perf_line(
     yolo_runtime: str = "",
     yolo_provider: str = "",
     yolo_threads: int | None = None,
+    hands_diag: str = "",
 ) -> str:
     """One aggregated line for the FPS log interval."""
     preview = preview_fps if preview_fps is not None else (output_fps or 0.0)
@@ -481,6 +482,7 @@ def format_perf_line(
         runtime_fields += f" yolo_provider={yolo_provider}"
     if yolo_runtime and yolo_threads is not None:
         runtime_fields += f" yolo_threads={yolo_threads}"
+    hands_fields = f" {hands_diag}" if hands_diag else ""
     return (
         "CV PERF | "
         f"preview={preview:.1f}fps ai={ai_fps:.1f}fps capture={capture_fps:.1f}fps"
@@ -495,7 +497,7 @@ def format_perf_line(
         f"slot_overwrites={overwrite_delta}"
         f" | bottleneck={bottleneck}"
         f" | lifecycle={lifecycle} target={target_fps:g} skip={yolo_skip} "
-        f"imgsz={imgsz}{runtime_fields} preview_frames={processed} "
+        f"imgsz={imgsz}{runtime_fields}{hands_fields} preview_frames={processed} "
         f"ai_frames={ai_processed} "
         f"ticks={ticks}"
     )

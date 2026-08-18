@@ -15,6 +15,10 @@ from pydantic import ValidationError
 from assessment.calibration import CalibrationTracker
 from assessment.feedback_codes import category_for
 from assessment.hold_validator import HoldValidator
+from assessment.hands_profile import (
+    HANDS_BARTENDER_ROI_MOVEMENTS,
+    HANDS_ROTATED_FALLBACK_MOVEMENTS,
+)
 from assessment.readiness import (
     ReadinessObservation,
     ReadinessSnapshot,
@@ -452,10 +456,11 @@ class VisionSession:
         self._prop_detection_only = movement_is_prop_detection_only(movement)
         self._hands_rotated_fallback = (
             not self._prop_detection_only
-            and movement in {"Normal Grip", "Claw Grip"}
+            and movement in HANDS_ROTATED_FALLBACK_MOVEMENTS
         )
         self._hands_bartender_roi = (
-            not self._prop_detection_only and movement == "Bartender's Grip"
+            not self._prop_detection_only
+            and movement in HANDS_BARTENDER_ROI_MOVEMENTS
         )
         self._hands_needed = (
             not self._prop_detection_only and movement_requires_hands(movement)
@@ -1793,6 +1798,15 @@ async def _cv_session_loop(
             capture_snapshot = snapshot_capture_producer_telemetry(reset=True)
             yolo_runtime, yolo_provider = yolo_runtime_info(session.prop_detector)
             yolo_threads = yolo_runtime_threads(session.prop_detector)
+            hands_diag = ""
+            hands_stats = getattr(session.hands_detector, "stats", None)
+            if hands_stats is not None and getattr(hands_stats, "detect_calls", 0) > 0:
+                format_line = getattr(hands_stats, "format_line", None)
+                if callable(format_line):
+                    hands_diag = format_line()
+                reset = getattr(hands_stats, "reset", None)
+                if callable(reset):
+                    reset()
             logger.info(
                 "%s",
                 format_perf_line(
@@ -1816,6 +1830,7 @@ async def _cv_session_loop(
                     yolo_runtime=yolo_runtime,
                     yolo_provider=yolo_provider,
                     yolo_threads=yolo_threads if yolo_runtime else None,
+                    hands_diag=hands_diag,
                 ),
             )
             session.preview_timings.reset()

@@ -1670,11 +1670,19 @@ def test_session_passes_primary_bottle_to_hand_detector(
 
 def test_movement_requires_hands():
     assert movement_requires_hands("Hand Stall") is True
-    assert movement_requires_hands("Forearm Stall") is True
-    assert movement_requires_hands("Arm Stall") is True  # legacy alias
-    assert movement_requires_hands("Elbow Stall") is True
+    assert movement_requires_hands("Forearm Stall") is False
+    assert movement_requires_hands("Arm Stall") is False  # legacy alias
+    assert movement_requires_hands("Elbow Stall") is False
+    assert movement_requires_hands("Reverse Forearm Stall") is False
+    assert movement_requires_hands("Upper Forearm Stall") is False  # legacy alias
+    assert movement_requires_hands("Shoulder Stall") is False
     assert movement_requires_hands("Normal Grip") is True
+    assert movement_requires_hands("Bartender's Grip") is True
+    assert movement_requires_hands("Reverse Grip") is True
     assert movement_requires_hands("Claw Grip") is True
+    assert movement_requires_hands("One Finger Stall") is True
+    assert movement_requires_hands("Double Hand Stall") is True
+    assert movement_requires_hands("Bottle in a tin") is True
 
 
 @pytest.mark.parametrize(
