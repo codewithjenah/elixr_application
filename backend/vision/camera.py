@@ -32,6 +32,7 @@ from vision.camera_devices import (
     merge_enumerated_with_usable_indices,
     resolve_device_id_to_index,
 )
+from vision.pipeline_telemetry import CaptureProducerMetrics, CaptureProducerSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,8 @@ class _CaptureProducer:
         width: int,
         height: int,
         slot: _LatestFrameSlot,
+        backend_label: str = "",
+        reported_fps: float = 0.0,
     ) -> None:
         self._cap = cap
         self._width = width
@@ -210,6 +213,15 @@ class _CaptureProducer:
         self._ownership_lock = threading.Lock()
         self._thread_exited = threading.Event()
         self._read_in_flight = False
+        self._metrics = CaptureProducerMetrics(
+            backend_label=backend_label,
+            reported_fps=reported_fps,
+        )
+        self._prev_publish_at: float | None = None
+        self._prev_iter_end: float | None = None
+
+    def metrics_snapshot(self, *, reset: bool = False) -> CaptureProducerSnapshot:
+        return self._metrics.snapshot(reset=reset)
 
     def start(self) -> None:
         self._thread.start()
@@ -265,6 +277,10 @@ class _CaptureProducer:
 
         try:
             while not self._stop.is_set():
+                loop_start = time.perf_counter()
+                if self._prev_iter_end is not None:
+                    self._metrics.record_gap(loop_start - self._prev_iter_end)
+
                 cap = self._cap
                 # Never read after the owning release path has closed the capture.
                 if getattr(cap, "released", False) or not cap.isOpened():
@@ -272,9 +288,12 @@ class _CaptureProducer:
 
                 try:
                     self._read_in_flight = True
+                    read_started = time.perf_counter()
                     ok, frame = cap.read()
+                    self._metrics.record_read(time.perf_counter() - read_started)
                 except Exception:
                     logger.exception("Camera capture producer read failed")
+                    self._metrics.record_failed_read()
                     break
                 finally:
                     self._read_in_flight = False
@@ -288,9 +307,11 @@ class _CaptureProducer:
                     # so we do not publish into a newer session.
                     if _STARTUP_READ_SLEEP_S > 0:
                         self._stop.wait(_STARTUP_READ_SLEEP_S)
+                    self._prev_iter_end = time.perf_counter()
                     continue
 
                 if not ok or frame is None or not _frame_is_usable(frame):
+                    self._metrics.record_failed_read()
                     self.blank_streak += 1
                     _producer_blank_streak = self.blank_streak
                     if self.blank_streak == 1 or self.blank_streak % 30 == 0:
@@ -300,6 +321,7 @@ class _CaptureProducer:
                         )
                     if _STARTUP_READ_SLEEP_S > 0:
                         self._stop.wait(_STARTUP_READ_SLEEP_S)
+                    self._prev_iter_end = time.perf_counter()
                     continue
 
                 self.blank_streak = 0
@@ -316,6 +338,12 @@ class _CaptureProducer:
                 # when the OpenCV buffer is already contiguous.
                 owned = frame.copy(order="C")
                 self._sequence += 1
+                published_at = time.perf_counter()
+                interval_s = None
+                if self._prev_publish_at is not None:
+                    interval_s = published_at - self._prev_publish_at
+                self._prev_publish_at = published_at
+                self._metrics.record_usable(interval_s=interval_s)
                 slot.publish(
                     CapturedFrame(
                         frame=owned,
@@ -323,6 +351,7 @@ class _CaptureProducer:
                         sequence=self._sequence,
                     )
                 )
+                self._prev_iter_end = time.perf_counter()
         finally:
             with self._ownership_lock:
                 if self._ownership == _CaptureOwnership.PRODUCER:
@@ -402,12 +431,23 @@ def _stop_capture_producer(*, join_timeout: float | None = None) -> _ProducerShu
     return producer._shutdown_outcome_after_join()
 
 
+def _producer_identity(cap: cv2.VideoCapture) -> tuple[str, float]:
+    label = _shared_profile.label if _shared_profile is not None else "unknown"
+    try:
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    except Exception:
+        fps = 0.0
+    return label, fps
+
+
 def _start_capture_producer(
     cap: cv2.VideoCapture,
     *,
     width: int,
     height: int,
     join_timeout: float | None = None,
+    backend_label: str | None = None,
+    reported_fps: float | None = None,
 ) -> bool:
     """Replace any running producer with one bound to ``cap``.
 
@@ -424,10 +464,18 @@ def _start_capture_producer(
         # second reader to the same device handle.
         return False
 
+    auto_label, auto_fps = _producer_identity(cap)
     slot = _LatestFrameSlot()
     _latest_frame_slot = slot
     _producer_blank_streak = 0
-    producer = _CaptureProducer(cap, width=width, height=height, slot=slot)
+    producer = _CaptureProducer(
+        cap,
+        width=width,
+        height=height,
+        slot=slot,
+        backend_label=auto_label if backend_label is None else backend_label,
+        reported_fps=auto_fps if reported_fps is None else reported_fps,
+    )
     _capture_producer = producer
     producer.start()
     return True
@@ -445,6 +493,17 @@ def latest_frame_publish_count() -> int:
     if _latest_frame_slot is None:
         return 0
     return _latest_frame_slot.publish_count
+
+
+def snapshot_capture_producer_telemetry(
+    *,
+    reset: bool = True,
+) -> CaptureProducerSnapshot:
+    """Thread-safe interval snapshot of the active capture producer."""
+    producer = _capture_producer
+    if producer is None:
+        return CaptureProducerSnapshot()
+    return producer.metrics_snapshot(reset=reset)
 
 
 def capture_producer_is_alive() -> bool:

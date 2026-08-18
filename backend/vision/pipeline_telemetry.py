@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from typing import Mapping
 
 PIPELINE_STAGE_ORDER = (
@@ -45,6 +46,157 @@ def interval_rate(count: int, elapsed_s: float) -> float:
     if count <= 0 or elapsed_s <= 0:
         return 0.0
     return count / elapsed_s
+
+
+def _avg_ms(total_s: float, count: int) -> float:
+    if count <= 0:
+        return 0.0
+    return (total_s / count) * 1000.0
+
+
+@dataclass(frozen=True)
+class CaptureProducerSnapshot:
+    """One telemetry-interval view of the camera capture producer."""
+
+    usable_frames: int = 0
+    failed_reads: int = 0
+    read_count: int = 0
+    read_sum_s: float = 0.0
+    read_max_s: float = 0.0
+    interval_count: int = 0
+    interval_sum_s: float = 0.0
+    interval_max_s: float = 0.0
+    gap_count: int = 0
+    gap_sum_s: float = 0.0
+    gap_max_s: float = 0.0
+    backend_label: str = ""
+    reported_fps: float = 0.0
+
+    @property
+    def read_avg_ms(self) -> float:
+        return _avg_ms(self.read_sum_s, self.read_count)
+
+    @property
+    def read_max_ms(self) -> float:
+        return self.read_max_s * 1000.0
+
+    @property
+    def interval_avg_ms(self) -> float:
+        return _avg_ms(self.interval_sum_s, self.interval_count)
+
+    @property
+    def interval_max_ms(self) -> float:
+        return self.interval_max_s * 1000.0
+
+    @property
+    def gap_avg_ms(self) -> float:
+        return _avg_ms(self.gap_sum_s, self.gap_count)
+
+    @property
+    def gap_max_ms(self) -> float:
+        return self.gap_max_s * 1000.0
+
+
+class CaptureProducerMetrics:
+    """Thread-safe producer counters. Reset between CV PERF intervals."""
+
+    def __init__(
+        self,
+        *,
+        backend_label: str = "",
+        reported_fps: float = 0.0,
+    ) -> None:
+        self._lock = threading.Lock()
+        self._backend_label = backend_label
+        self._reported_fps = reported_fps
+        self._reset_unlocked()
+
+    def _reset_unlocked(self) -> None:
+        self._usable_frames = 0
+        self._failed_reads = 0
+        self._read_count = 0
+        self._read_sum_s = 0.0
+        self._read_max_s = 0.0
+        self._interval_count = 0
+        self._interval_sum_s = 0.0
+        self._interval_max_s = 0.0
+        self._gap_count = 0
+        self._gap_sum_s = 0.0
+        self._gap_max_s = 0.0
+
+    def record_read(self, seconds: float) -> None:
+        if seconds < 0:
+            seconds = 0.0
+        with self._lock:
+            self._read_count += 1
+            self._read_sum_s += seconds
+            if seconds > self._read_max_s:
+                self._read_max_s = seconds
+
+    def record_failed_read(self) -> None:
+        with self._lock:
+            self._failed_reads += 1
+
+    def record_usable(self, *, interval_s: float | None) -> None:
+        with self._lock:
+            self._usable_frames += 1
+            if interval_s is None:
+                return
+            if interval_s < 0:
+                interval_s = 0.0
+            self._interval_count += 1
+            self._interval_sum_s += interval_s
+            if interval_s > self._interval_max_s:
+                self._interval_max_s = interval_s
+
+    def record_gap(self, seconds: float) -> None:
+        if seconds < 0:
+            seconds = 0.0
+        with self._lock:
+            self._gap_count += 1
+            self._gap_sum_s += seconds
+            if seconds > self._gap_max_s:
+                self._gap_max_s = seconds
+
+    def snapshot(self, *, reset: bool = False) -> CaptureProducerSnapshot:
+        with self._lock:
+            snap = CaptureProducerSnapshot(
+                usable_frames=self._usable_frames,
+                failed_reads=self._failed_reads,
+                read_count=self._read_count,
+                read_sum_s=self._read_sum_s,
+                read_max_s=self._read_max_s,
+                interval_count=self._interval_count,
+                interval_sum_s=self._interval_sum_s,
+                interval_max_s=self._interval_max_s,
+                gap_count=self._gap_count,
+                gap_sum_s=self._gap_sum_s,
+                gap_max_s=self._gap_max_s,
+                backend_label=self._backend_label,
+                reported_fps=self._reported_fps,
+            )
+            if reset:
+                self._reset_unlocked()
+            return snap
+
+
+def format_capture_contention(snapshot: CaptureProducerSnapshot | None) -> str:
+    """Fields that distinguish camera pacing vs thread starvation vs blank frames."""
+    if snapshot is None:
+        return ""
+    backend = snapshot.backend_label or "unknown"
+    return (
+        f"capture_read_avg={snapshot.read_avg_ms:.1f}ms "
+        f"capture_read_max={snapshot.read_max_ms:.1f}ms "
+        f"capture_interval_avg={snapshot.interval_avg_ms:.1f}ms "
+        f"capture_interval_max={snapshot.interval_max_ms:.1f}ms "
+        f"capture_gap_avg={snapshot.gap_avg_ms:.1f}ms "
+        f"capture_gap_max={snapshot.gap_max_ms:.1f}ms "
+        f"capture_fail={snapshot.failed_reads} "
+        f"capture_usable={snapshot.usable_frames} "
+        f"capture_backend={backend} "
+        f"capture_prop_fps={snapshot.reported_fps:g}"
+    )
 
 
 def monotonic_counter_delta(*, current: int, previous: int) -> int:
@@ -270,6 +422,7 @@ def format_perf_line(
     preview_replaced: int = 0,
     ai_overwrites: int = 0,
     ai_processed: int = 0,
+    capture_snapshot: CaptureProducerSnapshot | None = None,
 ) -> str:
     """One aggregated line for the FPS log interval."""
     preview = preview_fps if preview_fps is not None else (output_fps or 0.0)
@@ -316,9 +469,12 @@ def format_perf_line(
     if ai_e2e_ms <= 0:
         ai_e2e_ms = inference.average_ms("processing_total")
 
+    capture_fields = format_capture_contention(capture_snapshot)
+    capture_suffix = f" {capture_fields}" if capture_fields else ""
     return (
         "CV PERF | "
-        f"preview={preview:.1f}fps ai={ai_fps:.1f}fps capture={capture_fps:.1f}fps "
+        f"preview={preview:.1f}fps ai={ai_fps:.1f}fps capture={capture_fps:.1f}fps"
+        f"{capture_suffix} "
         f"yolo={yolo_fps:.1f}fps"
         f" | ai_frame_age avg={inference.frame_age_avg_ms:.1f}ms "
         f"max={inference.frame_age_max_ms:.1f}ms"

@@ -69,6 +69,7 @@ from vision.camera import (
     camera_display_name,
     latest_frame_overwrite_count,
     latest_frame_publish_count,
+    snapshot_capture_producer_telemetry,
     release_shared_camera,
 )
 from vision.pipeline_telemetry import (
@@ -497,6 +498,21 @@ class VisionSession:
         self._ai_inflight_max = 0
         self._ai_inflight = 0
 
+    def _acquire_ai_state(self, *, blocking: bool) -> None:
+        """Exclusive access to AI/lifecycle mutation. Preview must not call this.
+
+        Blocking waits are for lifecycle methods running off the asyncio loop.
+        The AI worker uses non-blocking acquire so a second tick cannot start.
+        """
+        if blocking:
+            self._ai_run_lock.acquire()
+            return
+        if not self._ai_run_lock.acquire(blocking=False):
+            raise RuntimeError("AI worker violated single in-flight")
+
+    def _release_ai_state(self) -> None:
+        self._ai_run_lock.release()
+
     def _normalize_detections(
         self,
         *,
@@ -712,21 +728,25 @@ class VisionSession:
         Returns True on success or when already readying.
         Returns False if CLOSED or ACTIVE.
         """
-        if self._lifecycle == SESSION_READYING:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle == SESSION_READYING:
+                return True
+            if self._lifecycle != SESSION_PREPARED:
+                return False
+            self._ensure_readiness_detectors()
+            self._readiness_tracker = ReadinessTracker(self.movement, self.prop_type)
+            self._latest_readiness_snapshot = None
+            self._latest_readiness_observed_at = None
+            self._readiness_confirmed = False
+            self._frozen_readiness_snapshot = None
+            self._calibration.reset()
+            self._clear_overlay()
+            self._last_ai_sequence = None
+            self._lifecycle = SESSION_READYING
             return True
-        if self._lifecycle != SESSION_PREPARED:
-            return False
-        self._ensure_readiness_detectors()
-        self._readiness_tracker = ReadinessTracker(self.movement, self.prop_type)
-        self._latest_readiness_snapshot = None
-        self._latest_readiness_observed_at = None
-        self._readiness_confirmed = False
-        self._frozen_readiness_snapshot = None
-        self._calibration.reset()
-        self._clear_overlay()
-        self._last_ai_sequence = None
-        self._lifecycle = SESSION_READYING
-        return True
+        finally:
+            self._release_ai_state()
 
     def confirm_readiness(self) -> tuple[bool, str | None]:
         """Lock readiness after the client confirms stable calibration.
@@ -734,29 +754,33 @@ class VisionSession:
         Idempotent when already confirmed for this readiness cycle.
         Returns (accepted, error_code).
         """
-        if self._lifecycle != SESSION_READYING:
-            if self._lifecycle == SESSION_ACTIVE:
-                return False, "session_already_active"
-            return False, "session_not_prepared"
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle != SESSION_READYING:
+                if self._lifecycle == SESSION_ACTIVE:
+                    return False, "session_already_active"
+                return False, "session_not_prepared"
 
-        if self._readiness_confirmed:
+            if self._readiness_confirmed:
+                return True, None
+
+            snapshot = self._latest_readiness_snapshot
+            if snapshot is None or not snapshot.readiness_stable:
+                return False, "readiness_not_stable"
+
+            observed_at = self._latest_readiness_observed_at
+            if observed_at is None:
+                return False, "readiness_stale"
+            age_s = time.monotonic() - observed_at
+            if age_s > READINESS_SNAPSHOT_MAX_AGE_S:
+                return False, "readiness_stale"
+
+            self._readiness_confirmed = True
+            self._frozen_readiness_snapshot = snapshot
+            self._calibration.lock()
             return True, None
-
-        snapshot = self._latest_readiness_snapshot
-        if snapshot is None or not snapshot.readiness_stable:
-            return False, "readiness_not_stable"
-
-        observed_at = self._latest_readiness_observed_at
-        if observed_at is None:
-            return False, "readiness_stale"
-        age_s = time.monotonic() - observed_at
-        if age_s > READINESS_SNAPSHOT_MAX_AGE_S:
-            return False, "readiness_stale"
-
-        self._readiness_confirmed = True
-        self._frozen_readiness_snapshot = snapshot
-        self._calibration.lock()
-        return True, None
+        finally:
+            self._release_ai_state()
 
     @property
     def readiness_confirmed(self) -> bool:
@@ -771,38 +795,42 @@ class VisionSession:
 
         Returns (success, error_code). error_code is None on success.
         """
-        if self._lifecycle == SESSION_ACTIVE:
+        self._acquire_ai_state(blocking=True)
+        try:
+            if self._lifecycle == SESSION_ACTIVE:
+                return True, None
+
+            if self._lifecycle not in (SESSION_PREPARED, SESSION_READYING):
+                return False, "session_not_prepared"
+
+            # Sessions that entered the readiness gate require explicit confirmation
+            # before activation. prepared→active remains for Free Practice only.
+            if self._lifecycle == SESSION_READYING and not self._readiness_confirmed:
+                return False, "readiness_not_confirmed"
+
+            self._ensure_detectors()
+            self.rubric.activate()
+            if not self._prop_detection_only:
+                self._hold_validator.activate()
+            self._prev_hip_center = None
+            self._movement_state = None
+            self._last_bottles = []
+            self._last_shakers = []
+            if self._is_dual_prop:
+                self.prop_detector.reset_cache()
+            self._frame_index = 0
+            self._evidence_emitted = False
+            self._readiness_tracker = None
+            self._latest_readiness_snapshot = None
+            self._latest_readiness_observed_at = None
+            self._frozen_readiness_snapshot = None
+            self._readiness_confirmed = False
+            self._clear_overlay()
+            self._last_ai_sequence = None
+            self._lifecycle = SESSION_ACTIVE
             return True, None
-
-        if self._lifecycle not in (SESSION_PREPARED, SESSION_READYING):
-            return False, "session_not_prepared"
-
-        # Sessions that entered the readiness gate require explicit confirmation
-        # before activation. prepared→active remains for Free Practice only.
-        if self._lifecycle == SESSION_READYING and not self._readiness_confirmed:
-            return False, "readiness_not_confirmed"
-
-        self._ensure_detectors()
-        self.rubric.activate()
-        if not self._prop_detection_only:
-            self._hold_validator.activate()
-        self._prev_hip_center = None
-        self._movement_state = None
-        self._last_bottles = []
-        self._last_shakers = []
-        if self._is_dual_prop:
-            self.prop_detector.reset_cache()
-        self._frame_index = 0
-        self._evidence_emitted = False
-        self._readiness_tracker = None
-        self._latest_readiness_snapshot = None
-        self._latest_readiness_observed_at = None
-        self._frozen_readiness_snapshot = None
-        self._readiness_confirmed = False
-        self._clear_overlay()
-        self._last_ai_sequence = None
-        self._lifecycle = SESSION_ACTIVE
-        return True, None
+        finally:
+            self._release_ai_state()
 
     def _check_model(self) -> FeedbackMessage | None:
         if not self.bottle_detection_enabled:
@@ -941,8 +969,7 @@ class VisionSession:
 
     def analyze_tick(self) -> FeedbackMessage | None:
         """Run AI/evaluation for the newest unanalyzed camera frame."""
-        if not self._ai_run_lock.acquire(blocking=False):
-            raise RuntimeError("AI worker violated single in-flight")
+        self._acquire_ai_state(blocking=False)
         self._ai_inflight += 1
         if self._ai_inflight > self._ai_inflight_max:
             self._ai_inflight_max = self._ai_inflight
@@ -960,7 +987,7 @@ class VisionSession:
             self._ai_camera_overwrites += max(
                 0, latest_frame_publish_count() - publish_at_start
             )
-            self._ai_run_lock.release()
+            self._release_ai_state()
 
     def process_readiness_frame(
         self, *, emit_preview_jpeg: bool = True
@@ -1444,17 +1471,21 @@ class VisionSession:
         return None
 
     def close(self) -> None:
-        self._lifecycle = SESSION_CLOSED
-        self._readiness_tracker = None
-        self._latest_readiness_snapshot = None
-        self._latest_readiness_observed_at = None
-        self._frozen_readiness_snapshot = None
-        self._readiness_confirmed = False
-        self._calibration.reset()
-        self._hold_validator.reset()
-        self._clear_overlay()
-        self.camera.release()
-        self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
+        self._acquire_ai_state(blocking=True)
+        try:
+            self._lifecycle = SESSION_CLOSED
+            self._readiness_tracker = None
+            self._latest_readiness_snapshot = None
+            self._latest_readiness_observed_at = None
+            self._frozen_readiness_snapshot = None
+            self._readiness_confirmed = False
+            self._calibration.reset()
+            self._hold_validator.reset()
+            self._clear_overlay()
+            self.camera.release()
+            self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
+        finally:
+            self._release_ai_state()
 
 
 def _signal_prepare_gate(
@@ -1677,7 +1708,7 @@ async def _cv_session_loop(
             session_ref["mailbox"] = mailbox
 
         if start_active:
-            session.activate()
+            await asyncio.to_thread(session.activate)
 
         _signal_prepare_gate(prepare_gate, ok=True)
 
@@ -1730,6 +1761,7 @@ async def _cv_session_loop(
             last_publish_count = publish_now
             last_preview_replaced = mailbox.preview_replaced
             last_ai_overwrites = session._ai_camera_overwrites
+            capture_snapshot = snapshot_capture_producer_telemetry(reset=True)
             logger.info(
                 "%s",
                 format_perf_line(
@@ -1749,6 +1781,7 @@ async def _cv_session_loop(
                     preview_replaced=preview_replaced,
                     ai_overwrites=ai_overwrites,
                     ai_processed=ai_count,
+                    capture_snapshot=capture_snapshot,
                 ),
             )
             session.preview_timings.reset()
@@ -2297,7 +2330,7 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
         # Idempotent: begin_readiness returns True if already readying.
-        session.begin_readiness()
+        await asyncio.to_thread(session.begin_readiness)
 
         await send_ack(
             request_id=command.request_id,
@@ -2356,7 +2389,7 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
-        accepted, error_code = session.confirm_readiness()
+        accepted, error_code = await asyncio.to_thread(session.confirm_readiness)
         if not accepted:
             await send_ack(
                 request_id=command.request_id,
@@ -2416,7 +2449,7 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
-        activated, activation_error = session.activate()
+        activated, activation_error = await asyncio.to_thread(session.activate)
         logger.info(
             "CV session activate: movement=%s ok=%s lifecycle=%s session_id=%s",
             movement,
@@ -2673,7 +2706,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await safe_send(error.model_dump_json())
                 return
 
-            activated, activation_error = session.activate()
+            activated, activation_error = await asyncio.to_thread(session.activate)
             logger.info(
                 "CV session activate (legacy): movement=%s ok=%s lifecycle=%s",
                 movement,
