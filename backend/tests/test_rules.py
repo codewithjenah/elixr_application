@@ -36,7 +36,9 @@ from assessment.rule_engine import (
     movement_requires_pose,
 )
 from assessment.scoring import RubricTracker
-from assessment.hold_validator import HoldSnapshot
+from assessment.feedback_codes import FeedbackCode
+from assessment.hold_validator import HoldSnapshot, HoldValidator
+from assessment.rules import bartenders_grip, normal_grip
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D, PoseLandmarks
 
 
@@ -95,6 +97,114 @@ def _evaluate_normal_grip(hand: HandLandmarks):
         None,
     )
     return result
+
+
+def _offset_hand(
+    points: dict[int, Point2D],
+    *,
+    mirrored: bool = False,
+    dx: float = 0.0,
+    dy: float = 0.0,
+) -> dict[int, Point2D]:
+    shifted = {}
+    for index, point in points.items():
+        x = (1.0 - point.x) if mirrored else point.x
+        shifted[index] = Point2D(x + dx, point.y + dy)
+    return shifted
+
+
+def _wrapped_normal_grip_points() -> dict[int, Point2D]:
+    """Side overhand wrap: neck sits in a curled finger/palm pocket."""
+    return {
+        0: Point2D(0.42, 0.51),
+        1: Point2D(0.44, 0.47),
+        2: Point2D(0.46, 0.43),
+        3: Point2D(0.47, 0.41),
+        4: Point2D(0.47, 0.39),
+        5: Point2D(0.44, 0.45),
+        6: Point2D(0.49, 0.41),
+        7: Point2D(0.53, 0.43),
+        8: Point2D(0.53, 0.47),
+        9: Point2D(0.45, 0.46),
+        10: Point2D(0.50, 0.43),
+        11: Point2D(0.54, 0.45),
+        12: Point2D(0.53, 0.48),
+        13: Point2D(0.46, 0.47),
+        14: Point2D(0.51, 0.45),
+        15: Point2D(0.54, 0.47),
+        16: Point2D(0.53, 0.49),
+        17: Point2D(0.46, 0.48),
+        18: Point2D(0.50, 0.46),
+        19: Point2D(0.53, 0.48),
+        20: Point2D(0.52, 0.49),
+    }
+
+
+def _open_hover_near_neck_points() -> dict[int, Point2D]:
+    """Confirmed cheat: open fingers crossing the old neck zone.
+
+    Overhand wrist, thumb/pinky orientation, and old tip-in-zone wrap all
+    pass; fingers remain extended rather than enclosing the neck.
+    """
+    return {
+        0: Point2D(0.44, 0.53),
+        1: Point2D(0.45, 0.47),
+        2: Point2D(0.46, 0.43),
+        3: Point2D(0.46, 0.41),
+        4: Point2D(0.46, 0.40),
+        5: Point2D(0.45, 0.43),
+        6: Point2D(0.48, 0.45),
+        7: Point2D(0.51, 0.45),
+        8: Point2D(0.54, 0.45),
+        9: Point2D(0.46, 0.44),
+        10: Point2D(0.49, 0.46),
+        11: Point2D(0.52, 0.46),
+        12: Point2D(0.55, 0.46),
+        13: Point2D(0.47, 0.45),
+        14: Point2D(0.50, 0.47),
+        15: Point2D(0.53, 0.47),
+        16: Point2D(0.55, 0.47),
+        17: Point2D(0.48, 0.46),
+        18: Point2D(0.51, 0.48),
+        19: Point2D(0.53, 0.48),
+        20: Point2D(0.55, 0.48),
+    }
+
+
+def _open_hand_above_neck_points() -> dict[int, Point2D]:
+    points = _open_hover_near_neck_points()
+    return {
+        index: Point2D(point.x, point.y - 0.04) if index >= 5 else point
+        for index, point in points.items()
+    }
+
+
+def _normal_grip_hand(
+    points: dict[int, Point2D],
+    *,
+    mirrored: bool = False,
+    dx: float = 0.0,
+    dy: float = 0.0,
+    overrides: dict[int, Point2D] | None = None,
+    missing: tuple[int, ...] = (),
+    handedness: str | None = None,
+) -> HandLandmarks:
+    shifted = _offset_hand(points, mirrored=mirrored, dx=dx, dy=dy)
+    if overrides:
+        shifted.update(overrides)
+    for index in missing:
+        shifted.pop(index, None)
+    if handedness is None:
+        handedness = "Left" if mirrored else "Right"
+    return HandLandmarks(points=shifted, handedness=handedness)
+
+
+def _wrapped_normal_grip_hand(**kwargs) -> HandLandmarks:
+    return _normal_grip_hand(_wrapped_normal_grip_points(), **kwargs)
+
+
+def _secure_wrap_feedback() -> str:
+    return "Wrap your hand securely around the bottle neck."
 
 def _evaluate_reverse_grip(hand: HandLandmarks):
     return _evaluate_reverse_grip_with_bottle(hand, _bottle())
@@ -640,30 +750,8 @@ def test_bartenders_grip_handles_incomplete_landmarks(missing):
 @pytest.mark.parametrize(
     "hand",
     [
-        _grip_hand(
-            wrist=Point2D(0.43, 0.49),
-            middle_mcp=Point2D(0.47, 0.43),
-            thumb_tip=Point2D(0.46, 0.41),
-            fingertips=(
-                Point2D(0.48, 0.44),
-                Point2D(0.50, 0.45),
-                Point2D(0.52, 0.47),
-                Point2D(0.54, 0.48),
-            ),
-            handedness="Right",
-        ),
-        _grip_hand(
-            wrist=Point2D(0.57, 0.49),
-            middle_mcp=Point2D(0.53, 0.43),
-            thumb_tip=Point2D(0.54, 0.41),
-            fingertips=(
-                Point2D(0.52, 0.44),
-                Point2D(0.50, 0.45),
-                Point2D(0.48, 0.47),
-                Point2D(0.46, 0.48),
-            ),
-            handedness="Left",
-        ),
+        _wrapped_normal_grip_hand(),
+        _wrapped_normal_grip_hand(mirrored=True),
     ],
     ids=["right-side", "left-side"],
 )
@@ -678,24 +766,7 @@ def test_normal_grip_accepts_reference_like_full_wrap(hand):
 
 
 def test_normal_grip_accepts_full_wrap_with_finger_mcps():
-    hand = _grip_hand(
-        wrist=Point2D(0.43, 0.49),
-        middle_mcp=Point2D(0.47, 0.43),
-        thumb_tip=Point2D(0.46, 0.41),
-        fingertips=(
-            Point2D(0.48, 0.44),
-            Point2D(0.50, 0.45),
-            Point2D(0.52, 0.47),
-            Point2D(0.54, 0.48),
-        ),
-        extra_points={
-            5: Point2D(0.46, 0.43),
-            13: Point2D(0.49, 0.45),
-            17: Point2D(0.50, 0.46),
-        },
-    )
-
-    result = _evaluate_normal_grip(hand)
+    result = _evaluate_normal_grip(_wrapped_normal_grip_hand())
 
     assert result.feedback_type == "positive"
     assert result.posture_status == "stable"
@@ -904,16 +975,16 @@ def test_normal_grip_accepts_overhand_at_upright_ratio_boundary():
     # Vertical pixel rise equals horizontal span (ratio 1.0).
     horizontal_norm = 0.04
     vertical_norm = (horizontal_norm * FRAME_WIDTH) / FRAME_HEIGHT
-    hand = _grip_hand(
-        wrist=Point2D(0.43, 0.43 + vertical_norm),
-        middle_mcp=Point2D(0.47, 0.43),
-        thumb_tip=Point2D(0.46, 0.41),
-        fingertips=(
-            Point2D(0.48, 0.44),
-            Point2D(0.50, 0.45),
-            Point2D(0.52, 0.47),
-            Point2D(0.54, 0.48),
-        ),
+    base = _wrapped_normal_grip_points()
+    middle_mcp = base[9]
+    hand = _normal_grip_hand(
+        base,
+        overrides={
+            0: Point2D(
+                middle_mcp.x - horizontal_norm,
+                middle_mcp.y + vertical_norm + 1e-4,
+            ),
+        },
     )
 
     result = _evaluate_normal_grip(hand)
@@ -955,6 +1026,154 @@ def test_normal_grip_handles_missing_palm_landmarks():
     assert result.feedback == (
         "Keep your full hand visible around the bottle neck."
     )
+
+
+def test_normal_grip_accepts_secure_wrapped_contact():
+    result = _evaluate_normal_grip(_wrapped_normal_grip_hand())
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback_code == FeedbackCode.NORMAL_GRIP_LOCKED.value
+
+
+def test_normal_grip_rejects_open_hovering_hand_near_neck():
+    result = _evaluate_normal_grip(
+        _normal_grip_hand(_open_hover_near_neck_points())
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == FeedbackCode.NORMAL_GRIP_NOT_SECURE.value
+    assert result.feedback == _secure_wrap_feedback()
+
+
+def test_normal_grip_rejects_open_hand_above_neck():
+    result = _evaluate_normal_grip(
+        _normal_grip_hand(_open_hand_above_neck_points())
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == FeedbackCode.NORMAL_GRIP_NOT_SECURE.value
+    assert result.feedback == _secure_wrap_feedback()
+
+
+def test_normal_grip_rejects_fingertips_near_neck_with_palm_too_far():
+    # Stay inside the old broad neck zone, but pull the palm off a tight radius.
+    result = _evaluate_normal_grip(_wrapped_normal_grip_hand(dx=-0.012))
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == FeedbackCode.NORMAL_GRIP_NOT_SECURE.value
+    assert result.feedback == _secure_wrap_feedback()
+
+
+def test_normal_grip_rejects_only_two_genuinely_engaged_fingers():
+    points = _wrapped_normal_grip_points()
+    points.update(
+        {
+            13: Point2D(0.47, 0.48),
+            14: Point2D(0.50, 0.47),
+            15: Point2D(0.53, 0.47),
+            16: Point2D(0.56, 0.47),
+            17: Point2D(0.48, 0.49),
+            18: Point2D(0.51, 0.48),
+            19: Point2D(0.54, 0.48),
+            20: Point2D(0.57, 0.48),
+        }
+    )
+    result = _evaluate_normal_grip(_normal_grip_hand(points))
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unstable"
+    assert result.feedback_code == FeedbackCode.NORMAL_GRIP_NOT_SECURE.value
+    assert result.feedback == _secure_wrap_feedback()
+
+
+def test_normal_grip_accepts_three_plus_finger_wrap():
+    result = _evaluate_normal_grip(_wrapped_normal_grip_hand())
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+
+
+def test_normal_grip_accepts_mirrored_left_hand_wrap():
+    result = _evaluate_normal_grip(_wrapped_normal_grip_hand(mirrored=True))
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+    assert result.feedback_code == FeedbackCode.NORMAL_GRIP_LOCKED.value
+
+
+def test_normal_grip_accepts_small_landmark_jitter_around_valid_wrap():
+    result = _evaluate_normal_grip(
+        _wrapped_normal_grip_hand(dx=0.004, dy=-0.003)
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
+
+
+def test_normal_grip_missing_finger_roots_is_unknown_not_false_fail():
+    result = _evaluate_normal_grip(
+        _wrapped_normal_grip_hand(missing=(5, 13, 17))
+    )
+
+    assert result.feedback_type == "warning"
+    assert result.posture_status == "unknown"
+    assert result.feedback_code == FeedbackCode.HAND_NOT_FULLY_VISIBLE.value
+
+
+def test_normal_grip_contact_signals_expose_subchecks():
+    bottle = _bottle()
+    valid = normal_grip.inspect_contact_geometry(
+        _wrapped_normal_grip_hand(),
+        bottle,
+    )
+    hover = normal_grip.inspect_contact_geometry(
+        _normal_grip_hand(_open_hover_near_neck_points()),
+        bottle,
+    )
+
+    assert valid.observable is True
+    assert valid.palm_near_neck is True
+    assert valid.engaged_finger_count >= 3
+    assert valid.grip_envelope_contact is True
+    assert valid.final_contact_gate is True
+
+    assert hover.observable is True
+    assert hover.final_contact_gate is False
+    assert hover.engaged_finger_count < 3 or hover.grip_envelope_contact is False
+
+
+def test_normal_grip_hover_does_not_emit_positive_hold_frame():
+    result = _evaluate_normal_grip(
+        _normal_grip_hand(_open_hover_near_neck_points())
+    )
+    validator = HoldValidator(confirmation_seconds=2.5, max_frame_gap_seconds=0.5)
+    validator.activate()
+    snapshot = validator.update(
+        feedback_type=result.feedback_type,
+        posture_status=result.posture_status,
+        session_active=True,
+        timestamp=0.0,
+    )
+
+    assert result.feedback_type != "positive"
+    assert result.posture_status != "stable"
+    assert snapshot.hold_duration_ms == 0
+
+
+def test_bartenders_grip_unchanged_by_normal_grip_contact_gate():
+    result, _, _ = bartenders_grip.evaluate(
+        _bottle(),
+        None,
+        HandsResult(hands=[_bartender_hand()]),
+        None,
+    )
+
+    assert result.feedback_type == "positive"
+    assert result.posture_status == "stable"
 
 
 @pytest.mark.parametrize(

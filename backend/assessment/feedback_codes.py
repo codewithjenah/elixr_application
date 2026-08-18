@@ -65,6 +65,7 @@ class FeedbackCode(str, Enum):
     HAND_NOT_AT_NECK = "hand_not_at_neck"
     OVERHAND_GRIP_REQUIRED = "overhand_grip_required"
     INSUFFICIENT_NECK_FINGER_WRAP = "insufficient_neck_finger_wrap"
+    NORMAL_GRIP_NOT_SECURE = "normal_grip_not_secure"
     NORMAL_NOT_TOP_DOWN = "normal_not_top_down"
     NORMAL_THUMB_PINKY_ORIENTATION = "normal_thumb_pinky_orientation"
     NORMAL_GRIP_LOCKED = "normal_grip_locked"
@@ -169,6 +170,7 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.HAND_NOT_AT_NECK: FeedbackCategory.TECHNIQUE,
     FeedbackCode.OVERHAND_GRIP_REQUIRED: FeedbackCategory.TECHNIQUE,
     FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP: FeedbackCategory.TECHNIQUE,
+    FeedbackCode.NORMAL_GRIP_NOT_SECURE: FeedbackCategory.TECHNIQUE,
     FeedbackCode.NORMAL_NOT_TOP_DOWN: FeedbackCategory.TECHNIQUE,
     FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION: FeedbackCategory.TECHNIQUE,
     FeedbackCode.NORMAL_GRIP_LOCKED: FeedbackCategory.TECHNIQUE,
@@ -257,6 +259,7 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.OVERHAND_GRIP_REQUIRED: RubricCriterion.TECHNIQUE,
     FeedbackCode.UNDERHAND_GRIP_REQUIRED: RubricCriterion.TECHNIQUE,
     FeedbackCode.INSUFFICIENT_NECK_FINGER_WRAP: RubricCriterion.TECHNIQUE,
+    FeedbackCode.NORMAL_GRIP_NOT_SECURE: RubricCriterion.TECHNIQUE,
     FeedbackCode.NORMAL_THUMB_PINKY_ORIENTATION: RubricCriterion.TECHNIQUE,
     FeedbackCode.REVERSE_PINKY_THUMB_ORIENTATION: RubricCriterion.TECHNIQUE,
     FeedbackCode.BARTENDER_PINCH_REQUIRED: RubricCriterion.TECHNIQUE,
