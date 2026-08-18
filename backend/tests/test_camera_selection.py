@@ -1133,6 +1133,33 @@ def test_latest_frame_slot_overwrites_unconsumed_frame():
     assert slot.take(timeout=0) is None
 
 
+def test_latest_frame_slot_peek_does_not_consume():
+    slot = camera_mod._LatestFrameSlot()
+    first = camera_mod.CapturedFrame(_usable_frame(), 1.0, 1)
+    second = camera_mod.CapturedFrame(_usable_frame(h=64, w=80), 2.0, 2)
+    slot.publish(first)
+    peeked = slot.peek(timeout=0)
+    assert peeked is not None
+    assert peeked.sequence == 1
+    slot.publish(second)
+    peeked_again = slot.peek(timeout=0)
+    assert peeked_again is not None
+    assert peeked_again.sequence == 2
+    taken = slot.take(timeout=0)
+    assert taken is not None
+    assert taken.sequence == 2
+
+
+def test_latest_frame_slot_peek_newer_than_skips_same_sequence():
+    slot = camera_mod._LatestFrameSlot()
+    slot.publish(camera_mod.CapturedFrame(_usable_frame(), 1.0, 4))
+    assert slot.peek(timeout=0, newer_than=4) is None
+    slot.publish(camera_mod.CapturedFrame(_usable_frame(), 2.0, 5))
+    peeked = slot.peek(timeout=0, newer_than=4)
+    assert peeked is not None
+    assert peeked.sequence == 5
+
+
 def test_latest_frame_slot_counts_publishes_separately_from_overwrites():
     slot = camera_mod._LatestFrameSlot()
     first = camera_mod.CapturedFrame(_usable_frame(), 1.0, 1)

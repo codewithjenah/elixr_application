@@ -135,3 +135,26 @@ class FeedbackMessage(BaseModel):
                 "session_id": session_id,
             }
         )
+
+
+class PreviewFrameMessage(BaseModel):
+    """Camera-image update only. Must not carry scoring or readiness side effects."""
+
+    frame_jpeg_base64: str
+    camera_ready: bool = True
+    session_state: Optional[str] = None
+    capture_sequence: Optional[int] = None
+    protocol_version: Optional[Literal[1]] = None
+    message_type: Literal["preview_frame"] = "preview_frame"
+    session_id: Optional[str] = None
+
+    def with_session(self, session_id: str | None) -> "PreviewFrameMessage":
+        if not session_id:
+            return self
+        return self.model_copy(
+            update={
+                "protocol_version": PROTOCOL_VERSION,
+                "message_type": "preview_frame",
+                "session_id": session_id,
+            }
+        )

@@ -124,6 +124,37 @@ class _LatestFrameSlot:
             self._latest = captured
             self._condition.notify_all()
 
+    def peek(
+        self,
+        timeout: float | None = None,
+        *,
+        newer_than: int | None = None,
+    ) -> CapturedFrame | None:
+        """Return the latest frame without consuming it.
+
+        Preview and AI both peek independently. The producer still overwrites
+        this single slot; callers must copy the ndarray if they will mutate it.
+        """
+        with self._condition:
+            if timeout is not None and timeout > 0:
+                deadline = time.monotonic() + timeout
+                while True:
+                    latest = self._latest
+                    if latest is not None and (
+                        newer_than is None or latest.sequence > newer_than
+                    ):
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._condition.wait(remaining)
+            latest = self._latest
+            if latest is None:
+                return None
+            if newer_than is not None and latest.sequence <= newer_than:
+                return None
+            return latest
+
     def take(self, timeout: float | None = None) -> CapturedFrame | None:
         with self._condition:
             if self._latest is None and timeout is not None and timeout > 0:
@@ -1485,6 +1516,114 @@ class CameraCapture:
         self._last_capture_sequence = captured.sequence
         self._last_read_status = CameraReadStatus.OK
         return captured.frame
+
+    def peek_latest(
+        self,
+        *,
+        newer_than: int | None = None,
+        timeout: float | None = None,
+    ) -> Optional[CapturedFrame]:
+        """Copy the newest producer frame without consuming the slot.
+
+        Preview and AI both call this so neither path can steal frames from
+        the other. ``newer_than`` waits briefly for a newer sequence.
+        """
+        if timeout is None:
+            timeout = _STARTUP_READ_SLEEP_S
+
+        if _capture_producer is not None and _capture_producer.is_alive:
+            return self._peek_from_latest_slot(
+                newer_than=newer_than,
+                timeout=timeout,
+            )
+
+        frame = self.read()
+        if frame is None:
+            return None
+        captured_at = self._last_captured_at_monotonic
+        if captured_at is None:
+            captured_at = time.monotonic()
+        sequence = int(self._last_capture_sequence or 0)
+        if newer_than is not None and sequence <= newer_than:
+            return None
+        return CapturedFrame(
+            frame=frame.copy(order="C"),
+            captured_at_monotonic=captured_at,
+            sequence=sequence,
+        )
+
+    def _peek_from_latest_slot(
+        self,
+        *,
+        newer_than: int | None,
+        timeout: float,
+    ) -> Optional[CapturedFrame]:
+        global _producer_blank_streak
+
+        slot = _latest_frame_slot
+        if slot is None:
+            return None
+
+        captured = slot.peek(timeout=timeout, newer_than=newer_than)
+        if captured is not None:
+            return self._adopt_peeked_frame(captured)
+
+        with _CAMERA_LOCK:
+            producer = _capture_producer
+            streak = (
+                producer.blank_streak
+                if producer is not None
+                else max(self._blank_frame_streak, _producer_blank_streak)
+            )
+            self._blank_frame_streak = streak
+
+            recoveries = 0
+            while (
+                self._blank_frame_streak >= _MAX_BLANK_FRAME_STREAK
+                and recoveries < _MAX_RECOVERY_ATTEMPTS_PER_READ
+                and self._recovery_allowed()
+            ):
+                if not self._recover_unlocked():
+                    self._last_read_status = CameraReadStatus.UNAVAILABLE
+                    return None
+                recoveries += 1
+                break
+
+            if recoveries == 0:
+                if (
+                    _shared_cap is None
+                    or not _shared_cap.isOpened()
+                    or self._last_read_status == CameraReadStatus.UNAVAILABLE
+                ):
+                    self._last_read_status = CameraReadStatus.UNAVAILABLE
+                    return None
+                self._last_read_status = CameraReadStatus.TEMPORARY_MISS
+                return None
+
+        slot = _latest_frame_slot
+        if slot is None:
+            self._last_read_status = CameraReadStatus.TEMPORARY_MISS
+            return None
+        captured = slot.peek(
+            timeout=max(_STARTUP_READ_SLEEP_S, 0.1),
+            newer_than=newer_than,
+        )
+        if captured is None:
+            self._last_read_status = CameraReadStatus.TEMPORARY_MISS
+            return None
+        return self._adopt_peeked_frame(captured)
+
+    def _adopt_peeked_frame(self, captured: CapturedFrame) -> CapturedFrame:
+        owned = captured.frame.copy(order="C")
+        self._blank_frame_streak = 0
+        self._last_captured_at_monotonic = captured.captured_at_monotonic
+        self._last_capture_sequence = captured.sequence
+        self._last_read_status = CameraReadStatus.OK
+        return CapturedFrame(
+            frame=owned,
+            captured_at_monotonic=captured.captured_at_monotonic,
+            sequence=captured.sequence,
+        )
 
     def read(self) -> Optional[np.ndarray]:
         # Production/session path: dedicated producer keeps only the newest frame.

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'practice_feedback.dart';
 
@@ -133,6 +134,39 @@ class CommandAckMismatchException implements Exception {
       '$pendingSessionId, ack=$ackAction/$ackSessionId)';
 }
 
+/// Camera-image update only. Must not advance readiness, scoring, or TTS.
+class PreviewFrame {
+  const PreviewFrame({
+    required this.jpegBytes,
+    this.sessionId,
+    this.sessionState,
+    this.cameraReady = true,
+    this.captureSequence,
+    this.protocolVersion,
+  });
+
+  final Uint8List jpegBytes;
+  final String? sessionId;
+  final String? sessionState;
+  final bool cameraReady;
+  final int? captureSequence;
+  final int? protocolVersion;
+
+  factory PreviewFrame.fromJson(Map<String, dynamic> json) {
+    final frameB64 = json['frame_jpeg_base64'] as String? ?? '';
+    return PreviewFrame(
+      jpegBytes: frameB64.isEmpty ? Uint8List(0) : base64Decode(frameB64),
+      sessionId: json['session_id'] as String?,
+      sessionState: json['session_state'] as String?,
+      cameraReady: json['camera_ready'] as bool? ?? true,
+      captureSequence: (json['capture_sequence'] as num?)?.toInt(),
+      protocolVersion: json['protocol_version'] as int?,
+    );
+  }
+
+  bool get hasJpeg => jpegBytes.isNotEmpty;
+}
+
 /// Known [CommandAck.sessionState] values produced by the backend.
 ///
 /// - `preparing` – camera and model are warming up; preview frames stream.
@@ -167,6 +201,11 @@ final class WsProtocolErrorInbound extends WsInboundMessage {
 final class WsUnknownMessage extends WsInboundMessage {
   const WsUnknownMessage(this.messageType);
   final String? messageType;
+}
+
+final class WsPreviewFrameMessage extends WsInboundMessage {
+  const WsPreviewFrameMessage(this.frame);
+  final PreviewFrame frame;
 }
 
 final class WsMalformedMessage extends WsInboundMessage {
@@ -206,6 +245,8 @@ class WsMessageDecoder {
       switch (messageType) {
         case 'feedback':
           return WsFeedbackMessage(PracticeFeedback.fromJson(json));
+        case 'preview_frame':
+          return WsPreviewFrameMessage(PreviewFrame.fromJson(json));
         case 'command_ack':
           return WsCommandAckMessage(CommandAck.fromJson(json));
         case 'protocol_error':

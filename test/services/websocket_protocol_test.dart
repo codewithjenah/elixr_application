@@ -199,6 +199,26 @@ void main() {
         isA<WsUnknownMessage>(),
       );
     });
+
+    test('preview_frame parses as camera image only', () {
+      final decoded = decoder.decode(
+        jsonEncode({
+          'protocol_version': 1,
+          'message_type': 'preview_frame',
+          'session_id': 'session-1',
+          'frame_jpeg_base64': base64Encode([1, 2, 3, 4]),
+          'camera_ready': true,
+          'session_state': 'active',
+          'capture_sequence': 9,
+        }),
+      );
+      expect(decoded, isA<WsPreviewFrameMessage>());
+      final frame = (decoded as WsPreviewFrameMessage).frame;
+      expect(frame.hasJpeg, isTrue);
+      expect(frame.captureSequence, 9);
+      expect(frame.sessionId, 'session-1');
+      expect(frame.sessionState, 'active');
+    });
   });
 
   group('WebSocketService protocol lifecycle', () {
@@ -461,6 +481,39 @@ void main() {
       expect(service.sessionPrepared, isTrue);
       await sub.cancel();
     });
+
+    test(
+      'preview_frame does not change practice session flags or feedback',
+      () async {
+        final received = <PracticeFeedback>[];
+        final previews = <PreviewFrame>[];
+        final feedbackSub = service.feedbackStream.listen(received.add);
+        final previewSub = service.previewStream.listen(previews.add);
+        service.beginPracticeAttempt();
+        final current = service.currentSessionId!;
+
+        service.debugHandleRawMessage(
+          jsonEncode({
+            'protocol_version': 1,
+            'message_type': 'preview_frame',
+            'session_id': current,
+            'frame_jpeg_base64': base64Encode([9, 8, 7]),
+            'camera_ready': true,
+            'session_state': 'active',
+            'capture_sequence': 4,
+          }),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(previews, hasLength(1));
+        expect(previews.first.captureSequence, 4);
+        expect(received, isEmpty);
+        expect(service.sessionActive, isFalse);
+        expect(service.sessionPrepared, isFalse);
+        expect(service.sessionReadying, isFalse);
+        await feedbackSub.cancel();
+        await previewSub.cancel();
+      },
+    );
 
     test('pending command timeout completes with controlled failure', () async {
       final future = service.sendPrepare(

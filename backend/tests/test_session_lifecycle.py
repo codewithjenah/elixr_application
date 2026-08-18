@@ -1005,7 +1005,7 @@ def test_cv_session_loop_keeps_one_processing_task_in_flight(monkeypatch):
     monkeypatch.setattr(websocket_api, "FPS_LOG_INTERVAL", 1000)
 
     in_flight = {"count": 0, "max": 0}
-    original = websocket_api.VisionSession.process_tick
+    original = websocket_api.VisionSession.render_preview
 
     def slow_tick(self):
         in_flight["count"] += 1
@@ -1015,7 +1015,7 @@ def test_cv_session_loop_keeps_one_processing_task_in_flight(monkeypatch):
         finally:
             in_flight["count"] -= 1
 
-    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", slow_tick)
+    monkeypatch.setattr(websocket_api.VisionSession, "render_preview", slow_tick)
 
     async def _run():
         sent = []
@@ -1173,7 +1173,7 @@ def test_cancel_waits_for_in_flight_frame_before_close(monkeypatch):
     frame_started = threading.Event()
     frame_can_finish = threading.Event()
     release_after_frame = {"ok": False}
-    original_tick = websocket_api.VisionSession.process_tick
+    original_tick = websocket_api.VisionSession.render_preview
 
     def gated_tick(self):
         frame_started.set()
@@ -1183,7 +1183,7 @@ def test_cancel_waits_for_in_flight_frame_before_close(monkeypatch):
         finally:
             release_after_frame["ok"] = True
 
-    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+    monkeypatch.setattr(websocket_api.VisionSession, "render_preview", gated_tick)
 
     original_release = StubCamera.release
 
@@ -1237,14 +1237,14 @@ def test_cancel_reraises_after_cleanup(monkeypatch):
 
     frame_started = threading.Event()
     frame_can_finish = threading.Event()
-    original_tick = websocket_api.VisionSession.process_tick
+    original_tick = websocket_api.VisionSession.render_preview
 
     def gated_tick(self):
         frame_started.set()
         frame_can_finish.wait(timeout=2.0)
         return original_tick(self)
 
-    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+    monkeypatch.setattr(websocket_api.VisionSession, "render_preview", gated_tick)
 
     async def _run():
         async def fake_send(_text):
@@ -1290,7 +1290,7 @@ def test_cancel_releases_camera_exactly_once(monkeypatch):
     frame_started = threading.Event()
     frame_can_finish = threading.Event()
     release_calls = {"n": 0}
-    original_tick = websocket_api.VisionSession.process_tick
+    original_tick = websocket_api.VisionSession.render_preview
     original_release = StubCamera.release
 
     def gated_tick(self):
@@ -1302,7 +1302,7 @@ def test_cancel_releases_camera_exactly_once(monkeypatch):
         release_calls["n"] += 1
         return original_release(self)
 
-    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+    monkeypatch.setattr(websocket_api.VisionSession, "render_preview", gated_tick)
     monkeypatch.setattr(StubCamera, "release", counting_release)
 
     async def _run():
@@ -1344,7 +1344,7 @@ def test_process_tick_exception_still_closes_camera(monkeypatch):
     def failing_tick(self):
         raise RuntimeError("synthetic frame failure")
 
-    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", failing_tick)
+    monkeypatch.setattr(websocket_api.VisionSession, "render_preview", failing_tick)
 
     async def _run():
         sent: list[str] = []
@@ -1377,7 +1377,7 @@ def test_process_tick_exception_still_closes_camera(monkeypatch):
 
 
 def test_cancel_cleanup_does_not_start_second_frame(monkeypatch):
-    """Cancellation cleanup does not launch another process_tick."""
+    """Cancellation cleanup does not launch another render_preview."""
     import threading
 
     _patch_vision(monkeypatch)
@@ -1387,7 +1387,7 @@ def test_cancel_cleanup_does_not_start_second_frame(monkeypatch):
     frame_started = threading.Event()
     frame_can_finish = threading.Event()
     tick_calls = {"n": 0}
-    original_tick = websocket_api.VisionSession.process_tick
+    original_tick = websocket_api.VisionSession.render_preview
 
     def gated_tick(self):
         tick_calls["n"] += 1
@@ -1395,7 +1395,7 @@ def test_cancel_cleanup_does_not_start_second_frame(monkeypatch):
         frame_can_finish.wait(timeout=2.0)
         return original_tick(self)
 
-    monkeypatch.setattr(websocket_api.VisionSession, "process_tick", gated_tick)
+    monkeypatch.setattr(websocket_api.VisionSession, "render_preview", gated_tick)
 
     async def _run():
         async def fake_send(_text):

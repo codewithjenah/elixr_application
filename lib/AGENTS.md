@@ -41,7 +41,7 @@ current Flutter command format (`protocol_version`, `request_id`, `session_id`).
 
 When changing a message field or action:
 
-1. Update `PracticeFeedback` / `ws_protocol.dart` transport models.
+1. Update `PracticeFeedback` / `ws_protocol.dart` transport models (`PreviewFrame` for camera-only updates).
 2. Update `WebSocketService` send/receive and acknowledgment tracking.
 3. Update the Pydantic schemas and backend producer.
 4. Define defaults and malformed-message behavior.
@@ -53,6 +53,9 @@ sent. `sessionPrepared` / `sessionActive` advance only from a matching
 backend `command_ack` or authoritative feedback for the current `session_id`.
 Pending commands are tracked by `request_id` with bounded timeouts and must be
 completed on acknowledgment, rejection, timeout, disconnect, or dispose.
+
+`preview_frame` messages update camera JPEG state only. They must not advance
+readiness, scoring, TTS, hold confirmation, or session lifecycle flags.
 
 Malformed or unknown inbound messages must remain non-fatal and observable via
 `lastProtocolError` / `protocolErrorStream` (not silent swallow, not modal spam).

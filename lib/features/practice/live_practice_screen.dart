@@ -47,6 +47,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   late final MovementRotationController _rotation;
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
+  StreamSubscription<PreviewFrame>? _previewSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
   PracticeFeedback? _latestFeedback;
   bool _bottleDetected = false;
@@ -69,6 +70,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _ws.addListener(_onWsStateChanged);
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
+    _previewSub = _ws.previewStream.listen(_onPreviewFrame);
     _connect();
     _sfx.preload();
   }
@@ -76,6 +78,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   @override
   void dispose() {
     _feedbackSub?.cancel();
+    _previewSub?.cancel();
     _frameBytes.dispose();
     _music.dispose();
     _sfx.dispose();
@@ -136,6 +139,31 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       // Stop ack did not match; session identity was already cleared.
     } on CommandDisconnectedException {
       // Expected during navigation or dispose.
+    }
+  }
+
+  void _onPreviewFrame(PreviewFrame frame) {
+    if (!mounted) return;
+    if (!frame.hasJpeg) return;
+
+    _publishFrame(frame.jpegBytes);
+
+    if (_run.isPreparingCamera) {
+      if (_sessionError != null) {
+        setState(() => _sessionError = null);
+      }
+      final startCountdown = _run.onPreviewFeedback(
+        hasJpegFrame: true,
+        isFatal: false,
+      );
+      if (startCountdown) {
+        unawaited(_startCountdownOverlay());
+      }
+      return;
+    }
+
+    if (_sessionError != null && (_run.isCountdown || _run.isTrainingActive)) {
+      setState(() => _sessionError = null);
     }
   }
 

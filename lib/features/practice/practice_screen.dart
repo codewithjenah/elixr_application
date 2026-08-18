@@ -110,6 +110,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   );
 
   StreamSubscription<PracticeFeedback>? _feedbackSub;
+  StreamSubscription<PreviewFrame>? _previewSub;
   final ValueNotifier<Uint8List?> _frameBytes = ValueNotifier<Uint8List?>(null);
   final ValueNotifier<RubricAssessment?> _assessmentNotifier =
       ValueNotifier<RubricAssessment?>(null);
@@ -146,6 +147,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     _ws.addListener(_onWsStateChanged);
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
+    _previewSub = _ws.previewStream.listen(_onPreviewFrame);
     _connect();
     _sfx.preload();
   }
@@ -153,6 +155,7 @@ class _PracticeScreenState extends State<PracticeScreen>
   @override
   void dispose() {
     _feedbackSub?.cancel();
+    _previewSub?.cancel();
     _scorePulseController.dispose();
     _frameBytes.dispose();
     _assessmentNotifier.dispose();
@@ -229,6 +232,33 @@ class _PracticeScreenState extends State<PracticeScreen>
       // Stop ack did not match; session identity was already cleared.
     } on CommandDisconnectedException {
       // Expected during navigation or dispose.
+    }
+  }
+
+  void _onPreviewFrame(PreviewFrame frame) {
+    if (!mounted) return;
+    if (!frame.hasJpeg) return;
+
+    _publishFrame(frame.jpegBytes);
+
+    if (_run.isPreparingCamera) {
+      if (_sessionError != null) {
+        setState(() => _sessionError = null);
+      }
+      final firstFrame = _run.onPreviewFeedback(
+        hasJpegFrame: true,
+        isFatal: false,
+      );
+      if (firstFrame) {
+        _run.enterReadiness();
+        unawaited(_beginReadiness());
+      }
+      return;
+    }
+
+    if (_sessionError != null &&
+        (_run.isReadiness || _run.isCountdown || _run.isTrainingActive)) {
+      setState(() => _sessionError = null);
     }
   }
 

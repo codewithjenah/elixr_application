@@ -31,6 +31,7 @@ class WebSocketService extends ChangeNotifier {
   StreamSink<dynamic>? _outboundSink;
   StreamSubscription<dynamic>? _subscription;
   final _feedbackController = StreamController<PracticeFeedback>.broadcast();
+  final _previewController = StreamController<PreviewFrame>.broadcast();
   final _protocolErrorController =
       StreamController<ProtocolErrorMessage>.broadcast();
 
@@ -83,6 +84,7 @@ class WebSocketService extends ChangeNotifier {
   int get protocolErrorCount => _protocolErrorCount;
 
   Stream<PracticeFeedback> get feedbackStream => _feedbackController.stream;
+  Stream<PreviewFrame> get previewStream => _previewController.stream;
   Stream<ProtocolErrorMessage> get protocolErrorStream =>
       _protocolErrorController.stream;
 
@@ -649,6 +651,8 @@ class WebSocketService extends ChangeNotifier {
     switch (decoded) {
       case WsFeedbackMessage(:final feedback):
         _handleFeedback(feedback);
+      case WsPreviewFrameMessage(:final frame):
+        _handlePreviewFrame(frame);
       case WsCommandAckMessage(:final ack):
         _handleAck(ack);
       case WsProtocolErrorInbound(:final error):
@@ -687,6 +691,23 @@ class WebSocketService extends ChangeNotifier {
 
     if (!_feedbackController.isClosed) {
       _feedbackController.add(feedback);
+    }
+  }
+
+  void _handlePreviewFrame(PreviewFrame frame) {
+    final previewSessionId = frame.sessionId;
+    if (previewSessionId != null) {
+      if (_currentSessionId == null || previewSessionId != _currentSessionId) {
+        return;
+      }
+    }
+
+    if (!frame.hasJpeg) {
+      return;
+    }
+
+    if (!_previewController.isClosed) {
+      _previewController.add(frame);
     }
   }
 
@@ -1033,6 +1054,9 @@ class WebSocketService extends ChangeNotifier {
     _connectionState = WebSocketConnectionState.disconnected;
     if (!_feedbackController.isClosed) {
       _feedbackController.close();
+    }
+    if (!_previewController.isClosed) {
+      _previewController.close();
     }
     if (!_protocolErrorController.isClosed) {
       _protocolErrorController.close();

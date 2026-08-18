@@ -122,7 +122,9 @@ Primary contract documentation lives in the root `README.md` (protocol version 1
 
 `schemas.feedback.FeedbackMessage` remains the feedback payload. Version-1
 sessions also stamp `protocol_version`, `message_type: "feedback"`, and
-`session_id`. Inbound commands use `schemas.commands`; acknowledgments and
+`session_id`. Camera JPEGs use `schemas.feedback.PreviewFrameMessage`
+(`message_type: "preview_frame"`) so preview can update independently of AI
+scoring. Inbound commands use `schemas.commands`; acknowledgments and
 uncorrelated failures use `schemas.protocol` (`command_ack`, `protocol_error`).
 
 When the contract changes:

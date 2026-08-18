@@ -251,7 +251,8 @@ def test_format_perf_line_is_one_aggregated_summary():
 
     line = format_perf_line(
         timings,
-        output_fps=13.2,
+        preview_fps=19.5,
+        ai_fps=9.0,
         capture_fps=29.8,
         elapsed_s=3.0,
         overwrite_delta=42,
@@ -259,15 +260,19 @@ def test_format_perf_line_is_one_aggregated_summary():
         yolo_skip=2,
         imgsz=640,
         lifecycle="active",
-        processed=3,
-        ticks=3,
+        processed=60,
+        ticks=60,
+        preview_replaced=3,
+        ai_overwrites=18,
+        ai_processed=27,
     )
 
     assert line.startswith("CV PERF |")
-    assert "output=13.2fps" in line
+    assert "preview=19.5fps" in line
+    assert "ai=9.0fps" in line
     assert "capture=29.8fps" in line
     assert "yolo=" in line and "fps" in line
-    assert "frame_age avg=" in line
+    assert "ai_frame_age avg=" in line
     assert "max=" in line
     assert "yolo=58.0ms" in line
     assert "hands=14.0ms" in line
@@ -275,8 +280,13 @@ def test_format_perf_line_is_one_aggregated_summary():
     assert "annotate=8.0ms" in line
     assert "jpeg=4.0ms" in line
     assert "send=2.0ms" in line
-    assert "total=" in line
-    assert "over_budget=" in line
-    assert "overwrites=42" in line
+    assert "preview_e2e=" in line
+    assert "ai_e2e=" in line
+    assert "preview_over_budget=" in line
+    assert "preview_drops=3" in line
+    assert "ai_overwrites=18" in line
+    assert "slot_overwrites=42" in line
+    assert "preview_frames=60" in line
+    assert "ai_frames=27" in line
     assert "bottleneck=" in line
     assert "\n" not in line

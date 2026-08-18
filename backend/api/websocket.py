@@ -2,8 +2,10 @@ import asyncio
 import base64
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass
+from collections import deque
 from typing import Any, Awaitable, Callable
 
 import cv2
@@ -37,6 +39,7 @@ from config import (
     EVIDENCE_MAX_HEIGHT,
     EVIDENCE_MAX_WIDTH,
     JPEG_QUALITY,
+    OVERLAY_MAX_AGE_S,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
     TARGET_FPS,
@@ -54,7 +57,7 @@ from schemas.commands import (
     StopCommand,
     parse_v1_command,
 )
-from schemas.feedback import AssessmentPayload, CriterionScorePayload, FeedbackMessage
+from schemas.feedback import AssessmentPayload, CriterionScorePayload, FeedbackMessage, PreviewFrameMessage
 from schemas.protocol import CommandAck, ProtocolError
 from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
@@ -62,6 +65,7 @@ from vision.dual_prop_detector import DualPropDetector
 from vision.prop_detector import PropDetector
 from vision.camera import (
     CameraCapture,
+    CapturedFrame,
     camera_display_name,
     latest_frame_overwrite_count,
     latest_frame_publish_count,
@@ -74,6 +78,7 @@ from vision.pipeline_telemetry import (
     monotonic_counter_delta,
 )
 from vision.hands_detector import HandsDetector
+from vision.overlay_snapshot import OverlaySnapshot, freeze_overlay
 from vision.pose_detector import PoseDetector
 from vision.types import Point2D, PropDetection
 
@@ -478,8 +483,19 @@ class VisionSession:
         self._frozen_readiness_snapshot: ReadinessSnapshot | None = None
         self._calibration = CalibrationTracker()
         self.timings = _PipelineTimings()
+        self.preview_timings = _PipelineTimings()
         # Wall-clock start of the latest process_* call (for end_to_end timing).
         self._pipeline_started_at: float | None = None
+        self._preview_started_at: float | None = None
+        self._overlay_lock = threading.Lock()
+        self._overlay_snapshot: OverlaySnapshot | None = None
+        self._preview_run_lock = threading.Lock()
+        self._ai_run_lock = threading.Lock()
+        self._last_preview_sequence: int | None = None
+        self._last_ai_sequence: int | None = None
+        self._ai_camera_overwrites = 0
+        self._ai_inflight_max = 0
+        self._ai_inflight = 0
 
     def _normalize_detections(
         self,
@@ -554,6 +570,70 @@ class VisionSession:
         self._last_bottles = list(normalized.bottles)
         self._last_shakers = list(normalized.shakers)
 
+    def _acquire_captured_frame(
+        self,
+        *,
+        newer_than: int | None = None,
+        timeout: float | None = None,
+        timings: _PipelineTimings | None = None,
+    ) -> CapturedFrame | None:
+        """Latest camera frame for preview or AI. Never builds a FIFO backlog."""
+        clock = timings if timings is not None else self.timings
+        t0 = time.perf_counter()
+        peek = getattr(self.camera, "peek_latest", None)
+        if callable(peek):
+            captured = peek(newer_than=newer_than, timeout=timeout)
+        else:
+            frame = self.camera.read()
+            if frame is None:
+                clock.add("camera", time.perf_counter() - t0)
+                return None
+            captured_at = getattr(self.camera, "last_captured_at_monotonic", None)
+            sequence = getattr(self.camera, "last_capture_sequence", None)
+            captured = CapturedFrame(
+                frame=frame,
+                captured_at_monotonic=(
+                    captured_at if captured_at is not None else time.monotonic()
+                ),
+                sequence=int(sequence or 0),
+            )
+            if newer_than is not None and captured.sequence <= newer_than:
+                clock.add("camera", time.perf_counter() - t0)
+                return None
+        clock.add("camera", time.perf_counter() - t0)
+        return captured
+
+    def _publish_overlay(self, snapshot: OverlaySnapshot) -> None:
+        with self._overlay_lock:
+            self._overlay_snapshot = snapshot
+
+    def _clear_overlay(self) -> None:
+        with self._overlay_lock:
+            self._overlay_snapshot = None
+
+    def _read_fresh_overlay(self, *, now: float | None = None) -> OverlaySnapshot | None:
+        with self._overlay_lock:
+            snapshot = self._overlay_snapshot
+        if snapshot is None:
+            return None
+        if now is None:
+            now = time.monotonic()
+        if not snapshot.is_fresh(now, OVERLAY_MAX_AGE_S):
+            return None
+        return snapshot
+
+    def _wire_session_state(self) -> str:
+        if self._lifecycle == SESSION_ACTIVE:
+            return "active"
+        if self._lifecycle == SESSION_READYING:
+            return "readying"
+        if self._lifecycle == SESSION_PREPARED:
+            return "preparing"
+        return "unavailable"
+
+    def _stamp_preview(self, message: PreviewFrameMessage) -> PreviewFrameMessage:
+        return message.with_session(self.session_id)
+
     @property
     def lifecycle(self) -> str:
         return self._lifecycle
@@ -578,7 +658,15 @@ class VisionSession:
         return self.camera.open()
 
     def _stamp(self, message: FeedbackMessage) -> FeedbackMessage:
-        return message.with_session(self.session_id)
+        stamped = message.with_session(self.session_id)
+        if stamped.message_type == "feedback":
+            return stamped
+        return stamped.model_copy(
+            update={
+                "protocol_version": PROTOCOL_VERSION,
+                "message_type": "feedback",
+            }
+        )
 
     def _sync_landmark_detectors(self, *, needs_hands: bool, needs_pose: bool) -> None:
         """Create required Hands/Pose detectors and close any unused instances."""
@@ -635,6 +723,8 @@ class VisionSession:
         self._readiness_confirmed = False
         self._frozen_readiness_snapshot = None
         self._calibration.reset()
+        self._clear_overlay()
+        self._last_ai_sequence = None
         self._lifecycle = SESSION_READYING
         return True
 
@@ -709,6 +799,8 @@ class VisionSession:
         self._latest_readiness_observed_at = None
         self._frozen_readiness_snapshot = None
         self._readiness_confirmed = False
+        self._clear_overlay()
+        self._last_ai_sequence = None
         self._lifecycle = SESSION_ACTIVE
         return True, None
 
@@ -749,16 +841,11 @@ class VisionSession:
         self._pipeline_started_at = time.perf_counter()
         total_start = self._pipeline_started_at
 
-        t0 = time.perf_counter()
-        frame = self.camera.read()
-        self.timings.add("camera", time.perf_counter() - t0)
-
-        if frame is None:
+        captured = self._acquire_captured_frame()
+        if captured is None:
             return None
-
-        captured_at = self.camera.last_captured_at_monotonic
-        if captured_at is not None:
-            self.timings.add_frame_age(time.monotonic() - captured_at)
+        frame = captured.frame
+        self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
 
         t0 = time.perf_counter()
         _, buffer = cv2.imencode(
@@ -789,7 +876,95 @@ class VisionSession:
         self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
-    def process_readiness_frame(self) -> FeedbackMessage | None:
+    def render_preview(self) -> PreviewFrameMessage | None:
+        """JPEG preview from the latest camera frame. Never waits on AI."""
+        if not self._preview_run_lock.acquire(blocking=False):
+            raise RuntimeError("Preview worker violated single in-flight")
+        try:
+            return self._render_preview_unlocked()
+        finally:
+            self._preview_run_lock.release()
+
+    def _render_preview_unlocked(self) -> PreviewFrameMessage | None:
+        self._preview_started_at = time.perf_counter()
+        total_start = self._preview_started_at
+        captured = self._acquire_captured_frame(timings=self.preview_timings)
+        if captured is None:
+            return None
+        if (
+            self._last_preview_sequence is not None
+            and captured.sequence == self._last_preview_sequence
+        ):
+            return None
+
+        self.preview_timings.add_frame_age(
+            time.monotonic() - captured.captured_at_monotonic
+        )
+        overlay = self._read_fresh_overlay()
+        annotated = captured.frame
+        if overlay is not None:
+            t0 = time.perf_counter()
+            annotated = annotate_frame(
+                captured.frame,
+                list(overlay.boxes),
+                overlay.hands,
+                overlay.feedback,
+                overlay.feedback_type,
+                overlay.movement,
+                pose=overlay.pose,
+                prop_label=overlay.prop_label,
+            )
+            self.preview_timings.add("annotate", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        _, buffer = cv2.imencode(
+            ".jpg",
+            annotated,
+            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+        )
+        self.preview_timings.add("jpeg", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        frame_b64 = base64.b64encode(buffer).decode("ascii")
+        self._last_preview_sequence = captured.sequence
+        message = self._stamp_preview(
+            PreviewFrameMessage(
+                frame_jpeg_base64=frame_b64,
+                camera_ready=True,
+                session_state=self._wire_session_state(),
+                capture_sequence=captured.sequence,
+            )
+        )
+        self.preview_timings.add("encode", time.perf_counter() - t0)
+        self.preview_timings.add("processing_total", time.perf_counter() - total_start)
+        return message
+
+    def analyze_tick(self) -> FeedbackMessage | None:
+        """Run AI/evaluation for the newest unanalyzed camera frame."""
+        if not self._ai_run_lock.acquire(blocking=False):
+            raise RuntimeError("AI worker violated single in-flight")
+        self._ai_inflight += 1
+        if self._ai_inflight > self._ai_inflight_max:
+            self._ai_inflight_max = self._ai_inflight
+        publish_at_start = latest_frame_publish_count()
+        try:
+            if self._lifecycle == SESSION_PREPARED:
+                return None
+            if self._lifecycle == SESSION_READYING:
+                return self.process_readiness_frame(emit_preview_jpeg=False)
+            if self._lifecycle == SESSION_ACTIVE:
+                return self.process_frame(emit_preview_jpeg=False)
+            return None
+        finally:
+            self._ai_inflight -= 1
+            self._ai_camera_overwrites += max(
+                0, latest_frame_publish_count() - publish_at_start
+            )
+            self._ai_run_lock.release()
+
+    def process_readiness_frame(
+        self, *, emit_preview_jpeg: bool = True
+    ) -> FeedbackMessage | None:
         """Run observability checklist without movement evaluation or scoring."""
         self._pipeline_started_at = time.perf_counter()
         total_start = self._pipeline_started_at
@@ -798,17 +973,17 @@ class VisionSession:
         if model_error is not None:
             return model_error
 
-        t0 = time.perf_counter()
-        frame = self.camera.read()
-        self.timings.add("camera", time.perf_counter() - t0)
-
-        if frame is None:
+        newer_than = None if emit_preview_jpeg else self._last_ai_sequence
+        timeout = None if emit_preview_jpeg else 0.05
+        captured = self._acquire_captured_frame(
+            newer_than=newer_than,
+            timeout=timeout,
+        )
+        if captured is None:
             return None
-
-        processing_start = time.monotonic()
-        captured_at = self.camera.last_captured_at_monotonic
-        if captured_at is not None:
-            self.timings.add_frame_age(processing_start - captured_at)
+        frame = captured.frame
+        self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
+        self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
         run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
@@ -876,29 +1051,47 @@ class VisionSession:
         )
 
         boxes_to_draw = list(normalized.annotation)
-        t0 = time.perf_counter()
-        annotated = annotate_frame(
-            frame,
-            boxes_to_draw,
-            hands,
-            "Checking readiness\u2026",
-            "positive",
-            self.movement,
-            pose=pose,
-            prop_label=self.prop_display_name,
+        self._publish_overlay(
+            freeze_overlay(
+                published_at_monotonic=time.monotonic(),
+                captured_at_monotonic=captured.captured_at_monotonic,
+                capture_sequence=captured.sequence,
+                boxes=boxes_to_draw,
+                hands=hands,
+                pose=pose,
+                feedback="Checking readiness\u2026",
+                feedback_type="positive",
+                movement=self.movement,
+                prop_label=self.prop_display_name,
+            )
         )
-        self.timings.add("annotate", time.perf_counter() - t0)
 
-        t0 = time.perf_counter()
-        _, buffer = cv2.imencode(
-            ".jpg",
-            annotated,
-            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
-        )
-        self.timings.add("jpeg", time.perf_counter() - t0)
+        frame_b64 = None
+        if emit_preview_jpeg:
+            t0 = time.perf_counter()
+            annotated = annotate_frame(
+                frame,
+                boxes_to_draw,
+                hands,
+                "Checking readiness\u2026",
+                "positive",
+                self.movement,
+                pose=pose,
+                prop_label=self.prop_display_name,
+            )
+            self.timings.add("annotate", time.perf_counter() - t0)
 
-        t0 = time.perf_counter()
-        frame_b64 = base64.b64encode(buffer).decode("ascii")
+            t0 = time.perf_counter()
+            _, buffer = cv2.imencode(
+                ".jpg",
+                annotated,
+                [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+            )
+            self.timings.add("jpeg", time.perf_counter() - t0)
+
+            t0 = time.perf_counter()
+            frame_b64 = base64.b64encode(buffer).decode("ascii")
+            self.timings.add("encode", time.perf_counter() - t0)
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=normalized.selected_detected,
@@ -919,11 +1112,12 @@ class VisionSession:
                 calibration_source=self._calibration.source,
             )
         )
-        self.timings.add("encode", time.perf_counter() - t0)
         self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
-    def process_prop_detection_frame(self) -> FeedbackMessage | None:
+    def process_prop_detection_frame(
+        self, *, emit_preview_jpeg: bool = True
+    ) -> FeedbackMessage | None:
         """Active Free Practice: camera + prop detect + annotate, no MediaPipe/scoring."""
         self._pipeline_started_at = time.perf_counter()
         total_start = self._pipeline_started_at
@@ -932,17 +1126,17 @@ class VisionSession:
         if model_error is not None:
             return model_error
 
-        t0 = time.perf_counter()
-        frame = self.camera.read()
-        self.timings.add("camera", time.perf_counter() - t0)
-
-        if frame is None:
+        newer_than = None if emit_preview_jpeg else self._last_ai_sequence
+        timeout = None if emit_preview_jpeg else 0.05
+        captured = self._acquire_captured_frame(
+            newer_than=newer_than,
+            timeout=timeout,
+        )
+        if captured is None:
             return None
-
-        processing_start = time.monotonic()
-        captured_at = self.camera.last_captured_at_monotonic
-        if captured_at is not None:
-            self.timings.add_frame_age(processing_start - captured_at)
+        frame = captured.frame
+        self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
+        self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
         run_yolo = (self._frame_index - 1) % YOLO_FRAME_SKIP == 0
@@ -966,29 +1160,47 @@ class VisionSession:
             feedback = f"Searching for {self.prop_display_name.lower()}"
             feedback_type = "warning"
 
-        t0 = time.perf_counter()
-        annotated = annotate_frame(
-            frame,
-            list(normalized.annotation),
-            None,
-            feedback,
-            feedback_type,
-            self.movement,
-            pose=None,
-            prop_label=self.prop_display_name,
+        self._publish_overlay(
+            freeze_overlay(
+                published_at_monotonic=time.monotonic(),
+                captured_at_monotonic=captured.captured_at_monotonic,
+                capture_sequence=captured.sequence,
+                boxes=list(normalized.annotation),
+                hands=None,
+                pose=None,
+                feedback=feedback,
+                feedback_type=feedback_type,
+                movement=self.movement,
+                prop_label=self.prop_display_name,
+            )
         )
-        self.timings.add("annotate", time.perf_counter() - t0)
 
-        t0 = time.perf_counter()
-        _, buffer = cv2.imencode(
-            ".jpg",
-            annotated,
-            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
-        )
-        self.timings.add("jpeg", time.perf_counter() - t0)
+        frame_b64 = None
+        if emit_preview_jpeg:
+            t0 = time.perf_counter()
+            annotated = annotate_frame(
+                frame,
+                list(normalized.annotation),
+                None,
+                feedback,
+                feedback_type,
+                self.movement,
+                pose=None,
+                prop_label=self.prop_display_name,
+            )
+            self.timings.add("annotate", time.perf_counter() - t0)
 
-        t0 = time.perf_counter()
-        frame_b64 = base64.b64encode(buffer).decode("ascii")
+            t0 = time.perf_counter()
+            _, buffer = cv2.imencode(
+                ".jpg",
+                annotated,
+                [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+            )
+            self.timings.add("jpeg", time.perf_counter() - t0)
+
+            t0 = time.perf_counter()
+            frame_b64 = base64.b64encode(buffer).decode("ascii")
+            self.timings.add("encode", time.perf_counter() - t0)
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=detected,
@@ -1003,13 +1215,14 @@ class VisionSession:
                 session_state="active",
             )
         )
-        self.timings.add("encode", time.perf_counter() - t0)
         self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
-    def process_frame(self) -> FeedbackMessage | None:
+    def process_frame(self, *, emit_preview_jpeg: bool = True) -> FeedbackMessage | None:
         if self._prop_detection_only:
-            return self.process_prop_detection_frame()
+            return self.process_prop_detection_frame(
+                emit_preview_jpeg=emit_preview_jpeg
+            )
 
         self._pipeline_started_at = time.perf_counter()
         total_start = self._pipeline_started_at
@@ -1019,17 +1232,17 @@ class VisionSession:
         if model_error is not None:
             return model_error
 
-        t0 = time.perf_counter()
-        frame = self.camera.read()
-        self.timings.add("camera", time.perf_counter() - t0)
-
-        if frame is None:
+        newer_than = None if emit_preview_jpeg else self._last_ai_sequence
+        timeout = None if emit_preview_jpeg else 0.05
+        captured = self._acquire_captured_frame(
+            newer_than=newer_than,
+            timeout=timeout,
+        )
+        if captured is None:
             return None
-
-        processing_start = time.monotonic()
-        captured_at = self.camera.last_captured_at_monotonic
-        if captured_at is not None:
-            self.timings.add_frame_age(processing_start - captured_at)
+        frame = captured.frame
+        self.timings.add_frame_age(time.monotonic() - captured.captured_at_monotonic)
+        self._last_ai_sequence = captured.sequence
 
         self._frame_index += 1
 
@@ -1134,30 +1347,53 @@ class VisionSession:
         # Combine both detection lists only for drawing; movement evaluation
         # above kept bottles and shakers separate.
         boxes_to_draw = list(normalized.annotation)
-
-        t0 = time.perf_counter()
-        annotated = annotate_frame(
-            frame,
-            boxes_to_draw,
-            hands,
-            rule_result.feedback,
-            rule_result.feedback_type,
-            self.movement,
-            pose=pose,
-            prop_label=self.prop_display_name,
+        self._publish_overlay(
+            freeze_overlay(
+                published_at_monotonic=time.monotonic(),
+                captured_at_monotonic=captured.captured_at_monotonic,
+                capture_sequence=captured.sequence,
+                boxes=boxes_to_draw,
+                hands=hands,
+                pose=pose,
+                feedback=rule_result.feedback,
+                feedback_type=rule_result.feedback_type,
+                movement=self.movement,
+                prop_label=self.prop_display_name,
+            )
         )
-        self.timings.add("annotate", time.perf_counter() - t0)
 
-        t0 = time.perf_counter()
-        _, buffer = cv2.imencode(
-            ".jpg",
-            annotated,
-            [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+        need_annotated = emit_preview_jpeg or (
+            hold.hold_confirmed and not self._evidence_emitted
         )
-        self.timings.add("jpeg", time.perf_counter() - t0)
+        annotated = None
+        if need_annotated:
+            t0 = time.perf_counter()
+            annotated = annotate_frame(
+                frame,
+                boxes_to_draw,
+                hands,
+                rule_result.feedback,
+                rule_result.feedback_type,
+                self.movement,
+                pose=pose,
+                prop_label=self.prop_display_name,
+            )
+            self.timings.add("annotate", time.perf_counter() - t0)
 
-        t0 = time.perf_counter()
-        frame_b64 = base64.b64encode(buffer).decode("ascii")
+        frame_b64 = None
+        if emit_preview_jpeg:
+            t0 = time.perf_counter()
+            _, buffer = cv2.imencode(
+                ".jpg",
+                annotated,
+                [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY],
+            )
+            self.timings.add("jpeg", time.perf_counter() - t0)
+
+            t0 = time.perf_counter()
+            frame_b64 = base64.b64encode(buffer).decode("ascii")
+            self.timings.add("encode", time.perf_counter() - t0)
+
         evidence_b64 = None
         if hold.hold_confirmed and not self._evidence_emitted:
             # Never substitute a later frame if this best-effort encode fails:
@@ -1195,7 +1431,6 @@ class VisionSession:
                 assessment=assessment,
             )
         )
-        self.timings.add("encode", time.perf_counter() - t0)
         self.timings.add("processing_total", time.perf_counter() - total_start)
         return message
 
@@ -1217,6 +1452,7 @@ class VisionSession:
         self._readiness_confirmed = False
         self._calibration.reset()
         self._hold_validator.reset()
+        self._clear_overlay()
         self.camera.release()
         self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
 
@@ -1239,6 +1475,102 @@ def _signal_prepare_gate(
     event = prepare_gate.get("event")
     if event is not None and not event.is_set():
         event.set()
+
+
+@dataclass
+class _OutboundItem:
+    kind: str
+    payload: str
+    started_at: float | None
+    must_deliver: bool = False
+
+
+_FEEDBACK_PENDING_MAX = 8
+
+
+class _OutboundMailbox:
+    """Latest preview slot plus a bounded feedback queue. One writer drains them."""
+
+    def __init__(self) -> None:
+        self._preview: _OutboundItem | None = None
+        self._feedback: deque[_OutboundItem] = deque()
+        self._ready = asyncio.Event()
+        self.preview_replaced = 0
+        self.feedback_replaced = 0
+        self.sends_in_flight = 0
+        self.max_sends_in_flight = 0
+
+    def put(self, item: _OutboundItem) -> None:
+        if item.kind == "preview":
+            if self._preview is not None:
+                self.preview_replaced += 1
+            self._preview = item
+        elif item.must_deliver or len(self._feedback) < _FEEDBACK_PENDING_MAX:
+            self._feedback.append(item)
+        else:
+            self.feedback_replaced += 1
+        self._ready.set()
+
+    def wake(self) -> None:
+        self._ready.set()
+
+    def drain(self) -> list[_OutboundItem]:
+        batch: list[_OutboundItem] = []
+        if self._preview is not None:
+            batch.append(self._preview)
+            self._preview = None
+        while self._feedback:
+            batch.append(self._feedback.popleft())
+        return batch
+
+    async def take_batch(self, closing: asyncio.Event) -> list[_OutboundItem]:
+        """Wait for preview/feedback, or return remaining items when closing."""
+        while self._preview is None and not self._feedback:
+            if closing.is_set():
+                return []
+            self._ready.clear()
+            wait_ready = asyncio.create_task(self._ready.wait())
+            wait_close = asyncio.create_task(closing.wait())
+            try:
+                _done, pending = await asyncio.wait(
+                    {wait_ready, wait_close},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+                for task in _done:
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            finally:
+                if not wait_ready.done():
+                    wait_ready.cancel()
+                if not wait_close.done():
+                    wait_close.cancel()
+        return self.drain()
+
+
+async def _await_in_flight_worker(task: asyncio.Task | None, label: str) -> None:
+    if task is None:
+        return
+    if not task.done():
+        try:
+            await task
+        except asyncio.CancelledError:
+            logger.warning("%s cancelled during session shutdown", label)
+        except Exception:
+            logger.exception("%s failed during session shutdown", label)
+        return
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.exception(
+            "%s failed during session shutdown",
+            label,
+            exc_info=exc,
+        )
 
 
 async def _cv_session_loop(
@@ -1299,7 +1631,15 @@ async def _cv_session_loop(
         await _send(error.model_dump_json())
         return
 
-    frame_task: asyncio.Task | None = None
+    preview_worker: asyncio.Task | None = None
+    ai_worker: asyncio.Task | None = None
+    preview_task: asyncio.Task | None = None
+    ai_task: asyncio.Task | None = None
+    writer_task: asyncio.Task | None = None
+    stop = asyncio.Event()
+    writer_closing = asyncio.Event()
+    mailbox = _OutboundMailbox()
+    outbound_error: str | None = None
 
     try:
         started = await asyncio.to_thread(session.start)
@@ -1334,6 +1674,7 @@ async def _cv_session_loop(
         if session_ref is not None:
             session_ref["session"] = session
             session_ref["session_id"] = session_id
+            session_ref["mailbox"] = mailbox
 
         if start_active:
             session.activate()
@@ -1356,89 +1697,179 @@ async def _cv_session_loop(
         )
 
         interval = 1.0 / TARGET_FPS
-        processed_frame_count = 0
+        preview_count = 0
+        ai_count = 0
         loop_ticks = 0
         loop_start = time.perf_counter()
         last_overwrite_count = latest_frame_overwrite_count()
         last_publish_count = latest_frame_publish_count()
+        last_preview_replaced = 0
+        last_ai_overwrites = 0
 
-        while True:
-            tick = time.perf_counter()
-            loop_ticks += 1
-
-            # At most one frame-processing operation in flight.
-            if frame_task is not None and not frame_task.done():
-                raise RuntimeError("CV session violated single in-flight processing invariant")
-
-            frame_task = asyncio.create_task(
-                asyncio.to_thread(session.process_tick)
+        def emit_perf() -> None:
+            nonlocal preview_count, ai_count, loop_ticks, loop_start
+            nonlocal last_overwrite_count, last_publish_count
+            nonlocal last_preview_replaced, last_ai_overwrites
+            elapsed = time.perf_counter() - loop_start
+            preview_fps = interval_rate(preview_count, elapsed)
+            ai_fps = interval_rate(ai_count, elapsed)
+            publish_now = latest_frame_publish_count()
+            publish_delta = monotonic_counter_delta(
+                current=publish_now,
+                previous=last_publish_count,
             )
+            capture_fps = interval_rate(publish_delta, elapsed)
+            overwrite_total = latest_frame_overwrite_count()
+            overwrite_delta = monotonic_counter_delta(
+                current=overwrite_total,
+                previous=last_overwrite_count,
+            )
+            preview_replaced = mailbox.preview_replaced - last_preview_replaced
+            ai_overwrites = session._ai_camera_overwrites - last_ai_overwrites
+            last_overwrite_count = overwrite_total
+            last_publish_count = publish_now
+            last_preview_replaced = mailbox.preview_replaced
+            last_ai_overwrites = session._ai_camera_overwrites
+            logger.info(
+                "%s",
+                format_perf_line(
+                    session.preview_timings,
+                    preview_fps=preview_fps,
+                    ai_fps=ai_fps,
+                    capture_fps=capture_fps,
+                    elapsed_s=elapsed,
+                    overwrite_delta=overwrite_delta,
+                    target_fps=TARGET_FPS,
+                    yolo_skip=YOLO_FRAME_SKIP,
+                    imgsz=YOLO_IMGSZ,
+                    lifecycle=session.lifecycle,
+                    processed=preview_count,
+                    ticks=loop_ticks,
+                    ai_timings=session.timings,
+                    preview_replaced=preview_replaced,
+                    ai_overwrites=ai_overwrites,
+                    ai_processed=ai_count,
+                ),
+            )
+            session.preview_timings.reset()
+            session.timings.reset()
+            preview_count = 0
+            ai_count = 0
+            loop_ticks = 0
+            loop_start = time.perf_counter()
 
-            # Shield the in-flight worker so outer cancellation cannot cancel
-            # the asyncio wrapper before the thread finishes process_tick.
-            message = await asyncio.shield(frame_task)
+        async def preview_loop() -> None:
+            nonlocal preview_worker, preview_count, loop_ticks
+            while not stop.is_set():
+                tick = time.perf_counter()
+                loop_ticks += 1
+                if preview_worker is not None and not preview_worker.done():
+                    raise RuntimeError(
+                        "Preview worker violated single in-flight"
+                    )
+                preview_worker = asyncio.create_task(
+                    asyncio.to_thread(session.render_preview)
+                )
+                message = await asyncio.shield(preview_worker)
+                preview_worker = None
+                if message is not None:
+                    t_ser = time.perf_counter()
+                    payload = message.model_dump_json()
+                    session.preview_timings.add(
+                        "serialize", time.perf_counter() - t_ser
+                    )
+                    mailbox.put(
+                        _OutboundItem(
+                            kind="preview",
+                            payload=payload,
+                            started_at=session._preview_started_at,
+                        )
+                    )
+                    preview_count += 1
+                    if preview_count % FPS_LOG_INTERVAL == 0:
+                        emit_perf()
+                await asyncio.sleep(
+                    max(0.0, interval - (time.perf_counter() - tick))
+                )
 
-            frame_task = None
-
-            if message is not None:
-                if message.error_code == "model_load_failed":
-                    await _send(message.model_dump_json())
-                    break
-
+        async def ai_loop() -> None:
+            nonlocal ai_worker, ai_count
+            while not stop.is_set():
+                if session.lifecycle == SESSION_PREPARED:
+                    await asyncio.sleep(0.02)
+                    continue
+                if ai_worker is not None and not ai_worker.done():
+                    raise RuntimeError("AI worker violated single in-flight")
+                ai_worker = asyncio.create_task(
+                    asyncio.to_thread(session.analyze_tick)
+                )
+                message = await asyncio.shield(ai_worker)
+                ai_worker = None
+                if message is None:
+                    await asyncio.sleep(0)
+                    continue
                 t_ser = time.perf_counter()
                 payload = message.model_dump_json()
                 session.timings.add("serialize", time.perf_counter() - t_ser)
-                t_send = time.perf_counter()
-                await _send(payload)
-                session.timings.add("send", time.perf_counter() - t_send)
-                if session._pipeline_started_at is not None:
-                    session.timings.add(
-                        "end_to_end",
-                        time.perf_counter() - session._pipeline_started_at,
+                mailbox.put(
+                    _OutboundItem(
+                        kind="feedback",
+                        payload=payload,
+                        started_at=session._pipeline_started_at,
+                        must_deliver=bool(
+                            message.hold_confirmed
+                            or message.error_code
+                            or message.evidence_jpeg_base64
+                        ),
                     )
-                processed_frame_count += 1
-
-            if processed_frame_count > 0 and processed_frame_count % FPS_LOG_INTERVAL == 0:
-                elapsed = time.perf_counter() - loop_start
-                output_fps = interval_rate(processed_frame_count, elapsed)
-                publish_now = latest_frame_publish_count()
-                publish_delta = monotonic_counter_delta(
-                    current=publish_now,
-                    previous=last_publish_count,
                 )
-                capture_fps = interval_rate(publish_delta, elapsed)
-                overwrite_total = latest_frame_overwrite_count()
-                overwrite_delta = monotonic_counter_delta(
-                    current=overwrite_total,
-                    previous=last_overwrite_count,
-                )
-                last_overwrite_count = overwrite_total
-                last_publish_count = publish_now
-                logger.info(
-                    "%s",
-                    format_perf_line(
-                        session.timings,
-                        output_fps=output_fps,
-                        capture_fps=capture_fps,
-                        elapsed_s=elapsed,
-                        overwrite_delta=overwrite_delta,
-                        target_fps=TARGET_FPS,
-                        yolo_skip=YOLO_FRAME_SKIP,
-                        imgsz=YOLO_IMGSZ,
-                        lifecycle=session.lifecycle,
-                        processed=processed_frame_count,
-                        ticks=loop_ticks,
-                    ),
-                )
-                session.timings.reset()
-                processed_frame_count = 0
-                loop_ticks = 0
-                loop_start = time.perf_counter()
+                ai_count += 1
+                if message.error_code == "model_load_failed":
+                    stop.set()
+                    mailbox.wake()
+                    return
+                await asyncio.sleep(0)
 
-            processing = time.perf_counter() - tick
-            sleep_time = max(0.0, interval - processing)
+        async def writer_loop() -> None:
+            while True:
+                batch = await mailbox.take_batch(writer_closing)
+                if not batch:
+                    return
+                for item in batch:
+                    mailbox.sends_in_flight += 1
+                    if mailbox.sends_in_flight > mailbox.max_sends_in_flight:
+                        mailbox.max_sends_in_flight = mailbox.sends_in_flight
+                    try:
+                        t_send = time.perf_counter()
+                        await _send(item.payload)
+                        send_s = time.perf_counter() - t_send
+                        now = time.perf_counter()
+                        if item.kind == "preview":
+                            session.preview_timings.add("send", send_s)
+                            if item.started_at is not None:
+                                session.preview_timings.add(
+                                    "end_to_end", now - item.started_at
+                                )
+                        else:
+                            session.timings.add("send", send_s)
+                            if item.started_at is not None:
+                                session.timings.add(
+                                    "end_to_end", now - item.started_at
+                                )
+                    finally:
+                        mailbox.sends_in_flight -= 1
 
-            await asyncio.sleep(sleep_time)
+        preview_task = asyncio.create_task(preview_loop(), name="elixr-preview")
+        ai_task = asyncio.create_task(ai_loop(), name="elixr-ai")
+        writer_task = asyncio.create_task(writer_loop(), name="elixr-ws-writer")
+        _done, _pending = await asyncio.wait(
+            {preview_task, ai_task},
+            return_when=asyncio.FIRST_EXCEPTION,
+        )
+        for task in _done:
+            exc = task.exception()
+            if exc is not None:
+                raise exc
 
     except asyncio.CancelledError:
         raise
@@ -1446,7 +1877,7 @@ async def _cv_session_loop(
     except Exception:
         logger.exception("CV session loop failed")
 
-        error = FeedbackMessage(
+        outbound_error = FeedbackMessage(
             bottle_detected=False,
             prop_type=prop_type,
             movement=movement,
@@ -1457,32 +1888,59 @@ async def _cv_session_loop(
             error_code="pipeline_error",
             camera_ready=False,
             session_state="unavailable",
-        ).with_session(session_id)
-
-        await _send(error.model_dump_json())
+        ).with_session(session_id).model_dump_json()
 
     finally:
-        if frame_task is not None:
-            if not frame_task.done():
-                try:
-                    await frame_task
-                except Exception:
-                    logger.exception(
-                        "In-flight frame processing failed during session shutdown"
-                    )
-            else:
-                frame_exc = frame_task.exception()
-                if frame_exc is not None:
-                    logger.exception(
-                        "In-flight frame processing failed during session shutdown",
-                        exc_info=frame_exc,
-                    )
+        stop.set()
+        mailbox.wake()
+        await _await_in_flight_worker(preview_worker, "In-flight preview processing")
+        await _await_in_flight_worker(ai_worker, "In-flight AI processing")
+        await asyncio.sleep(0)
+        for task in (preview_task, ai_task):
+            if task is not None and not task.done():
+                task.cancel()
+        for task in (preview_task, ai_task):
+            if task is None:
+                continue
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("Session loop task failed during shutdown")
+        writer_closing.set()
+        mailbox.wake()
+        if writer_task is not None:
+            try:
+                await asyncio.wait_for(writer_task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                if not writer_task.done():
+                    writer_task.cancel()
+                    try:
+                        await writer_task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.exception("WebSocket writer failed during shutdown")
+        leftover = mailbox.drain()
+        for item in leftover:
+            try:
+                await _send(item.payload)
+            except Exception:
+                logger.exception("Failed to flush leftover WebSocket payload")
+        if outbound_error is not None:
+            try:
+                await _send(outbound_error)
+            except Exception:
+                logger.exception("Failed to send session pipeline error")
 
         if session_ref is not None:
             if session_ref.get("session") is session:
                 session_ref["session"] = None
             if session_ref.get("session_id") == session_id:
                 session_ref["session_id"] = None
+            if session_ref.get("mailbox") is mailbox:
+                session_ref["mailbox"] = None
 
         await asyncio.to_thread(session.close)
 

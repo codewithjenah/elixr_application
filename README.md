@@ -512,7 +512,23 @@ Every version-1 command receives a correlated acknowledgment:
 
 Malformed JSON or payloads without a usable `request_id` receive `message_type: "protocol_error"` and the connection stays open.
 
-Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields:
+Version-1 camera images use a dedicated `preview_frame` message so the live JPEG can update at the camera/preview cadence without repeating scoring, readiness, TTS, or hold side effects:
+
+```json
+{
+  "protocol_version": 1,
+  "message_type": "preview_frame",
+  "session_id": "session-...",
+  "frame_jpeg_base64": "<jpeg>",
+  "camera_ready": true,
+  "session_state": "preparing | readying | active",
+  "capture_sequence": 12
+}
+```
+
+Flutter must apply `preview_frame` to the camera image only. It must not advance readiness, scoring, combo, hold confirmation, or session lifecycle flags from that message.
+
+Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields. After preview/AI decoupling, live `frame_jpeg_base64` is usually omitted from feedback (the preview path carries the image). Feedback still carries assessment, readiness, hold, and optional `evidence_jpeg_base64`.
 
 ```text
 bottle_detected
@@ -523,7 +539,7 @@ assessment
 feedback
 feedback_type
 posture_status
-frame_jpeg_base64
+frame_jpeg_base64 (optional on decoupled feedback; live images use preview_frame)
 error_code
 camera_ready
 session_state
