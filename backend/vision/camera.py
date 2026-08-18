@@ -114,9 +114,11 @@ class _LatestFrameSlot:
         self._condition = threading.Condition()
         self._latest: CapturedFrame | None = None
         self._overwrite_count = 0
+        self._publish_count = 0
 
     def publish(self, captured: CapturedFrame) -> None:
         with self._condition:
+            self._publish_count += 1
             if self._latest is not None:
                 self._overwrite_count += 1
             self._latest = captured
@@ -138,6 +140,11 @@ class _LatestFrameSlot:
     def overwrite_count(self) -> int:
         with self._condition:
             return self._overwrite_count
+
+    @property
+    def publish_count(self) -> int:
+        with self._condition:
+            return self._publish_count
 
     @property
     def has_frame(self) -> bool:
@@ -400,6 +407,13 @@ def latest_frame_overwrite_count() -> int:
     if _latest_frame_slot is None:
         return 0
     return _latest_frame_slot.overwrite_count
+
+
+def latest_frame_publish_count() -> int:
+    """How many usable frames the active producer has published into the slot."""
+    if _latest_frame_slot is None:
+        return 0
+    return _latest_frame_slot.publish_count
 
 
 def capture_producer_is_alive() -> bool:

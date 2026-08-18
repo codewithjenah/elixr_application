@@ -64,7 +64,14 @@ from vision.camera import (
     CameraCapture,
     camera_display_name,
     latest_frame_overwrite_count,
+    latest_frame_publish_count,
     release_shared_camera,
+)
+from vision.pipeline_telemetry import (
+    PipelineTimings as _PipelineTimings,
+    format_perf_line,
+    interval_rate,
+    monotonic_counter_delta,
 )
 from vision.hands_detector import HandsDetector
 from vision.pose_detector import PoseDetector
@@ -137,77 +144,6 @@ def _assessment_payload(assessment: RubricAssessment) -> AssessmentPayload:
         total=payload["total"],
         performance_level=payload["performance_level"],
     )
-
-_PIPELINE_STAGE_ORDER = (
-    "camera",
-    "yolo",
-    "hands",
-    "pose",
-    "evaluate",
-    "annotate",
-    "jpeg",
-    "encode",
-    "send",
-    "processing_total",
-    "end_to_end",
-)
-
-
-class _PipelineTimings:
-    """Rolling stage timings logged at the FPS interval (not every frame)."""
-
-    def __init__(self) -> None:
-        self._sums: dict[str, float] = {name: 0.0 for name in _PIPELINE_STAGE_ORDER}
-        self._counts: dict[str, int] = {name: 0 for name in _PIPELINE_STAGE_ORDER}
-        self._frame_age_sum = 0.0
-        self._frame_age_count = 0
-        self._frame_age_max = 0.0
-
-    def add(self, stage: str, seconds: float) -> None:
-        if stage not in self._sums:
-            self._sums[stage] = 0.0
-            self._counts[stage] = 0
-        self._sums[stage] += seconds
-        self._counts[stage] += 1
-
-    def add_frame_age(self, seconds: float) -> None:
-        self._frame_age_sum += seconds
-        self._frame_age_count += 1
-        if seconds > self._frame_age_max:
-            self._frame_age_max = seconds
-
-    def reset(self) -> None:
-        for name in list(self._sums):
-            self._sums[name] = 0.0
-            self._counts[name] = 0
-        self._frame_age_sum = 0.0
-        self._frame_age_count = 0
-        self._frame_age_max = 0.0
-
-    def format_averages_ms(self, *, frame_budget_ms: float) -> str:
-        parts: list[str] = []
-        for name in _PIPELINE_STAGE_ORDER:
-            count = self._counts.get(name, 0)
-            if count <= 0:
-                continue
-            avg_ms = (self._sums[name] / count) * 1000.0
-            over = "!" if avg_ms > frame_budget_ms and name in {
-                "processing_total",
-                "end_to_end",
-                "total",
-            } else ""
-            if name not in {"processing_total", "end_to_end", "total"} and avg_ms > (
-                frame_budget_ms * 0.35
-            ):
-                over = "!"
-            parts.append(f"{name}={avg_ms:.1f}ms{over}")
-        if self._frame_age_count > 0:
-            avg_age = (self._frame_age_sum / self._frame_age_count) * 1000.0
-            max_age = self._frame_age_max * 1000.0
-            parts.append(f"frame_age_avg={avg_age:.1f}ms")
-            parts.append(f"frame_age_max={max_age:.1f}ms")
-        return ", ".join(parts)
-
 
 def parse_camera_index(raw) -> tuple[int | None, str | None]:
     """Validate a legacy WebSocket ``camera_index`` value.
@@ -1420,11 +1356,11 @@ async def _cv_session_loop(
         )
 
         interval = 1.0 / TARGET_FPS
-        frame_budget_ms = interval * 1000.0
         processed_frame_count = 0
         loop_ticks = 0
         loop_start = time.perf_counter()
         last_overwrite_count = latest_frame_overwrite_count()
+        last_publish_count = latest_frame_publish_count()
 
         while True:
             tick = time.perf_counter()
@@ -1449,8 +1385,11 @@ async def _cv_session_loop(
                     await _send(message.model_dump_json())
                     break
 
+                t_ser = time.perf_counter()
+                payload = message.model_dump_json()
+                session.timings.add("serialize", time.perf_counter() - t_ser)
                 t_send = time.perf_counter()
-                await _send(message.model_dump_json())
+                await _send(payload)
                 session.timings.add("send", time.perf_counter() - t_send)
                 if session._pipeline_started_at is not None:
                     session.timings.add(
@@ -1461,29 +1400,35 @@ async def _cv_session_loop(
 
             if processed_frame_count > 0 and processed_frame_count % FPS_LOG_INTERVAL == 0:
                 elapsed = time.perf_counter() - loop_start
-                actual_fps = (
-                    processed_frame_count / elapsed if elapsed > 0 else 0.0
+                output_fps = interval_rate(processed_frame_count, elapsed)
+                publish_now = latest_frame_publish_count()
+                publish_delta = monotonic_counter_delta(
+                    current=publish_now,
+                    previous=last_publish_count,
                 )
-                stage_summary = session.timings.format_averages_ms(
-                    frame_budget_ms=frame_budget_ms
-                )
+                capture_fps = interval_rate(publish_delta, elapsed)
                 overwrite_total = latest_frame_overwrite_count()
-                overwrite_delta = max(0, overwrite_total - last_overwrite_count)
+                overwrite_delta = monotonic_counter_delta(
+                    current=overwrite_total,
+                    previous=last_overwrite_count,
+                )
                 last_overwrite_count = overwrite_total
+                last_publish_count = publish_now
                 logger.info(
-                    "CV session FPS: %.1f (target=%s, yolo_skip=%s, imgsz=%s, "
-                    "lifecycle=%s, processed=%s, ticks=%s, "
-                    "frame_overwrites=%s, frame_overwrites_delta=%s) stages: %s",
-                    actual_fps,
-                    TARGET_FPS,
-                    YOLO_FRAME_SKIP,
-                    YOLO_IMGSZ,
-                    session.lifecycle,
-                    processed_frame_count,
-                    loop_ticks,
-                    overwrite_total,
-                    overwrite_delta,
-                    stage_summary,
+                    "%s",
+                    format_perf_line(
+                        session.timings,
+                        output_fps=output_fps,
+                        capture_fps=capture_fps,
+                        elapsed_s=elapsed,
+                        overwrite_delta=overwrite_delta,
+                        target_fps=TARGET_FPS,
+                        yolo_skip=YOLO_FRAME_SKIP,
+                        imgsz=YOLO_IMGSZ,
+                        lifecycle=session.lifecycle,
+                        processed=processed_frame_count,
+                        ticks=loop_ticks,
+                    ),
                 )
                 session.timings.reset()
                 processed_frame_count = 0

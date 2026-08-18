@@ -1133,6 +1133,26 @@ def test_latest_frame_slot_overwrites_unconsumed_frame():
     assert slot.take(timeout=0) is None
 
 
+def test_latest_frame_slot_counts_publishes_separately_from_overwrites():
+    slot = camera_mod._LatestFrameSlot()
+    first = camera_mod.CapturedFrame(_usable_frame(), 1.0, 1)
+    second = camera_mod.CapturedFrame(_usable_frame(h=64, w=80), 2.0, 2)
+    slot.publish(first)
+    assert slot.publish_count == 1
+    assert slot.overwrite_count == 0
+    slot.publish(second)
+    assert slot.publish_count == 2
+    assert slot.overwrite_count == 1
+
+    previous_slot = camera_mod._latest_frame_slot
+    camera_mod._latest_frame_slot = slot
+    try:
+        assert camera_mod.latest_frame_publish_count() == 2
+        assert camera_mod.latest_frame_overwrite_count() == 1
+    finally:
+        camera_mod._latest_frame_slot = previous_slot
+
+
 def test_capture_producer_keeps_only_newest_frame(monkeypatch):
     monkeypatch.setattr(camera_mod.time, "sleep", lambda *_a, **_k: None)
     monkeypatch.setattr(camera_mod, "_STARTUP_READ_SLEEP_S", 0.0)
