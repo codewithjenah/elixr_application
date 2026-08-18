@@ -25,6 +25,28 @@ def test_semantic_max_hands_only_allows_0_1_2():
         assert count in (0, 1, 2), movement
 
 
+def test_max_hands_comes_from_movement_config():
+    from assessment.rule_engine import movement_max_hands
+
+    for movement, cfg in MOVEMENT_CONFIG.items():
+        assert "max_hands" in cfg, movement
+        assert cfg["max_hands"] in (0, 1, 2), movement
+        assert movement_max_hands(movement) == cfg["max_hands"], movement
+        assert hands_profile_for(movement).semantic_max_hands == cfg["max_hands"], movement
+        assert SEMANTIC_MAX_HANDS[movement] == cfg["max_hands"], movement
+        requires_hands = movement_requires_hands(movement)
+        if requires_hands:
+            assert cfg["max_hands"] in (1, 2), movement
+        else:
+            assert cfg["max_hands"] == 0, movement
+
+
+def test_unknown_movement_max_hands_defaults_to_one():
+    from assessment.rule_engine import movement_max_hands
+
+    assert movement_max_hands("Not A Catalog Movement") == 1
+
+
 def test_catalog_movements_match_readiness_and_active_schedule():
     expected_catalog = {
         "Normal Grip": (True, True, 1, True, False, False),
@@ -133,5 +155,82 @@ def test_session_flags_match_profile(monkeypatch):
             assert session._hands_bartender_roi is row.bartender_roi_fallback, row.movement
             assert session._hands_needed is row.active_scheduled_hands, row.movement
             assert session._pose_needed is row.active_needs_pose, row.movement
+            assert session._hands_max == row.semantic_max_hands, row.movement
+        finally:
+            session.close()
+
+
+def test_session_constructs_hands_detector_with_movement_max(monkeypatch):
+    from api import websocket as websocket_api
+    from test_session_lifecycle import StubHandsDetector, _patch_vision
+
+    _patch_vision(monkeypatch)
+    captured: dict[str, dict] = {}
+
+    class TrackingHands(StubHandsDetector):
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+
+    expected = {
+        "Normal Grip": (1, True, False),
+        "Bartender's Grip": (1, False, True),
+        "Reverse Grip": (1, False, False),
+        "Claw Grip": (1, True, False),
+        "Hand Stall": (1, False, False),
+        "One Finger Stall": (1, False, False),
+        "Bottle in a tin": (1, False, False),
+        "Double Hand Stall": (2, False, False),
+    }
+    for movement, (max_hands, rotated, bartender) in expected.items():
+        captured.clear()
+        session = websocket_api.VisionSession(movement)
+        try:
+            session.start()
+            assert session.begin_readiness() is True
+            assert session.hands_detector is not None, movement
+            assert session.hands_detector.max_num_hands == max_hands, movement
+            assert captured["kwargs"]["max_num_hands"] == max_hands, movement
+            assert captured["kwargs"]["rotated_fallback"] is rotated, movement
+            assert captured["kwargs"]["bartender_roi_fallback"] is bartender, movement
+        finally:
+            session.close()
+
+
+def test_pose_only_and_free_practice_do_not_construct_hands_detector(monkeypatch):
+    from api import websocket as websocket_api
+    from test_session_lifecycle import _patch_vision
+
+    _patch_vision(monkeypatch)
+    hands_inits = {"n": 0}
+
+    class TrackingHands:
+        def __init__(self, **kwargs):
+            hands_inits["n"] += 1
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(websocket_api, "HandsDetector", TrackingHands)
+
+    for movement in (
+        "Forearm Stall",
+        "Elbow Stall",
+        "Reverse Forearm Stall",
+        "Shoulder Stall",
+        "Arm Stall",
+        "Upper Forearm Stall",
+        "Free Practice",
+    ):
+        hands_inits["n"] = 0
+        session = websocket_api.VisionSession(movement)
+        try:
+            session.start()
+            session.begin_readiness()
+            session._ensure_detectors()
+            assert session.hands_detector is None, movement
+            assert hands_inits["n"] == 0, movement
         finally:
             session.close()

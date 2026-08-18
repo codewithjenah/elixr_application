@@ -340,45 +340,71 @@ READINESS_STABLE_DURATION_S = float(os.getenv("READINESS_STABLE_DURATION_S", "1.
 READINESS_SNAPSHOT_MAX_AGE_S = float(os.getenv("READINESS_SNAPSHOT_MAX_AGE_S", "1.5"))
 
 MOVEMENT_CONFIG: dict[str, dict] = {
-    "Normal Grip": {"difficulty": "Easy", "requires_hands": True},
-    "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True},
-    "Reverse Grip": {"difficulty": "Easy", "requires_hands": True},
-    "Claw Grip": {"difficulty": "Easy", "requires_hands": True},
-    "Hand Stall": {"difficulty": "Medium", "requires_hands": True, "requires_pose": False},
+    "Normal Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
+    "Bartender's Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
+    "Reverse Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
+    "Claw Grip": {"difficulty": "Easy", "requires_hands": True, "max_hands": 1},
+    "Hand Stall": {
+        "difficulty": "Medium",
+        "requires_hands": True,
+        "requires_pose": False,
+        "max_hands": 1,
+    },
     "One Finger Stall": {
         "difficulty": "Medium",
         "requires_hands": True,
         "requires_pose": False,
+        "max_hands": 1,
     },
-    "Forearm Stall": {"difficulty": "Medium", "requires_hands": False, "requires_pose": True},
-    "Elbow Stall": {"difficulty": "Medium", "requires_hands": False, "requires_pose": True},
+    "Forearm Stall": {
+        "difficulty": "Medium",
+        "requires_hands": False,
+        "requires_pose": True,
+        "max_hands": 0,
+    },
+    "Elbow Stall": {
+        "difficulty": "Medium",
+        "requires_hands": False,
+        "requires_pose": True,
+        "max_hands": 0,
+    },
     "Reverse Forearm Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
+        "max_hands": 0,
     },
     # Legacy movement names for historical sessions and backward compatibility.
-    "Arm Stall": {"difficulty": "Medium", "requires_hands": False, "requires_pose": True},
+    "Arm Stall": {
+        "difficulty": "Medium",
+        "requires_hands": False,
+        "requires_pose": True,
+        "max_hands": 0,
+    },
     "Upper Forearm Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
+        "max_hands": 0,
     },
     "Shoulder Stall": {
         "difficulty": "Hard",
         "requires_hands": False,
         "requires_pose": True,
+        "max_hands": 0,
     },
     "Double Hand Stall": {
         "difficulty": "Hard",
         "requires_hands": True,
         "requires_pose": False,
+        "max_hands": 2,
     },
     "Bottle in a tin": {
         "difficulty": "Hard",
         "requires_hands": True,
         "requires_pose": False,
         "required_prop_type": "bottle_and_shaker",
+        "max_hands": 1,
     },
     # Internal Free Practice vision mode: prop detection + preview only.
     # Not a user-selectable catalog movement (Flutter catalog omits it).
@@ -386,6 +412,7 @@ MOVEMENT_CONFIG: dict[str, dict] = {
         "difficulty": "Easy",
         "requires_hands": False,
         "requires_pose": False,
+        "max_hands": 0,
         "internal": True,
         "prop_detection_only": True,
     },

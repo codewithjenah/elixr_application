@@ -127,6 +127,81 @@ def test_result_signature_and_agreement():
     assert rates["landmark_availability_agree"] == 1.0
 
 
+def test_hands_detector_default_constructor_keeps_two_hands():
+    import inspect
+
+    signature = inspect.signature(HandsDetector.__init__)
+    assert signature.parameters["max_num_hands"].default == 2
+
+
+def test_rotated_fallback_landmarker_inherits_configured_max_num_hands():
+    recorded: list[tuple[object, int]] = []
+
+    class Stub(HandsDetector):
+        def __init__(self, max_num_hands: int):
+            self._model_path = "unused"
+            self._max_num_hands = max_num_hands
+            self._fallback_landmarker = None
+
+        def _create_landmarker(self, running_mode):
+            recorded.append((running_mode, self._max_num_hands))
+            return object()
+
+    detector = Stub(max_num_hands=1)
+    detector._image_landmarker()
+    from mediapipe.tasks.python import vision
+
+    assert recorded == [(vision.RunningMode.IMAGE, 1)]
+    assert detector.max_num_hands == 1
+
+
+def test_bartender_roi_fallback_landmarker_inherits_configured_max_num_hands():
+    recorded: list[tuple[object, int]] = []
+
+    class Stub(HandsDetector):
+        def __init__(self, max_num_hands: int):
+            self._model_path = "unused"
+            self._max_num_hands = max_num_hands
+            self._fallback_landmarker = None
+
+        def _create_landmarker(self, running_mode):
+            recorded.append((running_mode, self._max_num_hands))
+            return object()
+
+    detector = Stub(max_num_hands=1)
+    first = detector._image_landmarker()
+    second = detector._image_landmarker()
+    from mediapipe.tasks.python import vision
+
+    assert first is second
+    assert recorded == [(vision.RunningMode.IMAGE, 1)]
+    assert detector.max_num_hands == 1
+
+
+def test_primary_and_fallback_landmarkers_share_configured_max_num_hands():
+    recorded: list[tuple[object, int]] = []
+
+    class Stub(HandsDetector):
+        def __init__(self, max_num_hands: int):
+            self._model_path = "unused"
+            self._max_num_hands = max_num_hands
+            self._fallback_landmarker = None
+
+        def _create_landmarker(self, running_mode):
+            recorded.append((running_mode, self._max_num_hands))
+            return object()
+
+    detector = Stub(max_num_hands=2)
+    from mediapipe.tasks.python import vision
+
+    detector._create_landmarker(vision.RunningMode.VIDEO)
+    detector._image_landmarker()
+    assert recorded == [
+        (vision.RunningMode.VIDEO, 2),
+        (vision.RunningMode.IMAGE, 2),
+    ]
+
+
 def test_classify_scene_occlusion_uses_palm_inside_bottle():
     bottle = BottleDetection(x1=300, y1=200, x2=400, y2=320, confidence=0.9)
     inside = HandsResult(hands=[_hand(0.55, 0.50)])

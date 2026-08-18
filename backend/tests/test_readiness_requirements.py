@@ -353,6 +353,35 @@ class TestObservabilityBoundary:
         obs = _full_obs_for("Double Hand Stall", closed_palm=True)
         _advance_ready(tracker, obs, clock=clock)
 
+    def test_double_hand_readiness_recognizes_two_hands(self):
+        tracker = ReadinessTracker(
+            "Double Hand Stall",
+            pass_frames=1,
+            fail_frames=1,
+            stable_duration_s=1.0,
+        )
+        one_hand = ReadinessObservation(
+            has_camera_frame=True,
+            bottles=[_bottle(150), _bottle(350)],
+            hands=_hands(_hand(cx=0.3, indices=(0, 9))),
+        )
+        two_hands = _full_obs_for("Double Hand Stall")
+        one_snap = tracker.update(one_hand)
+        two_item = next(i for i in one_snap.items if i.code == "two_hands_visible")
+        assert two_item.status == "waiting"
+
+        tracker = ReadinessTracker(
+            "Double Hand Stall",
+            pass_frames=1,
+            fail_frames=1,
+            stable_duration_s=1.0,
+        )
+        two_snap = tracker.update(two_hands)
+        two_item = next(i for i in two_snap.items if i.code == "two_hands_visible")
+        assert two_item.status == "ready"
+        assert two_hands.hands is not None
+        assert len(two_hands.hands.hands) == 2
+
     def test_wrong_grip_orientation_still_ready_when_landmarks_present(self):
         """Landmark completeness only — orientation is technique, not readiness."""
         clock = [0.0]

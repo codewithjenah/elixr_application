@@ -1,6 +1,8 @@
-"""Authoritative Hands requirement table derived from current production code.
+"""Authoritative Hands construction profile used by production VisionSession.
 
-Diagnostic only. Does not change detector defaults, readiness, or scoring.
+Fallback movement sets are production-facing. Semantic max-hands is derived
+from ``MOVEMENT_CONFIG`` via ``movement_max_hands`` so the count cannot drift
+from the movement registry.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from dataclasses import dataclass
 from assessment.readiness import readiness_needs_hands, readiness_needs_pose
 from assessment.rule_engine import (
     movement_is_prop_detection_only,
+    movement_max_hands,
     movement_requires_hands,
     movement_requires_pose,
 )
@@ -33,23 +36,9 @@ RULE_IGNORES_HANDS = frozenset(
     }
 )
 
-# Maximum hands the movement semantics need to evaluate. Detector still uses 2.
+# Derived view of MOVEMENT_CONFIG["max_hands"] for tests and diagnostics.
 SEMANTIC_MAX_HANDS: dict[str, int] = {
-    "Normal Grip": 1,
-    "Bartender's Grip": 1,
-    "Reverse Grip": 1,
-    "Claw Grip": 1,
-    "Hand Stall": 1,
-    "One Finger Stall": 1,
-    "Forearm Stall": 0,
-    "Elbow Stall": 0,
-    "Reverse Forearm Stall": 0,
-    "Shoulder Stall": 0,
-    "Arm Stall": 0,
-    "Upper Forearm Stall": 0,
-    "Double Hand Stall": 2,
-    "Bottle in a tin": 1,
-    "Free Practice": 0,
+    name: movement_max_hands(name) for name in MOVEMENT_CONFIG
 }
 
 
@@ -75,7 +64,7 @@ def hands_profile_for(movement: str) -> HandsMovementProfile:
             not prop_only and movement_requires_hands(movement)
         ),
         rule_uses_hands=movement not in RULE_IGNORES_HANDS,
-        semantic_max_hands=SEMANTIC_MAX_HANDS.get(movement, 1),
+        semantic_max_hands=movement_max_hands(movement),
         rotated_fallback=(
             not prop_only and movement in HANDS_ROTATED_FALLBACK_MOVEMENTS
         ),

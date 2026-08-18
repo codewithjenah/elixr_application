@@ -54,6 +54,28 @@ def movement_requires_hands(movement: str) -> bool:
     return bool(cfg.get("requires_hands", True))
 
 
+def movement_max_hands(movement: str) -> int:
+    """Return the MediaPipe Hands count this movement is allowed to run.
+
+    ``0`` means no Hands detector should be constructed. Unknown movements
+    default to ``1`` so a missing catalog name cannot silently request the
+    more expensive two-hand landmarker. Direct ``HandsDetector()`` callers
+    still keep the constructor default of ``2``.
+    """
+    cfg = MOVEMENT_CONFIG.get(movement)
+    if cfg is None:
+        return 1
+    raw = cfg.get("max_hands")
+    if raw is None:
+        return 1 if bool(cfg.get("requires_hands", True)) else 0
+    value = int(raw)
+    if value not in (0, 1, 2):
+        raise ValueError(
+            f"max_hands for {movement!r} must be 0, 1, or 2 (got {value})"
+        )
+    return value
+
+
 def movement_requires_pose(movement: str) -> bool:
     cfg = MOVEMENT_CONFIG.get(movement)
     if cfg is None:

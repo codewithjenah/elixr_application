@@ -56,9 +56,21 @@ def test_readiness_session_uses_only_required_detectors(
     session.start()
     assert session.begin_readiness() is True
 
+    expected_max = {
+        "Normal Grip": 1,
+        "Bartender's Grip": 1,
+        "Reverse Grip": 1,
+        "Claw Grip": 1,
+        "Hand Stall": 1,
+        "One Finger Stall": 1,
+        "Double Hand Stall": 2,
+        "Bottle in a tin": 1,
+    }
+
     if expect_hands:
         assert session.hands_detector is not None, movement
         assert hands_inits["n"] == 1, movement
+        assert session.hands_detector.max_num_hands == expected_max[movement], movement
     else:
         assert session.hands_detector is None, movement
         assert hands_inits["n"] == 0, movement

@@ -158,6 +158,10 @@ class HandsDetector:
         self._hands_stats = HandsCallStats()
 
     @property
+    def max_num_hands(self) -> int:
+        return self._max_num_hands
+
+    @property
     def stats(self) -> HandsCallStats:
         existing = getattr(self, "_hands_stats", None)
         if not isinstance(existing, HandsCallStats):

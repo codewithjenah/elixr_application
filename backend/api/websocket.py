@@ -29,6 +29,7 @@ from assessment.readiness import (
 from assessment.rule_engine import (
     evaluate_movement,
     movement_is_prop_detection_only,
+    movement_max_hands,
     movement_required_prop_type,
     movement_requires_hands,
     movement_requires_pose,
@@ -468,6 +469,7 @@ class VisionSession:
         self._pose_needed = (
             not self._prop_detection_only and movement_requires_pose(movement)
         )
+        self._hands_max = movement_max_hands(movement)
         self.rubric = RubricTracker()
 
         self._frame_index = 0
@@ -701,8 +703,14 @@ class VisionSession:
         if needs_hands:
             if self.hands_detector is None:
                 self.hands_detector = HandsDetector(
+                    max_num_hands=self._hands_max,
                     rotated_fallback=self._hands_rotated_fallback,
                     bartender_roi_fallback=self._hands_bartender_roi,
+                )
+                logger.info(
+                    "HandsDetector created movement=%s hands_max=%s",
+                    self.movement,
+                    self._hands_max,
                 )
         elif self.hands_detector is not None:
             self.hands_detector.close()
@@ -1804,6 +1812,11 @@ async def _cv_session_loop(
                 format_line = getattr(hands_stats, "format_line", None)
                 if callable(format_line):
                     hands_diag = format_line()
+                    max_hands = getattr(
+                        session.hands_detector, "max_num_hands", None
+                    )
+                    if isinstance(max_hands, int):
+                        hands_diag = f"hands_max={max_hands} {hands_diag}"
                 reset = getattr(hands_stats, "reset", None)
                 if callable(reset):
                     reset()

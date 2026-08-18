@@ -1568,11 +1568,12 @@ def test_session_enables_only_its_grip_fallback(monkeypatch):
         def __init__(
             self,
             *,
+            max_num_hands: int = 2,
             rotated_fallback: bool = False,
             bartender_roi_fallback: bool = False,
         ):
             fallback_settings.append(
-                (rotated_fallback, bartender_roi_fallback)
+                (max_num_hands, rotated_fallback, bartender_roi_fallback)
             )
 
     monkeypatch.setattr(
@@ -1587,10 +1588,10 @@ def test_session_enables_only_its_grip_fallback(monkeypatch):
     websocket_api.VisionSession("Claw Grip")._ensure_detectors()
 
     assert fallback_settings == [
-        (True, False),
-        (False, True),
-        (False, False),
-        (True, False),
+        (1, True, False),
+        (1, False, True),
+        (1, False, False),
+        (1, True, False),
     ]
 
 
@@ -1669,6 +1670,8 @@ def test_session_passes_primary_bottle_to_hand_detector(
 
 
 def test_movement_requires_hands():
+    from assessment.rule_engine import movement_max_hands
+
     assert movement_requires_hands("Hand Stall") is True
     assert movement_requires_hands("Forearm Stall") is False
     assert movement_requires_hands("Arm Stall") is False  # legacy alias
@@ -1683,6 +1686,21 @@ def test_movement_requires_hands():
     assert movement_requires_hands("One Finger Stall") is True
     assert movement_requires_hands("Double Hand Stall") is True
     assert movement_requires_hands("Bottle in a tin") is True
+    assert movement_max_hands("Normal Grip") == 1
+    assert movement_max_hands("Bartender's Grip") == 1
+    assert movement_max_hands("Reverse Grip") == 1
+    assert movement_max_hands("Claw Grip") == 1
+    assert movement_max_hands("Hand Stall") == 1
+    assert movement_max_hands("One Finger Stall") == 1
+    assert movement_max_hands("Bottle in a tin") == 1
+    assert movement_max_hands("Double Hand Stall") == 2
+    assert movement_max_hands("Forearm Stall") == 0
+    assert movement_max_hands("Elbow Stall") == 0
+    assert movement_max_hands("Reverse Forearm Stall") == 0
+    assert movement_max_hands("Shoulder Stall") == 0
+    assert movement_max_hands("Arm Stall") == 0
+    assert movement_max_hands("Upper Forearm Stall") == 0
+    assert movement_max_hands("Free Practice") == 0
 
 
 @pytest.mark.parametrize(
