@@ -114,14 +114,21 @@ def main(argv: list[str] | None = None) -> int:
         print("count must be >= 1")
         return 2
 
-    discovery = discover_cameras()
-    _print_cameras(discovery)
     if args.list_only:
+        discovery = discover_cameras()
+        _print_cameras(discovery)
         return 0
+
+    if args.camera_device_id:
+        print("Opening selected camera...")
+        print(f"device_id={args.camera_device_id}")
 
     camera = CameraCapture(camera_device_id=args.camera_device_id)
     if not camera.open():
-        print("ERROR: Camera unavailable.")
+        if args.camera_device_id:
+            print("ERROR: Selected camera is unavailable or could not be opened.")
+        else:
+            print("ERROR: Camera unavailable.")
         return 1
     try:
         if args.mode == "interactive":

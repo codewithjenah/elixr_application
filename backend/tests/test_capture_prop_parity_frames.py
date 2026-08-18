@@ -282,3 +282,193 @@ def test_capture_script_interactive_exits_cleanly_without_webcam(tmp_path: Path,
     assert camera.released is True
     assert camera.peek_calls == []
     assert list(tmp_path.glob("*.jpg")) == []
+
+
+class _FailingCamera(_FakeCamera):
+    def open(self) -> bool:
+        self.opened = True
+        return False
+
+
+def test_list_only_calls_discover_cameras(monkeypatch, capsys):
+    module = _load_capture_module()
+    from unittest.mock import MagicMock
+
+    discover = MagicMock(
+        return_value={
+            "cameras": [
+                {
+                    "device_id": "usb-stable-id",
+                    "display_name": "1080P Web Camera",
+                    "runtime_index": 0,
+                    "identity_stable": True,
+                    "is_active": False,
+                }
+            ]
+        }
+    )
+    monkeypatch.setattr(module, "discover_cameras", discover)
+    opened: list[object] = []
+
+    class _MustNotOpen:
+        def __init__(self, **_kwargs):
+            opened.append(self)
+
+        def open(self):
+            raise AssertionError("list-only must not open a camera")
+
+    monkeypatch.setattr(module, "CameraCapture", _MustNotOpen)
+    assert module.main(["--list-only"]) == 0
+    discover.assert_called_once_with()
+    output = capsys.readouterr().out
+    assert "usb-stable-id" in output
+    assert "1080P Web Camera" in output
+    assert "runtime_index=0" in output
+    assert "identity=stable" in output
+    assert opened == []
+
+
+def test_explicit_camera_device_id_does_not_call_discover_cameras(tmp_path: Path, monkeypatch, capsys):
+    module = _load_capture_module()
+    from unittest.mock import MagicMock
+
+    discover = MagicMock(side_effect=AssertionError("explicit capture must not discover cameras"))
+    monkeypatch.setattr(module, "discover_cameras", discover)
+    cameras: list[_FakeCamera] = []
+
+    def factory(*, camera_device_id=None, **_kwargs):
+        camera = _FakeCamera(camera_device_id=camera_device_id)
+        cameras.append(camera)
+        return camera
+
+    monkeypatch.setattr(module, "CameraCapture", factory)
+    monkeypatch.setattr(module, "_prompt_capture", lambda _prompt="": "q")
+    device_id = r"\\?\usb#vid_2bdf&pid_0280&mi_00#7&1ec91634&1&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\global"
+    code = module.main(
+        [
+            "--output",
+            str(tmp_path),
+            "--camera-device-id",
+            device_id,
+        ]
+    )
+    assert code == 0
+    discover.assert_not_called()
+    assert len(cameras) == 1
+    assert cameras[0].camera_device_id == device_id
+    output = capsys.readouterr().out
+    assert "Opening selected camera..." in output
+    assert f"device_id={device_id}" in output
+
+
+def test_explicit_open_failure_returns_nonzero_without_discovery_or_capture(tmp_path: Path, monkeypatch, capsys):
+    module = _load_capture_module()
+    from unittest.mock import MagicMock
+
+    discover = MagicMock(side_effect=AssertionError("explicit capture must not discover cameras"))
+    monkeypatch.setattr(module, "discover_cameras", discover)
+    camera = _FailingCamera(camera_device_id="usb-stable-id")
+    monkeypatch.setattr(module, "CameraCapture", lambda **kwargs: camera)
+    entered = {"interactive": False, "timed": False}
+
+    def interactive(**_kwargs):
+        entered["interactive"] = True
+        raise AssertionError("must not enter interactive capture after open failure")
+
+    def timed(**_kwargs):
+        entered["timed"] = True
+        raise AssertionError("must not enter timed capture after open failure")
+
+    monkeypatch.setattr(module, "capture_parity_frames_interactive", interactive)
+    monkeypatch.setattr(module, "capture_parity_frames", timed)
+    code = module.main(
+        [
+            "--output",
+            str(tmp_path),
+            "--camera-device-id",
+            "usb-stable-id",
+        ]
+    )
+    assert code == 1
+    discover.assert_not_called()
+    assert camera.opened is True
+    assert camera.released is False
+    assert entered == {"interactive": False, "timed": False}
+    output = capsys.readouterr().out
+    assert "Selected camera is unavailable or could not be opened" in output
+    assert list(tmp_path.glob("*.jpg")) == []
+
+
+def test_explicit_successful_open_enters_interactive_and_releases(tmp_path: Path, monkeypatch):
+    module = _load_capture_module()
+    from unittest.mock import MagicMock
+
+    discover = MagicMock(side_effect=AssertionError("explicit capture must not discover cameras"))
+    monkeypatch.setattr(module, "discover_cameras", discover)
+    camera = _FakeCamera(camera_device_id="usb-stable-id")
+    monkeypatch.setattr(module, "CameraCapture", lambda **kwargs: camera)
+    monkeypatch.setattr(module, "_prompt_capture", lambda _prompt="": "q")
+    code = module.main(
+        [
+            "--output",
+            str(tmp_path),
+            "--camera-device-id",
+            "usb-stable-id",
+        ]
+    )
+    assert code == 0
+    discover.assert_not_called()
+    assert camera.camera_device_id == "usb-stable-id"
+    assert camera.opened is True
+    assert camera.released is True
+    assert camera.peek_calls == []
+
+
+def test_explicit_capture_exception_still_releases_camera(tmp_path: Path, monkeypatch):
+    module = _load_capture_module()
+    from unittest.mock import MagicMock
+
+    discover = MagicMock(side_effect=AssertionError("explicit capture must not discover cameras"))
+    monkeypatch.setattr(module, "discover_cameras", discover)
+    camera = _FakeCamera(camera_device_id="usb-stable-id")
+    monkeypatch.setattr(module, "CameraCapture", lambda **kwargs: camera)
+
+    def boom(**_kwargs):
+        raise RuntimeError("capture interrupted")
+
+    monkeypatch.setattr(module, "capture_parity_frames_interactive", boom)
+    code = module.main(
+        [
+            "--output",
+            str(tmp_path),
+            "--camera-device-id",
+            "usb-stable-id",
+        ]
+    )
+    assert code == 1
+    discover.assert_not_called()
+    assert camera.released is True
+
+
+def test_auto_select_capture_does_not_call_discover_cameras(tmp_path: Path, monkeypatch):
+    module = _load_capture_module()
+    from unittest.mock import MagicMock
+
+    discover = MagicMock(side_effect=AssertionError("auto-select capture must not discover cameras"))
+    monkeypatch.setattr(module, "discover_cameras", discover)
+    cameras: list[_FakeCamera] = []
+
+    def factory(*, camera_device_id=None, **_kwargs):
+        camera = _FakeCamera(camera_device_id=camera_device_id)
+        cameras.append(camera)
+        return camera
+
+    monkeypatch.setattr(module, "CameraCapture", factory)
+    monkeypatch.setattr(module, "_prompt_capture", lambda _prompt="": "q")
+    code = module.main(["--output", str(tmp_path)])
+    assert code == 0
+    discover.assert_not_called()
+    assert len(cameras) == 1
+    assert cameras[0].camera_device_id is None
+    assert cameras[0].opened is True
+    assert cameras[0].released is True
