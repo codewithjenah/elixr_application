@@ -11,6 +11,7 @@ Use Python 3.11 for the current pinned dependency set unless the dependency pins
 - Pydantic response schemas.
 - OpenCV camera capture and JPEG encoding.
 - Ultralytics YOLO with the selected prop model under `backend/models/`.
+- ONNX Runtime CPU (optional DirectML) for the exported `best.onnx` artifact.
 - MediaPipe Hand and Pose landmarker task assets.
 - Movement-specific rule modules.
 - Pytest rule-engine, camera, and session-lifecycle tests. (`pytest` is not currently listed in `backend/requirements.txt`.)
@@ -98,8 +99,12 @@ Keep Flutter independent of these implementation details except for the document
 ## Model and detector behavior
 
 - `PropDetector` and `DualPropDetector` share one combined YOLO model at
-  `backend/models/best.pt` and resolve bottle/shaker class IDs from the model's
-  declared names; class zero must not be assumed for every prop.
+  `backend/models/best.pt` (PyTorch fallback) and, when selected,
+  `backend/models/best.onnx` (ONNX Runtime). Class IDs are resolved from the
+  model's declared names; class zero must not be assumed for every prop.
+  `YOLO_RUNTIME` is `auto` | `pytorch` | `onnx_cpu` | `onnx_dml`. `auto`
+  keeps PyTorch when `best.pt` is present. ONNX CPU is opt-in via
+  `onnx_cpu`. DirectML is explicit-only and must not be required by Linux CI.
 - Keep model load failures distinguishable from ordinary “no bottle detected” results.
 - Do not download or replace model assets silently.
 - Avoid caching fast-changing hand landmarks; stale landmarks create ghost-hand artifacts.

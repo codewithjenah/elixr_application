@@ -76,7 +76,7 @@ jobs:
         run: python -m pip check
 
       - name: Verify critical imports
-        run: python -c "import cv2, mediapipe, numpy, ultralytics, comtypes"
+        run: python -c "import cv2, mediapipe, numpy, ultralytics, comtypes, onnxruntime"
 
       - name: Run backend tests
         run: python -m pytest -q tests

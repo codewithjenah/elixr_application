@@ -290,3 +290,30 @@ def test_format_perf_line_is_one_aggregated_summary():
     assert "ai_frames=27" in line
     assert "bottleneck=" in line
     assert "\n" not in line
+
+
+def test_format_perf_line_includes_yolo_runtime_metadata():
+    timings = PipelineTimings()
+    timings.add("yolo", 0.050)
+    timings.add("end_to_end", 0.080)
+    line = format_perf_line(
+        timings,
+        preview_fps=19.0,
+        ai_fps=11.0,
+        capture_fps=25.0,
+        elapsed_s=3.0,
+        overwrite_delta=1,
+        target_fps=20.0,
+        yolo_skip=2,
+        imgsz=640,
+        lifecycle="active",
+        processed=60,
+        ticks=60,
+        yolo_runtime="onnx_cpu",
+        yolo_provider="CPUExecutionProvider",
+    )
+    assert "yolo=50.0ms" in line
+    assert "yolo=" in line and "fps" in line
+    assert "yolo_runtime=onnx_cpu" in line
+    assert "yolo_provider=CPUExecutionProvider" in line
+    assert "\n" not in line

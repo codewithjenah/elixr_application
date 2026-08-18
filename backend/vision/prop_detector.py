@@ -6,10 +6,9 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Any, Callable, Literal
 
 import numpy as np
-from ultralytics import YOLO
 
 from config import (
     MAX_BOTTLES,
@@ -18,7 +17,19 @@ from config import (
     YOLO_IMGSZ,
     YOLO_IOU,
     YOLO_MODEL_PATH,
+    YOLO_ONNX_MODEL_PATH,
+    YOLO_RUNTIME,
     YOLO_SHAKER_CONFIDENCE,
+)
+from vision.prop_inference import (
+    ModelLoadError,
+    PropInferenceBackend,
+    PyTorchPropBackend,
+    create_prop_backend,
+    dml_is_available,
+    onnxruntime_is_available,
+    select_prop_runtime,
+    split_raw_detections,
 )
 from vision.prop_tracker import PropTracker
 from vision.types import PropDetection
@@ -36,25 +47,10 @@ _CLASS_ALIASES: dict[PropType, set[str]] = {
 }
 
 
-class ModelLoadError(RuntimeError):
-    """Raised when the combined prop model cannot be loaded or configured."""
-
-
 @dataclass(frozen=True)
 class CombinedDetectionResult:
     bottles: list[PropDetection]
     shakers: list[PropDetection]
-
-
-def _resolve_model_device(model: YOLO) -> str:
-    """Best-effort device label for observability (does not force GPU/FP16)."""
-    device = getattr(model, "device", None)
-    if device is not None:
-        return str(device)
-    overrides = getattr(model, "overrides", None)
-    if isinstance(overrides, Mapping) and overrides.get("device") is not None:
-        return str(overrides["device"])
-    return "cpu"
 
 
 def _normalize_class_name(name: str) -> str:
@@ -142,17 +138,30 @@ class CombinedPropDetector:
         enabled: bool = True,
         *,
         model_path: Path | str | None = None,
-        model_loader: Callable[[str], YOLO] | None = None,
+        onnx_model_path: Path | str | None = None,
+        model_loader: Callable[[str], Any] | None = None,
+        inference_backend: PropInferenceBackend | None = None,
+        runtime: str | None = None,
     ):
         self._confidence = confidence
-        self._model: Optional[YOLO] = None
+        self._backend: PropInferenceBackend | None = inference_backend
         self._model_path = (
             Path(model_path).resolve()
             if model_path is not None
             else YOLO_MODEL_PATH
         )
-        self._model_loader = model_loader or YOLO
+        self._onnx_model_path = (
+            Path(onnx_model_path).resolve()
+            if onnx_model_path is not None
+            else YOLO_ONNX_MODEL_PATH
+        )
+        self._model_loader = model_loader
+        self._requested_runtime = (
+            runtime if runtime is not None else YOLO_RUNTIME
+        )
+        self._injected_backend = inference_backend is not None
         self._load_failed = False
+        self._runtime_logged = False
         self._enabled = enabled
         self._bottle_class_id: int | None = None
         self._shaker_class_id: int | None = None
@@ -161,8 +170,11 @@ class CombinedPropDetector:
         self._shaker_tracker = PropTracker()
 
         logger.info(
-            "Configured combined prop detector: model_path=%s",
+            "Configured combined prop detector: model_path=%s onnx_path=%s "
+            "runtime=%s",
             self._model_path,
+            self._onnx_model_path,
+            self._requested_runtime,
         )
 
     @property
@@ -192,6 +204,18 @@ class CombinedPropDetector:
     def class_names(self) -> dict[int, str]:
         return dict(self._class_names)
 
+    @property
+    def yolo_runtime(self) -> str:
+        if self._backend is None:
+            return ""
+        return self._backend.runtime_name
+
+    @property
+    def yolo_provider(self) -> str:
+        if self._backend is None:
+            return ""
+        return self._backend.provider
+
     def reset_tracks(self) -> None:
         """Drop live identities so the next frame starts a new track_id sequence."""
         self._bottle_tracker.reset()
@@ -212,26 +236,22 @@ class CombinedPropDetector:
 
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""
-        self._ensure_model()
+        self._ensure_backend()
 
-    def _ensure_model(self) -> YOLO:
+    def _ensure_backend(self) -> PropInferenceBackend:
         if self._load_failed:
             raise ModelLoadError("YOLO combined prop model failed to load")
 
-        if self._model is not None:
-            return self._model
+        if self._backend is not None and self._bottle_class_id is not None:
+            return self._backend
 
-        if not self._model_path.is_file():
-            self._load_failed = True
-            raise ModelLoadError(
-                f"YOLO model file is missing: {self._model_path}"
-            )
-
-        logger.info("Loading combined YOLO model: path=%s", self._model_path)
         try:
-            model = self._model_loader(str(self._model_path))
+            backend = self._backend
+            if backend is None:
+                backend = self._create_backend()
+            backend.load()
             bottle_id, shaker_id, class_names = resolve_bottle_and_shaker_class_ids(
-                getattr(model, "names", None),
+                backend.names,
             )
         except ModelLoadError:
             self._load_failed = True
@@ -248,29 +268,77 @@ class CombinedPropDetector:
             )
             raise ModelLoadError("Failed to load the combined YOLO model") from exc
 
-        self._model = model
+        self._backend = backend
         self._bottle_class_id = bottle_id
         self._shaker_class_id = shaker_id
         self._class_names = class_names
-        device = _resolve_model_device(model)
-        logger.info(
-            "Loaded combined prop detector: path=%s classes=%s "
-            "bottle_class_id=%s shaker_class_id=%s device=%s imgsz=%s",
-            self._model_path,
-            self._class_names,
-            self._bottle_class_id,
-            self._shaker_class_id,
-            device,
-            YOLO_IMGSZ,
+        if not self._runtime_logged:
+            logger.info(
+                "YOLO runtime selected: runtime=%s provider=%s model=%s imgsz=%s",
+                backend.runtime_name,
+                backend.provider,
+                Path(backend.model_path).name,
+                YOLO_IMGSZ,
+            )
+            logger.info(
+                "Loaded combined prop detector: path=%s classes=%s "
+                "bottle_class_id=%s shaker_class_id=%s provider=%s imgsz=%s",
+                backend.model_path,
+                self._class_names,
+                self._bottle_class_id,
+                self._shaker_class_id,
+                backend.provider,
+                YOLO_IMGSZ,
+            )
+            self._runtime_logged = True
+        return backend
+
+    def _create_backend(self) -> PropInferenceBackend:
+        inference_conf = min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE)
+        if self._model_loader is not None:
+            if not self._model_path.is_file():
+                raise ModelLoadError(
+                    f"YOLO model file is missing: {self._model_path}"
+                )
+            return PyTorchPropBackend(
+                self._model_path,
+                model_loader=self._model_loader,
+                inference_conf=inference_conf,
+                iou=YOLO_IOU,
+                max_det=MAX_BOTTLES * 2,
+                imgsz=YOLO_IMGSZ,
+            )
+
+        selection = select_prop_runtime(
+            self._requested_runtime,
+            pytorch_path=self._model_path,
+            onnx_path=self._onnx_model_path,
+            onnxruntime_available=onnxruntime_is_available(),
+            dml_available=dml_is_available(),
         )
-        return model
+        if selection.fallback_from:
+            logger.warning(
+                "YOLO runtime fallback: requested=%s selected=%s reason=%s",
+                selection.fallback_from,
+                selection.runtime,
+                selection.reason,
+            )
+        return create_prop_backend(
+            selection,
+            pytorch_path=self._model_path,
+            onnx_path=self._onnx_model_path,
+            inference_conf=inference_conf,
+            iou=YOLO_IOU,
+            max_det=MAX_BOTTLES * 2,
+            imgsz=YOLO_IMGSZ,
+        )
 
     def detect_all(self, frame: np.ndarray) -> CombinedDetectionResult:
         """Run one YOLO inference and return bottle and shaker detections."""
         if not self._enabled:
             return CombinedDetectionResult(bottles=[], shakers=[])
 
-        model = self._ensure_model()
+        backend = self._ensure_backend()
         assert self._bottle_class_id is not None
         assert self._shaker_class_id is not None
 
@@ -278,9 +346,8 @@ class CombinedPropDetector:
         # post-filter each class against its own (higher-or-equal) cutoff.
         inference_conf = min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE)
         try:
-            results = model(
+            raw = backend.infer(
                 frame,
-                verbose=False,
                 conf=inference_conf,
                 iou=YOLO_IOU,
                 max_det=MAX_BOTTLES * 2,
@@ -290,38 +357,13 @@ class CombinedPropDetector:
             logger.exception("YOLO inference failed for combined prop detector")
             return CombinedDetectionResult(bottles=[], shakers=[])
 
-        bottles: list[PropDetection] = []
-        shakers: list[PropDetection] = []
-        for result in results:
-            if result.boxes is None:
-                continue
-
-            for box in result.boxes:
-                cls_id = int(box.cls[0])
-                confidence = float(box.conf[0])
-                x1, y1, x2, y2 = (
-                    int(value) for value in box.xyxy[0].tolist()
-                )
-                detection = PropDetection(
-                    x1=x1,
-                    y1=y1,
-                    x2=x2,
-                    y2=y2,
-                    confidence=confidence,
-                )
-                if (
-                    cls_id == self._bottle_class_id
-                    and confidence >= YOLO_BOTTLE_CONFIDENCE
-                ):
-                    bottles.append(detection)
-                elif (
-                    cls_id == self._shaker_class_id
-                    and confidence >= YOLO_SHAKER_CONFIDENCE
-                ):
-                    shakers.append(detection)
-
-        bottles.sort(key=lambda detection: detection.confidence, reverse=True)
-        shakers.sort(key=lambda detection: detection.confidence, reverse=True)
+        bottles, shakers = split_raw_detections(
+            raw,
+            bottle_class_id=self._bottle_class_id,
+            shaker_class_id=self._shaker_class_id,
+            bottle_conf=YOLO_BOTTLE_CONFIDENCE,
+            shaker_conf=YOLO_SHAKER_CONFIDENCE,
+        )
         now = time.monotonic()
         self._bottle_tracker.update(bottles[:MAX_BOTTLES], timestamp=now)
         self._shaker_tracker.update(shakers[:MAX_BOTTLES], timestamp=now)
@@ -341,7 +383,7 @@ class PropDetector:
         enabled: bool = True,
         *,
         model_path: Path | str | None = None,
-        model_loader: Callable[[str], YOLO] | None = None,
+        model_loader: Callable[[str], Any] | None = None,
         combined_detector: CombinedPropDetector | None = None,
     ):
         if prop_type not in _CLASS_ALIASES:
@@ -389,6 +431,14 @@ class PropDetector:
     @property
     def class_names(self) -> dict[int, str]:
         return self._combined.class_names
+
+    @property
+    def yolo_runtime(self) -> str:
+        return self._combined.yolo_runtime
+
+    @property
+    def yolo_provider(self) -> str:
+        return self._combined.yolo_provider
 
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""

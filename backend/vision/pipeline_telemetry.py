@@ -423,6 +423,8 @@ def format_perf_line(
     ai_overwrites: int = 0,
     ai_processed: int = 0,
     capture_snapshot: CaptureProducerSnapshot | None = None,
+    yolo_runtime: str = "",
+    yolo_provider: str = "",
 ) -> str:
     """One aggregated line for the FPS log interval."""
     preview = preview_fps if preview_fps is not None else (output_fps or 0.0)
@@ -471,6 +473,11 @@ def format_perf_line(
 
     capture_fields = format_capture_contention(capture_snapshot)
     capture_suffix = f" {capture_fields}" if capture_fields else ""
+    runtime_fields = ""
+    if yolo_runtime:
+        runtime_fields += f" yolo_runtime={yolo_runtime}"
+    if yolo_provider:
+        runtime_fields += f" yolo_provider={yolo_provider}"
     return (
         "CV PERF | "
         f"preview={preview:.1f}fps ai={ai_fps:.1f}fps capture={capture_fps:.1f}fps"
@@ -485,6 +492,7 @@ def format_perf_line(
         f"slot_overwrites={overwrite_delta}"
         f" | bottleneck={bottleneck}"
         f" | lifecycle={lifecycle} target={target_fps:g} skip={yolo_skip} "
-        f"imgsz={imgsz} preview_frames={processed} ai_frames={ai_processed} "
+        f"imgsz={imgsz}{runtime_fields} preview_frames={processed} "
+        f"ai_frames={ai_processed} "
         f"ticks={ticks}"
     )

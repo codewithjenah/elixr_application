@@ -3,6 +3,7 @@ from pathlib import Path
 
 _BACKEND_DIR = Path(__file__).resolve().parent
 _DEFAULT_YOLO_MODEL_PATH = _BACKEND_DIR / "models" / "best.pt"
+_DEFAULT_YOLO_ONNX_MODEL_PATH = _BACKEND_DIR / "models" / "best.onnx"
 
 TARGET_FPS = 20
 FRAME_WIDTH = 640
@@ -62,6 +63,65 @@ MAX_TARGET_FPS = 30
 YOLO_MODEL_PATH = Path(
     os.getenv("YOLO_MODEL_PATH", str(_DEFAULT_YOLO_MODEL_PATH))
 ).resolve()
+YOLO_ONNX_MODEL_PATH = Path(
+    os.getenv("YOLO_ONNX_MODEL_PATH", str(_DEFAULT_YOLO_ONNX_MODEL_PATH))
+).resolve()
+
+
+def _load_yolo_runtime() -> str:
+    """Select the YOLO inference engine. Default auto keeps PyTorch."""
+    raw = os.getenv("YOLO_RUNTIME", "auto").strip().lower()
+    allowed = {"auto", "pytorch", "onnx_cpu", "onnx_dml"}
+    if raw not in allowed:
+        raise ValueError(
+            "YOLO_RUNTIME must be one of auto, pytorch, onnx_cpu, onnx_dml "
+            f"(got {raw!r})"
+        )
+    return raw
+
+
+def _load_yolo_onnx_intra_op_threads(cpu_count: int | None = None) -> int:
+    """ONNX Runtime intra-op threads. 0 leaves the runtime default.
+
+    The implicit default is min(4, CPU count) so a live session does not
+    consume every logical core on a Windows desktop.
+    """
+    detected = cpu_count if cpu_count is not None else (os.cpu_count() or 1)
+    bounded_default = max(1, min(4, int(detected)))
+    raw = os.getenv("YOLO_ONNX_INTRA_OP_THREADS")
+    if raw is None or raw == "":
+        return bounded_default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"YOLO_ONNX_INTRA_OP_THREADS must be an integer (got {raw!r})"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            f"YOLO_ONNX_INTRA_OP_THREADS must be >= 0 (got {value})"
+        )
+    return value
+
+
+def _load_yolo_dml_device_id() -> int:
+    raw = os.getenv("YOLO_DML_DEVICE_ID", "0")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"YOLO_DML_DEVICE_ID must be an integer (got {raw!r})"
+        ) from exc
+    if value < 0:
+        raise ValueError(f"YOLO_DML_DEVICE_ID must be >= 0 (got {value})")
+    return value
+
+
+# pytorch | onnx_cpu | onnx_dml | auto.
+# auto keeps PyTorch when best.pt exists; ONNX is opt-in after CPU benchmarks.
+YOLO_RUNTIME = _load_yolo_runtime()
+YOLO_ONNX_INTRA_OP_THREADS = _load_yolo_onnx_intra_op_threads()
+YOLO_DML_DEVICE_ID = _load_yolo_dml_device_id()
 
 # Custom YOLO model settings. PropDetector resolves class IDs from the
 # combined model's declared names at load time; do not assume class zero.
