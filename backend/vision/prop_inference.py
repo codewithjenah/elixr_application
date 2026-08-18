@@ -187,6 +187,41 @@ def select_prop_runtime(
     return require_onnx_cpu("auto_onnx_cpu_pytorch_missing")
 
 
+def _static_positive_int(value: Any) -> int | None:
+    if isinstance(value, bool) or isinstance(value, str):
+        return None
+    if isinstance(value, (int, np.integer)):
+        parsed = int(value)
+        if parsed > 0:
+            return parsed
+    return None
+
+
+def parse_onnx_static_input_hw(shape: Sequence[Any] | None) -> tuple[int, int]:
+    """Read static NCHW spatial size from an ONNX input. Never guess."""
+    if shape is None or len(shape) != 4:
+        raise ModelLoadError(
+            "ONNX model input shape must be static [1, 3, H, W]; "
+            f"got {shape!r}"
+        )
+    batch, channels, height, width = shape
+    batch_n = _static_positive_int(batch)
+    channel_n = _static_positive_int(channels)
+    height_n = _static_positive_int(height)
+    width_n = _static_positive_int(width)
+    if batch_n != 1 or channel_n != 3 or height_n is None or width_n is None:
+        raise ModelLoadError(
+            "ONNX model input shape must be static [1, 3, H, W]; "
+            f"got {list(shape)!r}"
+        )
+    if height_n % 32 != 0 or width_n % 32 != 0:
+        raise ModelLoadError(
+            "ONNX model spatial size must be multiples of 32; "
+            f"got H={height_n} W={width_n}"
+        )
+    return height_n, width_n
+
+
 def parse_onnx_class_names(metadata: Mapping[str, str]) -> dict[int, str]:
     raw = metadata.get("names")
     if not raw or not str(raw).strip():
@@ -434,6 +469,8 @@ class OnnxPropBackend(PropInferenceBackend):
         self._output_names: list[str] = ["output0"]
         self._names: dict[int, str] = {}
         self._letterbox: Any = None
+        self.input_height = 0
+        self.input_width = 0
         self._infer_lock = threading.Lock()
 
     @property
@@ -452,8 +489,12 @@ class OnnxPropBackend(PropInferenceBackend):
         )
         inputs = session.get_inputs()
         outputs = session.get_outputs()
-        if inputs:
-            self._input_name = inputs[0].name
+        if not inputs:
+            raise ModelLoadError("ONNX model has no inputs")
+        self._input_name = inputs[0].name
+        self.input_height, self.input_width = parse_onnx_static_input_hw(
+            getattr(inputs[0], "shape", None)
+        )
         if outputs:
             self._output_names = [item.name for item in outputs]
         metadata = {}
@@ -464,8 +505,10 @@ class OnnxPropBackend(PropInferenceBackend):
         self._names = parse_onnx_class_names(metadata)
         from ultralytics.data.augment import LetterBox
 
+        # The loaded graph is authoritative. Do not square-pad to YOLO_IMGSZ
+        # when the model already declares a static rectangular H/W.
         self._letterbox = LetterBox(
-            (self._imgsz, self._imgsz),
+            (self.input_height, self.input_width),
             auto=False,
             stride=32,
         )

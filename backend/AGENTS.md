@@ -104,7 +104,8 @@ Keep Flutter independent of these implementation details except for the document
 
 - `PropDetector` and `DualPropDetector` share one combined YOLO model at
   `backend/models/best.pt` (PyTorch fallback) and, when selected,
-  `backend/models/best.onnx` (ONNX Runtime). Class IDs are resolved from the
+  `backend/models/best.onnx` (ONNX Runtime). The production ONNX input is
+  static `[1, 3, 480, 640]` matching `FRAME_HEIGHT` × `FRAME_WIDTH`. Class IDs are resolved from the
   model's declared names; class zero must not be assumed for every prop.
   `YOLO_RUNTIME` is `auto` | `pytorch` | `onnx_cpu` | `onnx_dml`. `auto`
   keeps PyTorch when `best.pt` is present. ONNX CPU is opt-in via

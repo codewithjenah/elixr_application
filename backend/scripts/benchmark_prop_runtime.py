@@ -98,9 +98,14 @@ def _load_pytorch() -> PropInferenceBackend:
     return backend
 
 
-def _load_onnx(runtime_name: str, providers: list[object]) -> PropInferenceBackend:
+def _load_onnx(
+    runtime_name: str,
+    providers: list[object],
+    onnx_path: Path | None = None,
+) -> PropInferenceBackend:
+    path = Path(onnx_path) if onnx_path is not None else YOLO_ONNX_MODEL_PATH
     backend = OnnxPropBackend(
-        YOLO_ONNX_MODEL_PATH,
+        path,
         runtime_name=runtime_name,
         providers=providers,
         imgsz=YOLO_IMGSZ,
@@ -161,12 +166,38 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=50)
     parser.add_argument("--frames", type=int, default=8)
     parser.add_argument("--include-dml", action="store_true")
+    parser.add_argument(
+        "--onnx",
+        type=Path,
+        default=None,
+        help="ONNX artifact (default backend/models/best.onnx).",
+    )
+    parser.add_argument(
+        "--images",
+        type=Path,
+        default=None,
+        help="Directory of real images instead of synthetic frames.",
+    )
     args = parser.parse_args()
-    frames = representative_frames(args.frames)
+    if args.images is not None:
+        from vision.prop_parity import discover_parity_images
+        import cv2
+
+        paths = discover_parity_images(args.images)
+        frames = []
+        for path in paths:
+            frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if frame is None:
+                raise FileNotFoundError(f"Failed to read image: {path}")
+            frames.append(frame)
+    else:
+        frames = representative_frames(args.frames)
+    onnx_path = args.onnx if args.onnx is not None else YOLO_ONNX_MODEL_PATH
     print(
         f"Benchmark frames={len(frames)} size={frames[0].shape} "
         f"imgsz={YOLO_IMGSZ} conf={min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE)} "
-        f"iou={YOLO_IOU} intra_op={YOLO_ONNX_INTRA_OP_THREADS}"
+        f"iou={YOLO_IOU} intra_op={YOLO_ONNX_INTRA_OP_THREADS} "
+        f"onnx={Path(onnx_path).name}"
     )
 
     started = time.perf_counter()
@@ -180,12 +211,12 @@ def main() -> None:
     )
     _print_result(pytorch_row)
 
-    if not YOLO_ONNX_MODEL_PATH.is_file():
-        print("ONNX skipped: best.onnx is missing. Run scripts/export_prop_onnx.py")
+    if not Path(onnx_path).is_file():
+        print(f"ONNX skipped: {onnx_path} is missing. Run scripts/export_prop_onnx.py")
         return
 
     started = time.perf_counter()
-    onnx_cpu = _load_onnx("onnx_cpu", ["CPUExecutionProvider"])
+    onnx_cpu = _load_onnx("onnx_cpu", ["CPUExecutionProvider"], onnx_path)
     onnx_row = benchmark_backend(
         onnx_cpu,
         frames,
@@ -203,6 +234,7 @@ def main() -> None:
         onnx_dml = _load_onnx(
             "onnx_dml",
             [("DmlExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"],
+            onnx_path,
         )
         dml_row = benchmark_backend(
             onnx_dml,

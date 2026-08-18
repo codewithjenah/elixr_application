@@ -45,6 +45,19 @@ def test_default_onnx_model_path_is_backend_models_best_onnx():
     assert YOLO_ONNX_MODEL_PATH.parent == Path(__file__).resolve().parents[1] / "models"
 
 
+def test_prop_onnx_export_default_imgsz_is_480x640():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "export_prop_onnx.py"
+    spec = importlib.util.spec_from_file_location("export_prop_onnx", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.EXPORT_IMGSZ == (480, 640)
+    assert module._parse_imgsz([480, 640]) == (480, 640)
+    assert module._parse_imgsz([640]) == 640
+
+
 def test_onnx_intra_op_threads_default_is_bounded(monkeypatch):
     monkeypatch.delenv("YOLO_ONNX_INTRA_OP_THREADS", raising=False)
     value = _load_yolo_onnx_intra_op_threads(cpu_count=16)

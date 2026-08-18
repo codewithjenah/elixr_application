@@ -17,10 +17,18 @@ from vision.prop_parity import (
     STATUS_SEMANTIC_MISMATCH,
     COVERAGE_INSUFFICIENT,
     COVERAGE_SUFFICIENT,
+    DIAGNOSIS_DIFFERENT_POSTPROCESS,
+    DIAGNOSIS_NEAR_THRESHOLD_DRIFT,
+    DIAGNOSIS_OTHER,
+    DIAGNOSIS_TRUE_ONNX_MISS,
     ParityMismatch,
     aggregate_directory_parity,
+    classify_shaker_parity_diagnosis,
     compare_raw_detections,
     discover_parity_images,
+    format_production_decision_line,
+    format_raw_detection_line,
+    production_keep_drop,
     semantic_class_for,
     summarize_directory_parity,
     summarize_parity,
@@ -523,7 +531,7 @@ def test_validate_script_zero_detections_exits_nonzero_insufficient(tmp_path: Pa
     module = _load_validate_module()
     _write_tiny_jpeg(tmp_path / "001.jpg")
     backend = _StubParityBackend()
-    monkeypatch.setattr(module, "_load_backends", lambda: (backend, backend))
+    monkeypatch.setattr(module, "_load_backends", lambda *_a, **_k: (backend, backend))
     code = module.main(["--images", str(tmp_path)])
     output = capsys.readouterr().out
     assert code == 3
@@ -550,7 +558,7 @@ def test_validate_script_parity_pass_exits_zero(tmp_path: Path, monkeypatch, cap
         onnx.current_name = path.name
         return original_load(path)
 
-    monkeypatch.setattr(module, "_load_backends", lambda: (pytorch, onnx))
+    monkeypatch.setattr(module, "_load_backends", lambda *_a, **_k: (pytorch, onnx))
     monkeypatch.setattr(module, "_load_bgr_image", load_image)
     code = module.main(["--images", str(tmp_path)])
     output = capsys.readouterr().out
@@ -581,7 +589,7 @@ def test_validate_script_semantic_mismatch_exits_nonzero_mismatch(tmp_path: Path
         onnx.current_name = path.name
         return original_load(path)
 
-    monkeypatch.setattr(module, "_load_backends", lambda: (pytorch, onnx))
+    monkeypatch.setattr(module, "_load_backends", lambda *_a, **_k: (pytorch, onnx))
     monkeypatch.setattr(module, "_load_bgr_image", load_image)
     code = module.main(["--images", str(tmp_path)])
     output = capsys.readouterr().out
@@ -606,6 +614,231 @@ def test_validate_script_missing_and_empty_image_directory(tmp_path: Path, monke
         def load(self) -> None:
             return None
 
-    monkeypatch.setattr(module, "_load_backends", lambda: (_Names(), _Names()))
+    monkeypatch.setattr(module, "_load_backends", lambda *_a, **_k: (_Names(), _Names()))
     assert module.main(["--images", str(tmp_path / "missing")]) == 2
     assert module.main(["--images", str(tmp_path)]) == 2
+
+
+def test_production_keep_drop_uses_per_class_thresholds():
+    bottle = RawDetection(0, 0.39, 10, 20, 40, 80)
+    shaker = RawDetection(1, 0.41, 5, 5, 15, 12)
+    assert (
+        production_keep_drop(
+            bottle,
+            names=PRODUCTION_NAMES,
+            bottle_conf=0.40,
+            shaker_conf=0.40,
+        )
+        == "DROP"
+    )
+    assert (
+        production_keep_drop(
+            shaker,
+            names=PRODUCTION_NAMES,
+            bottle_conf=0.40,
+            shaker_conf=0.40,
+        )
+        == "PASS"
+    )
+    line = format_raw_detection_line("onnx", shaker, names=PRODUCTION_NAMES)
+    assert "runtime=onnx" in line
+    assert "semantic=shaker" in line
+    assert "class_id=1" in line
+    assert "confidence=0.4100" in line
+    decision = format_production_decision_line(
+        "onnx",
+        shaker,
+        names=PRODUCTION_NAMES,
+        bottle_conf=0.40,
+        shaker_conf=0.40,
+    )
+    assert "production=PASS" in decision
+
+
+def test_near_threshold_shaker_is_classified_as_drift():
+    pytorch = [
+        RawDetection(0, 0.91, 10, 20, 40, 80),
+        RawDetection(1, 0.45, 5, 5, 25, 22),
+    ]
+    onnx = [
+        RawDetection(0, 0.90, 10, 20, 40, 80),
+        RawDetection(1, 0.37, 5, 5, 25, 22),
+    ]
+    diagnosis = classify_shaker_parity_diagnosis(
+        pytorch,
+        onnx,
+        names=PRODUCTION_NAMES,
+        bottle_conf=0.40,
+        shaker_conf=0.40,
+        onnx_without_nms=onnx,
+    )
+    assert diagnosis.label == DIAGNOSIS_NEAR_THRESHOLD_DRIFT
+    assert diagnosis.pytorch_shaker is not None
+    assert diagnosis.onnx_shaker is not None
+    assert diagnosis.pytorch_shaker.confidence == pytest.approx(0.45)
+    assert diagnosis.onnx_shaker.confidence == pytest.approx(0.37)
+    assert diagnosis.shaker_iou is not None
+    assert diagnosis.shaker_iou > 0.9
+
+
+def test_true_onnx_miss_when_no_shaker_candidate_even_without_nms():
+    pytorch = [RawDetection(1, 0.52, 5, 5, 25, 22)]
+    diagnosis = classify_shaker_parity_diagnosis(
+        pytorch,
+        [],
+        names=PRODUCTION_NAMES,
+        bottle_conf=0.40,
+        shaker_conf=0.40,
+        onnx_without_nms=[],
+    )
+    assert diagnosis.label == DIAGNOSIS_TRUE_ONNX_MISS
+    assert diagnosis.pytorch_shaker is not None
+    assert diagnosis.onnx_shaker is None
+    assert diagnosis.shaker_iou is None
+
+
+def test_nms_only_shaker_is_postprocess_difference():
+    pytorch = [RawDetection(1, 0.52, 5, 5, 25, 22)]
+    pre_nms = [RawDetection(1, 0.41, 5, 5, 25, 22)]
+    diagnosis = classify_shaker_parity_diagnosis(
+        pytorch,
+        [],
+        names=PRODUCTION_NAMES,
+        bottle_conf=0.40,
+        shaker_conf=0.40,
+        onnx_without_nms=pre_nms,
+    )
+    assert diagnosis.label == DIAGNOSIS_DIFFERENT_POSTPROCESS
+    assert diagnosis.onnx_shaker is not None
+    assert diagnosis.onnx_shaker.confidence == pytest.approx(0.41)
+
+
+def test_onnx_bottle_on_pytorch_shaker_box_is_other():
+    pytorch = [RawDetection(1, 0.52, 5, 5, 25, 22)]
+    onnx = [RawDetection(0, 0.60, 5, 5, 25, 22)]
+    diagnosis = classify_shaker_parity_diagnosis(
+        pytorch,
+        onnx,
+        names=PRODUCTION_NAMES,
+        bottle_conf=0.40,
+        shaker_conf=0.40,
+        onnx_without_nms=onnx,
+    )
+    assert diagnosis.label == DIAGNOSIS_OTHER
+    assert "bottle" in diagnosis.detail
+
+
+class _RecordingParityBackend(_StubParityBackend):
+    def __init__(self, detections_by_name: dict[str, list[RawDetection]] | None = None):
+        super().__init__(detections_by_name)
+        self.kwargs_seen: list[dict] = []
+
+    def infer(self, frame, **kwargs):
+        self.kwargs_seen.append(dict(kwargs))
+        return super().infer(frame, **kwargs)
+
+
+def test_diagnose_path_uses_lower_conf_and_leaves_production_kwargs(tmp_path: Path, monkeypatch, capsys):
+    module = _load_validate_module()
+    image = tmp_path / "011.jpg"
+    _write_tiny_jpeg(image)
+    detections = {
+        "011.jpg": [
+            RawDetection(0, 0.91, 10, 20, 40, 80),
+            RawDetection(1, 0.45, 5, 5, 25, 22),
+        ]
+    }
+    onnx_detections = {
+        "011.jpg": [
+            RawDetection(0, 0.90, 10, 20, 40, 80),
+            RawDetection(1, 0.37, 5, 5, 25, 22),
+        ]
+    }
+    pytorch = _RecordingParityBackend(detections)
+    onnx = _RecordingParityBackend(onnx_detections)
+    original_load = module._load_bgr_image
+
+    def load_image(path: Path):
+        pytorch.current_name = path.name
+        onnx.current_name = path.name
+        return original_load(path)
+
+    monkeypatch.setattr(module, "_load_backends", lambda *_a, **_k: (pytorch, onnx))
+    monkeypatch.setattr(module, "_load_bgr_image", load_image)
+    code = module.main(["--diagnose", str(image), "--diagnostic-conf", "0.10"])
+    output = capsys.readouterr().out
+    assert code == 0
+    assert module._kwargs()["conf"] == pytest.approx(0.40)
+    assert any(item.get("conf") == 0.10 for item in pytorch.kwargs_seen)
+    assert any(item.get("conf") == 0.10 for item in onnx.kwargs_seen)
+    assert "DIAGNOSTIC ONLY" in output
+    assert "DIAGNOSIS=NEAR_THRESHOLD_DRIFT" in output
+    assert "overall production-gate status=PASS" not in output
+    assert "FAIL: real-image semantic parity mismatch" not in output
+
+
+def test_images_gate_still_fails_on_kept_count_mismatch(tmp_path: Path, monkeypatch, capsys):
+    module = _load_validate_module()
+    _write_tiny_jpeg(tmp_path / "011.jpg")
+    _write_tiny_jpeg(tmp_path / "shaker.jpg")
+    pytorch = _StubParityBackend(
+        {
+            "011.jpg": [
+                RawDetection(0, 0.91, 10, 20, 40, 80),
+                RawDetection(1, 0.45, 5, 5, 25, 22),
+            ],
+            "shaker.jpg": [RawDetection(1, 0.80, 5, 5, 15, 12)],
+        }
+    )
+    onnx = _StubParityBackend(
+        {
+            "011.jpg": [RawDetection(0, 0.91, 10, 20, 40, 80)],
+            "shaker.jpg": [RawDetection(1, 0.80, 5, 5, 15, 12)],
+        }
+    )
+    original_load = module._load_bgr_image
+
+    def load_image(path: Path):
+        pytorch.current_name = path.name
+        onnx.current_name = path.name
+        return original_load(path)
+
+    monkeypatch.setattr(module, "_load_backends", lambda *_a, **_k: (pytorch, onnx))
+    monkeypatch.setattr(module, "_load_bgr_image", load_image)
+    code = module.main(["--images", str(tmp_path)])
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "SEMANTIC_MISMATCH" in output
+    assert module._kwargs()["conf"] == pytest.approx(0.40)
+
+
+def test_validate_script_forwards_custom_onnx_path(tmp_path: Path, monkeypatch):
+    module = _load_validate_module()
+    _write_tiny_jpeg(tmp_path / "bottle.jpg")
+    _write_tiny_jpeg(tmp_path / "shaker.jpg")
+    detections = {
+        "bottle.jpg": [RawDetection(0, 0.91, 10, 20, 40, 80)],
+        "shaker.jpg": [RawDetection(1, 0.80, 5, 5, 15, 12)],
+    }
+    pytorch = _StubParityBackend(detections)
+    onnx = _StubParityBackend(detections)
+    seen: list[object] = []
+
+    def fake_load(onnx_path=None):
+        seen.append(onnx_path)
+        return pytorch, onnx
+
+    original_load = module._load_bgr_image
+
+    def load_image(path: Path):
+        pytorch.current_name = path.name
+        onnx.current_name = path.name
+        return original_load(path)
+
+    monkeypatch.setattr(module, "_load_backends", fake_load)
+    monkeypatch.setattr(module, "_load_bgr_image", load_image)
+    candidate = tmp_path / "best_480x640_candidate.onnx"
+    candidate.write_bytes(b"onnx")
+    code = module.main(["--images", str(tmp_path), "--onnx", str(candidate)])
+    assert code == 0
+    assert seen == [candidate]

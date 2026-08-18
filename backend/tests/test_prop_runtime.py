@@ -16,7 +16,9 @@ from vision.prop_inference import (
     PyTorchPropBackend,
     RawDetection,
     RuntimeSelection,
+    _postprocess_yolo_onnx,
     parse_onnx_class_names,
+    parse_onnx_static_input_hw,
     select_prop_runtime,
     split_raw_detections,
     yolo_runtime_info,
@@ -300,9 +302,17 @@ def test_yolo_runtime_info_reads_prop_and_dual_wrappers(tmp_path: Path):
 
 
 class _FakeOrtSession:
-    def __init__(self, output: np.ndarray | None = None):
+    def __init__(
+        self,
+        output: np.ndarray | None = None,
+        *,
+        shape: list[object] | None = None,
+        inputs: list[SimpleNamespace] | None = None,
+    ):
         self.run_calls = 0
         self.last_feed = None
+        self._shape = shape if shape is not None else [1, 3, 640, 640]
+        self._inputs = inputs
         self._output = (
             output
             if output is not None
@@ -310,7 +320,15 @@ class _FakeOrtSession:
         )
 
     def get_inputs(self):
-        return [SimpleNamespace(name="images", shape=[1, 3, 640, 640], type="tensor(float)")]
+        if self._inputs is not None:
+            return self._inputs
+        return [
+            SimpleNamespace(
+                name="images",
+                shape=self._shape,
+                type="tensor(float)",
+            )
+        ]
 
     def get_outputs(self):
         return [SimpleNamespace(name="output0")]
@@ -570,3 +588,147 @@ def test_onnx_backend_exposes_intra_op_threads(tmp_path: Path):
     detector.ensure_ready()
     assert detector.yolo_threads == 8
     assert yolo_runtime_threads(detector) == 8
+
+
+def test_parse_static_480x640_onnx_input_is_letterbox_target():
+    assert parse_onnx_static_input_hw([1, 3, 480, 640]) == (480, 640)
+
+
+def test_parse_static_640x640_onnx_input_remains_supported():
+    assert parse_onnx_static_input_hw([1, 3, 640, 640]) == (640, 640)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        None,
+        [],
+        [1, 3, 480],
+        [1, 3, 480, 640, 1],
+        [None, 3, 480, 640],
+        [1, None, 480, 640],
+        [1, 3, None, 640],
+        [1, 3, 480, None],
+        ["batch", 3, 480, 640],
+        [1, 3, "height", "width"],
+        [2, 3, 480, 640],
+        [1, 1, 480, 640],
+        [1, 3, 481, 640],
+        [1, 3, 0, 640],
+        [-1, 3, 480, 640],
+    ],
+)
+def test_parse_onnx_input_rejects_unsupported_or_ambiguous_shapes(shape):
+    with pytest.raises(ModelLoadError, match="ONNX"):
+        parse_onnx_static_input_hw(shape)
+
+
+def test_onnx_backend_letterbox_uses_model_480x640_not_yolo_imgsz(tmp_path: Path):
+    session = _FakeOrtSession(shape=[1, 3, 480, 640])
+    backend = OnnxPropBackend(
+        model_path=_onnx(tmp_path / "best.onnx"),
+        runtime_name="onnx_cpu",
+        providers=["CPUExecutionProvider"],
+        imgsz=640,
+        session_factory=lambda *_args: session,
+        session_options_factory=object,
+    )
+    backend.load()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    backend.infer(frame)
+    feed = session.last_feed["images"]
+    assert backend.input_height == 480
+    assert backend.input_width == 640
+    assert feed.shape == (1, 3, 480, 640)
+    assert feed.dtype == np.float32
+    assert feed.max() <= 1.0
+
+
+def test_onnx_backend_still_letterboxes_static_640x640(tmp_path: Path):
+    session = _FakeOrtSession(shape=[1, 3, 640, 640])
+    backend = OnnxPropBackend(
+        model_path=_onnx(tmp_path / "best.onnx"),
+        runtime_name="onnx_cpu",
+        providers=["CPUExecutionProvider"],
+        imgsz=480,
+        session_factory=lambda *_args: session,
+        session_options_factory=object,
+    )
+    backend.load()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    backend.infer(frame)
+    feed = session.last_feed["images"]
+    assert backend.input_height == 640
+    assert backend.input_width == 640
+    assert feed.shape == (1, 3, 640, 640)
+
+
+def test_onnx_backend_load_fails_on_dynamic_input_shape(tmp_path: Path):
+    backend = OnnxPropBackend(
+        model_path=_onnx(tmp_path / "best.onnx"),
+        runtime_name="onnx_cpu",
+        providers=["CPUExecutionProvider"],
+        session_factory=lambda *_args: _FakeOrtSession(shape=[None, 3, None, None]),
+        session_options_factory=object,
+    )
+    with pytest.raises(ModelLoadError, match="ONNX"):
+        backend.load()
+
+
+def test_onnx_backend_load_fails_when_input_shape_is_missing(tmp_path: Path):
+    backend = OnnxPropBackend(
+        model_path=_onnx(tmp_path / "best.onnx"),
+        runtime_name="onnx_cpu",
+        providers=["CPUExecutionProvider"],
+        session_factory=lambda *_args: _FakeOrtSession(inputs=[]),
+        session_options_factory=object,
+    )
+    with pytest.raises(ModelLoadError, match="ONNX"):
+        backend.load()
+
+
+def test_postprocess_scales_rectangular_letterbox_boxes_to_640x480_source():
+    prediction = np.zeros((1, 6, 1), dtype=np.float32)
+    prediction[0, 0, 0] = 320.0
+    prediction[0, 1, 0] = 240.0
+    prediction[0, 2, 0] = 200.0
+    prediction[0, 3, 0] = 160.0
+    prediction[0, 4, 0] = 0.10
+    prediction[0, 5, 0] = 0.92
+    detections = _postprocess_yolo_onnx(
+        prediction,
+        letterboxed_hw=(480, 640),
+        orig_shape=(480, 640, 3),
+        conf=0.40,
+        iou=0.45,
+        max_det=4,
+        num_classes=2,
+    )
+    assert len(detections) == 1
+    assert detections[0].class_id == 1
+    assert detections[0].confidence == pytest.approx(0.92, abs=1e-5)
+    assert detections[0].x1 == pytest.approx(220.0, abs=1.0)
+    assert detections[0].y1 == pytest.approx(160.0, abs=1.0)
+    assert detections[0].x2 == pytest.approx(420.0, abs=1.0)
+    assert detections[0].y2 == pytest.approx(320.0, abs=1.0)
+
+
+def test_pytorch_backend_still_passes_constructor_imgsz_unchanged(tmp_path: Path):
+    calls: list[dict] = []
+
+    class _FakeModel:
+        names = {0: "flair_bottle", 1: "shaker_bottle"}
+
+        def __call__(self, frame, **kwargs):
+            calls.append(kwargs)
+            return [SimpleNamespace(boxes=[])]
+
+    backend = PyTorchPropBackend(
+        model_path=_pt(tmp_path / "best.pt"),
+        model_loader=lambda _: _FakeModel(),
+        imgsz=640,
+    )
+    backend.load()
+    backend.infer(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert calls[0]["imgsz"] == 640
+    assert not hasattr(backend, "input_height")

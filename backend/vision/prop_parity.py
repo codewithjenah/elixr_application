@@ -19,6 +19,12 @@ STATUS_SEMANTIC_MISMATCH = "SEMANTIC_MISMATCH"
 STATUS_INSUFFICIENT_COVERAGE = "INSUFFICIENT_COVERAGE"
 COVERAGE_SUFFICIENT = "SUFFICIENT"
 COVERAGE_INSUFFICIENT = "INSUFFICIENT_COVERAGE"
+DIAGNOSIS_NEAR_THRESHOLD_DRIFT = "NEAR_THRESHOLD_DRIFT"
+DIAGNOSIS_TRUE_ONNX_MISS = "TRUE_ONNX_MISS"
+DIAGNOSIS_DIFFERENT_POSTPROCESS = "DIFFERENT_POSTPROCESS_RESULT"
+DIAGNOSIS_OTHER = "OTHER"
+PRODUCTION_KEEP = "PASS"
+PRODUCTION_DROP = "DROP"
 
 SemanticClass = Literal["bottle", "shaker"]
 _DEFAULT_NAMES = {0: "flair_bottle", 1: "shaker_bottle"}
@@ -50,6 +56,15 @@ class ParityReport:
     shaker_count_right: int = 0
     mean_confidence_delta: float = 0.0
     threshold_crossings: int = 0
+
+
+@dataclass(frozen=True)
+class ShakerParityDiagnosis:
+    label: str
+    detail: str
+    pytorch_shaker: RawDetection | None
+    onnx_shaker: RawDetection | None
+    shaker_iou: float | None
 
 
 @dataclass(frozen=True)
@@ -123,6 +138,65 @@ def threshold_for_class_id(
     if semantic_class_for(class_id, names) == "shaker":
         return shaker_conf
     return bottle_conf
+
+
+def production_keep_drop(
+    detection: RawDetection,
+    *,
+    names: object | None = None,
+    bottle_conf: float,
+    shaker_conf: float,
+) -> str:
+    threshold = threshold_for_class_id(
+        detection.class_id,
+        names=names,
+        bottle_conf=bottle_conf,
+        shaker_conf=shaker_conf,
+    )
+    if detection.confidence >= threshold:
+        return PRODUCTION_KEEP
+    return PRODUCTION_DROP
+
+
+def format_raw_detection_line(
+    runtime: str,
+    detection: RawDetection,
+    *,
+    names: object | None = None,
+) -> str:
+    semantic = semantic_class_for(detection.class_id, names)
+    return (
+        f"runtime={runtime} semantic={semantic} class_id={detection.class_id} "
+        f"confidence={detection.confidence:.4f} "
+        f"xyxy=({detection.x1:.1f}, {detection.y1:.1f}, {detection.x2:.1f}, {detection.y2:.1f})"
+    )
+
+
+def format_production_decision_line(
+    runtime: str,
+    detection: RawDetection,
+    *,
+    names: object | None = None,
+    bottle_conf: float,
+    shaker_conf: float,
+) -> str:
+    semantic = semantic_class_for(detection.class_id, names)
+    decision = production_keep_drop(
+        detection,
+        names=names,
+        bottle_conf=bottle_conf,
+        shaker_conf=shaker_conf,
+    )
+    threshold = threshold_for_class_id(
+        detection.class_id,
+        names=names,
+        bottle_conf=bottle_conf,
+        shaker_conf=shaker_conf,
+    )
+    return (
+        f"runtime={runtime} semantic={semantic} confidence={detection.confidence:.4f} "
+        f"threshold={threshold:.2f} production={decision}"
+    )
 
 
 def _detection_sort_key(
@@ -337,6 +411,168 @@ def compare_raw_detections(
         shaker_count_right=right_counts.get("shaker", 0),
         mean_confidence_delta=mean_conf,
         threshold_crossings=threshold_crossings,
+    )
+
+
+def _detections_of_semantic(
+    detections: Sequence[RawDetection],
+    names: object,
+    semantic: SemanticClass,
+) -> list[RawDetection]:
+    return [
+        item
+        for item in detections
+        if semantic_class_for(item.class_id, names) == semantic
+    ]
+
+
+def _highest_confidence(detections: Sequence[RawDetection]) -> RawDetection | None:
+    if not detections:
+        return None
+    return max(detections, key=lambda item: float(item.confidence))
+
+
+def _best_iou_candidate(
+    target: RawDetection,
+    candidates: Sequence[RawDetection],
+) -> tuple[RawDetection | None, float | None]:
+    if not candidates:
+        return None, None
+    best = max(candidates, key=lambda item: box_iou(target, item))
+    return best, box_iou(target, best)
+
+
+def classify_shaker_parity_diagnosis(
+    pytorch_detections: Sequence[RawDetection],
+    onnx_detections: Sequence[RawDetection],
+    *,
+    names: object | None = None,
+    bottle_conf: float = 0.40,
+    shaker_conf: float = 0.40,
+    match_iou_min: float = _MATCH_IOU_MIN,
+    onnx_without_nms: Sequence[RawDetection] | None = None,
+) -> ShakerParityDiagnosis:
+    """Classify an ONNX shaker miss using diagnostic-confidence detections.
+
+    ``pytorch_detections`` / ``onnx_detections`` are post-NMS boxes from a
+    lowered inference confidence. Production keep/drop still uses
+    ``bottle_conf`` / ``shaker_conf``. ``onnx_without_nms`` is the same ONNX
+    forward pass with overlap suppression disabled.
+    """
+    mapping = names if names is not None else _DEFAULT_NAMES
+    pt_shakers = _detections_of_semantic(pytorch_detections, mapping, "shaker")
+    onnx_shakers = _detections_of_semantic(onnx_detections, mapping, "shaker")
+    pt_pass = [item for item in pt_shakers if item.confidence >= shaker_conf]
+    pytorch_shaker = _highest_confidence(pt_pass) or _highest_confidence(pt_shakers)
+    if pytorch_shaker is None:
+        onnx_shaker = _highest_confidence(onnx_shakers)
+        return ShakerParityDiagnosis(
+            label=DIAGNOSIS_OTHER,
+            detail="PyTorch has no shaker candidate at diagnostic confidence",
+            pytorch_shaker=None,
+            onnx_shaker=onnx_shaker,
+            shaker_iou=None,
+        )
+
+    onnx_shaker, shaker_iou = _best_iou_candidate(pytorch_shaker, onnx_shakers)
+    if pytorch_shaker.confidence < shaker_conf:
+        return ShakerParityDiagnosis(
+            label=DIAGNOSIS_OTHER,
+            detail=(
+                f"PyTorch shaker confidence={pytorch_shaker.confidence:.4f} "
+                f"is also below production {shaker_conf:.2f}"
+            ),
+            pytorch_shaker=pytorch_shaker,
+            onnx_shaker=onnx_shaker,
+            shaker_iou=shaker_iou,
+        )
+
+    matched = (
+        onnx_shaker is not None
+        and shaker_iou is not None
+        and shaker_iou >= match_iou_min
+    )
+    if matched:
+        assert onnx_shaker is not None
+        assert shaker_iou is not None
+        if onnx_shaker.confidence < shaker_conf:
+            return ShakerParityDiagnosis(
+                label=DIAGNOSIS_NEAR_THRESHOLD_DRIFT,
+                detail=(
+                    f"PyTorch shaker confidence={pytorch_shaker.confidence:.4f} >= "
+                    f"{shaker_conf:.2f}; matched ONNX shaker "
+                    f"confidence={onnx_shaker.confidence:.4f} < {shaker_conf:.2f}; "
+                    f"iou={shaker_iou:.4f}"
+                ),
+                pytorch_shaker=pytorch_shaker,
+                onnx_shaker=onnx_shaker,
+                shaker_iou=shaker_iou,
+            )
+        return ShakerParityDiagnosis(
+            label=DIAGNOSIS_OTHER,
+            detail=(
+                f"Both runtimes keep a matched shaker at production "
+                f"{shaker_conf:.2f}: pytorch={pytorch_shaker.confidence:.4f} "
+                f"onnx={onnx_shaker.confidence:.4f} iou={shaker_iou:.4f}"
+            ),
+            pytorch_shaker=pytorch_shaker,
+            onnx_shaker=onnx_shaker,
+            shaker_iou=shaker_iou,
+        )
+
+    if onnx_without_nms is not None:
+        pre_shakers = _detections_of_semantic(onnx_without_nms, mapping, "shaker")
+        pre_match, pre_iou = _best_iou_candidate(pytorch_shaker, pre_shakers)
+        if (
+            pre_match is not None
+            and pre_iou is not None
+            and pre_iou >= match_iou_min
+        ):
+            return ShakerParityDiagnosis(
+                label=DIAGNOSIS_DIFFERENT_POSTPROCESS,
+                detail=(
+                    f"ONNX shaker exists without NMS "
+                    f"confidence={pre_match.confidence:.4f} iou={pre_iou:.4f} "
+                    f"but is absent after production NMS"
+                ),
+                pytorch_shaker=pytorch_shaker,
+                onnx_shaker=pre_match,
+                shaker_iou=pre_iou,
+            )
+
+    onnx_bottles = list(_detections_of_semantic(onnx_detections, mapping, "bottle"))
+    if onnx_without_nms is not None:
+        onnx_bottles.extend(
+            _detections_of_semantic(onnx_without_nms, mapping, "bottle")
+        )
+    bottle_match, bottle_iou = _best_iou_candidate(pytorch_shaker, onnx_bottles)
+    if (
+        bottle_match is not None
+        and bottle_iou is not None
+        and bottle_iou >= match_iou_min
+    ):
+        return ShakerParityDiagnosis(
+            label=DIAGNOSIS_OTHER,
+            detail=(
+                "ONNX classifies the PyTorch shaker box as bottle "
+                f"confidence={bottle_match.confidence:.4f} iou={bottle_iou:.4f}"
+            ),
+            pytorch_shaker=pytorch_shaker,
+            onnx_shaker=onnx_shaker,
+            shaker_iou=shaker_iou,
+        )
+
+    best_iou_text = "none" if shaker_iou is None else f"{shaker_iou:.4f}"
+    return ShakerParityDiagnosis(
+        label=DIAGNOSIS_TRUE_ONNX_MISS,
+        detail=(
+            f"PyTorch shaker confidence={pytorch_shaker.confidence:.4f} has no "
+            "reasonable ONNX shaker match even at diagnostic confidence "
+            f"(best_iou={best_iou_text})"
+        ),
+        pytorch_shaker=pytorch_shaker,
+        onnx_shaker=onnx_shaker,
+        shaker_iou=shaker_iou,
     )
 
 
