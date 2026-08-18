@@ -222,12 +222,17 @@ def test_analyze_tick_rejects_second_in_flight_call(monkeypatch):
     session.start()
     ok, error = session.activate()
     assert (ok, error) == (True, None)
-    assert session._ai_run_lock.acquire(blocking=False)
+    assert session._ai_tick_lock.acquire(blocking=False)
     try:
         with pytest.raises(RuntimeError, match="single in-flight"):
             session.analyze_tick()
     finally:
-        session._ai_run_lock.release()
+        session._ai_tick_lock.release()
+    assert session._ai_state_lock.acquire(blocking=False)
+    try:
+        assert session.analyze_tick() is None
+    finally:
+        session._ai_state_lock.release()
     session.close()
 
 

@@ -492,27 +492,33 @@ class VisionSession:
         self._overlay_lock = threading.Lock()
         self._overlay_snapshot: OverlaySnapshot | None = None
         self._preview_run_lock = threading.Lock()
-        self._ai_run_lock = threading.Lock()
+        # State lock serializes lifecycle mutation against AI analysis.
+        # Tick lock enforces at most one actual analyze_tick() execution.
+        # These must not be the same lock: lifecycle ownership is not a
+        # duplicate AI worker.
+        self._ai_state_lock = threading.Lock()
+        self._ai_tick_lock = threading.Lock()
         self._last_preview_sequence: int | None = None
         self._last_ai_sequence: int | None = None
         self._ai_camera_overwrites = 0
         self._ai_inflight_max = 0
         self._ai_inflight = 0
+        self._ai_lifecycle_skips = 0
 
-    def _acquire_ai_state(self, *, blocking: bool) -> None:
+    def _acquire_ai_state(self, *, blocking: bool) -> bool:
         """Exclusive access to AI/lifecycle mutation. Preview must not call this.
 
         Blocking waits are for lifecycle methods running off the asyncio loop.
-        The AI worker uses non-blocking acquire so a second tick cannot start.
+        The AI worker uses non-blocking acquire and treats failure as normal
+        contention: skip this newest-frame tick rather than crash.
         """
         if blocking:
-            self._ai_run_lock.acquire()
-            return
-        if not self._ai_run_lock.acquire(blocking=False):
-            raise RuntimeError("AI worker violated single in-flight")
+            self._ai_state_lock.acquire()
+            return True
+        return self._ai_state_lock.acquire(blocking=False)
 
     def _release_ai_state(self) -> None:
-        self._ai_run_lock.release()
+        self._ai_state_lock.release()
 
     def _normalize_detections(
         self,
@@ -970,25 +976,34 @@ class VisionSession:
 
     def analyze_tick(self) -> FeedbackMessage | None:
         """Run AI/evaluation for the newest unanalyzed camera frame."""
-        self._acquire_ai_state(blocking=False)
-        self._ai_inflight += 1
-        if self._ai_inflight > self._ai_inflight_max:
-            self._ai_inflight_max = self._ai_inflight
-        publish_at_start = latest_frame_publish_count()
+        if not self._ai_tick_lock.acquire(blocking=False):
+            raise RuntimeError("AI worker violated single in-flight")
         try:
-            if self._lifecycle == SESSION_PREPARED:
+            if not self._acquire_ai_state(blocking=False):
+                # Lifecycle mutation owns AI state. Skip this stale tick;
+                # the next loop iteration analyzes the newest frame.
+                self._ai_lifecycle_skips += 1
                 return None
-            if self._lifecycle == SESSION_READYING:
-                return self.process_readiness_frame(emit_preview_jpeg=False)
-            if self._lifecycle == SESSION_ACTIVE:
-                return self.process_frame(emit_preview_jpeg=False)
-            return None
+            self._ai_inflight += 1
+            if self._ai_inflight > self._ai_inflight_max:
+                self._ai_inflight_max = self._ai_inflight
+            publish_at_start = latest_frame_publish_count()
+            try:
+                if self._lifecycle == SESSION_PREPARED:
+                    return None
+                if self._lifecycle == SESSION_READYING:
+                    return self.process_readiness_frame(emit_preview_jpeg=False)
+                if self._lifecycle == SESSION_ACTIVE:
+                    return self.process_frame(emit_preview_jpeg=False)
+                return None
+            finally:
+                self._ai_inflight -= 1
+                self._ai_camera_overwrites += max(
+                    0, latest_frame_publish_count() - publish_at_start
+                )
+                self._release_ai_state()
         finally:
-            self._ai_inflight -= 1
-            self._ai_camera_overwrites += max(
-                0, latest_frame_publish_count() - publish_at_start
-            )
-            self._release_ai_state()
+            self._ai_tick_lock.release()
 
     def process_readiness_frame(
         self, *, emit_preview_jpeg: bool = True
@@ -1737,11 +1752,13 @@ async def _cv_session_loop(
         last_publish_count = latest_frame_publish_count()
         last_preview_replaced = 0
         last_ai_overwrites = 0
+        last_ai_lifecycle_skips = 0
 
         def emit_perf() -> None:
             nonlocal preview_count, ai_count, loop_ticks, loop_start
             nonlocal last_overwrite_count, last_publish_count
             nonlocal last_preview_replaced, last_ai_overwrites
+            nonlocal last_ai_lifecycle_skips
             elapsed = time.perf_counter() - loop_start
             preview_fps = interval_rate(preview_count, elapsed)
             ai_fps = interval_rate(ai_count, elapsed)
@@ -1762,6 +1779,17 @@ async def _cv_session_loop(
             last_publish_count = publish_now
             last_preview_replaced = mailbox.preview_replaced
             last_ai_overwrites = session._ai_camera_overwrites
+            skip_now = session._ai_lifecycle_skips
+            skip_delta = max(0, skip_now - last_ai_lifecycle_skips)
+            last_ai_lifecycle_skips = skip_now
+            if skip_delta:
+                logger.debug(
+                    "AI ticks skipped due to lifecycle contention: "
+                    "delta=%s total=%s session_id=%s",
+                    skip_delta,
+                    skip_now,
+                    session_id,
+                )
             capture_snapshot = snapshot_capture_producer_telemetry(reset=True)
             yolo_runtime, yolo_provider = yolo_runtime_info(session.prop_detector)
             logger.info(

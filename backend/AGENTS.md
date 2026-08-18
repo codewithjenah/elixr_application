@@ -38,11 +38,15 @@ Keep Flutter independent of these implementation details except for the document
 - Keep one controlled shared-camera owner and respect the existing lock/debounced release behavior.
 - Avoid unbounded task creation, queues, or frame accumulation. Prefer dropping/skipping work to increasing latency.
 - If changing target FPS or frame skipping, measure processing time and confirm teardown remains responsive.
-- `VisionSession.analyze_tick` and lifecycle mutations (`begin_readiness`,
-  `confirm_readiness`, `activate`, `close`) share one exclusive AI-state lock.
-  At most one AI inference is in flight. Lifecycle methods wait for that
-  inference; WebSocket handlers must run those waits with `asyncio.to_thread`
-  so preview can continue. Preview rendering must not take this lock.
+- `VisionSession` uses two AI locks. `_ai_state_lock` serializes detector,
+  readiness, scoring, and lifecycle mutation. `_ai_tick_lock` enforces at most
+  one actual `analyze_tick()` execution. If `analyze_tick` cannot obtain the
+  state lock because a lifecycle method owns it, it skips that newest-frame
+  tick and returns None; that is not a duplicate-AI error. A second concurrent
+  `analyze_tick` still raises `AI worker violated single in-flight`.
+  Lifecycle methods wait on the state lock for in-flight inference; WebSocket
+  handlers must run those waits with `asyncio.to_thread` so preview can
+  continue. Preview rendering must not take either AI lock.
 - Camera capture-producer contention metrics (read duration, publish interval,
   loop gap, blank/fail counts, backend, `CAP_PROP_FPS`) are aggregated per
   telemetry interval and must not be logged per frame.
