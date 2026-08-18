@@ -70,6 +70,28 @@ def test_reset_clears_interval_aggregates():
     assert timings.frame_age_avg_ms == 0.0
     assert timings.frame_age_max_ms == 0.0
     assert timings.over_budget_pct(budget_s=0.050) == 0.0
+    assert timings.percentile_ms("yolo", 95) == 0.0
+    assert timings.median_ms("yolo") == 0.0
+
+
+def test_stage_percentile_uses_recorded_samples_without_diluting_skips():
+    timings = PipelineTimings()
+    timings.add("yolo", 0.040)
+    timings.add("yolo", 0.050)
+    timings.add("yolo", 0.060)
+    timings.add("yolo", 0.200)
+    timings.add("processing_total", 0.080)
+    timings.add("processing_total", 0.012)
+    timings.add("hands", 0.020)
+    timings.add("hands", 0.030)
+    timings.add("hands", 0.100)
+
+    assert abs(timings.average_ms("yolo") - 87.5) < 0.01
+    assert timings.median_ms("yolo") == 55.0
+    assert timings.percentile_ms("yolo", 95) == 200.0
+    assert timings.percentile_ms("processing_total", 95) == 80.0
+    assert timings.percentile_ms("hands", 95) == 100.0
+    assert timings.percentile_ms("pose", 95) == 0.0
 
 
 def test_healthy_when_output_meets_target_even_if_ai_is_largest_slice():

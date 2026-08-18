@@ -9,6 +9,10 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from vision.hands_diagnostics import HandsCallStats
+from vision.hands_timestamp import (
+    HandsTimestampClock,
+    default_timestamp_clock,
+)
 from vision.grip_geometry import (
     BARTENDER_CONTACT_BOTTOM_FRACTION,
     bartender_contact_zone,
@@ -142,19 +146,25 @@ class HandsDetector:
         max_num_hands: int = 2,
         rotated_fallback: bool = False,
         bartender_roi_fallback: bool = False,
+        timestamp_clock: Optional[HandsTimestampClock] = None,
     ):
         self._model_path = ensure_hand_model()
         self._max_num_hands = max_num_hands
         self._rotated_fallback = rotated_fallback
         self._bartender_roi_fallback = bartender_roi_fallback
+        # None keeps production VIDEO timestamps at previous + 33 ms.
+        self.timestamp_clock = default_timestamp_clock(timestamp_clock)
+        self.timestamp_clock.reset()
         self._landmarker = self._create_landmarker(
             vision.RunningMode.VIDEO
         )
         self._fallback_landmarker: Optional[
             vision.HandLandmarker
         ] = None
-        # Fake VIDEO clock. Not capture time. See vision.hands_timestamp.
-        self._timestamp_ms = 0
+        self._timestamp_ms = int(
+            getattr(self.timestamp_clock, "last_timestamp_ms", 0) or 0
+        )
+        self._pending_captured_at: Optional[float] = None
         self._hands_stats = HandsCallStats()
 
     @property
@@ -229,7 +239,9 @@ class HandsDetector:
         self,
         frame: np.ndarray,
     ) -> Optional[HandsResult]:
-        self._timestamp_ms += 33
+        self._timestamp_ms = self.timestamp_clock.next_ms(
+            self._pending_captured_at
+        )
         result = self._landmarker.detect_for_video(
             self._to_mp_image(frame),
             self._timestamp_ms,
@@ -304,24 +316,37 @@ class HandsDetector:
         self,
         frame: np.ndarray,
         bottle: Optional[BottleDetection] = None,
+        *,
+        captured_at_monotonic: Optional[float] = None,
     ) -> Optional[HandsResult]:
         stats = self.stats
         stats.detect_calls += 1
         fallback_used = False
+        self._pending_captured_at = captured_at_monotonic
 
         t0 = time.perf_counter()
         hands = self._detect_primary(frame)
         stats.record_primary(time.perf_counter() - t0)
+        stats.record_primary_outcome(
+            hands is not None and bool(hands.hands)
+        )
 
+        rotated_recovered = False
         if hands is None and self._rotated_fallback:
             t0 = time.perf_counter()
             hands = self._detect_rotated(frame)
             stats.record_rotated(time.perf_counter() - t0)
             fallback_used = True
+            rotated_recovered = hands is not None and bool(hands.hands)
+            stats.record_rotated_outcome(rotated_recovered)
 
         if not self._bartender_roi_fallback or bottle is None:
             if fallback_used:
                 stats.mark_fallback_activated()
+                stats.record_fallback_frame(
+                    attempted=True,
+                    recovered=rotated_recovered,
+                )
             return hands
 
         frame_height, frame_width = frame.shape[:2]
@@ -333,6 +358,10 @@ class HandsDetector:
         ):
             if fallback_used:
                 stats.mark_fallback_activated()
+                stats.record_fallback_frame(
+                    attempted=True,
+                    recovered=rotated_recovered,
+                )
             return hands
 
         t0 = time.perf_counter()
@@ -342,14 +371,31 @@ class HandsDetector:
             ran_image=False,
         )
         fallback_used = True
-        stats.mark_fallback_activated()
-        return _merge_hands(
+        merged = _merge_hands(
             hands,
             recovered,
             max_num_hands=self._max_num_hands,
         )
+        bartender_recovered = _has_bartender_candidate(
+            merged,
+            bottle,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        stats.record_bartender_outcome(bartender_recovered)
+        stats.mark_fallback_activated()
+        stats.record_fallback_frame(
+            attempted=True,
+            recovered=rotated_recovered or bartender_recovered,
+        )
+        return merged
 
     def close(self) -> None:
         self._landmarker.close()
         if self._fallback_landmarker is not None:
             self._fallback_landmarker.close()
+        self.timestamp_clock.reset()
+        self._timestamp_ms = int(
+            getattr(self.timestamp_clock, "last_timestamp_ms", 0) or 0
+        )
+        self._pending_captured_at = None

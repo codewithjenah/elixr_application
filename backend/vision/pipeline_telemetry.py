@@ -6,6 +6,8 @@ import threading
 from dataclasses import dataclass
 from typing import Mapping
 
+from vision.hands_diagnostics import percentile_ms, timing_stats
+
 PIPELINE_STAGE_ORDER = (
     "camera",
     "yolo",
@@ -226,6 +228,7 @@ class PipelineTimings:
         self._counts: dict[str, int] = {name: 0 for name in PIPELINE_STAGE_ORDER}
         self._maxs: dict[str, float] = {name: 0.0 for name in PIPELINE_STAGE_ORDER}
         self._end_to_end_samples: list[float] = []
+        self._samples: dict[str, list[float]] = {name: [] for name in PIPELINE_STAGE_ORDER}
         self._frame_age_sum = 0.0
         self._frame_age_count = 0
         self._frame_age_max = 0.0
@@ -236,10 +239,12 @@ class PipelineTimings:
                 self._sums[stage] = 0.0
                 self._counts[stage] = 0
                 self._maxs[stage] = 0.0
+                self._samples[stage] = []
             self._sums[stage] += seconds
             self._counts[stage] += 1
             if seconds > self._maxs[stage]:
                 self._maxs[stage] = seconds
+            self._samples[stage].append(seconds)
             if stage == "end_to_end":
                 self._end_to_end_samples.append(seconds)
 
@@ -256,6 +261,7 @@ class PipelineTimings:
                 self._sums[name] = 0.0
                 self._counts[name] = 0
                 self._maxs[name] = 0.0
+                self._samples[name] = []
             self._end_to_end_samples.clear()
             self._frame_age_sum = 0.0
             self._frame_age_count = 0
@@ -279,6 +285,18 @@ class PipelineTimings:
     def max_ms(self, stage: str) -> float:
         with self._lock:
             return self._maxs.get(stage, 0.0) * 1000.0
+
+    def samples(self, stage: str) -> list[float]:
+        with self._lock:
+            return list(self._samples.get(stage, []))
+
+    def percentile_ms(self, stage: str, pct: float) -> float:
+        with self._lock:
+            return percentile_ms(self._samples.get(stage, []), pct)
+
+    def median_ms(self, stage: str) -> float:
+        with self._lock:
+            return float(timing_stats(self._samples.get(stage, []))["median_ms"])
 
     @property
     def frame_age_avg_ms(self) -> float:

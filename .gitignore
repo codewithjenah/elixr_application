@@ -50,6 +50,10 @@ backend/.venv/
 backend/parity_frames/
 **/prop_parity_frames/
 backend/hands_bench_frames/
+backend/hands_timestamp_frames/
+backend/hands_bartender_frames/
+backend/hands_bartender_crop_debug/
+backend/hands_double_hand_frames/
 
 # Symbolication related
 app.*.symbols
