@@ -164,6 +164,7 @@ class CombinedPropDetector:
         self._injected_backend = inference_backend is not None
         self._load_failed = False
         self._runtime_logged = False
+        self._runtime_selection: RuntimeSelection | None = None
         self._enabled = enabled
         self._bottle_class_id: int | None = None
         self._shaker_class_id: int | None = None
@@ -299,12 +300,25 @@ class CombinedPropDetector:
         self._shaker_class_id = shaker_id
         self._class_names = class_names
         if not self._runtime_logged:
+            selection = self._runtime_selection
+            reason = "" if selection is None else selection.reason
+            fallback_from = (
+                ""
+                if selection is None or selection.fallback_from is None
+                else selection.fallback_from
+            )
+            fallback_field = (
+                f" fallback_from={fallback_from}" if fallback_from else ""
+            )
             logger.info(
-                "YOLO runtime selected: runtime=%s provider=%s threads=%s "
-                "model=%s imgsz=%s",
+                "YOLO runtime selected: requested=%s runtime=%s provider=%s "
+                "threads=%s reason=%s%s model=%s imgsz=%s",
+                self._requested_runtime,
                 backend.runtime_name,
                 backend.provider,
                 int(getattr(backend, "intra_op_threads", 0) or 0),
+                reason,
+                fallback_field,
                 Path(backend.model_path).name,
                 YOLO_IMGSZ,
             )
@@ -329,23 +343,33 @@ class CombinedPropDetector:
         if self._injected_backend or self._model_loader is not None:
             return None
         failed_runtime = (
-            getattr(failed, "runtime_name", "") or self._requested_runtime
+            getattr(failed, "runtime_name", "")
+            or (
+                self._runtime_selection.runtime
+                if self._runtime_selection is not None
+                else ""
+            )
+            or self._requested_runtime
         )
         if failed_runtime not in {"onnx_cpu", "onnx_dml"}:
             return None
         if not self._model_path.is_file():
             return None
+        fallback_selection = RuntimeSelection(
+            runtime="pytorch",
+            provider="cpu",
+            reason="fallback_onnx_init_failed",
+            fallback_from=failed_runtime,
+        )
+        self._runtime_selection = fallback_selection
         logger.warning(
-            "YOLO ONNX initialization failed; falling back to PyTorch reason=%s",
+            "YOLO ONNX initialization failed; falling back to PyTorch "
+            "fallback_from=%s reason=%s",
+            failed_runtime,
             error,
         )
         return create_prop_backend(
-            RuntimeSelection(
-                runtime="pytorch",
-                provider="cpu",
-                reason="fallback_onnx_init_failed",
-                fallback_from=failed_runtime,
-            ),
+            fallback_selection,
             pytorch_path=self._model_path,
             onnx_path=self._onnx_model_path,
             inference_conf=min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE),
@@ -378,11 +402,14 @@ class CombinedPropDetector:
             onnxruntime_available=onnxruntime_is_available(),
             dml_available=dml_is_available(),
         )
+        self._runtime_selection = selection
         if selection.fallback_from:
             logger.warning(
-                "YOLO runtime fallback: requested=%s selected=%s reason=%s",
-                selection.fallback_from,
+                "YOLO runtime fallback: requested=%s selected=%s "
+                "fallback_from=%s reason=%s",
+                self._requested_runtime,
                 selection.runtime,
+                selection.fallback_from,
                 selection.reason,
             )
         return create_prop_backend(

@@ -37,7 +37,7 @@ def _onnx(path: Path) -> Path:
     return path
 
 
-def test_auto_prefers_pytorch_even_when_onnx_is_available(tmp_path: Path):
+def test_auto_prefers_onnx_cpu_when_artifact_and_ort_are_available(tmp_path: Path):
     choice = select_prop_runtime(
         "auto",
         pytorch_path=_pt(tmp_path / "best.pt"),
@@ -46,9 +46,9 @@ def test_auto_prefers_pytorch_even_when_onnx_is_available(tmp_path: Path):
         dml_available=True,
     )
     assert choice == RuntimeSelection(
-        runtime="pytorch",
-        provider="cpu",
-        reason="auto_pytorch",
+        runtime="onnx_cpu",
+        provider="CPUExecutionProvider",
+        reason="auto_onnx_cpu",
         fallback_from=None,
     )
 
@@ -62,7 +62,8 @@ def test_auto_uses_onnx_cpu_when_pytorch_weights_are_missing(tmp_path: Path):
         dml_available=False,
     )
     assert choice.runtime == "onnx_cpu"
-    assert choice.reason == "auto_onnx_cpu_pytorch_missing"
+    assert choice.reason == "auto_onnx_cpu"
+    assert choice.fallback_from is None
 
 
 def test_auto_does_not_select_directml_even_when_available(tmp_path: Path):
@@ -73,8 +74,64 @@ def test_auto_does_not_select_directml_even_when_available(tmp_path: Path):
         onnxruntime_available=True,
         dml_available=True,
     )
+    assert choice.runtime == "onnx_cpu"
+    assert choice.provider == "CPUExecutionProvider"
+    assert choice.runtime != "onnx_dml"
+
+
+def test_auto_missing_onnx_falls_back_to_pytorch(tmp_path: Path):
+    choice = select_prop_runtime(
+        "auto",
+        pytorch_path=_pt(tmp_path / "best.pt"),
+        onnx_path=tmp_path / "missing.onnx",
+        onnxruntime_available=True,
+        dml_available=False,
+    )
     assert choice.runtime == "pytorch"
     assert choice.provider == "cpu"
+    assert choice.reason == "fallback_missing_onnx"
+    assert choice.fallback_from is None
+
+
+def test_auto_ort_unavailable_falls_back_to_pytorch(tmp_path: Path):
+    choice = select_prop_runtime(
+        "auto",
+        pytorch_path=_pt(tmp_path / "best.pt"),
+        onnx_path=_onnx(tmp_path / "best.onnx"),
+        onnxruntime_available=False,
+        dml_available=True,
+    )
+    assert choice.runtime == "pytorch"
+    assert choice.provider == "cpu"
+    assert choice.reason == "fallback_onnxruntime_unavailable"
+    assert choice.runtime != "onnx_dml"
+
+
+def test_auto_neither_usable_model_raises(tmp_path: Path):
+    with pytest.raises(ModelLoadError, match="missing"):
+        select_prop_runtime(
+            "auto",
+            pytorch_path=tmp_path / "missing.pt",
+            onnx_path=tmp_path / "missing.onnx",
+            onnxruntime_available=True,
+            dml_available=False,
+        )
+
+
+def test_explicit_pytorch_selects_pytorch_even_when_onnx_available(tmp_path: Path):
+    choice = select_prop_runtime(
+        "pytorch",
+        pytorch_path=_pt(tmp_path / "best.pt"),
+        onnx_path=_onnx(tmp_path / "best.onnx"),
+        onnxruntime_available=True,
+        dml_available=True,
+    )
+    assert choice == RuntimeSelection(
+        runtime="pytorch",
+        provider="cpu",
+        reason="explicit_pytorch",
+        fallback_from=None,
+    )
 
 
 def test_missing_onnx_falls_back_to_pytorch(tmp_path: Path):
@@ -530,6 +587,146 @@ def test_onnx_init_failure_falls_back_to_pytorch_once(tmp_path: Path, monkeypatc
     assert detector.load_failed is False
     assert len(first.bottles) == 1
     assert len(second.bottles) == 1
+
+
+def test_auto_onnx_init_failure_falls_back_to_pytorch_once(
+    tmp_path: Path, monkeypatch, caplog
+):
+    pytorch_path = _pt(tmp_path / "best.pt")
+    onnx_path = _onnx(tmp_path / "best.onnx")
+    pytorch_backend = _StubBackend(
+        [RawDetection(0, 0.95, 1, 1, 10, 10)],
+        names={0: "flair_bottle", 1: "shaker_bottle"},
+    )
+    pytorch_backend.runtime_name = "pytorch"
+    pytorch_backend.provider = "cpu"
+    failing = _FailingOnnxBackend()
+    created: list[str] = []
+
+    def fake_select(*_args, **_kwargs):
+        return RuntimeSelection(
+            runtime="onnx_cpu",
+            provider="CPUExecutionProvider",
+            reason="auto_onnx_cpu",
+            fallback_from=None,
+        )
+
+    def fake_create(selection, **_kwargs):
+        created.append(selection.runtime)
+        if selection.runtime == "onnx_cpu":
+            return failing
+        return pytorch_backend
+
+    monkeypatch.setattr(prop_detector_mod, "select_prop_runtime", fake_select)
+    monkeypatch.setattr(prop_detector_mod, "create_prop_backend", fake_create)
+
+    detector = CombinedPropDetector(
+        model_path=pytorch_path,
+        onnx_model_path=onnx_path,
+        runtime="auto",
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    with caplog.at_level("INFO"):
+        first = detector.detect_all(frame)
+        second = detector.detect_all(frame)
+
+    assert created == ["onnx_cpu", "pytorch"]
+    assert failing.load_calls == 1
+    assert pytorch_backend.load_calls == 1
+    assert pytorch_backend.infer_calls == 2
+    assert detector.yolo_runtime == "pytorch"
+    assert detector.yolo_provider == "cpu"
+    assert detector.load_failed is False
+    assert len(first.bottles) == 1
+    assert len(second.bottles) == 1
+    joined = "\n".join(record.getMessage() for record in caplog.records)
+    assert "fallback_from=onnx_cpu" in joined
+    assert "runtime=pytorch" in joined
+
+
+def test_auto_onnx_backend_construction_failure_falls_back_to_pytorch(
+    tmp_path: Path, monkeypatch
+):
+    pytorch_path = _pt(tmp_path / "best.pt")
+    onnx_path = _onnx(tmp_path / "best.onnx")
+    pytorch_backend = _StubBackend([])
+    pytorch_backend.runtime_name = "pytorch"
+    pytorch_backend.provider = "cpu"
+    created: list[str] = []
+
+    def fake_select(*_args, **_kwargs):
+        return RuntimeSelection(
+            runtime="onnx_cpu",
+            provider="CPUExecutionProvider",
+            reason="auto_onnx_cpu",
+        )
+
+    def fake_create(selection, **_kwargs):
+        created.append(selection.runtime)
+        if selection.runtime == "onnx_cpu":
+            raise ModelLoadError("session factory exploded")
+        return pytorch_backend
+
+    monkeypatch.setattr(prop_detector_mod, "select_prop_runtime", fake_select)
+    monkeypatch.setattr(prop_detector_mod, "create_prop_backend", fake_create)
+
+    detector = CombinedPropDetector(
+        model_path=pytorch_path,
+        onnx_model_path=onnx_path,
+        runtime="auto",
+    )
+    detector.ensure_ready()
+
+    assert created == ["onnx_cpu", "pytorch"]
+    assert detector.yolo_runtime == "pytorch"
+    assert pytorch_backend.load_calls == 1
+    assert detector.load_failed is False
+
+
+def test_auto_startup_log_exposes_requested_runtime_and_reason(
+    tmp_path: Path, monkeypatch, caplog
+):
+    pytorch_path = _pt(tmp_path / "best.pt")
+    onnx_path = _onnx(tmp_path / "best.onnx")
+    backend = _StubBackend([])
+    backend.runtime_name = "onnx_cpu"
+    backend.provider = "CPUExecutionProvider"
+    backend.intra_op_threads = 4
+
+    def fake_select(*_args, **_kwargs):
+        return RuntimeSelection(
+            runtime="onnx_cpu",
+            provider="CPUExecutionProvider",
+            reason="auto_onnx_cpu",
+            fallback_from=None,
+        )
+
+    def fake_create(selection, **_kwargs):
+        assert selection.runtime == "onnx_cpu"
+        assert selection.reason == "auto_onnx_cpu"
+        return backend
+
+    monkeypatch.setattr(prop_detector_mod, "select_prop_runtime", fake_select)
+    monkeypatch.setattr(prop_detector_mod, "create_prop_backend", fake_create)
+
+    detector = CombinedPropDetector(
+        model_path=pytorch_path,
+        onnx_model_path=onnx_path,
+        runtime="auto",
+    )
+    with caplog.at_level("INFO"):
+        detector.ensure_ready()
+
+    assert detector.yolo_runtime == "onnx_cpu"
+    assert detector.yolo_provider == "CPUExecutionProvider"
+    assert detector.yolo_threads == 4
+    assert yolo_runtime_info(detector) == ("onnx_cpu", "CPUExecutionProvider")
+    assert yolo_runtime_threads(detector) == 4
+    joined = "\n".join(record.getMessage() for record in caplog.records)
+    assert "requested=auto" in joined
+    assert "runtime=onnx_cpu" in joined
+    assert "provider=CPUExecutionProvider" in joined
+    assert "reason=auto_onnx_cpu" in joined
 
 
 def test_invalid_onnx_class_metadata_falls_back_to_pytorch(tmp_path: Path, monkeypatch):

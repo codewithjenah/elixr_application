@@ -180,11 +180,9 @@ def select_prop_runtime(
             )
         return require_onnx_cpu("fallback_dml_unavailable", "onnx_dml")
 
-    # auto keeps PyTorch: isolated CPU inference at the conservative intra-op
-    # cap was not a meaningful win over Ultralytics. ONNX remains opt-in.
-    if pytorch_ok:
-        return require_pytorch("auto_pytorch")
-    return require_onnx_cpu("auto_onnx_cpu_pytorch_missing")
+    # auto prefers validated ONNX CPU when the artifact and ORT exist.
+    # DirectML is never selected by auto. PyTorch remains the fallback.
+    return require_onnx_cpu("auto_onnx_cpu")
 
 
 def _static_positive_int(value: Any) -> int | None:
