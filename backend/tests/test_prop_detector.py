@@ -69,6 +69,17 @@ def test_resolves_actual_normalized_model_labels():
     assert shaker_id == 1
 
 
+def test_resolves_reversed_numeric_class_ids():
+    bottle_id, shaker_id, names = resolve_bottle_and_shaker_class_ids(
+        {0: "shaker_bottle", 1: "flair_bottle"}
+    )
+
+    assert bottle_id == 1
+    assert shaker_id == 0
+    assert names[1] == "flair_bottle"
+    assert names[0] == "shaker_bottle"
+
+
 def test_rejects_model_missing_bottle_class():
     with pytest.raises(ModelLoadError, match="Could not resolve the bottle class"):
         resolve_bottle_and_shaker_class_ids({0: "shaker_bottle"})
@@ -210,6 +221,31 @@ def test_gap_confidence_keeps_shaker_and_drops_bottle(tmp_path: Path, monkeypatc
     assert result.bottles == []
     assert len(result.shakers) == 1
     assert result.shakers[0].confidence == pytest.approx(gap_confidence)
+    assert result.shakers[0].x1 == 2
+
+
+def test_reversed_class_ids_still_split_bottle_and_shaker(tmp_path: Path):
+    model_path = tmp_path / "best.pt"
+    model_path.write_bytes(b"weights")
+    model = _FakeModel(
+        {0: "shaker_bottle", 1: "flair_bottle"},
+        [
+            _FakeBox(1, 0.99, [1, 1, 10, 10]),
+            _FakeBox(0, 0.91, [2, 3, 12, 20]),
+        ],
+    )
+    detector = CombinedPropDetector(
+        model_path=model_path,
+        model_loader=lambda _: model,
+    )
+
+    result = detector.detect_all(np.zeros((32, 32, 3), dtype=np.uint8))
+
+    assert detector.bottle_class_id == 1
+    assert detector.shaker_class_id == 0
+    assert len(result.bottles) == 1
+    assert len(result.shakers) == 1
+    assert result.bottles[0].x1 == 1
     assert result.shakers[0].x1 == 2
 
 

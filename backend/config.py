@@ -84,7 +84,13 @@ def _load_yolo_onnx_intra_op_threads(cpu_count: int | None = None) -> int:
     """ONNX Runtime intra-op threads. 0 leaves the runtime default.
 
     The implicit default is min(4, CPU count) so a live session does not
-    consume every logical core on a Windows desktop.
+    consume every logical core on a Windows desktop. The Ryzen 5 6600H
+    development machine was validated at 8 threads via:
+
+        YOLO_ONNX_INTRA_OP_THREADS=8
+
+    Do not assume every PC should use 8; keep the conservative default and
+    override per machine after measuring.
     """
     detected = cpu_count if cpu_count is not None else (os.cpu_count() or 1)
     bounded_default = max(1, min(4, int(detected)))
@@ -118,7 +124,8 @@ def _load_yolo_dml_device_id() -> int:
 
 
 # pytorch | onnx_cpu | onnx_dml | auto.
-# auto keeps PyTorch when best.pt exists; ONNX is opt-in after CPU benchmarks.
+# auto keeps PyTorch when best.pt exists; ONNX remains opt-in until real-image
+# semantic parity passes. Set YOLO_RUNTIME=onnx_cpu after that gate.
 YOLO_RUNTIME = _load_yolo_runtime()
 YOLO_ONNX_INTRA_OP_THREADS = _load_yolo_onnx_intra_op_threads()
 YOLO_DML_DEVICE_ID = _load_yolo_dml_device_id()

@@ -46,6 +46,10 @@ baseline_flutter_test.txt
 **/.venv/
 backend/.venv/
 
+# Local real-image YOLO parity captures (may contain private webcam frames)
+backend/parity_frames/
+**/prop_parity_frames/
+
 # Symbolication related
 app.*.symbols
 

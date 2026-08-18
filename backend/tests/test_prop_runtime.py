@@ -20,6 +20,7 @@ from vision.prop_inference import (
     select_prop_runtime,
     split_raw_detections,
     yolo_runtime_info,
+    yolo_runtime_threads,
 )
 from vision.types import PropDetection
 
@@ -202,6 +203,7 @@ class _StubBackend(PropInferenceBackend):
         self.runtime_name = "stub"
         self.provider = "stub_provider"
         self.model_path = Path("stub")
+        self.intra_op_threads = 0
 
     @property
     def names(self):
@@ -293,6 +295,8 @@ def test_yolo_runtime_info_reads_prop_and_dual_wrappers(tmp_path: Path):
     assert yolo_runtime_info(prop) == ("stub", "stub_provider")
     assert yolo_runtime_info(combined) == ("stub", "stub_provider")
     assert yolo_runtime_info(object()) == ("", "")
+    assert yolo_runtime_threads(prop) == 0
+    assert yolo_runtime_threads(combined) == 0
 
 
 class _FakeOrtSession:
@@ -448,3 +452,121 @@ def test_gap_confidence_still_applies_after_backend_split(tmp_path: Path, monkey
     assert result.bottles == []
     assert len(result.shakers) == 1
     assert result.shakers[0].x1 == 2
+
+
+class _FailingOnnxBackend(_StubBackend):
+    def __init__(self):
+        super().__init__([])
+        self.runtime_name = "onnx_cpu"
+        self.provider = "CPUExecutionProvider"
+        self.intra_op_threads = 8
+
+    def load(self) -> None:
+        self.load_calls += 1
+        raise ModelLoadError("provider creation failed")
+
+
+def test_onnx_init_failure_falls_back_to_pytorch_once(tmp_path: Path, monkeypatch):
+    pytorch_path = _pt(tmp_path / "best.pt")
+    onnx_path = _onnx(tmp_path / "best.onnx")
+    pytorch_backend = _StubBackend(
+        [RawDetection(0, 0.95, 1, 1, 10, 10)],
+        names={0: "flair_bottle", 1: "shaker_bottle"},
+    )
+    pytorch_backend.runtime_name = "pytorch"
+    pytorch_backend.provider = "cpu"
+    failing = _FailingOnnxBackend()
+    created: list[str] = []
+
+    def fake_select(*_args, **_kwargs):
+        return RuntimeSelection(
+            runtime="onnx_cpu",
+            provider="CPUExecutionProvider",
+            reason="explicit_onnx_cpu",
+            fallback_from=None,
+        )
+
+    def fake_create(selection, **_kwargs):
+        created.append(selection.runtime)
+        if selection.runtime == "onnx_cpu":
+            return failing
+        return pytorch_backend
+
+    monkeypatch.setattr(prop_detector_mod, "select_prop_runtime", fake_select)
+    monkeypatch.setattr(prop_detector_mod, "create_prop_backend", fake_create)
+
+    detector = CombinedPropDetector(
+        model_path=pytorch_path,
+        onnx_model_path=onnx_path,
+        runtime="onnx_cpu",
+    )
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    first = detector.detect_all(frame)
+    second = detector.detect_all(frame)
+
+    assert created == ["onnx_cpu", "pytorch"]
+    assert failing.load_calls == 1
+    assert pytorch_backend.load_calls == 1
+    assert pytorch_backend.infer_calls == 2
+    assert detector.yolo_runtime == "pytorch"
+    assert detector.load_failed is False
+    assert len(first.bottles) == 1
+    assert len(second.bottles) == 1
+
+
+def test_invalid_onnx_class_metadata_falls_back_to_pytorch(tmp_path: Path, monkeypatch):
+    pytorch_path = _pt(tmp_path / "best.pt")
+    onnx_path = _onnx(tmp_path / "best.onnx")
+
+    class _InvalidNamesBackend(_StubBackend):
+        def __init__(self):
+            super().__init__([])
+            self._names = {0: "not_a_prop"}
+            self.runtime_name = "onnx_cpu"
+
+    pytorch_backend = _StubBackend([])
+    pytorch_backend.runtime_name = "pytorch"
+
+    def fake_select(*_args, **_kwargs):
+        return RuntimeSelection(
+            runtime="onnx_cpu",
+            provider="CPUExecutionProvider",
+            reason="explicit_onnx_cpu",
+        )
+
+    def fake_create(selection, **_kwargs):
+        if selection.runtime == "onnx_cpu":
+            return _InvalidNamesBackend()
+        return pytorch_backend
+
+    monkeypatch.setattr(prop_detector_mod, "select_prop_runtime", fake_select)
+    monkeypatch.setattr(prop_detector_mod, "create_prop_backend", fake_create)
+
+    detector = CombinedPropDetector(
+        model_path=pytorch_path,
+        onnx_model_path=onnx_path,
+        runtime="onnx_cpu",
+    )
+    detector.ensure_ready()
+    assert detector.yolo_runtime == "pytorch"
+    assert pytorch_backend.load_calls == 1
+
+
+def test_onnx_backend_exposes_intra_op_threads(tmp_path: Path):
+    backend = OnnxPropBackend(
+        model_path=_onnx(tmp_path / "best.onnx"),
+        runtime_name="onnx_cpu",
+        providers=["CPUExecutionProvider"],
+        intra_op_threads=8,
+        session_factory=lambda *_args: _FakeOrtSession(),
+        session_options_factory=object,
+    )
+    backend.load()
+    assert backend.intra_op_threads == 8
+    detector = CombinedPropDetector(
+        model_path=tmp_path / "best.pt",
+        inference_backend=backend,
+    )
+    detector.ensure_ready()
+    assert detector.yolo_threads == 8
+    assert yolo_runtime_threads(detector) == 8

@@ -311,9 +311,11 @@ def test_format_perf_line_includes_yolo_runtime_metadata():
         ticks=60,
         yolo_runtime="onnx_cpu",
         yolo_provider="CPUExecutionProvider",
+        yolo_threads=8,
     )
     assert "yolo=50.0ms" in line
     assert "yolo=" in line and "fps" in line
     assert "yolo_runtime=onnx_cpu" in line
     assert "yolo_provider=CPUExecutionProvider" in line
+    assert "yolo_threads=8" in line
     assert "\n" not in line

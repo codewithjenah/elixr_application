@@ -63,6 +63,7 @@ class PropInferenceBackend(ABC):
     runtime_name: str = ""
     provider: str = ""
     model_path: Path = Path()
+    intra_op_threads: int = 0
 
     @property
     @abstractmethod
@@ -255,6 +256,20 @@ def yolo_runtime_info(detector: object) -> tuple[str, str]:
     return "", ""
 
 
+def yolo_runtime_threads(detector: object) -> int:
+    """Read ONNX intra-op threads from a detector or its combined wrapper."""
+    threads = getattr(detector, "yolo_threads", None)
+    if isinstance(threads, int):
+        return threads
+    combined = getattr(detector, "combined_detector", None)
+    if combined is not None and combined is not detector:
+        return yolo_runtime_threads(combined)
+    inner = getattr(detector, "_combined", None)
+    if inner is not None and inner is not detector:
+        return yolo_runtime_threads(inner)
+    return int(getattr(detector, "intra_op_threads", 0) or 0)
+
+
 def default_onnx_session_options(intra_op_threads: int):
     import onnxruntime as ort
 
@@ -314,6 +329,7 @@ class PyTorchPropBackend(PropInferenceBackend):
         self.runtime_name = "pytorch"
         self.provider = "cpu"
         self._model_loader = model_loader or YOLO
+        self.intra_op_threads = 0
         self._inference_conf = inference_conf
         self._iou = iou
         self._max_det = max_det
@@ -405,6 +421,7 @@ class OnnxPropBackend(PropInferenceBackend):
         self.provider = _provider_label(self._providers)
         self._imgsz = imgsz
         self._intra_op_threads = intra_op_threads
+        self.intra_op_threads = intra_op_threads
         self._session_factory = session_factory or default_onnx_session_factory
         self._session_options_factory = session_options_factory or (
             lambda: default_onnx_session_options(self._intra_op_threads)

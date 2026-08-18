@@ -17,6 +17,7 @@ from config import (
     YOLO_IMGSZ,
     YOLO_IOU,
     YOLO_MODEL_PATH,
+    YOLO_ONNX_INTRA_OP_THREADS,
     YOLO_ONNX_MODEL_PATH,
     YOLO_RUNTIME,
     YOLO_SHAKER_CONFIDENCE,
@@ -25,6 +26,7 @@ from vision.prop_inference import (
     ModelLoadError,
     PropInferenceBackend,
     PyTorchPropBackend,
+    RuntimeSelection,
     create_prop_backend,
     dml_is_available,
     onnxruntime_is_available,
@@ -216,6 +218,12 @@ class CombinedPropDetector:
             return ""
         return self._backend.provider
 
+    @property
+    def yolo_threads(self) -> int:
+        if self._backend is None:
+            return 0
+        return int(getattr(self._backend, "intra_op_threads", 0) or 0)
+
     def reset_tracks(self) -> None:
         """Drop live identities so the next frame starts a new track_id sequence."""
         self._bottle_tracker.reset()
@@ -245,38 +253,58 @@ class CombinedPropDetector:
         if self._backend is not None and self._bottle_class_id is not None:
             return self._backend
 
+        backend = self._backend
         try:
-            backend = self._backend
             if backend is None:
                 backend = self._create_backend()
-            backend.load()
-            bottle_id, shaker_id, class_names = resolve_bottle_and_shaker_class_ids(
-                backend.names,
-            )
-        except ModelLoadError:
-            self._load_failed = True
-            logger.exception(
-                "Invalid YOLO model configuration: path=%s",
-                self._model_path,
-            )
-            raise
+            self._finish_backend_load(backend)
+            assert self._backend is not None
+            return self._backend
         except Exception as exc:
-            self._load_failed = True
-            logger.exception(
-                "Failed to load YOLO model: path=%s",
-                self._model_path,
-            )
-            raise ModelLoadError("Failed to load the combined YOLO model") from exc
+            fallback = self._pytorch_fallback_backend(failed=backend, error=exc)
+            if fallback is None:
+                self._load_failed = True
+                if isinstance(exc, ModelLoadError):
+                    logger.exception(
+                        "Invalid YOLO model configuration: path=%s",
+                        self._model_path,
+                    )
+                    raise
+                logger.exception(
+                    "Failed to load YOLO model: path=%s",
+                    self._model_path,
+                )
+                raise ModelLoadError(
+                    "Failed to load the combined YOLO model"
+                ) from exc
+            try:
+                self._finish_backend_load(fallback)
+                assert self._backend is not None
+                return self._backend
+            except Exception:
+                self._load_failed = True
+                logger.exception(
+                    "Failed to load YOLO model: path=%s",
+                    self._model_path,
+                )
+                raise
 
+    def _finish_backend_load(self, backend: PropInferenceBackend) -> None:
+        backend.load()
+        bottle_id, shaker_id, class_names = resolve_bottle_and_shaker_class_ids(
+            backend.names,
+        )
         self._backend = backend
         self._bottle_class_id = bottle_id
         self._shaker_class_id = shaker_id
         self._class_names = class_names
         if not self._runtime_logged:
             logger.info(
-                "YOLO runtime selected: runtime=%s provider=%s model=%s imgsz=%s",
+                "YOLO runtime selected: runtime=%s provider=%s threads=%s "
+                "model=%s imgsz=%s",
                 backend.runtime_name,
                 backend.provider,
+                int(getattr(backend, "intra_op_threads", 0) or 0),
                 Path(backend.model_path).name,
                 YOLO_IMGSZ,
             )
@@ -291,7 +319,41 @@ class CombinedPropDetector:
                 YOLO_IMGSZ,
             )
             self._runtime_logged = True
-        return backend
+
+    def _pytorch_fallback_backend(
+        self,
+        *,
+        failed: PropInferenceBackend | None,
+        error: BaseException,
+    ) -> PropInferenceBackend | None:
+        if self._injected_backend or self._model_loader is not None:
+            return None
+        failed_runtime = (
+            getattr(failed, "runtime_name", "") or self._requested_runtime
+        )
+        if failed_runtime not in {"onnx_cpu", "onnx_dml"}:
+            return None
+        if not self._model_path.is_file():
+            return None
+        logger.warning(
+            "YOLO ONNX initialization failed; falling back to PyTorch reason=%s",
+            error,
+        )
+        return create_prop_backend(
+            RuntimeSelection(
+                runtime="pytorch",
+                provider="cpu",
+                reason="fallback_onnx_init_failed",
+                fallback_from=failed_runtime,
+            ),
+            pytorch_path=self._model_path,
+            onnx_path=self._onnx_model_path,
+            inference_conf=min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE),
+            iou=YOLO_IOU,
+            max_det=MAX_BOTTLES * 2,
+            imgsz=YOLO_IMGSZ,
+            intra_op_threads=YOLO_ONNX_INTRA_OP_THREADS,
+        )
 
     def _create_backend(self) -> PropInferenceBackend:
         inference_conf = min(YOLO_BOTTLE_CONFIDENCE, YOLO_SHAKER_CONFIDENCE)
@@ -331,6 +393,7 @@ class CombinedPropDetector:
             iou=YOLO_IOU,
             max_det=MAX_BOTTLES * 2,
             imgsz=YOLO_IMGSZ,
+            intra_op_threads=YOLO_ONNX_INTRA_OP_THREADS,
         )
 
     def detect_all(self, frame: np.ndarray) -> CombinedDetectionResult:
@@ -439,6 +502,10 @@ class PropDetector:
     @property
     def yolo_provider(self) -> str:
         return self._combined.yolo_provider
+
+    @property
+    def yolo_threads(self) -> int:
+        return self._combined.yolo_threads
 
     def ensure_ready(self) -> None:
         """Load and validate the combined model now."""

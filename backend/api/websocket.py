@@ -63,7 +63,7 @@ from vision.annotator import annotate_frame
 from vision.bottle_detector import BottleDetector, ModelLoadError
 from vision.dual_prop_detector import DualPropDetector
 from vision.prop_detector import PropDetector
-from vision.prop_inference import yolo_runtime_info
+from vision.prop_inference import yolo_runtime_info, yolo_runtime_threads
 from vision.camera import (
     CameraCapture,
     CapturedFrame,
@@ -1792,6 +1792,7 @@ async def _cv_session_loop(
                 )
             capture_snapshot = snapshot_capture_producer_telemetry(reset=True)
             yolo_runtime, yolo_provider = yolo_runtime_info(session.prop_detector)
+            yolo_threads = yolo_runtime_threads(session.prop_detector)
             logger.info(
                 "%s",
                 format_perf_line(
@@ -1814,6 +1815,7 @@ async def _cv_session_loop(
                     capture_snapshot=capture_snapshot,
                     yolo_runtime=yolo_runtime,
                     yolo_provider=yolo_provider,
+                    yolo_threads=yolo_threads if yolo_runtime else None,
                 ),
             )
             session.preview_timings.reset()
