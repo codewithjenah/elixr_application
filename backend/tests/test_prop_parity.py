@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 
 from vision.prop_inference import RawDetection
 from vision.prop_parity import (
     IMAGE_EXTENSIONS,
+    STATUS_INSUFFICIENT_COVERAGE,
     STATUS_MINOR_NUMERIC_DRIFT,
     STATUS_PASS,
     STATUS_SEMANTIC_MISMATCH,
+    COVERAGE_INSUFFICIENT,
+    COVERAGE_SUFFICIENT,
     ParityMismatch,
     aggregate_directory_parity,
     compare_raw_detections,
@@ -325,11 +330,265 @@ def test_directory_summary_counts_coverage_and_failures():
     assert summary.total_onnx_detections == 3
     assert summary.semantic_mismatches == 1
     assert summary.passed is False
+    assert summary.coverage_status == COVERAGE_SUFFICIENT
+    assert summary.status == STATUS_SEMANTIC_MISMATCH
     text = summarize_directory_parity(summary)
     assert "images tested=3" in text
-    assert "overall=FAIL" in text
+    assert "images with bottle=3" in text
+    assert "images with shaker=1" in text
+    assert "images with both=1" in text
+    assert "PyTorch detections=4" in text
+    assert "ONNX detections=3" in text
+    assert "semantic mismatches=1" in text
+    assert "coverage status=SUFFICIENT" in text
+    assert "overall production-gate status=SEMANTIC_MISMATCH" in text
+    assert "overall=PASS" not in text
     assert "miss.jpg" in text
     assert "bottle.jpg" not in text
+
+
+def _empty_pair():
+    return compare_raw_detections([], [], names=PRODUCTION_NAMES)
+
+
+def _bottle_pair():
+    box = [RawDetection(0, 0.91, 10, 20, 40, 80)]
+    return compare_raw_detections(box, box, names=PRODUCTION_NAMES)
+
+
+def _shaker_pair():
+    box = [RawDetection(1, 0.80, 5, 5, 15, 12)]
+    return compare_raw_detections(box, box, names=PRODUCTION_NAMES)
+
+
+def _both_pair():
+    boxes = [
+        RawDetection(0, 0.91, 10, 20, 40, 80),
+        RawDetection(1, 0.80, 5, 5, 15, 12),
+    ]
+    return compare_raw_detections(boxes, boxes, names=PRODUCTION_NAMES)
+
+
+def test_zero_zero_real_detections_are_insufficient_coverage_not_pass():
+    summary = aggregate_directory_parity(
+        [(f"{index:03d}.jpg", _empty_pair()) for index in range(1, 21)]
+    )
+    assert summary.images_tested == 20
+    assert summary.total_pytorch_detections == 0
+    assert summary.total_onnx_detections == 0
+    assert summary.semantic_mismatches == 0
+    assert summary.threshold_crossings == 0
+    assert summary.iou_failures == 0
+    assert summary.images_with_bottle == 0
+    assert summary.images_with_shaker == 0
+    assert summary.images_with_both == 0
+    assert summary.coverage_status == COVERAGE_INSUFFICIENT
+    assert summary.status == STATUS_INSUFFICIENT_COVERAGE
+    assert summary.passed is False
+    text = summarize_directory_parity(summary)
+    assert "overall=PASS" not in text
+    assert "overall production-gate status=INSUFFICIENT_COVERAGE" in text
+    assert "coverage status=INSUFFICIENT_COVERAGE" in text
+    assert "SEMANTIC_MISMATCH" not in text
+
+
+def test_bottle_only_dataset_is_insufficient_coverage():
+    summary = aggregate_directory_parity(
+        [("bottle.jpg", _bottle_pair()), ("empty.jpg", _empty_pair())]
+    )
+    assert summary.images_with_bottle == 1
+    assert summary.images_with_shaker == 0
+    assert summary.images_with_both == 0
+    assert summary.semantic_mismatches == 0
+    assert summary.coverage_status == COVERAGE_INSUFFICIENT
+    assert summary.status == STATUS_INSUFFICIENT_COVERAGE
+    assert summary.passed is False
+    text = summarize_directory_parity(summary)
+    assert "overall=PASS" not in text
+    assert "SEMANTIC_MISMATCH" not in text
+
+
+def test_shaker_only_dataset_is_insufficient_coverage():
+    summary = aggregate_directory_parity(
+        [("shaker.jpg", _shaker_pair())]
+    )
+    assert summary.images_with_bottle == 0
+    assert summary.images_with_shaker == 1
+    assert summary.images_with_both == 0
+    assert summary.semantic_mismatches == 0
+    assert summary.coverage_status == COVERAGE_INSUFFICIENT
+    assert summary.status == STATUS_INSUFFICIENT_COVERAGE
+    assert summary.passed is False
+
+
+def test_bottle_and_shaker_coverage_with_parity_passes():
+    summary = aggregate_directory_parity(
+        [
+            ("bottle.jpg", _bottle_pair()),
+            ("shaker.jpg", _shaker_pair()),
+        ]
+    )
+    assert summary.images_with_bottle == 1
+    assert summary.images_with_shaker == 1
+    assert summary.images_with_both == 0
+    assert summary.coverage_status == COVERAGE_SUFFICIENT
+    assert summary.status == STATUS_PASS
+    assert summary.passed is True
+    text = summarize_directory_parity(summary)
+    assert "images with both=0" in text
+    assert "overall production-gate status=PASS" in text
+
+
+def test_same_image_bottle_and_shaker_coverage_is_reported_and_passes():
+    summary = aggregate_directory_parity([("both.jpg", _both_pair())])
+    assert summary.images_with_both == 1
+    assert summary.coverage_status == COVERAGE_SUFFICIENT
+    assert summary.status == STATUS_PASS
+    assert summary.passed is True
+
+
+def test_semantic_mismatch_fails_even_with_bottle_and_shaker_coverage():
+    mismatch = compare_raw_detections(
+        [RawDetection(0, 0.91, 10, 20, 40, 80)],
+        [RawDetection(1, 0.91, 10, 20, 40, 80)],
+        names=PRODUCTION_NAMES,
+    )
+    summary = aggregate_directory_parity(
+        [
+            ("swap.jpg", mismatch),
+            ("shaker.jpg", _shaker_pair()),
+        ]
+    )
+    assert summary.images_with_bottle >= 1
+    assert summary.images_with_shaker >= 1
+    assert summary.coverage_status == COVERAGE_SUFFICIENT
+    assert summary.status == STATUS_SEMANTIC_MISMATCH
+    assert summary.passed is False
+    text = summarize_directory_parity(summary)
+    assert "overall production-gate status=SEMANTIC_MISMATCH" in text
+    assert "overall=PASS" not in text
+
+
+def test_threshold_crossing_fails_production_gate():
+    crossing = compare_raw_detections(
+        [RawDetection(0, 0.41, 10, 20, 40, 80)],
+        [RawDetection(0, 0.39, 10, 20, 40, 80)],
+        bottle_conf=0.40,
+        shaker_conf=0.40,
+        names=PRODUCTION_NAMES,
+    )
+    summary = aggregate_directory_parity(
+        [
+            ("cross.jpg", crossing),
+            ("shaker.jpg", _shaker_pair()),
+        ]
+    )
+    assert summary.threshold_crossings >= 1
+    assert summary.coverage_status == COVERAGE_SUFFICIENT
+    assert summary.status == STATUS_SEMANTIC_MISMATCH
+    assert summary.passed is False
+
+
+def _load_validate_module():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "validate_prop_parity.py"
+    spec = importlib.util.spec_from_file_location("validate_prop_parity", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_tiny_jpeg(path: Path) -> None:
+    ok = cv2.imwrite(str(path), np.zeros((8, 8, 3), dtype=np.uint8))
+    assert ok
+
+
+class _StubParityBackend:
+    names = {0: "flair_bottle", 1: "shaker_bottle"}
+
+    def __init__(self, detections_by_name: dict[str, list[RawDetection]] | None = None):
+        self.detections_by_name = detections_by_name or {}
+        self.current_name = ""
+
+    def load(self) -> None:
+        return None
+
+    def infer(self, frame, **kwargs):
+        return list(self.detections_by_name.get(self.current_name, []))
+
+
+def test_validate_script_zero_detections_exits_nonzero_insufficient(tmp_path: Path, monkeypatch, capsys):
+    module = _load_validate_module()
+    _write_tiny_jpeg(tmp_path / "001.jpg")
+    backend = _StubParityBackend()
+    monkeypatch.setattr(module, "_load_backends", lambda: (backend, backend))
+    code = module.main(["--images", str(tmp_path)])
+    output = capsys.readouterr().out
+    assert code == 3
+    assert "INSUFFICIENT_COVERAGE" in output
+    assert "overall=PASS" not in output
+    assert "PASS\n" not in output
+    assert "FAIL: real-image semantic parity mismatch" not in output
+
+
+def test_validate_script_parity_pass_exits_zero(tmp_path: Path, monkeypatch, capsys):
+    module = _load_validate_module()
+    _write_tiny_jpeg(tmp_path / "bottle.jpg")
+    _write_tiny_jpeg(tmp_path / "shaker.jpg")
+    detections = {
+        "bottle.jpg": [RawDetection(0, 0.91, 10, 20, 40, 80)],
+        "shaker.jpg": [RawDetection(1, 0.80, 5, 5, 15, 12)],
+    }
+    pytorch = _StubParityBackend(detections)
+    onnx = _StubParityBackend(detections)
+    original_load = module._load_bgr_image
+
+    def load_image(path: Path):
+        pytorch.current_name = path.name
+        onnx.current_name = path.name
+        return original_load(path)
+
+    monkeypatch.setattr(module, "_load_backends", lambda: (pytorch, onnx))
+    monkeypatch.setattr(module, "_load_bgr_image", load_image)
+    code = module.main(["--images", str(tmp_path)])
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "overall production-gate status=PASS" in output
+
+
+def test_validate_script_semantic_mismatch_exits_nonzero_mismatch(tmp_path: Path, monkeypatch, capsys):
+    module = _load_validate_module()
+    _write_tiny_jpeg(tmp_path / "bottle.jpg")
+    _write_tiny_jpeg(tmp_path / "shaker.jpg")
+    pytorch = _StubParityBackend(
+        {
+            "bottle.jpg": [RawDetection(0, 0.91, 10, 20, 40, 80)],
+            "shaker.jpg": [RawDetection(1, 0.80, 5, 5, 15, 12)],
+        }
+    )
+    onnx = _StubParityBackend(
+        {
+            "bottle.jpg": [RawDetection(1, 0.91, 10, 20, 40, 80)],
+            "shaker.jpg": [RawDetection(1, 0.80, 5, 5, 15, 12)],
+        }
+    )
+    original_load = module._load_bgr_image
+
+    def load_image(path: Path):
+        pytorch.current_name = path.name
+        onnx.current_name = path.name
+        return original_load(path)
+
+    monkeypatch.setattr(module, "_load_backends", lambda: (pytorch, onnx))
+    monkeypatch.setattr(module, "_load_bgr_image", load_image)
+    code = module.main(["--images", str(tmp_path)])
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "SEMANTIC_MISMATCH" in output
+    assert "INSUFFICIENT_COVERAGE: need" not in output
+    assert "overall=PASS" not in output
 
 
 def test_validate_script_missing_and_empty_image_directory(tmp_path: Path, monkeypatch):

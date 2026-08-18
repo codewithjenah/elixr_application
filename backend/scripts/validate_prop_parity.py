@@ -32,6 +32,7 @@ from config import (
 )
 from vision.prop_inference import OnnxPropBackend, PyTorchPropBackend
 from vision.prop_parity import (
+    STATUS_INSUFFICIENT_COVERAGE,
     STATUS_SEMANTIC_MISMATCH,
     aggregate_directory_parity,
     compare_raw_detections,
@@ -157,9 +158,15 @@ def _run_image_directory(
 
     summary = aggregate_directory_parity(rows)
     print(summarize_directory_parity(summary))
-    if not summary.passed:
+    if summary.status == STATUS_SEMANTIC_MISMATCH:
         print("FAIL: real-image semantic parity mismatch")
         return 1
+    if summary.status == STATUS_INSUFFICIENT_COVERAGE:
+        print(
+            "INSUFFICIENT_COVERAGE: need at least one accepted flair_bottle "
+            "and one accepted shaker_bottle detection"
+        )
+        return 3
     print("PASS")
     return 0
 

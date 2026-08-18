@@ -16,6 +16,9 @@ IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png"})
 STATUS_PASS = "PASS"
 STATUS_MINOR_NUMERIC_DRIFT = "MINOR_NUMERIC_DRIFT"
 STATUS_SEMANTIC_MISMATCH = "SEMANTIC_MISMATCH"
+STATUS_INSUFFICIENT_COVERAGE = "INSUFFICIENT_COVERAGE"
+COVERAGE_SUFFICIENT = "SUFFICIENT"
+COVERAGE_INSUFFICIENT = "INSUFFICIENT_COVERAGE"
 
 SemanticClass = Literal["bottle", "shaker"]
 _DEFAULT_NAMES = {0: "flair_bottle", 1: "shaker_bottle"}
@@ -65,6 +68,8 @@ class DirectoryParitySummary:
     min_matched_iou: float
     passed: bool
     failure_images: tuple[str, ...] = ()
+    coverage_status: str = COVERAGE_INSUFFICIENT
+    status: str = STATUS_PASS
 
 
 def box_iou(left: RawDetection, right: RawDetection) -> float:
@@ -398,9 +403,20 @@ def aggregate_directory_parity(
     mean_conf = sum(conf_deltas) / len(conf_deltas) if conf_deltas else 0.0
     max_conf = max((report.max_confidence_delta for _, report in rows), default=0.0)
     min_iou = min(ious) if ious else 1.0
-    passed = (
-        semantic_mismatches == 0 and iou_failures == 0 and threshold_crossings == 0
+    coverage_ok = images_with_bottle >= 1 and images_with_shaker >= 1
+    coverage_status = COVERAGE_SUFFICIENT if coverage_ok else COVERAGE_INSUFFICIENT
+    semantic_fail = (
+        semantic_mismatches > 0 or iou_failures > 0 or threshold_crossings > 0
     )
+    if semantic_fail:
+        status = STATUS_SEMANTIC_MISMATCH
+        passed = False
+    elif not coverage_ok:
+        status = STATUS_INSUFFICIENT_COVERAGE
+        passed = False
+    else:
+        status = STATUS_PASS
+        passed = True
     return DirectoryParitySummary(
         images_tested=len(rows),
         images_with_bottle=images_with_bottle,
@@ -416,27 +432,28 @@ def aggregate_directory_parity(
         min_matched_iou=min_iou,
         passed=passed,
         failure_images=tuple(failures),
+        coverage_status=coverage_status,
+        status=status,
     )
 
 
 def summarize_directory_parity(summary: DirectoryParitySummary) -> str:
-    overall = "PASS" if summary.passed else "FAIL"
     lines = [
         f"images tested={summary.images_tested}",
-        f"images containing bottle={summary.images_with_bottle}",
-        f"images containing shaker={summary.images_with_shaker}",
-        f"images containing both={summary.images_with_both}",
-        (
-            f"total PyTorch detections={summary.total_pytorch_detections} "
-            f"total ONNX detections={summary.total_onnx_detections}"
-        ),
+        f"images with bottle={summary.images_with_bottle}",
+        f"images with shaker={summary.images_with_shaker}",
+        f"images with both={summary.images_with_both}",
+        f"PyTorch detections={summary.total_pytorch_detections}",
+        f"ONNX detections={summary.total_onnx_detections}",
         f"semantic mismatches={summary.semantic_mismatches}",
-        f"threshold-crossing mismatches={summary.threshold_crossings}",
-        f"box IoU failures={summary.iou_failures}",
+        f"threshold crossings={summary.threshold_crossings}",
+        f"IoU failures={summary.iou_failures}",
         f"max confidence delta={summary.max_confidence_delta:.4f}",
         f"mean confidence delta={summary.mean_confidence_delta:.4f}",
         f"minimum matched IoU={summary.min_matched_iou:.4f}",
-        f"overall={overall}",
+        f"coverage status={summary.coverage_status}",
+        f"overall production-gate status={summary.status}",
+        f"overall={summary.status}",
     ]
     if summary.failure_images:
         lines.append("per-image failures:")
@@ -444,12 +461,64 @@ def summarize_directory_parity(summary: DirectoryParitySummary) -> str:
     return "\n".join(lines)
 
 
-def write_parity_frame(output_dir: Path, index: int, frame: np.ndarray) -> Path:
+PARITY_CAPTURE_GUIDANCE = """\
+Capture examples of:
+- bottle only
+- shaker only
+- bottle + shaker
+- near/far
+- left/right/center
+- partial visibility
+- different rotations
+- different backgrounds/lighting where practical
+
+These are parity images, not a new YOLO training dataset.
+Do not label or invent expected detections.
+"""
+
+
+def existing_parity_frame_indices(directory: Path) -> list[int]:
+    path = Path(directory)
+    if not path.exists() or not path.is_dir():
+        return []
+    indices: list[int] = []
+    for item in path.iterdir():
+        if not item.is_file() or item.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        if item.stem.isdigit():
+            indices.append(int(item.stem))
+    return sorted(indices)
+
+
+def next_parity_frame_index(directory: Path) -> int:
+    indices = existing_parity_frame_indices(directory)
+    return max(indices) + 1 if indices else 1
+
+
+def allocate_parity_frame_index(directory: Path) -> int:
+    directory = Path(directory)
+    index = next_parity_frame_index(directory)
+    while (directory / f"{index:03d}.jpg").exists():
+        index += 1
+    return index
+
+
+def write_parity_frame(
+    output_dir: Path,
+    index: int,
+    frame: np.ndarray,
+    *,
+    overwrite: bool = False,
+) -> Path:
     import cv2
 
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{index:03d}.jpg"
+    if path.exists() and not overwrite:
+        raise FileExistsError(
+            f"Refusing to overwrite existing parity frame: {path.name}"
+        )
     if not cv2.imwrite(str(path), frame):
         raise RuntimeError(f"Failed to write parity frame: {path}")
     return path
@@ -460,14 +529,75 @@ def capture_parity_frames(
     read_frame: Callable[[], np.ndarray | None],
     output_dir: Path,
     count: int,
-    start_index: int = 1,
+    start_index: int | None = None,
+    overwrite: bool = False,
 ) -> list[Path]:
     if count <= 0:
         raise ValueError("count must be >= 1")
+    index = (
+        start_index
+        if start_index is not None
+        else allocate_parity_frame_index(output_dir)
+    )
     saved: list[Path] = []
     for offset in range(count):
         frame = read_frame()
         if frame is None:
             raise RuntimeError("camera returned no frame")
-        saved.append(write_parity_frame(output_dir, start_index + offset, frame))
+        saved.append(
+            write_parity_frame(
+                output_dir,
+                index + offset,
+                frame,
+                overwrite=overwrite,
+            )
+        )
+    return saved
+
+
+def _captured_frame_and_sequence(value: object) -> tuple[np.ndarray, int] | None:
+    if value is None:
+        return None
+    frame = getattr(value, "frame", None)
+    sequence = getattr(value, "sequence", None)
+    if frame is None or sequence is None:
+        raise TypeError("peek_frame must return an object with frame and sequence")
+    return frame, int(sequence)
+
+
+def capture_parity_frames_interactive(
+    *,
+    peek_frame: Callable[[int | None], object],
+    output_dir: Path,
+    input_fn: Callable[[str], str] = input,
+    print_fn: Callable[[str], None] = print,
+    overwrite: bool = False,
+) -> list[Path]:
+    directory = Path(output_dir)
+    print_fn(PARITY_CAPTURE_GUIDANCE)
+    print_fn("")
+    print_fn("Press ENTER to capture frame")
+    print_fn("Type q + ENTER to finish")
+    last_sequence: int | None = None
+    saved: list[Path] = []
+    while True:
+        command = input_fn("").strip().lower()
+        if command in {"q", "quit", "exit"}:
+            break
+        if command:
+            print_fn("Press ENTER to capture, or q + ENTER to finish")
+            continue
+        captured = _captured_frame_and_sequence(peek_frame(last_sequence))
+        if captured is None:
+            print_fn("No newer camera frame; not saved.")
+            continue
+        frame, sequence = captured
+        if last_sequence is not None and sequence <= last_sequence:
+            print_fn("Repeated camera sequence; not saved.")
+            continue
+        index = allocate_parity_frame_index(directory)
+        path = write_parity_frame(directory, index, frame, overwrite=overwrite)
+        last_sequence = sequence
+        print_fn(f"Saved {directory.name}/{path.name}")
+        saved.append(path)
     return saved
