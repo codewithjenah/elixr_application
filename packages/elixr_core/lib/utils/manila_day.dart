@@ -1,5 +1,8 @@
-/// Centralized Asia/Manila calendar-day calculation for the daily quest
-/// board (see [Persistent Daily Quest System]).
+/// Centralized Asia/Manila calendar-day calculation.
+///
+/// Used by the daily quest board, training plans, and any other
+/// date-sensitive persistence that must agree with `firestore.rules`
+/// (`manilaDayStart`, `manilaDayKey`).
 ///
 /// The board's "real day" boundary is anchored to Asia/Manila (UTC+8)
 /// rather than the device's local timezone so that the Firestore security
@@ -57,6 +60,66 @@ abstract final class ManilaDay {
   /// Prefer this over comparing raw [DateTime] values.
   static bool dayKeyEquals(String dayKeyA, String dayKeyB) =>
       dayKeyA == dayKeyB;
+
+  /// Whether [value] is a real-calendar `'yyyyMMdd'` day key.
+  static bool isValidDayKey(String value) => _isValidDayKey(value);
+
+  /// `'yyyyMMdd'` for a Manila civil calendar date.
+  static String dayKeyFromCivil({
+    required int year,
+    required int month,
+    required int day,
+  }) {
+    final key =
+        '${year.toString().padLeft(4, '0')}'
+        '${month.toString().padLeft(2, '0')}'
+        '${day.toString().padLeft(2, '0')}';
+    if (!_isValidDayKey(key)) {
+      throw FormatException('Invalid Manila civil date', key);
+    }
+    return key;
+  }
+
+  /// Date-only civil value (`year`/`month`/`day`) for a validated day key.
+  ///
+  /// This is a calendar date, not a timezone instant. UI month grids should
+  /// compare against this rather than device-local [DateTime.now].
+  static DateTime civilDateFromDayKey(String dayKey) {
+    if (!_isValidDayKey(dayKey)) {
+      throw FormatException('Invalid Manila day key', dayKey);
+    }
+    return DateTime(
+      int.parse(dayKey.substring(0, 4)),
+      int.parse(dayKey.substring(4, 6)),
+      int.parse(dayKey.substring(6, 8)),
+    );
+  }
+
+  /// Shifts [dayKey] by [days] on the Manila civil calendar.
+  static String addCalendarDays(String dayKey, int days) {
+    final civil = civilDateFromDayKey(dayKey);
+    final shifted = DateTime.utc(
+      civil.year,
+      civil.month,
+      civil.day,
+    ).add(Duration(days: days));
+    return dayKeyFromCivil(
+      year: shifted.year,
+      month: shifted.month,
+      day: shifted.day,
+    );
+  }
+
+  /// Deterministic document id `{userId}_{yyyyMMdd}`.
+  static String ownerDayDocumentId({
+    required String userId,
+    required String dayKey,
+  }) {
+    if (userId.isEmpty || !_isValidDayKey(dayKey)) {
+      throw FormatException('Invalid owner/day document identity');
+    }
+    return '${userId}_$dayKey';
+  }
 
   static bool _isValidDayKey(String value) {
     if (!RegExp(r'^\d{8}$').hasMatch(value)) return false;

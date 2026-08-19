@@ -3440,3 +3440,125 @@ describe.skip('retired trainee-owned invites and links (Phase 2A)', () => {
     await assertFails(updateDoc(doc(bob, 'teacher_student_links', LINK_ID), rerequestUpdate()));
   });
 });
+
+describe('training plans', () => {
+  function shiftDays(days) {
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  }
+
+  function trainingPlan(userId, dayKey, overrides = {}) {
+    return {
+      user_id: userId,
+      day_key: dayKey,
+      plan_type: 'training',
+      movement_name: 'Hand Stall',
+      difficulty: 'Medium',
+      prop_type: 'bottle',
+      target_duration_minutes: 10,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+      ...overrides,
+    };
+  }
+
+  function restPlan(userId, dayKey) {
+    return {
+      user_id: userId,
+      day_key: dayKey,
+      plan_type: 'rest',
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    };
+  }
+
+  test('owner can create, read, query, update, and delete an own plan', async () => {
+    const alice = aliceDb();
+    const dayKey = manilaDayKeyFor(new Date());
+    const ref = doc(alice, 'training_plans', `alice_${dayKey}`);
+    await assertSucceeds(setDoc(ref, trainingPlan('alice', dayKey)));
+    await assertSucceeds(getDoc(ref));
+    const listed = await assertSucceeds(getDocs(query(
+      collection(alice, 'training_plans'),
+      where('user_id', '==', 'alice'),
+    )));
+    assert.equal(listed.size, 1);
+    await assertSucceeds(updateDoc(ref, {
+      target_duration_minutes: 20,
+      updated_at: serverTimestamp(),
+    }));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  test('owner can schedule a rest day for today', async () => {
+    const alice = aliceDb();
+    const dayKey = manilaDayKeyFor(new Date());
+    await assertSucceeds(setDoc(
+      doc(alice, 'training_plans', `alice_${dayKey}`),
+      restPlan('alice', dayKey),
+    ));
+  });
+
+  test('rejects another user\'s plan, mismatched ids, past days, and invalid fields', async () => {
+    const alice = aliceDb();
+    const today = manilaDayKeyFor(new Date());
+    const past = manilaDayKeyFor(shiftDays(-3));
+    const future = manilaDayKeyFor(shiftDays(2));
+
+    await assertFails(setDoc(
+      doc(alice, 'training_plans', `bob_${today}`),
+      trainingPlan('bob', today),
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'training_plans', `alice_${future}`),
+      trainingPlan('alice', today),
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'training_plans', `alice_${past}`),
+      trainingPlan('alice', past),
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'training_plans', `alice_${today}`),
+      trainingPlan('alice', today, { target_duration_minutes: 7 }),
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'training_plans', `alice_${today}`),
+      trainingPlan('alice', today, { extra: true }),
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'training_plans', `alice_${today}`),
+      trainingPlan('alice', today, { user_id: 'bob' }),
+    ));
+  });
+
+  test('bob cannot read or list alice plans', async () => {
+    const today = manilaDayKeyFor(new Date());
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'training_plans', `alice_${today}`), {
+        ...trainingPlan('alice', today),
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'training_plans', `alice_${today}`)));
+    await assertFails(getDocs(query(
+      collection(bob, 'training_plans'),
+      where('user_id', '==', 'alice'),
+    )));
+  });
+
+  test('update cannot change owner or day key', async () => {
+    const alice = aliceDb();
+    const today = manilaDayKeyFor(new Date());
+    const ref = doc(alice, 'training_plans', `alice_${today}`);
+    await assertSucceeds(setDoc(ref, trainingPlan('alice', today)));
+    await assertFails(updateDoc(ref, {
+      user_id: 'bob',
+      updated_at: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(ref, {
+      day_key: manilaDayKeyFor(shiftDays(1)),
+      updated_at: serverTimestamp(),
+    }));
+  });
+});

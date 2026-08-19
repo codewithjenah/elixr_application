@@ -110,5 +110,18 @@ void main() {
         '20240101',
       );
     });
+
+    test('civil date helpers round-trip a valid day key', () {
+      expect(
+        ManilaDay.dayKeyFromCivil(year: 2026, month: 8, day: 19),
+        '20260819',
+      );
+      expect(ManilaDay.civilDateFromDayKey('20260819'), DateTime(2026, 8, 19));
+      expect(ManilaDay.addCalendarDays('20260819', -1), '20260818');
+      expect(
+        ManilaDay.ownerDayDocumentId(userId: 'alice', dayKey: '20260819'),
+        'alice_20260819',
+      );
+    });
   });
 }

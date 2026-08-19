@@ -4,26 +4,26 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/training_plan.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
-import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/features/calendar/calendar_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Feedback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 const _userId = 'calendar-user';
+final _now = DateTime.utc(2026, 8, 19, 4); // 12:00 Manila on 2026-08-19
 
-/// Assessment V2 fixture; distributes a 0..12 total across the four criteria.
 Session _session({
   required String createdAt,
   int rubricTotal = 8,
   int durationSeconds = 60,
-  String difficulty = 'Easy',
+  String difficulty = 'Medium',
   String movementName = 'Hand Stall',
 }) {
   final scores = <int>[0, 0, 0, 0];
@@ -47,6 +47,22 @@ Session _session({
     assessmentVersion: 2,
     durationSeconds: durationSeconds,
     createdAt: createdAt,
+    propType: TrainingProp.bottle,
+  );
+}
+
+TrainingPlan _plan({
+  required String dayKey,
+  int minutes = 10,
+  String movementName = 'Hand Stall',
+}) {
+  return TrainingPlan.training(
+    userId: _userId,
+    dayKey: dayKey,
+    movementName: movementName,
+    difficulty: 'Medium',
+    propType: TrainingProp.bottle,
+    targetDurationMinutes: minutes,
   );
 }
 
@@ -128,6 +144,33 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }
 }
 
+class _PlanStore {
+  final plans = <String, TrainingPlan>{};
+
+  Future<List<TrainingPlan>> load(
+    String userId, {
+    required String startDayKey,
+    required String endDayKey,
+  }) async {
+    return plans.values
+        .where(
+          (plan) =>
+              plan.userId == userId &&
+              plan.dayKey.compareTo(startDayKey) >= 0 &&
+              plan.dayKey.compareTo(endDayKey) <= 0,
+        )
+        .toList();
+  }
+
+  Future<void> save(TrainingPlan plan) async {
+    plans[plan.dayKey] = plan;
+  }
+
+  Future<void> remove({required String userId, required String dayKey}) async {
+    plans.remove(dayKey);
+  }
+}
+
 Future<void> _setSurface(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(1280, 900));
   addTearDown(() async {
@@ -140,8 +183,10 @@ void main() {
 
   late AuthService authService;
   late SessionService sessionService;
+  late _PlanStore planStore;
 
   setUp(() {
+    planStore = _PlanStore();
     authService =
         AuthService(
           repository: _StubAuthRepository(),
@@ -191,16 +236,25 @@ void main() {
           path: '/calendar',
           builder: (context, state) => CalendarScreen(
             initialDate: initialDate,
-            sessionsLoader: sessionsLoader,
+            sessionsLoader: sessionsLoader ?? (_) async => const [],
+            plansLoader: planStore.load,
+            planSaver: planStore.save,
+            planRemover: planStore.remove,
+            now: () => _now,
           ),
         ),
         GoRoute(
-          path: '/movements',
+          path: '/practice',
           builder: (context, state) {
-            locations.add('/movements');
-            return const ScaffoldPage(
-              content: Center(child: Text('Movements')),
-            );
+            locations.add(state.uri.toString());
+            return const ScaffoldPage(content: Center(child: Text('Practice')));
+          },
+        ),
+        GoRoute(
+          path: '/history',
+          builder: (context, state) {
+            locations.add('/history');
+            return const ScaffoldPage(content: Center(child: Text('History')));
           },
         ),
       ],
@@ -222,7 +276,9 @@ void main() {
     );
   }
 
-  testWidgets('shows loading indicator while sessions load', (tester) async {
+  testWidgets('shows loading indicator while calendar data loads', (
+    tester,
+  ) async {
     final completer = Completer<List<Session>>();
     await pumpCalendar(tester, sessionsLoader: (_) => completer.future);
     await tester.pump();
@@ -233,99 +289,94 @@ void main() {
     expect(find.byType(ProgressRing), findsNothing);
   });
 
-  testWidgets('shows title, subtitle, and current month', (tester) async {
-    await pumpCalendar(tester, sessionsLoader: (_) async => const []);
+  testWidgets('shows title, subtitle, and current Manila month', (
+    tester,
+  ) async {
+    await pumpCalendar(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Training Calendar'), findsOneWidget);
     expect(
-      find.text('Review your consistency and daily practice activity'),
+      find.text(
+        'Plan what to practice, then see whether you followed through.',
+      ),
       findsOneWidget,
     );
-    expect(
-      find.text(DateFormat.yMMMM().format(DateTime.now())),
-      findsOneWidget,
-    );
+    expect(find.text('August 2026'), findsOneWidget);
   });
 
-  testWidgets('empty calendar still shows grid and empty selected day', (
+  testWidgets('empty calendar still shows grid and unplanned selected day', (
     tester,
   ) async {
-    await pumpCalendar(tester, sessionsLoader: (_) async => const []);
+    await pumpCalendar(tester);
     await tester.pumpAndSettle();
 
-    expect(find.text('Active Days'), findsOneWidget);
-    expect(find.text('No practice recorded'), findsOneWidget);
-    expect(find.text('Start Practice'), findsOneWidget);
+    expect(find.text('Planned Days'), findsOneWidget);
+    expect(find.text('No training planned'), findsOneWidget);
+    expect(find.text('Plan Practice'), findsOneWidget);
+    expect(find.text('Mark Rest Day'), findsOneWidget);
     expect(find.text('MON'), findsOneWidget);
+    expect(find.text('No practice recorded'), findsNothing);
   });
 
-  testWidgets('summary cards show monthly activity and streak', (tester) async {
-    final today = DateTime.now();
-    final stamp =
-        '${today.year.toString().padLeft(4, '0')}-'
-        '${today.month.toString().padLeft(2, '0')}-'
-        '${today.day.toString().padLeft(2, '0')}T12:00:00.000';
+  testWidgets(
+    'summary cards show adherence metrics instead of session counts',
+    (tester) async {
+      planStore.plans['20260819'] = _plan(dayKey: '20260819');
+      await pumpCalendar(
+        tester,
+        sessionsLoader: (_) async => [
+          _session(createdAt: '2026-08-19T04:00:00.000Z', durationSeconds: 600),
+        ],
+      );
+      await tester.pumpAndSettle();
 
+      expect(find.text('Monthly Sessions'), findsNothing);
+      expect(find.text('Adherence'), findsOneWidget);
+      expect(find.text('Completed'), findsWidgets);
+    },
+  );
+
+  testWidgets('selecting a planned day shows the plan, not session rows', (
+    tester,
+  ) async {
+    planStore.plans['20260819'] = _plan(dayKey: '20260819');
     await pumpCalendar(
       tester,
-      sessionsLoader: (_) async => [
-        _session(createdAt: stamp, rubricTotal: 11),
-        _session(createdAt: stamp, rubricTotal: 7),
-      ],
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Monthly Sessions'), findsOneWidget);
-    // Two sessions on one day => 1 active day, 2 monthly sessions, streak 1.
-    expect(find.text('1'), findsWidgets);
-    expect(find.text('2'), findsWidgets);
-  });
-
-  testWidgets('selecting an active date shows its sessions', (tester) async {
-    await pumpCalendar(
-      tester,
-      initialDate: '2026-08-01',
+      initialDate: '2026-08-19',
       sessionsLoader: (_) async => [
         _session(
-          createdAt: '2026-08-01T10:00:00.000',
-          movementName: 'Flair',
+          createdAt: '2026-08-19T04:00:00.000Z',
+          durationSeconds: 360,
           rubricTotal: 10,
         ),
       ],
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Flair'), findsOneWidget);
-    expect(find.byType(MovementImage), findsOneWidget);
-    expect(find.bySemanticsLabel('Movement icon: Flair'), findsOneWidget);
-    expect(find.text('No practice recorded'), findsNothing);
-    expect(find.text('10 / 12'), findsWidgets);
-    expect(find.text('Proficient'), findsOneWidget);
-    expect(find.text('Average Rubric'), findsOneWidget);
+    expect(find.text('Training Plan'), findsOneWidget);
+    expect(find.text('Hand Stall'), findsWidgets);
+    expect(find.text('In Progress'), findsWidgets);
+    expect(find.text('Start Practice'), findsOneWidget);
+    expect(find.text('Proficient'), findsNothing);
+    expect(find.text('Average Rubric'), findsNothing);
   });
 
-  testWidgets('selecting an empty date shows empty state', (tester) async {
-    await pumpCalendar(
-      tester,
-      initialDate: '2026-08-15',
-      sessionsLoader: (_) async => [
-        _session(createdAt: '2026-08-01T10:00:00.000'),
-      ],
-    );
+  testWidgets('past unplanned days cannot be scheduled retroactively', (
+    tester,
+  ) async {
+    await pumpCalendar(tester, initialDate: '2026-08-15');
     await tester.pumpAndSettle();
 
-    expect(find.text('No practice recorded'), findsOneWidget);
+    expect(find.text('No training was scheduled.'), findsOneWidget);
+    expect(find.text('Plan Practice'), findsNothing);
+    expect(find.text('Mark Rest Day'), findsNothing);
   });
 
   testWidgets('previous and next month navigation update the label', (
     tester,
   ) async {
-    await pumpCalendar(
-      tester,
-      initialDate: '2026-08-15',
-      sessionsLoader: (_) async => const [],
-    );
+    await pumpCalendar(tester, initialDate: '2026-08-15');
     await tester.pumpAndSettle();
 
     expect(find.text('August 2026'), findsOneWidget);
@@ -339,70 +390,102 @@ void main() {
     expect(find.text('August 2026'), findsOneWidget);
   });
 
-  testWidgets('Today button returns to the current month', (tester) async {
-    final now = DateTime.now();
-    await pumpCalendar(
-      tester,
-      initialDate: '2025-01-15',
-      sessionsLoader: (_) async => const [],
-    );
+  testWidgets('Today button returns to the current Manila month', (
+    tester,
+  ) async {
+    await pumpCalendar(tester, initialDate: '2025-01-15');
     await tester.pumpAndSettle();
 
     expect(find.text('January 2025'), findsOneWidget);
     await tester.tap(find.widgetWithText(Button, 'Today'));
     await tester.pumpAndSettle();
-    expect(find.text(DateFormat.yMMMM().format(now)), findsOneWidget);
+    expect(find.text('August 2026'), findsOneWidget);
   });
 
   testWidgets('valid initialDate opens that month and date', (tester) async {
-    await pumpCalendar(
-      tester,
-      initialDate: '2026-07-04',
-      sessionsLoader: (_) async => [
-        _session(
-          createdAt: '2026-07-04T09:00:00.000',
-          movementName: 'Shoulder Stall',
-        ),
-      ],
+    planStore.plans['20260704'] = _plan(
+      dayKey: '20260704',
+      movementName: 'Shoulder Stall',
     );
+    await pumpCalendar(tester, initialDate: '2026-07-04');
     await tester.pumpAndSettle();
 
     expect(find.text('July 2026'), findsOneWidget);
     expect(find.text('Shoulder Stall'), findsOneWidget);
-    expect(find.byType(MovementImage), findsOneWidget);
-    expect(
-      find.bySemanticsLabel('Movement image: Shoulder Stall'),
-      findsOneWidget,
-    );
   });
 
-  testWidgets('invalid initialDate falls back to today safely', (tester) async {
-    await pumpCalendar(
-      tester,
-      initialDate: 'not-a-date',
-      sessionsLoader: (_) async => const [],
-    );
+  testWidgets('invalid initialDate falls back to Manila today safely', (
+    tester,
+  ) async {
+    await pumpCalendar(tester, initialDate: 'not-a-date');
     await tester.pumpAndSettle();
 
     expect(find.text('Training Calendar'), findsOneWidget);
-    expect(
-      find.text(DateFormat.yMMMM().format(DateTime.now())),
-      findsOneWidget,
-    );
+    expect(find.text('August 2026'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Start Practice navigates to movements', (tester) async {
+  testWidgets('Plan Practice opens the editor and can save a plan', (
+    tester,
+  ) async {
+    await pumpCalendar(tester, initialDate: '2026-08-19');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Plan Practice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save Plan'), findsOneWidget);
+
+    await tester.tap(find.text('Save Plan'));
+    await tester.pumpAndSettle();
+    expect(planStore.plans.containsKey('20260819'), isTrue);
+    expect(find.text('Training Plan'), findsOneWidget);
+  });
+
+  testWidgets('Mark Rest Day stores a rest plan', (tester) async {
+    await pumpCalendar(tester, initialDate: '2026-08-20');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Mark Rest Day'));
+    await tester.pumpAndSettle();
+    expect(planStore.plans['20260820']?.isRest, isTrue);
+    expect(find.text('Rest day'), findsOneWidget);
+  });
+
+  testWidgets('Start Practice navigates through the existing practice route', (
+    tester,
+  ) async {
     final navigated = <String>[];
-    await pumpCalendar(
-      tester,
-      sessionsLoader: (_) async => const [],
-      navigated: navigated,
-    );
+    planStore.plans['20260819'] = _plan(dayKey: '20260819');
+    await pumpCalendar(tester, initialDate: '2026-08-19', navigated: navigated);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Start Practice'));
     await tester.pumpAndSettle();
-    expect(navigated, ['/movements']);
+    expect(
+      navigated.single,
+      '/practice?movement=Hand+Stall&difficulty=Medium&prop=bottle',
+    );
+  });
+
+  testWidgets('completed plans offer View History instead of session lists', (
+    tester,
+  ) async {
+    final navigated = <String>[];
+    planStore.plans['20260818'] = _plan(dayKey: '20260818');
+    await pumpCalendar(
+      tester,
+      initialDate: '2026-08-18',
+      navigated: navigated,
+      sessionsLoader: (_) async => [
+        _session(createdAt: '2026-08-18T04:00:00.000Z', durationSeconds: 720),
+      ],
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Completed'), findsWidgets);
+    expect(find.text('View History'), findsOneWidget);
+    await tester.tap(find.text('View History'));
+    await tester.pumpAndSettle();
+    expect(navigated, ['/history']);
   });
 }

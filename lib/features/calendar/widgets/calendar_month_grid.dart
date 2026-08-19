@@ -3,8 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../models/calendar_day_summary.dart';
+import '../models/training_day_snapshot.dart';
 import 'calendar_day_cell.dart';
+import 'calendar_status_legend.dart';
 
 class CalendarMonthGrid extends StatelessWidget {
   const CalendarMonthGrid({
@@ -12,14 +13,16 @@ class CalendarMonthGrid extends StatelessWidget {
     required this.dates,
     required this.visibleMonth,
     required this.selectedDate,
-    required this.summariesByDate,
+    required this.todayDate,
+    required this.snapshotsByDate,
     required this.onDateSelected,
   });
 
   final List<DateTime> dates;
   final DateTime visibleMonth;
   final DateTime selectedDate;
-  final Map<DateTime, CalendarDaySummary> summariesByDate;
+  final DateTime todayDate;
+  final Map<DateTime, TrainingDaySnapshot> snapshotsByDate;
   final ValueChanged<DateTime> onDateSelected;
 
   static const _weekdayLabels = [
@@ -34,9 +37,6 @@ class CalendarMonthGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -75,7 +75,7 @@ class CalendarMonthGrid extends StatelessWidget {
                         padding: EdgeInsets.only(right: dow == 6 ? 0 : 6),
                         child: CalendarDayCell(
                           date: dates[week * 7 + dow],
-                          summary: summariesByDate[dates[week * 7 + dow]],
+                          snapshot: snapshotsByDate[dates[week * 7 + dow]],
                           isOutsideMonth:
                               dates[week * 7 + dow].month != visibleMonth.month,
                           isSelected: dates[week * 7 + dow] == selectedDate,
@@ -88,6 +88,7 @@ class CalendarMonthGrid extends StatelessWidget {
               ),
             ),
           ],
+          const CalendarStatusLegend(),
         ],
       ),
     );

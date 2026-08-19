@@ -891,6 +891,14 @@ class AuthRepository implements AuthRepositoryBase {
       await _commitDeletes(claimSnap.docs.map((d) => d.reference).toList());
     });
 
+    await _runPurgeStage('training plan purge', () async {
+      final planSnap = await _firestore
+          .collection(FirestoreCollections.trainingPlans)
+          .where('user_id', isEqualTo: uid)
+          .get();
+      await _commitDeletes(planSnap.docs.map((d) => d.reference).toList());
+    });
+
     await _runPurgeStage('achievement claim purge', () async {
       final achievementSnap = await _firestore
           .collection(FirestoreCollections.achievementClaims)

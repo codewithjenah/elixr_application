@@ -1,10 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
-import '../models/calendar_day_summary.dart';
 
 const _pink = AppColors.primary;
 const _purple = AppColors.accent;
@@ -15,61 +13,59 @@ const _amber = AppColors.warning;
 class CalendarSummaryCards extends StatelessWidget {
   const CalendarSummaryCards({
     super.key,
-    required this.activeDays,
-    required this.monthlySessions,
-    required this.currentStreak,
-    required this.bestDay,
+    required this.plannedDays,
+    required this.completedDays,
+    required this.adherencePercent,
+    required this.planStreak,
   });
 
-  final int activeDays;
-  final int monthlySessions;
-  final int currentStreak;
-  final CalendarDaySummary? bestDay;
+  final int plannedDays;
+  final int completedDays;
+  final int? adherencePercent;
+  final int planStreak;
 
   @override
   Widget build(BuildContext context) {
-    final bestLabel = bestDay == null
+    final adherenceLabel = adherencePercent == null
         ? '—'
-        : DateFormat.MMMd().format(bestDay!.date);
-    final bestAverage = bestDay?.preferredAverage;
-    final bestSub = bestAverage == null
-        ? 'No activity'
-        : bestDay!.hasRubricData
-        ? 'Average rubric ${bestAverage.toStringAsFixed(1)} / 12'
-        : 'Legacy average ${bestAverage.toStringAsFixed(0)} / 100';
+        : '$adherencePercent%';
+    final adherenceSub = adherencePercent == null
+        ? 'No actionable plans yet'
+        : 'Completed of due training days';
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 720;
         final cards = [
           _SummaryCard(
-            label: 'Active Days',
-            value: '$activeDays',
-            subLabel: 'Unique practiced dates',
-            icon: FluentIcons.calendar_day,
+            label: 'Planned Days',
+            value: '$plannedDays',
+            subLabel: 'Training days this month',
+            icon: FluentIcons.calendar,
             accent: _cyan,
           ),
           _SummaryCard(
-            label: 'Monthly Sessions',
-            value: '$monthlySessions',
-            subLabel: 'Completed this month',
-            icon: FluentIcons.timer,
+            label: 'Completed',
+            value: '$completedDays',
+            subLabel: 'Targets reached',
+            icon: FluentIcons.completed_solid,
+            accent: AppColors.success,
+          ),
+          _SummaryCard(
+            label: 'Adherence',
+            value: adherenceLabel,
+            subLabel: adherenceSub,
+            icon: FluentIcons.chart,
             accent: _purple,
           ),
           _SummaryCard(
-            label: 'Current Streak',
-            value: '$currentStreak',
-            subLabel: currentStreak == 1 ? 'Day' : 'Days',
+            label: 'Practice Streak',
+            value: '$planStreak',
+            subLabel: planStreak == 1
+                ? 'Completed plan day'
+                : 'Completed plan days',
             icon: FluentIcons.lightning_bolt,
             accent: _amber,
-          ),
-          _SummaryCard(
-            label: 'Best Training Day',
-            value: bestLabel,
-            subLabel: bestSub,
-            icon: FluentIcons.trophy2_solid,
-            accent: _pink,
-            smallValue: bestDay != null,
           ),
         ];
 
@@ -124,7 +120,6 @@ class _SummaryCard extends StatelessWidget {
     required this.subLabel,
     required this.icon,
     required this.accent,
-    this.smallValue = false,
   });
 
   final String label;
@@ -132,7 +127,6 @@ class _SummaryCard extends StatelessWidget {
   final String subLabel;
   final IconData icon;
   final Color accent;
-  final bool smallValue;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +177,7 @@ class _SummaryCard extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: smallValue ? 18 : 26,
+              fontSize: 26,
               fontWeight: FontWeight.w800,
               color: accent == _pink ? _violet : accent,
               height: 1.1,

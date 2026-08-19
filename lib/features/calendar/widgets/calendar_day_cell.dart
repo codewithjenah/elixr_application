@@ -2,11 +2,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
-import '../models/calendar_day_summary.dart';
+import '../models/training_day_snapshot.dart';
+import '../models/training_day_status.dart';
+import '../utils/training_day_status_style.dart';
 
 const _pink = AppColors.primary;
 const _purple = AppColors.accent;
-const _cyan = AppColors.primarySoft;
 
 class CalendarDayCell extends StatefulWidget {
   const CalendarDayCell({
@@ -16,11 +17,11 @@ class CalendarDayCell extends StatefulWidget {
     required this.isSelected,
     required this.isToday,
     required this.onTap,
-    this.summary,
+    this.snapshot,
   });
 
   final DateTime date;
-  final CalendarDaySummary? summary;
+  final TrainingDaySnapshot? snapshot;
   final bool isOutsideMonth;
   final bool isSelected;
   final bool isToday;
@@ -33,46 +34,36 @@ class CalendarDayCell extends StatefulWidget {
 class _CalendarDayCellState extends State<CalendarDayCell> {
   bool _hovered = false;
 
-  Color _activityTint(int count) {
-    if (count <= 0) return Colors.transparent;
-    if (count == 1) return _purple.withValues(alpha: 0.10);
-    if (count <= 3) return _purple.withValues(alpha: 0.18);
-    return _purple.withValues(alpha: 0.28);
-  }
-
-  Color _difficultyColor(String difficulty) {
-    switch (difficulty) {
-      case 'Easy':
-        return _cyan;
-      case 'Medium':
-        return _purple;
-      case 'Hard':
-        return _pink;
-      default:
-        return context.elixTextSecondary;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final summary = widget.summary;
-    final count = summary?.sessionCount ?? 0;
-    final average = summary?.preferredAverage;
-    // V2 days read as `X/12`; legacy-only days keep the bare percentage.
-    final averageLabel = average == null
-        ? null
-        : summary!.hasRubricData
-        ? '${average.toStringAsFixed(0)}/12'
-        : average.toStringAsFixed(0);
-    final difficulties = summary?.difficulties ?? const <String>{};
+    final status = widget.snapshot?.status ?? TrainingDayStatus.unplanned;
+    final hasPlan = status != TrainingDayStatus.unplanned;
+    final statusColor = trainingDayStatusColor(status);
+    final unplannedActivity =
+        status == TrainingDayStatus.unplanned &&
+        (widget.snapshot?.hasUnplannedActivity ?? false);
 
     final borderColor = widget.isSelected
         ? _pink
         : widget.isToday
         ? _purple.withValues(alpha: 0.7)
+        : hasPlan
+        ? statusColor.withValues(alpha: widget.isOutsideMonth ? 0.35 : 0.55)
         : _hovered
         ? context.elixBorder.withValues(alpha: 0.9)
         : context.elixBorder.withValues(alpha: 0.55);
+
+    final fill = widget.isSelected
+        ? _pink.withValues(alpha: 0.14)
+        : hasPlan
+        ? statusColor.withValues(
+            alpha: context.isDarkTheme
+                ? (widget.isOutsideMonth ? 0.08 : 0.16)
+                : (widget.isOutsideMonth ? 0.06 : 0.12),
+          )
+        : unplannedActivity
+        ? _purple.withValues(alpha: context.isDarkTheme ? 0.08 : 0.05)
+        : Colors.transparent;
 
     final numberColor = widget.isOutsideMonth
         ? context.elixTextSecondary.withValues(alpha: 0.45)
@@ -90,11 +81,9 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
           duration: const Duration(milliseconds: 140),
           curve: Curves.easeOut,
           constraints: const BoxConstraints(minHeight: 72),
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
           decoration: BoxDecoration(
-            color: widget.isSelected
-                ? _pink.withValues(alpha: 0.14)
-                : _activityTint(count),
+            color: fill,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: borderColor,
@@ -104,63 +93,44 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    '${widget.date.day}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: widget.isToday || count > 0
-                          ? FontWeight.w800
-                          : FontWeight.w600,
-                      color: numberColor,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (count > 0)
-                    Text(
-                      '$count',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: widget.isOutsideMonth
-                            ? context.elixTextSecondary.withValues(alpha: 0.55)
-                            : _violetSafe,
-                      ),
-                    ),
-                ],
+              Text(
+                '${widget.date.day}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: widget.isToday || hasPlan
+                      ? FontWeight.w800
+                      : FontWeight.w600,
+                  color: numberColor,
+                ),
               ),
-              const SizedBox(height: 4),
-              if (averageLabel != null)
-                Text(
-                  averageLabel,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: widget.isOutsideMonth
-                        ? context.elixTextSecondary.withValues(alpha: 0.5)
-                        : context.elixTextSecondary,
+              const Spacer(),
+              if (hasPlan)
+                Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(
+                        alpha: widget.isOutsideMonth ? 0.5 : 1,
+                      ),
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 )
-              else
-                const SizedBox(height: 14),
-              const Spacer(),
-              if (difficulties.isNotEmpty)
-                Row(
-                  children: [
-                    for (final difficulty in _orderedDifficulties(difficulties))
-                      Container(
-                        width: 7,
-                        height: 7,
-                        margin: const EdgeInsets.only(right: 3),
-                        decoration: BoxDecoration(
-                          color: _difficultyColor(difficulty).withValues(
-                            alpha: widget.isOutsideMonth ? 0.45 : 0.9,
-                          ),
-                          shape: BoxShape.circle,
-                        ),
+              else if (unplannedActivity)
+                Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _purple.withValues(
+                        alpha: widget.isOutsideMonth ? 0.35 : 0.55,
                       ),
-                  ],
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -168,15 +138,4 @@ class _CalendarDayCellState extends State<CalendarDayCell> {
       ),
     );
   }
-
-  List<String> _orderedDifficulties(Set<String> difficulties) {
-    const order = ['Easy', 'Medium', 'Hard'];
-    final ordered = order.where(difficulties.contains).toList();
-    for (final difficulty in difficulties) {
-      if (!ordered.contains(difficulty)) ordered.add(difficulty);
-    }
-    return ordered;
-  }
 }
-
-const _violetSafe = AppColors.accentSoft;

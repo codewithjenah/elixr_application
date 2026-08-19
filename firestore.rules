@@ -30,6 +30,13 @@ service cloud.firestore {
         && boardId.matches('^' + request.auth.uid + '_[0-9]{8}$');
     }
 
+    function isCanonicalOwnTrainingPlanId(planId, dayKey) {
+      return isSignedIn()
+        && dayKey is string
+        && dayKey.matches('^[0-9]{4}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])$')
+        && planId == request.auth.uid + '_' + dayKey;
+    }
+
     function claimPath(claimId) {
       return /databases/$(database)/documents/daily_quest_claims/$(claimId);
     }
@@ -247,6 +254,86 @@ service cloud.firestore {
 
     function isNonNegInt(value) {
       return value is int && value >= 0;
+    }
+
+    function trainingPlanRestKeys() {
+      return ['user_id', 'day_key', 'plan_type', 'created_at', 'updated_at'];
+    }
+
+    function trainingPlanTrainingKeys() {
+      return [
+        'user_id',
+        'day_key',
+        'plan_type',
+        'movement_name',
+        'difficulty',
+        'prop_type',
+        'target_duration_minutes',
+        'created_at',
+        'updated_at'
+      ];
+    }
+
+    function isManilaDayKeyFormat(value) {
+      return value is string
+        && value.matches('^[0-9]{4}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    function isAllowedPlanDuration(value) {
+      return value is number
+        && value == int(value)
+        && (value == 5 || value == 10 || value == 15 || value == 20 || value == 30);
+    }
+
+    function isPlanDifficulty(value) {
+      return value == 'Easy' || value == 'Medium' || value == 'Hard';
+    }
+
+    function isPlanPropType(value) {
+      return value == 'bottle'
+        || value == 'shaker'
+        || value == 'bottle_and_shaker';
+    }
+
+    function isActionablePlanDayKey(dayKey) {
+      return isManilaDayKeyFormat(dayKey)
+        && dayKey >= manilaDayKey(request.time)
+        && dayKey <= manilaDayKey(request.time + duration.value(366, 'd'));
+    }
+
+    function validRestTrainingPlan(data) {
+      return data.keys().hasOnly(trainingPlanRestKeys())
+        && data.keys().hasAll(trainingPlanRestKeys())
+        && data.user_id == request.auth.uid
+        && data.plan_type == 'rest'
+        && isActionablePlanDayKey(data.day_key)
+        && data.created_at is timestamp
+        && data.updated_at is timestamp;
+    }
+
+    function validActiveTrainingPlan(data) {
+      return data.keys().hasOnly(trainingPlanTrainingKeys())
+        && data.keys().hasAll(trainingPlanTrainingKeys())
+        && data.user_id == request.auth.uid
+        && data.plan_type == 'training'
+        && isActionablePlanDayKey(data.day_key)
+        && data.movement_name is string
+        && data.movement_name.size() > 0
+        && data.movement_name.size() <= 80
+        && data.movement_name in coachingMovementNames()
+        && isPlanDifficulty(data.difficulty)
+        && isPlanPropType(data.prop_type)
+        && isAllowedPlanDuration(data.target_duration_minutes)
+        && data.created_at is timestamp
+        && data.updated_at is timestamp;
+    }
+
+    function validTrainingPlanWrite(data, planId) {
+      return isCanonicalOwnTrainingPlanId(planId, data.day_key)
+        && (
+          validRestTrainingPlan(data)
+          || validActiveTrainingPlan(data)
+        );
     }
 
     // Accept int or whole-number float (Firestore/clients may store either).
@@ -1206,6 +1293,33 @@ service cloud.firestore {
               == resource.data.rubric.prop_positioning
           )
         );
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+    }
+
+    match /training_plans/{planId} {
+      allow get: if isSignedIn()
+        && (
+          (
+            resource == null
+            && planId.matches('^' + request.auth.uid + '_[0-9]{8}$')
+          )
+          || resource.data.user_id == request.auth.uid
+        );
+      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && validTrainingPlanWrite(request.resource.data, planId)
+        && request.resource.data.created_at == request.time
+        && request.resource.data.updated_at == request.time;
+
+      allow update: if isSignedIn()
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && request.resource.data.day_key == resource.data.day_key
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.updated_at == request.time
+        && validTrainingPlanWrite(request.resource.data, planId);
+
       allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
 
