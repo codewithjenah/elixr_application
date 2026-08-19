@@ -1,0 +1,300 @@
+# Phase 5 — Movement management, assignments, and `assignment_attempts`
+
+**Status:** Planned  
+**Sequence:** `05` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
+**Prerequisite:** Phase 4 official XP gate is on `main`. If non-catalog sessions can still award global XP, **STOP**.
+
+## Implementing agent instructions
+
+- Re-read current `main`, [AGENTS.md](../../AGENTS.md), [00-master-plan.md](00-master-plan.md), Phase 4 handoff, and this file before editing.
+- Work only on existing `main`. Do not create another branch.
+- Implement **only this phase**. Schema for `teacher_reviewed` / `template_scored` may exist; **do not** implement generic template AI scoring (Phase 7) or review video upload (Phase 6).
+- Persist classroom work in **`assignment_attempts`**. Teacher-created attempts never use `sessions`. Official **assignment-context** completions still create `sessions` **and** a required pointer attempt.
+- Teacher-created activity must **never** call `recordCompletedSession` or write `leaderboard_processed_sessions`. Official assignment XP is awarded **only** from the `sessions` save, exactly once.
+- Official assignment pointer is **required**, not optional. Do not attach arbitrary historical sessions to new assignments.
+- Do not delete [teacher_app/](../../teacher_app/).
+- Update this document’s Status and Completion report when done.
+
+---
+
+## 1. Status
+
+Planned
+
+## 2. Goal
+
+Let Teachers manage Official vs Teacher-created movements, version definitions, assign them to groups, give Trainees an Assigned Movements experience, and persist classroom attempts in a domain that cannot enter global gamification.
+
+## 3. User-visible outcome
+
+- Teacher Movements destination: Official ELIXR catalog (read-only) vs Teacher-created list (create/edit/archive).
+- Teacher can assign a movement revision to a group (due date optional).
+- Trainee shell gains Assigned Movements (not Teacher-only): list of assignments for groups they belong to.
+- Official assignment launch uses existing guided practice: a successful run **creates `sessions/{sessionId}`**, remains eligible for official global XP **exactly once**, and **must also** create an `assignment_attempts` pointer with `source_session_id` and `awards_global_xp: false` (never a second XP award). Historical/non-assignment sessions must **not** auto-complete a newly created assignment.
+- Teacher-created assignments write `assignment_attempts` only (never `sessions`, never global XP).
+- Results ownership: authenticated trainee UID + `group_id` + `assignment_id` + pinned movement revision.
+- Assessment mode is stored: `teacher_reviewed` | `template_scored`. Unsupported templates are created as `teacher_reviewed` (scoring engine not live yet).
+
+## 4. Verified current repo behavior
+
+- Official 12: [lib/core/constants/movements.dart](../../lib/core/constants/movements.dart), [backend/config.py](../../backend/config.py) `MOVEMENT_CONFIG`, [backend/assessment/rule_engine.py](../../backend/assessment/rule_engine.py), [test/fixtures/enabled_scored_movements.json](../../test/fixtures/enabled_scored_movements.json).
+- No custom movement collections. No Wrist Stall. No `assessment_family`.
+- Guided practice saves `sessions` via `SessionService` then awards XP.
+- WS `validate_movement_name` rejects unknown names for the **official** protocol catalog. Teacher-created names must **not** be smuggled through as official `prepare.movement` until Phase 7 registers a validated spec — Phase 5 classroom practice for Teacher-created `teacher_reviewed` movements is **practice without automatic assessment** (preview allowed; no rubric award to `sessions`).
+- Python owns camera; Flutter shows JPEGs.
+
+## 5. Dependencies / prerequisites
+
+- Phase 1 Teacher Movements route; Trainee shell still exists.
+- Phase 2 groups + Classroom Authorization.
+- Phase 4 official XP gate.
+
+## 6. In scope
+
+- Collections: Teacher-created movement definitions + immutable revisions; group assignments; `assignment_attempts`.
+- Rules: trainee creates own attempts; Teacher reads attempts for groups they own (Classroom Authorization for **metadata/results**; **not** video — video is Phase 6 Assignment Submission Authorization).
+- Trainee Assigned Movements UI.
+- Teacher assignment UI.
+- Identity: stable `movement_id` + `revision_id` (immutable snapshot of definition).
+- `awards_global_xp: false` persisted on every `assignment_attempts` doc (defense in depth).
+- Official assignment-context completion: **required** `assignment_attempts` pointer + single `sessions` XP path.
+- Tests: cannot route teacher-created save into `LeaderboardRepository.recordCompletedSession`; cannot double-award; cannot attach historical sessions.
+- Official catalog remains the 12 names; do not add Wrist Stall to official 12 here (Phase 7 creates it as Teacher-created).
+
+## 7. Explicit non-goals
+
+- Video record/upload/review queue (Phase 6) — may store `attempt_kind` and empty `storage_path`.
+- AssessmentSpec evaluator / Live Test (Phase 7).
+- Adding Teacher-created names to `movementCatalog` official list or `coachingMovementNames()`.
+- Global XP from `assignment_attempts` or Teacher-created work (official catalog XP still comes only from `sessions`).
+- Deleting `teacher_app`.
+- Implementing throw/catch Basic Toss.
+
+## 8. Architecture / runtime flow
+
+```mermaid
+flowchart TD
+  officialAssign[Official assignment launch]
+  freePractice[Official practice outside assignment]
+  created[Teacher-created assignment]
+  sessions[sessions]
+  attempts[assignment_attempts pointer]
+  xp[global XP once]
+  classroom[classroom only]
+  officialAssign --> sessions --> xp
+  officialAssign --> attempts --> classroom
+  freePractice --> sessions
+  created --> attempts
+```
+
+**Official practice outside an assignment:** unchanged. `sessions` only. No `assignment_attempts`.
+
+**Official assignment of an official movement (required pointer):** Trainee launches guided practice **from that assignment**. On success:
+
+1. Create `sessions/{sessionId}` as today (official domain).
+2. Award global XP at most once via `recordCompletedSession` / marker (Phase 4 allowlist).
+3. **Also** create `assignment_attempts/{attemptId}` with `source_session_id`, `attempt_kind: practice_pointer` (or equivalent), `awards_global_xp: false`, and frozen `group_id`, `assignment_id`, `teacher_id`, `trainee_id`, `movement_id`, `revision_id`.
+4. The pointer must **never** produce a second XP award or increment `sessions_completed` again.
+5. The assigning Teacher reads classroom completion from the attempt under Classroom Authorization — **not** from raw `sessions`, and **not** requiring Progress Access or a public profile.
+
+Do **not** auto-complete a newly created assignment by scanning unrelated historical `sessions`. The attempt must prove the trainee performed **this** session in **this** assignment context.
+
+**Teacher-created assignment:** never `sessions`. Phase 5 minimum: create attempt docs as `draft` / `in_progress` so Phase 6 can attach video. Trainees must not write Teacher review fields (Phase 6 state machine; lock the field split in this phase so rules can be tested early).
+
+## 9. Data models and persisted schema affected
+
+### `teacher_movements/{movementId}`
+
+`teacher_id`, `title`, `status` (`active` \| `archived`), `created_at`, `updated_at`, `current_revision_id`.
+
+### `teacher_movement_revisions/{revisionId}` (or subcollection `teacher_movements/{id}/revisions/{rev}`)
+
+Prefer **subcollection** for locality: `teacher_movements/{movementId}/revisions/{revisionId}`.
+
+Fields: `movement_id`, `teacher_id`, `schema_version`, `assessment_mode` (`teacher_reviewed` \| `template_scored`), `spec` (JSON map; Phase 5 may store a stub / unsupported flag), `immutable` once published, `created_at`.
+
+Published revisions are immutable. Edits create a new revision; assignments pin `revision_id`.
+
+### `group_assignments/{assignmentId}`
+
+`group_id`, `teacher_id`, `movement_id`, `revision_id`, `assessment_mode`, `origin` (`official_elixr` \| `teacher_created`), `official_movement_name` (nullable), `created_at`, `due_at` (optional).
+
+Official origin: `official_movement_name` must be one of the 12. Teacher-created origin: `official_movement_name` must be absent; `awards_global_xp` conceptually false.
+
+### `assignment_attempts/{attemptId}`
+
+**This is the classroom domain.** Suggested fields:
+
+- `trainee_id` (auth owner)
+- `teacher_id` (assignment owner, denormalized)
+- `group_id`, `assignment_id`
+- `movement_id`, `revision_id`
+- `origin` (`official_elixr` \| `teacher_created`)
+- `assessment_mode`
+- `attempt_kind` (`practice_pointer` \| `template_score` \| `teacher_review_submission` — last used in Phase 6)
+- `awards_global_xp` always `false` (immutable after create)
+- `source_session_id` **required** when `origin == official_elixr` and the attempt is an assignment-context completion pointer; **forbidden** as a way to attach a session that was not launched from this assignment
+- `status` (`draft` \| `in_progress` \| `submitted`; Phase 6 extends with Teacher-only `approved` \| `needs_retry` — trainees must never write those values)
+- rubric fields optional (Phase 7)
+
+### Trainee-owned immutable identity fields (after create)
+
+Trainees create the document. After create, these fields are **frozen** (rules deny trainee and Teacher mutation):
+
+- `trainee_id`
+- `teacher_id`
+- `group_id`
+- `assignment_id`
+- `movement_id`
+- `revision_id`
+- `origin`
+- `assessment_mode`
+- `awards_global_xp`
+
+Trainees must **never** be able to:
+- set `review_verdict` to `approved` / `needs_retry`
+- set Teacher `review_feedback`
+- set `reviewed_at`
+- set `status` to `approved` / `needs_retry`
+- impersonate another trainee
+- modify another trainee’s attempt
+
+Phase 5 should already reject those writes even if the review UI ships in Phase 6. Frozen identity fields cannot be rewritten after create (trainee or Teacher).
+
+**Never** include video bytes. Optional `video_storage_path` added in Phase 6.
+
+## 10. Authentication / authorization / privacy rules
+
+- Trainee create of own `assignment_attempts` where `trainee_id == auth.uid` and they have Classroom Authorization (approved membership) **at create time**. Freeze identity fields (U1). Official pointers must include a `source_session_id` whose `sessions` doc is owned by that trainee and was produced in this assignment launch (client carries assignment ids into the practice run; do not bind leftover history).
+- Teacher read of attempt **metadata/results**: viewer `== teacher_id` on the attempt (frozen). **Public Profile Privacy ignored.** Progress Access not required for the pointer.
+- Teacher must **not** change trainee identity, assignment ids, or movement revision.
+- Teacher must **not** set `awards_global_xp` to true. Attempts with `awards_global_xp != false` fail rules.
+- Unrelated Teachers: deny. Other trainees: deny.
+- `sessions` rules stay owner-only. Classroom completion for Teachers is the pointer, not a new `sessions` read.
+- Trainees cannot write `review_verdict` / `review_feedback` / `reviewed_at` (self-approve impossible).
+
+## 11. Cross-layer contracts affected
+
+- New Firestore collections + indexes (`teacher_id+status`, `group_id+assignment_id`, `trainee_id+created_at`).
+- `FirestoreCollections`.
+- Trainee routing: Assigned Movements screen (new), must not be confused with `/movements` catalog.
+- Python: **no** new official catalog names. If Phase 5 allows camera preview for custom titles, use an internal unscored mode (existing `Free Practice` / prop-detection-only) **without** saving `sessions`. Do not send unknown names through `validate_movement_name` until Phase 7.
+
+## 12. Existing files that must be inspected
+
+- [lib/core/constants/movements.dart](../../lib/core/constants/movements.dart)
+- [lib/features/movements/movements_screen.dart](../../lib/features/movements/movements_screen.dart)
+- [lib/services/session_service.dart](../../lib/services/session_service.dart)
+- [lib/data/repositories/leaderboard_repository.dart](../../lib/data/repositories/leaderboard_repository.dart)
+- [backend/assessment/rule_engine.py](../../backend/assessment/rule_engine.py) `validate_movement_name`
+- [backend/config.py](../../backend/config.py)
+- Phase 2 group models; Phase 4 allowlist
+- [firestore.rules](../../firestore.rules)
+
+## 13. Likely files to modify / create / delete
+
+**Create:** movement definition/assignment/attempt models + repositories + Teacher Movements UI + Trainee Assigned Movements UI + rules + tests.
+
+**Modify:** Teacher shell Movements placeholder; Trainee sidebar (new item); `FirestoreCollections`.
+
+**Delete:** nothing in `teacher_app`.
+
+## 14. Backward compatibility / migration strategy
+
+- Official 12 unchanged.
+- No backfill of old `sessions` into `assignment_attempts`. New assignments start empty until the trainee completes **from that assignment**.
+- Coaching `movement_name` allowlist stays official 12.
+
+## 15. Step-by-step implementation order
+
+1. Tests: saving a teacher-created attempt does not call XP award.
+2. Models + in-memory repos.
+3. Rules: `awards_global_xp == false` immutable; owner trainee create; frozen identity; trainee cannot write review fields; teacher metadata read; stranger deny.
+4. Teacher CRUD movements (revisions immutable).
+5. Group assignment UI.
+6. Trainee Assigned Movements list.
+7. Official assignment launch carries assignment context into PracticeScreen; on success **required** pointer + single XP award. Tests: no historical-session attach; no double XP.
+8. Unsupported `template_scored` definitions stored but run as `teacher_reviewed` fallback **flag** (`capability: unsupported`) — no AI.
+9. Update this file.
+
+## 16. Acceptance criteria
+
+1. Official vs Teacher-created are visually and persistently separate.
+2. Assignments pin revision IDs.
+3. Every official **assignment-context** completion creates `sessions` plus a required `assignment_attempts` pointer (`source_session_id`, `awards_global_xp: false`). No second XP. No historical-session auto-complete.
+4. Teacher-created practice cannot increment `leaderboard.total_xp`.
+5. Frozen identity fields cannot be rewritten; trainee cannot self-approve or write Teacher feedback.
+6. Locked profile does not hide assignment completion from assigning Teacher (pointer readable under Classroom Authorization).
+7. Unrelated Teacher cannot read attempts.
+8. No video pipeline yet; no generic template engine yet.
+9. `teacher_app` intact.
+
+## 17. Required tests
+
+- Repository: revision immutability; assignment pin; attempt owner.
+- XP isolation: no `recordCompletedSession` on teacher-created save; official assignment awards XP once from `sessions` only.
+- Official pointer: created on assignment-context complete; missing pointer fails the assignment-complete path; attaching a session from a different assignment/group rejected.
+- Rules: `awards_global_xp` true rejected; cannot flip to true later; trainee cannot set `review_verdict` / `review_feedback` / `reviewed_at`; trainee cannot rewrite frozen identity; unrelated Teacher cannot read; assigning Teacher cannot change `trainee_id` or `revision_id`.
+- Widget: Assigned Movements empty/error; Teacher create movement.
+- Official catalog tests still 12 names.
+
+## 18. Verification commands
+
+```powershell
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+cd packages\elixr_core; flutter test
+cd ..\..\teacher_app; flutter test
+backend\.venv\Scripts\python.exe -m pytest -q backend\tests
+```
+
+Python tests required if preview mode / WS movement validation was touched; otherwise still run once for safety.
+
+## 19. Manual verification checklist
+
+- [ ] Assign official Hand Stall; complete **from the assignment**; global XP +25 once; Teacher sees pointer without Progress Access.
+- [ ] Same trainee’s older non-assignment Hand Stall session does **not** complete a newly created assignment.
+- [ ] Create Teacher movement; assign; Trainee completion does **not** change global XP.
+- [ ] Trainee cannot set `review_verdict` or `status` to approved.
+- [ ] Second Teacher cannot open those attempts.
+- [ ] Locked trainee still visible on assignment roster.
+
+## 20. Performance / storage / privacy risks
+
+- Denormalized teacher_id on attempts enables simple rules; keep snapshots in sync with assignment owner (assignments should be immutable about teacher_id).
+- Do not store spec JSON so large it blows document size; keep Phase 5 specs small.
+
+## 21. Explicit “Do not” list
+
+- Do not write Teacher-created results to `sessions`.
+- Do not call `recordCompletedSession` for `assignment_attempts`.
+- Do not skip the official-assignment pointer.
+- Do not auto-complete assignments from historical `sessions`.
+- Do not add custom names to official catalog / coaching names / `enabled_scored_movements.json`.
+- Do not implement video upload.
+- Do not implement AssessmentSpec execution.
+- Do not use General Evidence Access for attempt metadata.
+- Do not delete `teacher_app`.
+- Do not start Phase 6–7 beyond schema flags.
+
+## 22. Completion report template
+
+```
+Phase 5 completion
+- Collections added:
+- XP isolation tests:
+- Official assignment pointer required: yes
+- Double XP prevented: yes
+- Commands run:
+- Not verified:
+```
+
+## 23. Handoff requirements for Phase 6
+
+1. `assignment_attempts` exists with frozen identity fields listed above.
+2. Official assignment-context completion always writes a pointer with `source_session_id`.
+3. `assessment_mode` includes `teacher_reviewed`.
+4. Trainees cannot write Teacher review fields.
+5. Global XP gate from Phase 4 still holds; pointers never award XP.
+6. `teacher_app/` still present.

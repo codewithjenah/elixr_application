@@ -1,0 +1,367 @@
+# Phase 6 — Teacher-reviewed video submissions
+
+**Status:** Planned  
+**Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
+**Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.
+
+## Implementing agent instructions
+
+- Re-read current `main`, [AGENTS.md](../../AGENTS.md), [lib/AGENTS.md](../../lib/AGENTS.md), [backend/AGENTS.md](../../backend/AGENTS.md), [00-master-plan.md](00-master-plan.md), Phase 5 handoff, and this file before editing.
+- Work only on existing `main`. Do not create another branch.
+- Implement **only this phase**. Do not implement AssessmentSpec / Wrist Stall scoring (Phase 7).
+- Python remains the sole webcam owner. Do not add a Flutter camera plugin.
+- Do not put video bytes or base64 on the realtime WebSocket. Do not extend `evidence_jpeg_base64` to video.
+- Assignment video reads use **Assignment Submission Authorization**, not **General Evidence Access**.
+- Do not delete [teacher_app/](../../teacher_app/).
+- Update this document’s Status and Completion report when done.
+
+---
+
+## 1. Status
+
+Planned
+
+## 2. Goal
+
+Let Trainees explicitly record and submit one short review clip for a Teacher-reviewed assignment; store the file in Firebase Storage and metadata on `assignment_attempts`; let the assigning Teacher review (Approve / Needs Retry + feedback) under submission-scoped authorization; bound duration/size; delete heavy video on a designed retention path while keeping a lightweight historical record.
+
+## 3. User-visible outcome
+
+- Teacher-reviewed assignment: Trainee can **practice** with live preview **without** upload.
+- A distinct **Record Submission** action starts a bounded recording. UI states clearly: the clip will be visible to the **assigning Teacher**.
+- Preview / retry locally before upload where practical.
+- After upload: attempt status `submitted`; Teacher Review queue shows it.
+- Teacher: play clip (if not expired), Approve or Needs Retry, written feedback.
+- Needs Retry: Trainee may submit a replacement; superseded Storage objects are deleted.
+- After retention expiry: video gone; verdict/feedback/thumbnail metadata remain.
+- Locked profile does not block the assigning Teacher from this submission.
+- Unrelated Teachers cannot open the clip.
+- Global XP unchanged.
+
+## 4. Verified current repo behavior
+
+- No video recording in Python. Preview is JPEG (`preview_frame`). Optional **still** `evidence_jpeg_base64` on first `hold_confirmed` → Storage `users/{uid}/session_evidence/{sessionId}.jpg` (1–256 KiB).
+- [storage.rules](../../storage.rules): profile images; session evidence JPEGs; **default deny**. Teacher still read uses `hasTeacherEvidenceGrant` (Progress + General Evidence Access).
+- Legal copy: raw camera video is never uploaded ([packages/elixr_core/lib/legal/legal_documents.dart](../../packages/elixr_core/lib/legal/legal_documents.dart)) — **must be updated** for this explicit classroom clip.
+- Firestore stores no video payloads today.
+
+## 5. Dependencies / prerequisites
+
+- Phase 5 `assignment_attempts` with frozen identity fields and `teacher_reviewed` mode.
+- Phase 2 Classroom Authorization for who may submit (membership at create time).
+- Local Python camera lifecycle (prepare/preview/stop) already exists.
+
+## 6. In scope
+
+- New WS/HTTP commands for **bounded local file recording** (start/stop/cancel) producing a temp file on disk; ack with path, duration_ms, size_bytes, sha256 optional — **not** the bytes.
+- Flutter upload via Firebase Storage SDK.
+- Storage rules for submission objects using Assignment Submission Authorization.
+- Review queue UI; Teacher-only Approve / Needs Retry; feedback field; **constrained review state machine** (below).
+- Firestore/rules tests: trainee cannot self-approve or write Teacher feedback.
+- Retention timestamps + deletion mechanism (§9–10, §20).
+- Deterministic local temp cleanup (success, failure, cancel, dispose, navigation).
+- Legal/consent copy update.
+- Tests for authz, caps, cleanup, replace-deletes-old.
+
+## 7. Explicit non-goals
+
+- Continuous upload of practice.
+- Template AI scoring (Phase 7).
+- Cloud Functions / Cloud Scheduler. Cleanup is the **client reconciler plus Storage Object Lifecycle Management** on `assignment_submissions/` (U3). Do not add Cloud Functions merely for video TTL.
+- Granting General Evidence Access by submitting a video.
+- Storing video in Firestore or WS.
+- Deleting `teacher_app`.
+- Changing session evidence JPEG rules except not reusing them for mp4.
+
+## 8. Architecture / runtime flow
+
+```mermaid
+sequenceDiagram
+  participant T as Trainee Flutter
+  participant P as Local Python
+  participant S as Firebase Storage
+  participant F as Firestore assignment_attempts
+  participant R as Assigning Teacher
+  T->>P: prepare preview no upload
+  T->>P: start_submission_record
+  P->>P: write temp mp4
+  T->>P: stop_submission_record
+  P-->>T: local path duration size
+  T->>T: preview retry
+  T->>S: upload mp4
+  T->>F: submitted metadata plus frozen ids
+  R->>F: list queue
+  R->>S: download if Assignment Submission Authorization
+  R->>F: teacher only submitted to approved or needs_retry
+```
+
+Recording must use the **same** camera owner as practice (`backend/vision/camera.py`, `backend/api/websocket.py`). After stop, release camera per existing debounce rules.
+
+Do **not** stream the mp4 over WS. Optional localhost HTTP GET `GET /submission_clip/{token}` bound to loopback + one-time token is acceptable if WS cannot pass a filesystem path to Flutter on Windows; document the choice. Token must expire and the file must be unreadable without it.
+
+## 9. Data models and persisted schema affected
+
+Extend `assignment_attempts` (no new XP tables):
+
+| Field | Purpose |
+|---|---|
+| `attempt_kind` | `teacher_review_submission` |
+| `video_storage_path` | Storage object path or null after delete |
+| `video_content_type` | e.g. `video/mp4` |
+| `video_size_bytes` | |
+| `video_duration_ms` | |
+| `submitted_at` | Starts **unreviewed** retention clock |
+| `video_expires_at` | Computed client-side at submit/review from planning defaults; stored for reconcile |
+| `video_deleted_at` | Set when Storage delete succeeds |
+| `deletion_failed` | True if last delete threw; sweeper retries |
+| `review_verdict` | Teacher-only: `approved` \| `needs_retry` \| null; must match Teacher `status` after review |
+| `review_feedback` | Teacher-only string, bounded |
+| `reviewed_at` | Teacher-only; set on Approve / Needs Retry; starts **reviewed** client retention clock (replaces unreviewed clock) |
+| `supersedes_attempt_id` | optional; retry creates a **new** attempt rather than overwriting historical Teacher review |
+
+### Review state machine (required)
+
+Canonical field: `status`. Teacher decision is also stored on Teacher-only `review_verdict` (must match `status` after review).
+
+Trainee transitions only:
+
+- `draft` / `in_progress` → `submitted`
+
+Trainee **cannot** set `status` to `approved` or `needs_retry`.
+
+Teacher transitions only (assigning Teacher = frozen `teacher_id`):
+
+- `submitted` → `approved` (sets `review_verdict: approved`, `reviewed_at`)
+- `submitted` → `needs_retry` (sets `review_verdict: needs_retry`, `reviewed_at`)
+
+A later trainee retry **creates a replacement/new attempt** (link with `supersedes_attempt_id`). Do **not** overwrite the historical attempt’s `review_verdict`, `review_feedback`, or `reviewed_at`.
+
+Trainees must never:
+
+- set `review_verdict` to approved / needs_retry
+- set `status` to approved / needs_retry
+- set `review_feedback`
+- set `reviewed_at`
+- change frozen identity fields (Phase 5 list)
+- impersonate another trainee
+- modify another trainee’s attempt
+
+Teachers must never:
+
+- change `trainee_id`, `movement_id`, or `revision_id`
+- set `awards_global_xp` to true
+- review attempts they do not own
+- submit on behalf of a trainee
+
+Unrelated Teachers cannot review.
+
+**Storage path (recommended):**
+
+`assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4`
+
+Do not put videos under `session_evidence`.
+
+### Planning defaults (not validated truths)
+
+These are **initial engineering/product defaults**. They require validation. Do not describe them as measured camera/storage limits.
+
+| Default | Initial planning value | Configurable? |
+|---|---|---|
+| Max duration | 20 seconds | Yes — named constant + rules `request.resource.size` cannot encode duration; enforce duration in Python + Flutter, size in Storage rules |
+| Max size | 15 MiB | Yes — Storage rules |
+| Unreviewed client cleanup | ~30 days from `submitted_at` | Planning default |
+| Reviewed client cleanup | ~14 days from `reviewed_at` | Planning default; primary review policy |
+| Storage lifecycle hard backstop | ~30 days from **object upload** | Planning default; `assignment_submissions/` only |
+
+## 10. Authentication / authorization / privacy rules
+
+### Assignment Submission Authorization (required for video read)
+
+All of:
+
+1. Viewer is authenticated and `request.auth.uid == resource.metadata.teacher_id` (custom metadata on Storage) **and** Firestore attempt `teacher_id` matches.
+2. Attempt `trainee_id` matches the path.
+3. Attempt references the same `group_id`, `assignment_id`, `revision_id` as frozen on the doc.
+4. `attempt_kind == teacher_review_submission`.
+5. Historical policy (**U1 frozen**): frozen `teacher_id` on the attempt is sufficient for **read**; live membership is required for **new create**. Later group removal does not erase an already-submitted artifact from the assigning Teacher’s authorized historical review.
+
+Trainee owner: read/delete own object; create only if size/type OK and they are `traineeId` in the path.
+
+Other Teachers/trainees: deny.
+
+**Must not** require `hasTeacherEvidenceGrant` / General Evidence Access.
+
+**Must not** consult `public_profiles.visibility`.
+
+General Evidence Access remains for `session_evidence` JPEGs only.
+
+### Teacher review writes
+
+Only `request.auth.uid == teacher_id` may set `review_verdict`, `review_feedback`, `reviewed_at`, and only from `submitted` as defined above. Trainee updates cannot touch those keys. `awards_global_xp` remains `false`.
+
+### Submit UI consent
+
+Copy must state the assigning Teacher will see this clip. Update legal documents accordingly. Reuse privacy-consent patterns; do not bury this in trainee practice onboarding.
+
+## 11. Cross-layer contracts affected
+
+- WebSocket/HTTP: new record commands + acks + error codes (`submission_too_long`, `record_failed`, …). Update Pydantic schemas, Dart `ws_protocol.dart`, tests, README protocol section.
+- Storage rules + Firestore attempt fields + **lifecycle config for `assignment_submissions/` only**.
+- Legal documents + tests in elixr_core.
+- Camera cleanup contract: recording session is still one camera owner.
+
+## 12. Existing files that must be inspected
+
+- [backend/api/websocket.py](../../backend/api/websocket.py)
+- [backend/schemas/commands.py](../../backend/schemas/commands.py)
+- [backend/vision/camera.py](../../backend/vision/camera.py)
+- [lib/services/websocket_service.dart](../../lib/services/websocket_service.dart)
+- [lib/data/models/ws_protocol.dart](../../lib/data/models/ws_protocol.dart)
+- [lib/data/repositories/session_evidence_repository.dart](../../lib/data/repositories/session_evidence_repository.dart) (do not reuse blindly)
+- [storage.rules](../../storage.rules)
+- [firestore.rules](../../firestore.rules)
+- [packages/elixr_core/lib/legal/legal_documents.dart](../../packages/elixr_core/lib/legal/legal_documents.dart)
+- Phase 5 attempt models
+
+## 13. Likely files to modify / create / delete
+
+**Create:** submission recorder (Python), upload repository, review queue screens, Storage rule match, retention reconciler, tests.
+
+**Modify:** WS schemas/clients, legal docs, `assignment_attempts` model, Teacher shell (queue under Dashboard or Movements).
+
+**Delete:** temp files at runtime, not `teacher_app`.
+
+## 14. Backward compatibility / migration strategy
+
+- Existing JPEG evidence unchanged.
+- Old legal version: bump `privacy_policy_version` if the policy text changes; follow existing consent patterns.
+- Attempts without video remain valid.
+
+## 15. Step-by-step implementation order
+
+1. Protocol tests for record start/stop/cancel without payload bytes.
+2. Python temp-file recorder + duration cap + cleanup tests (no real webcam: fake writer).
+3. Flutter: Record Submission UX + consent copy + local preview.
+4. Storage rules + upload repository + size cap.
+5. Firestore submit metadata; freeze IDs.
+6. Teacher queue + playback + verdict (**Teacher-only** transitions).
+7. Replacement submit creates a **new** attempt; deletes previous object; sets `deletion_failed` on error; does not overwrite old review fields.
+8. Client retention reconciler + document/apply `assignment_submissions/` Object Lifecycle (~30 day age).
+9. Legal update + tests.
+10. Update this file.
+
+### Deletion mechanism (required design)
+
+Firebase Storage does **not** read Firestore `reviewed_at` by itself.
+
+| Question | Phase 6 answer |
+|---|---|
+| What timestamp starts **client** reviewed retention? | `reviewed_at`. Delete video ~14 days later (planning default). |
+| What timestamp starts **client** unreviewed retention? | `submitted_at`. Planning default ~30 days. |
+| What component performs **early** delete? | **Client-owned reconciler** on Teacher review-queue load and Trainee Assigned Movements load: `video_storage_path != null` and `video_expires_at < now` → `Storage.delete` → set `video_deleted_at`, clear path. Also delete immediately on replacement/retry of a newer clip. |
+| Hard server-side backstop? | **Cloud Storage Object Lifecycle Management** on prefix `assignment_submissions/` only. Maximum object age ~30 days from **creation/upload**. This is a hard storage bound, **not** the primary `reviewed_at` policy. Reviewed clips should usually be removed earlier by the client. If clients never reopen, lifecycle still prevents indefinite accumulation. |
+| Lifecycle must not delete | Profile images (`users/{uid}/profile/`), session evidence JPEGs (`users/{uid}/session_evidence/`), movement assets, or any prefix other than assignment submissions. |
+| Lifecycle testing | Configure and verify against **development/test** objects before production. 30-day value is an initial default, not experimentally validated. |
+| If client delete fails? | `deletion_failed: true`, keep path, retry next reconcile with backoff. Do not crash the queue. |
+| If lifecycle already deleted the object? | `Storage.delete` / download **object-not-found is reconciled**: set `video_storage_path` null, `video_deleted_at` (or `video_lifecycle_deleted: true`), `deletion_failed` false. **Not fatal.** |
+| Firestore after delete | Lightweight fields remain: `review_verdict`, `review_feedback`, timestamps, assignment/revision ids, optional thumbnail. Metadata may **outlive** the video. |
+| Superseded video | New attempt upload → delete old path; if old delete fails, mark old attempt `deletion_failed`. |
+| Cloud Functions? | **Do not** introduce Cloud Functions merely for this cleanup. |
+
+**Account erasure:** extend existing auth purge to submission prefixes (inspect `AuthRepository` purge paths).
+
+## 16. Acceptance criteria
+
+1. No upload except after explicit Record Submission + confirm.
+2. Python owns camera; WS carries metadata only.
+3. Assigning Teacher can read **that** video via Assignment Submission Authorization without General Evidence Access.
+4. Cannot read other stills/submissions via that grant.
+5. Locked profile does not block that Teacher.
+6. Caps enforced (duration in recorder; size in rules).
+7. Temp files cleaned on all exit paths.
+8. Client reconciler + `assignment_submissions/` lifecycle backstop implemented; object-not-found is reconciled; defaults labeled unvalidated.
+9. Legal text updated.
+10. Trainee cannot self-approve; Teacher-only review transitions; retry is a new attempt.
+11. No global XP.
+12. `teacher_app` intact.
+
+## 17. Required tests
+
+- WS: record commands ack; oversized duration rejected; stop without start rejected.
+- Cleanup: dispose/cancel deletes temp file.
+- Storage rules tests (emulator if available): assigning Teacher allowed; other Teacher denied; evidence grant **not** sufficient for this path; lock irrelevant.
+- Firestore rules: trainee cannot self-approve; cannot write `review_feedback` / `reviewed_at`; cannot rewrite frozen identity; unrelated Teacher cannot review; assigning Teacher can review only their assignment; Teacher cannot change `trainee_id` or `revision_id`; `awards_global_xp` stays false.
+- Repository: replace is a new attempt; expiry reconcile; deletion_failed retry; **object-not-found treated as reconciled**.
+- Widget: consent copy present; practice preview does not upload.
+- Legal document tests updated.
+- Leaderboard tests still prove classroom submit does not award XP.
+
+## 18. Verification commands
+
+```powershell
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+cd packages\elixr_core; flutter test
+backend\.venv\Scripts\python.exe -m pytest -q backend\tests
+backend\.venv\Scripts\python.exe -m compileall backend\api backend\assessment backend\schemas backend\vision backend\main.py backend\config.py
+```
+
+`flutter build windows` recommended (camera/WS). teacher_app tests still run.
+
+Storage/Firestore emulator: `Not verified` if not used.
+
+## 19. Manual verification checklist
+
+- [ ] Practice 30s without Record Submission → no Storage object.
+- [ ] Record Submission → assigning Teacher plays clip without Progress/Evidence grants.
+- [ ] Another Teacher cannot play it.
+- [ ] Needs Retry replacement → old object gone or marked deletion_failed.
+- [ ] Trainee cannot mark their own submission approved.
+- [ ] After forcing `video_expires_at` in the past, opening the queue deletes the object and keeps verdict.
+- [ ] Simulating lifecycle object-not-found reconciles metadata without a fatal error.
+- [ ] Camera released after submit/cancel.
+
+## 20. Performance / storage / privacy risks
+
+- Unbounded storage if **both** reconciler never runs **and** lifecycle is misconfigured — mitigate with prefix-scoped lifecycle tested in a non-prod bucket first.
+- Loopback HTTP clip download must not bind on 0.0.0.0.
+- Do not log full local paths in production payloads.
+
+## 21. Explicit “Do not” list
+
+- Do not continuously record/upload practice.
+- Do not send mp4/base64 on WS feedback.
+- Do not reuse `session_evidence` paths or General Evidence Access for these videos.
+- Do not claim 20s / 15 MiB / 14d / 30d are experimentally validated.
+- Do not assume Storage TTL from Firestore timestamps (lifecycle is **age from upload**, client policy is `reviewed_at`).
+- Do not apply lifecycle to profile or `session_evidence` prefixes.
+- Do not introduce Cloud Functions merely for video cleanup.
+- Do not let trainees self-approve.
+- Do not overwrite historical Teacher review on retry.
+- Do not add a Flutter webcam owner.
+- Do not award global XP.
+- Do not delete `teacher_app`.
+- Do not implement Phase 7 evaluators.
+
+## 22. Completion report template
+
+```
+Phase 6 completion
+- Record protocol:
+- Storage path pattern:
+- Assignment Submission Authorization implemented in rules: yes/no
+- Deletion mechanism: client reconciler + assignment_submissions lifecycle
+- Trainee self-approve blocked: yes
+- Planning defaults used (unvalidated):
+- Commands run:
+- Not verified:
+```
+
+## 23. Handoff requirements for Phase 7
+
+1. Teacher-reviewed path works end-to-end for custom movements.
+2. `assignment_attempts` can hold scores later without using `sessions`.
+3. Camera/WS lifecycle still single-owner and cleanup-safe.
+4. Python backend is the obvious attachment point for Live Test.
+5. `teacher_app/` still present.
