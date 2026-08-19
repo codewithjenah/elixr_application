@@ -19,6 +19,22 @@ User _teacher({String id = 'teacher-1'}) => User(
   role: User.roleTeacher,
 );
 
+User _admin({String id = 'admin-1'}) => User(
+  id: id,
+  firstName: 'Ad',
+  lastName: 'Min',
+  email: 'admin@example.com',
+  role: User.roleAdmin,
+);
+
+User _unknownRole({String id = 'unknown-1'}) => User(
+  id: id,
+  firstName: 'Un',
+  lastName: 'Known',
+  email: 'unknown@example.com',
+  role: 'Moderator',
+);
+
 AppRedirectState _state({
   bool isLoading = false,
   bool isAuthenticated = true,
@@ -124,6 +140,37 @@ void main() {
     );
   });
 
+  test('authenticated trainee on verify-email redirects to dashboard', () {
+    expect(
+      resolveAppRedirect(
+        _state(user: _trainee(), location: AppRoutePaths.verifyEmail),
+      ),
+      AppRoutePaths.dashboard,
+    );
+  });
+
+  test('verified teacher on verify-email redirects to teacher dashboard', () {
+    expect(
+      resolveAppRedirect(
+        _state(user: _teacher(), location: AppRoutePaths.verifyEmail),
+      ),
+      AppRoutePaths.teacherDashboard,
+    );
+  });
+
+  test('unauthenticated verify-email redirects to login', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          isAuthenticated: false,
+          user: null,
+          location: AppRoutePaths.verifyEmail,
+        ),
+      ),
+      AppRoutePaths.login,
+    );
+  });
+
   test(
     'verified teacher on practice routes redirects to teacher dashboard',
     () {
@@ -197,6 +244,55 @@ void main() {
         ),
       ),
       '/learn/movement/Hand%20Stall?difficulty=Easy&prop=bottle',
+    );
+  });
+
+  test('admin role cannot enter trainee or teacher product routes', () {
+    for (final location in [
+      AppRoutePaths.dashboard,
+      AppRoutePaths.practice,
+      AppRoutePaths.livePractice,
+      AppRoutePaths.joinCoach,
+      AppRoutePaths.teacherDashboard,
+      AppRoutePaths.teacherSettings,
+      AppRoutePaths.verifyEmail,
+    ]) {
+      final result = resolveAppRedirect(
+        _state(user: _admin(), location: location),
+      );
+      expect(result, isNot(AppRoutePaths.dashboard), reason: location);
+      expect(result, isNot(AppRoutePaths.teacherDashboard), reason: location);
+      expect(result, isNotNull, reason: location);
+      expect(result, isNot(location), reason: location);
+    }
+
+    expect(
+      resolveAppRedirect(_state(user: _admin(), location: AppRoutePaths.login)),
+      isNull,
+    );
+  });
+
+  test('unknown role cannot enter trainee or teacher product routes', () {
+    for (final location in [
+      AppRoutePaths.dashboard,
+      AppRoutePaths.practice,
+      AppRoutePaths.teacherDashboard,
+      AppRoutePaths.verifyEmail,
+    ]) {
+      final result = resolveAppRedirect(
+        _state(user: _unknownRole(), location: location),
+      );
+      expect(result, isNot(AppRoutePaths.dashboard), reason: location);
+      expect(result, isNot(AppRoutePaths.teacherDashboard), reason: location);
+      expect(result, isNotNull, reason: location);
+      expect(result, isNot(location), reason: location);
+    }
+
+    expect(
+      resolveAppRedirect(
+        _state(user: _unknownRole(), location: AppRoutePaths.login),
+      ),
+      isNull,
     );
   });
 

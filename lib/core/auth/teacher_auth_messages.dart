@@ -1,6 +1,6 @@
 import 'package:elixr_core/repositories/auth_repository.dart';
 
-/// User-facing copy for Teacher authentication flows in the Windows app.
+/// User-facing copy for Windows authentication flows (Teacher gate + fail-closed roles).
 abstract final class TeacherAuthMessages {
   static const notATeacher = 'This account is not registered as a Teacher.';
   static const passwordMismatch = 'Passwords do not match';
@@ -11,4 +11,6 @@ abstract final class TeacherAuthMessages {
   static const emailNotVerifiedYet =
       'Email is not verified yet. Check your inbox and try again.';
   static const verificationSent = 'Verification email sent.';
+  static const unsupportedRole =
+      'This account cannot access ELIXR. Sign in with a Trainee or Teacher account.';
 }

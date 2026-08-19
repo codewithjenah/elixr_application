@@ -60,21 +60,20 @@ String? resolveAppRedirect(AppRedirectState state) {
     );
   }
 
-  if (isTrainee || user != null) {
+  if (isTrainee) {
     return _redirectAuthenticatedTrainee(
       state: state,
       location: location,
       isAuthRoute: isAuthRoute,
-      isLegalRoute: isLegalRoute,
+      isVerifyRoute: isVerifyRoute,
     );
   }
 
-  // Unknown role (e.g. Admin): keep trainee-safe routing.
-  if (AppRoutePaths.isTeacherShellRoute(location)) {
-    return AppRoutePaths.dashboard;
-  }
-  if (isAuthRoute) return AppRoutePaths.dashboard;
-  return null;
+  // Unsupported persisted role (Admin, malformed, unknown) must not inherit
+  // Trainee or Teacher product routing. Keep auth/legal surfaces to avoid
+  // redirect loops; send every other location back to login.
+  if (isAuthRoute || isLegalRoute) return null;
+  return AppRoutePaths.login;
 }
 
 String? _redirectAuthenticatedTeacher({
@@ -110,9 +109,9 @@ String? _redirectAuthenticatedTrainee({
   required AppRedirectState state,
   required String location,
   required bool isAuthRoute,
-  required bool isLegalRoute,
+  required bool isVerifyRoute,
 }) {
-  if (AppRoutePaths.isTeacherShellRoute(location)) {
+  if (isVerifyRoute || AppRoutePaths.isTeacherShellRoute(location)) {
     return AppRoutePaths.dashboard;
   }
 

@@ -5,10 +5,15 @@ import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _TeacherFlowRepository implements AuthRepositoryBase {
-  _TeacherFlowRepository({this.loginUser, this.loginThrows});
+  _TeacherFlowRepository({
+    this.loginUser,
+    this.loginThrows,
+    this.persistedUser,
+  });
 
   User? loginUser;
   Object? loginThrows;
+  User? persistedUser;
   int registerCallCount = 0;
   String? lastDefaultRole;
   bool verificationRequested = false;
@@ -44,7 +49,7 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<User?> loadPersistedUser() async => null;
+  Future<User?> loadPersistedUser() async => persistedUser;
 
   @override
   Future<void> clearCurrentUser() async {
@@ -134,6 +139,112 @@ void main() {
       expect(repository.verificationRequested, isTrue);
       expect(auth.currentUser?.isTeacher, isTrue);
       expect(auth.needsTeacherEmailVerification, isTrue);
+    },
+  );
+
+  test('register persists Trainee role without Teacher verification', () async {
+    final repository = _TeacherFlowRepository();
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+
+    await auth.register(
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      email: 'ada@example.com',
+      password: 'secret1',
+    );
+
+    expect(repository.registerCallCount, 1);
+    expect(repository.lastDefaultRole, User.roleTrainee);
+    expect(auth.currentUser?.isTrainee, isTrue);
+    expect(auth.needsTeacherEmailVerification, isFalse);
+    expect(repository.verificationRequested, isFalse);
+  });
+
+  test('login rejects Admin role without granting product access', () async {
+    final repository = _TeacherFlowRepository(
+      loginUser: User(
+        id: 'admin-1',
+        firstName: 'Ad',
+        lastName: 'Min',
+        email: 'admin@example.com',
+        role: User.roleAdmin,
+      ),
+    );
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+
+    await expectLater(
+      auth.login(email: 'admin@example.com', password: 'secret1'),
+      throwsA(
+        predicate(
+          (error) =>
+              error.toString().contains(TeacherAuthMessages.unsupportedRole),
+        ),
+      ),
+    );
+    expect(auth.isAuthenticated, isFalse);
+    expect(auth.currentUser, isNull);
+    expect(repository.clearCalled, isTrue);
+  });
+
+  test('login rejects unknown role without granting product access', () async {
+    final repository = _TeacherFlowRepository(
+      loginUser: User(
+        id: 'unknown-1',
+        firstName: 'Un',
+        lastName: 'Known',
+        email: 'unknown@example.com',
+        role: 'Moderator',
+      ),
+    );
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+
+    await expectLater(
+      auth.login(email: 'unknown@example.com', password: 'secret1'),
+      throwsA(
+        predicate(
+          (error) =>
+              error.toString().contains(TeacherAuthMessages.unsupportedRole),
+        ),
+      ),
+    );
+    expect(auth.isAuthenticated, isFalse);
+    expect(auth.currentUser, isNull);
+    expect(repository.clearCalled, isTrue);
+  });
+
+  test(
+    'initialize signs out persisted unsupported role without product access',
+    () async {
+      final repository = _TeacherFlowRepository(
+        persistedUser: User(
+          id: 'admin-1',
+          firstName: 'Ad',
+          lastName: 'Min',
+          email: 'admin@example.com',
+          role: User.roleAdmin,
+        ),
+      );
+      final auth = AuthService(
+        repository: repository,
+        awaitInitialAuthState: () async {},
+      );
+      await auth.initialize();
+
+      expect(auth.isAuthenticated, isFalse);
+      expect(auth.currentUser, isNull);
+      expect(repository.clearCalled, isTrue);
     },
   );
 

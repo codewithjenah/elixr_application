@@ -131,7 +131,14 @@ class AuthService extends ChangeNotifier {
     } else {
       await fb.FirebaseAuth.instance.authStateChanges().first;
     }
-    _currentUser = await _repository.loadPersistedUser();
+    final loadedUser = await _repository.loadPersistedUser();
+    if (loadedUser != null && !_hasSupportedProductRole(loadedUser)) {
+      await logout();
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+    _currentUser = loadedUser;
     await _refreshTeacherEmailVerificationState();
     _isLoading = false;
     notifyListeners();
@@ -216,6 +223,10 @@ class AuthService extends ChangeNotifier {
   Future<void> login({required String email, required String password}) async {
     _clearTeacherAuthMessages();
     final user = await _repository.login(email: email, password: password);
+    if (!_hasSupportedProductRole(user)) {
+      await _repository.clearCurrentUser();
+      throw Exception(TeacherAuthMessages.unsupportedRole);
+    }
     _currentUser = user;
     await _refreshTeacherEmailVerificationState();
     notifyListeners();
@@ -334,6 +345,8 @@ class AuthService extends ChangeNotifier {
     _teacherAuthInfoMessage = null;
     _teacherAuthErrorMessage = null;
   }
+
+  bool _hasSupportedProductRole(User user) => user.isTrainee || user.isTeacher;
 
   String _sanitizeTeacherAuthError(Object error) {
     if (error is MissingUserProfileException) {
