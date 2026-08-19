@@ -5,10 +5,10 @@ import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
-import '../../features/calendar/calendar_screen.dart';
 import '../../features/coaching/coaching_notes_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
-import '../../features/history/history_screen.dart';
+import '../../features/training/training_screen.dart';
+import '../../features/training/training_view.dart';
 import '../../features/leaderboard/leaderboard_screen.dart';
 import '../../features/legal/privacy_policy_screen.dart';
 import '../../features/legal/terms_of_service_screen.dart';
@@ -203,19 +203,34 @@ class AppRouter {
               },
             ),
             GoRoute(
+              path: '/training',
+              pageBuilder: (context, state) {
+                final view = TrainingView.fromQuery(
+                  state.uri.queryParameters[TrainingView.viewQueryParameter],
+                );
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: TrainingScreen(
+                    view: view,
+                    date: state
+                        .uri
+                        .queryParameters[TrainingView.dateQueryParameter],
+                  ),
+                );
+              },
+            ),
+            GoRoute(
               path: '/history',
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: const HistoryScreen(),
+              redirect: (context, state) => trainingLocationFromHistory(
+                date:
+                    state.uri.queryParameters[TrainingView.dateQueryParameter],
               ),
             ),
             GoRoute(
               path: '/calendar',
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: CalendarScreen(
-                  initialDate: state.uri.queryParameters['date'],
-                ),
+              redirect: (context, state) => trainingLocationFromCalendar(
+                date:
+                    state.uri.queryParameters[TrainingView.dateQueryParameter],
               ),
             ),
             GoRoute(

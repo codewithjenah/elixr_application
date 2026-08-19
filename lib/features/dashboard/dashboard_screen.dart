@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
@@ -17,6 +16,7 @@ import '../../services/session_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../calendar/utils/calendar_metrics.dart';
 import '../progress/training_recommendation.dart';
+import '../training/training_view.dart';
 import 'widgets/dashboard_calendar_card.dart';
 import 'widgets/dashboard_panel_card.dart';
 import 'widgets/dashboard_hero.dart';
@@ -472,10 +472,15 @@ class _RightRail extends StatelessWidget {
         const SizedBox(height: 18),
         DashboardCalendarCard(
           practicedDays: practicedDays,
-          onViewCalendar: () => context.go('/calendar'),
+          onViewCalendar: () =>
+              context.go(trainingLocation(view: TrainingView.planner)),
           onDateSelected: (date) {
-            final value = DateFormat('yyyy-MM-dd').format(date);
-            context.go('/calendar?date=$value');
+            context.go(
+              trainingLocation(
+                view: TrainingView.planner,
+                date: formatCalendarQueryDate(date),
+              ),
+            );
           },
         ),
         const SizedBox(height: 18),

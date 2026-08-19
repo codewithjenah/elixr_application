@@ -162,6 +162,14 @@ List<DateTime> monthGridDates(int year, int month) {
   );
 }
 
+/// Formats a civil date as a zero-padded `YYYY-MM-DD` query value.
+String formatCalendarQueryDate(DateTime date) {
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
 /// Safely parses a `YYYY-MM-DD` calendar query parameter.
 DateTime? parseCalendarQueryDate(String? value) {
   if (value == null || value.isEmpty) return null;

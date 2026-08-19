@@ -57,7 +57,7 @@ class DashboardCalendarCard extends StatelessWidget {
                   ),
                 ),
                 child: const Text(
-                  'View Calendar',
+                  'View Planner',
                   style: TextStyle(fontSize: 11),
                 ),
               ),

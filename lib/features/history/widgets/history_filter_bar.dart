@@ -16,16 +16,20 @@ class HistoryFilterBar extends StatelessWidget {
     required this.onSearchChanged,
     required this.onSortChanged,
     required this.onClearFilters,
+    this.dateFilterLabel,
+    this.onDateFilterCleared,
   });
 
   final String? difficultyFilter;
   final String searchQuery;
   final HistorySortMode sortMode;
+  final String? dateFilterLabel;
   final bool hasActiveFilters;
   final ValueChanged<String?> onDifficultyChanged;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<HistorySortMode> onSortChanged;
   final VoidCallback onClearFilters;
+  final VoidCallback? onDateFilterCleared;
 
   static const _difficulties = ['All', 'Easy', 'Medium', 'Hard'];
 
@@ -39,6 +43,13 @@ class HistoryFilterBar extends StatelessWidget {
           runSpacing: AppSpacing.sm,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            if (dateFilterLabel != null)
+              _DifficultyChip(
+                label: dateFilterLabel!,
+                selected: true,
+                color: AppColors.accent,
+                onTap: onDateFilterCleared ?? onClearFilters,
+              ),
             for (final opt in _difficulties)
               _DifficultyChip(
                 label: opt,

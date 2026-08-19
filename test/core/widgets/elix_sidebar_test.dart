@@ -1,0 +1,29 @@
+import 'package:elixr_application/core/widgets/elix_sidebar.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test(
+    'sidebar has one Training destination and no Calendar or History items',
+    () {
+      final labels = elixSidebarItems.map((item) => item.label).toList();
+      expect(labels.where((label) => label == 'Training'), ['Training']);
+      expect(labels.contains('Calendar'), isFalse);
+      expect(labels.contains('History'), isFalse);
+
+      final training = elixSidebarItems.singleWhere(
+        (item) => item.label == 'Training',
+      );
+      expect(training.route, '/training');
+    },
+  );
+
+  test('Training stays selected for planner and history paths', () {
+    expect(isElixSidebarRouteActive('/training', '/training'), isTrue);
+    expect(isElixSidebarRouteActive('/dashboard', '/training'), isFalse);
+    expect(isElixSidebarRouteActive('/learn', '/training'), isFalse);
+    expect(
+      isElixSidebarRouteActive('/learn/movement/Hand%20Stall', '/learn'),
+      isTrue,
+    );
+  });
+}

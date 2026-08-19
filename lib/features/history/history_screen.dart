@@ -6,6 +6,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/session.dart';
 import '../../data/repositories/session_repository.dart';
+import '../../features/calendar/utils/calendar_metrics.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import 'history_format.dart';
@@ -15,35 +16,66 @@ import 'widgets/history_filter_bar.dart';
 import 'widgets/history_header.dart';
 import 'widgets/history_summary_section.dart';
 
+typedef HistorySessionsLoader = Future<List<Session>> Function(String userId);
+
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  const HistoryScreen({
+    super.key,
+    this.embedded = false,
+    this.initialDate,
+    this.sessionsLoader,
+  });
+
+  /// When true, render session review without a page scaffold or heading.
+  final bool embedded;
+
+  /// Optional `YYYY-MM-DD` focus date from `/training?view=history&date=`.
+  final String? initialDate;
+
+  /// Test seam for loading sessions without Firebase.
+  final HistorySessionsLoader? sessionsLoader;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  final _repo = SessionRepository();
+  SessionRepository? _repo;
   List<Session> _sessions = [];
   List<Session> _filtered = [];
   bool _loading = true;
   String? _difficultyFilter;
   String _searchQuery = '';
   HistorySortMode _sortMode = HistorySortMode.mostRecent;
+  DateTime? _dateFilter;
   SessionService? _sessionService;
 
   bool get _hasActiveFilters =>
       _difficultyFilter != null ||
       _searchQuery.trim().isNotEmpty ||
-      _sortMode != HistorySortMode.mostRecent;
+      _sortMode != HistorySortMode.mostRecent ||
+      _dateFilter != null;
 
   bool get _hasResultFilter =>
-      _difficultyFilter != null || _searchQuery.trim().isNotEmpty;
+      _difficultyFilter != null ||
+      _searchQuery.trim().isNotEmpty ||
+      _dateFilter != null;
 
   @override
   void initState() {
     super.initState();
+    _dateFilter = parseCalendarQueryDate(widget.initialDate);
     _loadSessions();
+  }
+
+  @override
+  void didUpdateWidget(covariant HistoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialDate == oldWidget.initialDate) return;
+    setState(() {
+      _dateFilter = parseCalendarQueryDate(widget.initialDate);
+      _applyFiltersAndSort();
+    });
   }
 
   @override
@@ -77,6 +109,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       list = list
           .where((s) => s.movementName.toLowerCase().contains(query))
           .toList();
+    }
+
+    final dateFilter = _dateFilter;
+    if (dateFilter != null) {
+      list = list.where((s) => sessionMatchesFocusDate(s, dateFilter)).toList();
     }
 
     list.sort(_compareSessions);
@@ -129,7 +166,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (userId == null) return;
 
     setState(() => _loading = true);
-    final sessions = await _repo.getSessionsForUser(userId);
+    final loader =
+        widget.sessionsLoader ??
+        (_repo ??= SessionRepository()).getSessionsForUser;
+    final sessions = await loader(userId);
     if (mounted) {
       setState(() {
         _sessions = sessions;
@@ -144,6 +184,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _difficultyFilter = null;
       _searchQuery = '';
       _sortMode = HistorySortMode.mostRecent;
+      _dateFilter = null;
       _applyFiltersAndSort();
     });
   }
@@ -201,6 +242,87 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
 
     final hasSessions = _sessions.isNotEmpty;
+    final dateFilterLabel = _dateFilter == null
+        ? null
+        : DateFormat.yMMMMd().format(_dateFilter!);
+
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        HistoryHeader(
+          loading: _loading,
+          onRefresh: _loadSessions,
+          showTitle: !widget.embedded,
+        ),
+        if (hasSessions) ...[
+          SizedBox(height: widget.embedded ? AppSpacing.sm : AppSpacing.lg),
+          HistorySummarySection(
+            totalSessions: _sessions.length,
+            rubricSessionCount: rubricTotals.length,
+            averageRubricTotal: _average(rubricTotals),
+            bestRubricTotal: _best(rubricTotals),
+            legacySessionCount: legacyScores.length,
+            averageLegacyScore: _average(legacyScores),
+            bestLegacyScore: _best(legacyScores),
+            totalDurationSeconds: totalDurationSeconds,
+            matchingCount: _hasResultFilter ? _filtered.length : null,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          HistoryFilterBar(
+            difficultyFilter: _difficultyFilter,
+            searchQuery: _searchQuery,
+            sortMode: _sortMode,
+            dateFilterLabel: dateFilterLabel,
+            hasActiveFilters: _hasActiveFilters,
+            onDifficultyChanged: (v) {
+              setState(() {
+                _difficultyFilter = v;
+                _applyFiltersAndSort();
+              });
+            },
+            onSearchChanged: (v) {
+              setState(() {
+                _searchQuery = v;
+                _applyFiltersAndSort();
+              });
+            },
+            onSortChanged: (v) {
+              setState(() {
+                _sortMode = v;
+                _applyFiltersAndSort();
+              });
+            },
+            onClearFilters: _clearFilters,
+            onDateFilterCleared: () {
+              setState(() {
+                _dateFilter = null;
+                _applyFiltersAndSort();
+              });
+            },
+          ),
+        ],
+        const SizedBox(height: AppSpacing.lg),
+        Expanded(
+          child: _loading && _sessions.isEmpty
+              ? const HistoryLoadingSkeleton()
+              : _sessions.isEmpty
+              ? const HistoryEmptyState()
+              : _filtered.isEmpty
+              ? HistoryNoResultsState(onClearFilters: _clearFilters)
+              : ListView.builder(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+                  itemCount: groups.length,
+                  itemBuilder: (context, index) {
+                    final label = groups.keys.elementAt(index);
+                    final items = groups[label]!;
+                    return HistoryDateGroup(label: label, sessions: items);
+                  },
+                ),
+        ),
+      ],
+    );
+
+    if (widget.embedded) return body;
 
     return ElixScaffoldPage(
       content: SafeArea(
@@ -211,73 +333,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             AppSpacing.xl,
             0,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HistoryHeader(loading: _loading, onRefresh: _loadSessions),
-              if (hasSessions) ...[
-                const SizedBox(height: AppSpacing.lg),
-                HistorySummarySection(
-                  totalSessions: _sessions.length,
-                  rubricSessionCount: rubricTotals.length,
-                  averageRubricTotal: _average(rubricTotals),
-                  bestRubricTotal: _best(rubricTotals),
-                  legacySessionCount: legacyScores.length,
-                  averageLegacyScore: _average(legacyScores),
-                  bestLegacyScore: _best(legacyScores),
-                  totalDurationSeconds: totalDurationSeconds,
-                  matchingCount: _hasResultFilter ? _filtered.length : null,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                HistoryFilterBar(
-                  difficultyFilter: _difficultyFilter,
-                  searchQuery: _searchQuery,
-                  sortMode: _sortMode,
-                  hasActiveFilters: _hasActiveFilters,
-                  onDifficultyChanged: (v) {
-                    setState(() {
-                      _difficultyFilter = v;
-                      _applyFiltersAndSort();
-                    });
-                  },
-                  onSearchChanged: (v) {
-                    setState(() {
-                      _searchQuery = v;
-                      _applyFiltersAndSort();
-                    });
-                  },
-                  onSortChanged: (v) {
-                    setState(() {
-                      _sortMode = v;
-                      _applyFiltersAndSort();
-                    });
-                  },
-                  onClearFilters: _clearFilters,
-                ),
-              ],
-              const SizedBox(height: AppSpacing.lg),
-              Expanded(
-                child: _loading && _sessions.isEmpty
-                    ? const HistoryLoadingSkeleton()
-                    : _sessions.isEmpty
-                    ? const HistoryEmptyState()
-                    : _filtered.isEmpty
-                    ? HistoryNoResultsState(onClearFilters: _clearFilters)
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.xl),
-                        itemCount: groups.length,
-                        itemBuilder: (context, index) {
-                          final label = groups.keys.elementAt(index);
-                          final items = groups[label]!;
-                          return HistoryDateGroup(
-                            label: label,
-                            sessions: items,
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
+          child: body,
         ),
       ),
     );

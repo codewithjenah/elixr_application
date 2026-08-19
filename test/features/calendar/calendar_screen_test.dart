@@ -251,10 +251,10 @@ void main() {
           },
         ),
         GoRoute(
-          path: '/history',
+          path: '/training',
           builder: (context, state) {
-            locations.add('/history');
-            return const ScaffoldPage(content: Center(child: Text('History')));
+            locations.add(state.uri.toString());
+            return const ScaffoldPage(content: Center(child: Text('Training')));
           },
         ),
       ],
@@ -289,19 +289,13 @@ void main() {
     expect(find.byType(ProgressRing), findsNothing);
   });
 
-  testWidgets('shows title, subtitle, and current Manila month', (
+  testWidgets('shows the current Manila month without a nested page title', (
     tester,
   ) async {
     await pumpCalendar(tester);
     await tester.pumpAndSettle();
 
-    expect(find.text('Training Calendar'), findsOneWidget);
-    expect(
-      find.text(
-        'Plan what to practice, then see whether you followed through.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Training Calendar'), findsNothing);
     expect(find.text('August 2026'), findsOneWidget);
   });
 
@@ -420,7 +414,6 @@ void main() {
     await pumpCalendar(tester, initialDate: 'not-a-date');
     await tester.pumpAndSettle();
 
-    expect(find.text('Training Calendar'), findsOneWidget);
     expect(find.text('August 2026'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -486,6 +479,6 @@ void main() {
     expect(find.text('View History'), findsOneWidget);
     await tester.tap(find.text('View History'));
     await tester.pumpAndSettle();
-    expect(navigated, ['/history']);
+    expect(navigated, ['/training?view=history&date=2026-08-18']);
   });
 }

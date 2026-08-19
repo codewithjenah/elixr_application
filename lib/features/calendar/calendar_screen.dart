@@ -11,6 +11,7 @@ import '../../data/models/session.dart';
 import '../../data/models/training_plan.dart';
 import '../../data/repositories/session_repository.dart';
 import '../../data/repositories/training_plan_repository.dart';
+import '../../features/training/training_view.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import 'models/training_day_snapshot.dart';
@@ -32,9 +33,6 @@ typedef CalendarPlanSaver = Future<void> Function(TrainingPlan plan);
 typedef CalendarPlanRemover =
     Future<void> Function({required String userId, required String dayKey});
 
-const _pink = AppColors.primary;
-const _violet = AppColors.accentSoft;
-
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({
     super.key,
@@ -44,10 +42,14 @@ class CalendarScreen extends StatefulWidget {
     this.planSaver,
     this.planRemover,
     this.now,
+    this.embedded = false,
   });
 
-  /// Optional `YYYY-MM-DD` query value from `/calendar?date=...`.
+  /// Optional `YYYY-MM-DD` query value from `/training?view=planner&date=...`.
   final String? initialDate;
+
+  /// When true, render Planner content without a page scaffold or heading.
+  final bool embedded;
 
   /// Test seam for loading sessions without Firebase.
   final CalendarSessionsLoader? sessionsLoader;
@@ -107,6 +109,21 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _sessionService?.removeListener(_onSessionSaved);
       _sessionService = service..addListener(_onSessionSaved);
     }
+  }
+
+  @override
+  void didUpdateWidget(covariant CalendarScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialDate == oldWidget.initialDate) return;
+    final parsed = parseCalendarQueryDate(widget.initialDate);
+    if (parsed == null) return;
+    setState(() {
+      _selectedDate = parsed;
+      _visibleMonth = DateTime(parsed.year, parsed.month);
+      _editing = false;
+      _actionError = null;
+    });
+    _loadCalendar(fullScreen: false);
   }
 
   @override
@@ -390,150 +407,112 @@ class _CalendarScreenState extends State<CalendarScreen> {
       monthKey: monthKey,
     );
 
-    return ElixScaffoldPage(
-      padding: EdgeInsets.zero,
-      content: SafeArea(
-        child: _loading
-            ? const Center(child: ProgressRing())
-            : _hasError
-            ? _CalendarErrorState(
-                onRetry: () => _loadCalendar(fullScreen: true),
-              )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.xl),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1280),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: AppColors.accent.withValues(
-                                  alpha: context.isDarkTheme ? 0.18 : 0.10,
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: AppColors.accent.withValues(
-                                    alpha: 0.26,
-                                  ),
-                                ),
-                              ),
-                              child: const Icon(
-                                FluentIcons.calendar,
-                                size: 20,
-                                color: _violet,
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Training Calendar',
-                                    style: AppTheme.headingLarge.copyWith(
-                                      color: _pink,
-                                    ),
-                                  ),
-                                  const SizedBox(height: AppSpacing.xs),
-                                  Text(
-                                    'Plan what to practice, then see whether you followed through.',
-                                    style: AppTheme.bodySecondary,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.xl),
-                        CalendarHeader(
-                          visibleMonth: _visibleMonth,
-                          onPreviousMonth: _goToPreviousMonth,
-                          onNextMonth: _goToNextMonth,
-                          onToday: _goToToday,
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        CalendarSummaryCards(
-                          plannedDays: metrics.plannedDays,
-                          completedDays: metrics.completedDays,
-                          adherencePercent: metrics.adherencePercent,
-                          planStreak: metrics.planStreak,
-                        ),
-                        if (metrics.plannedDays == 0) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          InfoBar(
-                            title: const Text('No training planned this month'),
-                            content: const Text(
-                              'Select a day to schedule practice or a rest day.',
-                            ),
-                            severity: InfoBarSeverity.info,
-                          ),
-                        ],
-                        const SizedBox(height: AppSpacing.lg),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final wide = constraints.maxWidth >= 980;
-                            final grid = CalendarMonthGrid(
-                              dates: monthGridDates(
-                                _visibleMonth.year,
-                                _visibleMonth.month,
-                              ),
-                              visibleMonth: _visibleMonth,
-                              selectedDate: _selectedDate,
-                              todayDate: _todayCivil,
-                              snapshotsByDate: _byDate,
-                              onDateSelected: _onDateSelected,
-                            );
-                            final panel = SelectedDayPanel(
-                              snapshot: _selectedSnapshot,
-                              todayKey: _todayKey,
-                              userId: userId,
-                              isEditing: _editing,
-                              isSaving: _saving,
-                              actionError: _actionError,
-                              onStartEditing: () =>
-                                  setState(() => _editing = true),
-                              onCancelEditing: () =>
-                                  setState(() => _editing = false),
-                              onSavePlan: _savePlan,
-                              onMarkRest: _markRest,
-                              onRemovePlan: _removePlan,
-                              onStartPractice: _startPractice,
-                              onViewHistory: () => context.go('/history'),
-                            );
-
-                            if (wide) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(flex: 3, child: grid),
-                                  const SizedBox(width: AppSpacing.md),
-                                  Expanded(flex: 2, child: panel),
-                                ],
-                              );
-                            }
-
-                            return Column(
-                              children: [
-                                grid,
-                                const SizedBox(height: AppSpacing.md),
-                                panel,
-                              ],
-                            );
-                          },
-                        ),
-                      ],
+    final content = _loading
+        ? const Center(child: ProgressRing())
+        : _hasError
+        ? _CalendarErrorState(onRetry: () => _loadCalendar(fullScreen: true))
+        : SingleChildScrollView(
+            padding: widget.embedded
+                ? const EdgeInsets.only(bottom: AppSpacing.xl)
+                : const EdgeInsets.all(AppSpacing.xl),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1280),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CalendarHeader(
+                      visibleMonth: _visibleMonth,
+                      onPreviousMonth: _goToPreviousMonth,
+                      onNextMonth: _goToNextMonth,
+                      onToday: _goToToday,
                     ),
-                  ),
+                    const SizedBox(height: AppSpacing.md),
+                    CalendarSummaryCards(
+                      plannedDays: metrics.plannedDays,
+                      completedDays: metrics.completedDays,
+                      adherencePercent: metrics.adherencePercent,
+                      planStreak: metrics.planStreak,
+                    ),
+                    if (metrics.plannedDays == 0) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      InfoBar(
+                        title: const Text('No training planned this month'),
+                        content: const Text(
+                          'Select a day to schedule practice or a rest day.',
+                        ),
+                        severity: InfoBarSeverity.info,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final wide = constraints.maxWidth >= 980;
+                        final grid = CalendarMonthGrid(
+                          dates: monthGridDates(
+                            _visibleMonth.year,
+                            _visibleMonth.month,
+                          ),
+                          visibleMonth: _visibleMonth,
+                          selectedDate: _selectedDate,
+                          todayDate: _todayCivil,
+                          snapshotsByDate: _byDate,
+                          onDateSelected: _onDateSelected,
+                        );
+                        final panel = SelectedDayPanel(
+                          snapshot: _selectedSnapshot,
+                          todayKey: _todayKey,
+                          userId: userId,
+                          isEditing: _editing,
+                          isSaving: _saving,
+                          actionError: _actionError,
+                          onStartEditing: () => setState(() => _editing = true),
+                          onCancelEditing: () =>
+                              setState(() => _editing = false),
+                          onSavePlan: _savePlan,
+                          onMarkRest: _markRest,
+                          onRemovePlan: _removePlan,
+                          onStartPractice: _startPractice,
+                          onViewHistory: () => context.go(
+                            trainingLocation(
+                              view: TrainingView.history,
+                              date: formatCalendarQueryDate(_selectedDate),
+                            ),
+                          ),
+                        );
+
+                        if (wide) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 3, child: grid),
+                              const SizedBox(width: AppSpacing.md),
+                              Expanded(flex: 2, child: panel),
+                            ],
+                          );
+                        }
+
+                        return Column(
+                          children: [
+                            grid,
+                            const SizedBox(height: AppSpacing.md),
+                            panel,
+                          ],
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
-      ),
+            ),
+          );
+
+    if (widget.embedded) return content;
+
+    return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
+      content: SafeArea(child: content),
     );
   }
 }
@@ -558,7 +537,7 @@ class _CalendarErrorState extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'Unable to load your training calendar.',
+              'Unable to load your planner.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,

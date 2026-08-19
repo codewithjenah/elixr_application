@@ -39,7 +39,7 @@ class SidebarItem {
   final SidebarGroup group;
 }
 
-const _sidebarItems = [
+const elixSidebarItems = [
   SidebarItem(
     label: 'Dashboard',
     icon: FluentIcons.view_dashboard,
@@ -51,6 +51,12 @@ const _sidebarItems = [
     icon: FluentIcons.trophy2_solid,
     route: '/leaderboard',
     group: SidebarGroup.overview,
+  ),
+  SidebarItem(
+    label: 'Training',
+    icon: FluentIcons.calendar_agenda,
+    route: '/training',
+    group: SidebarGroup.training,
   ),
   SidebarItem(
     label: 'Movements',
@@ -77,18 +83,6 @@ const _sidebarItems = [
     group: SidebarGroup.insights,
   ),
   SidebarItem(
-    label: 'History',
-    icon: FluentIcons.clock,
-    route: '/history',
-    group: SidebarGroup.insights,
-  ),
-  SidebarItem(
-    label: 'Calendar',
-    icon: FluentIcons.calendar,
-    route: '/calendar',
-    group: SidebarGroup.insights,
-  ),
-  SidebarItem(
     label: 'Progress',
     icon: FluentIcons.bar_chart_vertical_fill,
     route: '/progress',
@@ -101,6 +95,16 @@ const _sidebarItems = [
     group: SidebarGroup.insights,
   ),
 ];
+
+/// True when [currentPath] is this destination or a nested path under it.
+///
+/// Training stays selected for `/training` regardless of `view` query params
+/// because [AppShell] passes path only.
+@visibleForTesting
+bool isElixSidebarRouteActive(String currentPath, String? itemRoute) {
+  if (itemRoute == null) return false;
+  return currentPath == itemRoute || currentPath.startsWith('$itemRoute/');
+}
 
 const _expandedWidth = 256.0;
 const _collapsedWidth = 80.0;
@@ -314,7 +318,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
     final List<Widget> children = [];
 
     void addGroup(SidebarGroup group, String title) {
-      final items = _sidebarItems.where((i) => i.group == group).toList();
+      final items = elixSidebarItems.where((i) => i.group == group).toList();
       if (items.isEmpty) return;
 
       if (!showCollapsedLayout) {
@@ -345,9 +349,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
         children.add(
           _SidebarTile(
             item: item,
-            isActive:
-                item.route != null &&
-                widget.currentRoute.startsWith(item.route!),
+            isActive: isElixSidebarRouteActive(widget.currentRoute, item.route),
             isCollapsed: showCollapsedLayout,
             onTap: () => _onItemTap(item),
           ),

@@ -17,7 +17,7 @@ Future<void> _setSurface(WidgetTester tester) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('View Calendar navigates to /calendar', (tester) async {
+  testWidgets('View Planner navigates to Training planner', (tester) async {
     await _setSurface(tester);
     final navigated = <String>[];
     final router = GoRouter(
@@ -28,16 +28,16 @@ void main() {
           builder: (context, state) => ScaffoldPage(
             content: DashboardCalendarCard(
               practicedDays: {normalizeDate(DateTime.now())},
-              onViewCalendar: () => context.go('/calendar'),
+              onViewCalendar: () => context.go('/training?view=planner'),
               onDateSelected: (_) {},
             ),
           ),
         ),
         GoRoute(
-          path: '/calendar',
+          path: '/training',
           builder: (context, state) {
             navigated.add(state.uri.toString());
-            return const ScaffoldPage(content: Center(child: Text('Calendar')));
+            return const ScaffoldPage(content: Center(child: Text('Training')));
           },
         ),
       ],
@@ -53,9 +53,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('View Calendar'));
+    await tester.tap(find.text('View Planner'));
     await tester.pumpAndSettle();
-    expect(navigated, ['/calendar']);
+    expect(navigated, ['/training?view=planner']);
   });
 
   testWidgets('practiced date navigates with zero-padded YYYY-MM-DD', (
@@ -82,16 +82,16 @@ void main() {
               onViewCalendar: () {},
               onDateSelected: (date) {
                 final value = DateFormat('yyyy-MM-dd').format(date);
-                context.go('/calendar?date=$value');
+                context.go('/training?view=planner&date=$value');
               },
             ),
           ),
         ),
         GoRoute(
-          path: '/calendar',
+          path: '/training',
           builder: (context, state) {
             navigated.add(state.uri.toString());
-            return const ScaffoldPage(content: Center(child: Text('Calendar')));
+            return const ScaffoldPage(content: Center(child: Text('Training')));
           },
         ),
       ],
@@ -109,7 +109,7 @@ void main() {
 
     await tester.tap(find.text('1').first);
     await tester.pumpAndSettle();
-    expect(navigated, ['/calendar?date=$expected']);
+    expect(navigated, ['/training?view=planner&date=$expected']);
     expect(expected.split('-')[1].length, 2);
     expect(expected.split('-')[2].length, 2);
   });

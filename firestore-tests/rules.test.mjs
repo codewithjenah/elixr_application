@@ -3561,4 +3561,40 @@ describe('training plans', () => {
       updated_at: serverTimestamp(),
     }));
   });
+
+  test('owner can delete today and future plans', async () => {
+    const alice = aliceDb();
+    const today = manilaDayKeyFor(new Date());
+    const future = manilaDayKeyFor(shiftDays(2));
+    const todayRef = doc(alice, 'training_plans', `alice_${today}`);
+    const futureRef = doc(alice, 'training_plans', `alice_${future}`);
+    await assertSucceeds(setDoc(todayRef, trainingPlan('alice', today)));
+    await assertSucceeds(setDoc(futureRef, trainingPlan('alice', future)));
+    await assertSucceeds(deleteDoc(todayRef));
+    await assertSucceeds(deleteDoc(futureRef));
+  });
+
+  test('owner cannot delete a past plan', async () => {
+    const past = manilaDayKeyFor(shiftDays(-3));
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'training_plans', `alice_${past}`), {
+        ...trainingPlan('alice', past),
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+    await assertFails(deleteDoc(doc(aliceDb(), 'training_plans', `alice_${past}`)));
+  });
+
+  test('another user cannot delete the plan', async () => {
+    const today = manilaDayKeyFor(new Date());
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'training_plans', `alice_${today}`), {
+        ...trainingPlan('alice', today),
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+    });
+    await assertFails(deleteDoc(doc(bobDb(), 'training_plans', `alice_${today}`)));
+  });
 });

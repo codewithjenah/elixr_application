@@ -1320,7 +1320,9 @@ service cloud.firestore {
         && request.resource.data.updated_at == request.time
         && validTrainingPlanWrite(request.resource.data, planId);
 
-      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.user_id == request.auth.uid
+        && isActionablePlanDayKey(resource.data.day_key);
     }
 
     match /feedbacks/{feedbackId} {

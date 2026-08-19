@@ -97,6 +97,28 @@ Future<void> _pumpDetails(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  group('sessionMatchesFocusDate', () {
+    test('matches a session on the Planner Manila civil date', () {
+      final session = Session(
+        userId: _userId,
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: const RubricAssessment(
+          technique: 3,
+          stability: 2,
+          completion: 3,
+          propPositioning: 2,
+        ),
+        assessmentVersion: 2,
+        durationSeconds: 90,
+        createdAt: '2026-08-02T04:00:00.000Z',
+      );
+      expect(sessionMatchesFocusDate(session, DateTime(2026, 8, 2)), isTrue);
+      expect(sessionMatchesFocusDate(session, DateTime(2026, 8, 3)), isFalse);
+      expect(sessionMatchesFocusDate(session, null), isTrue);
+    });
+  });
+
   group('history rubric formatting', () {
     test('rubric helpers report the 0..12 scale', () {
       expect(rubricTotalLabel(10), '10 / 12');

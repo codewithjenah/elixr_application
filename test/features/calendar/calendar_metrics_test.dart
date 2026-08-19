@@ -444,6 +444,11 @@ void main() {
       expect(parseCalendarQueryDate('2026-13-01'), isNull);
       expect(parseCalendarQueryDate('not-a-date'), isNull);
     });
+
+    test('round-trips a civil date through formatCalendarQueryDate', () {
+      expect(formatCalendarQueryDate(DateTime(2026, 8, 19)), '2026-08-19');
+      expect(formatCalendarQueryDate(DateTime(2026, 1, 5)), '2026-01-05');
+    });
   });
 
   group('formatCalendarDuration', () {

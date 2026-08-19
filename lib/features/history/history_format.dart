@@ -1,7 +1,9 @@
+import 'package:elixr_core/utils/manila_day.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../data/models/rubric_assessment.dart';
+import '../../data/models/session.dart';
 
 /// Formats a duration for summary cards and session rows.
 ///
@@ -70,6 +72,24 @@ Color difficultyColor(String difficulty) {
     default:
       return AppColors.textSecondary;
   }
+}
+
+/// Matches a session to a Planner-selected Manila civil date (`YYYY-MM-DD`).
+///
+/// A null [focusDate] means no date focus is applied.
+bool sessionMatchesFocusDate(Session session, DateTime? focusDate) {
+  if (focusDate == null) return true;
+  final raw = session.createdAt;
+  if (raw == null) return false;
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return false;
+  final sessionKey = ManilaDay.dayKeyFor(parsed.toUtc());
+  final focusKey = ManilaDay.dayKeyFromCivil(
+    year: focusDate.year,
+    month: focusDate.month,
+    day: focusDate.day,
+  );
+  return sessionKey == focusKey;
 }
 
 enum HistorySortMode {

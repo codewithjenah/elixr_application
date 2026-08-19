@@ -9,13 +9,20 @@ class HistoryHeader extends StatelessWidget {
     super.key,
     required this.loading,
     required this.onRefresh,
+    this.showTitle = true,
   });
 
   final bool loading;
   final VoidCallback onRefresh;
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
+    final refresh = _RefreshButton(loading: loading, onPressed: onRefresh);
+    if (!showTitle) {
+      return Align(alignment: Alignment.centerRight, child: refresh);
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
