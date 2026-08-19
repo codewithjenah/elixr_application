@@ -299,10 +299,10 @@ class FirebaseGroupRepository implements GroupRepository {
       traineeId: traineeId,
     );
     final ref = _memberships.doc(id);
-    final existing = await ref.get();
-    final parsedExisting = existing.exists
-        ? GroupMembership.tryFromMap(existing.data() ?? const {}, id: id)
-        : null;
+    final parsedExisting = await _findOwnMembership(
+      groupId: invite.groupId,
+      traineeId: traineeId,
+    );
     if (parsedExisting?.isApproved == true) {
       throw const GroupException(
         GroupError.alreadyMember,
@@ -427,5 +427,36 @@ class FirebaseGroupRepository implements GroupRepository {
       'status': to.name,
       'updated_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// Discovers the caller's membership with a Trainee-scoped query.
+  ///
+  /// Exact GET of `group_memberships/{groupId}_{traineeId}` is denied when the
+  /// document does not exist because `isMembershipParticipant()` requires
+  /// `resource.data`. A `trainee_id == caller` query is authorized even when
+  /// empty and does not create a missing-document existence oracle.
+  Future<GroupMembership?> _findOwnMembership({
+    required String groupId,
+    required String traineeId,
+  }) async {
+    final snapshot = await _memberships
+        .where('trainee_id', isEqualTo: traineeId)
+        .get();
+    if (snapshot.docs.isEmpty) return null;
+    final expectedId = GroupMembership.documentId(
+      groupId: groupId,
+      traineeId: traineeId,
+    );
+    for (final doc in snapshot.docs) {
+      if (doc.id != expectedId) continue;
+      return GroupMembership.tryFromMap(doc.data(), id: doc.id);
+    }
+    for (final doc in snapshot.docs) {
+      final parsed = GroupMembership.tryFromMap(doc.data(), id: doc.id);
+      if (parsed?.groupId == groupId && parsed?.traineeId == traineeId) {
+        return parsed;
+      }
+    }
+    return null;
   }
 }

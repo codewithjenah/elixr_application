@@ -13,9 +13,11 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -446,6 +448,107 @@ describe('group memberships', () => {
         ...pendingMembershipPayload(),
         evidence_access: 'granted',
       }),
+    );
+  });
+});
+
+describe('Trainee-scoped membership lookup (repository preflight)', () => {
+  // requestGroupJoin() must discover existing rows with this trainee_id query.
+  // Exact GET of a missing deterministic ID is denied because
+  // isMembershipParticipant() requires resource.data.
+  function ownMembershipLookup(db, traineeId) {
+    return getDocs(query(
+      collection(db, 'group_memberships'),
+      where('trainee_id', '==', traineeId),
+    ));
+  }
+
+  async function seedSecondTrainee() {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'users', 'trainee2'), {
+        full_name: 'Second Trainee',
+        role: 'Trainee',
+      });
+    });
+  }
+
+  test('Trainee own-membership query succeeds empty before any membership exists', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    const missingRef = doc(trainee, 'group_memberships', MEMBERSHIP_ID);
+
+    await assertFails(getDoc(missingRef));
+    await assertFails(getDocs(collection(trainee, 'group_memberships')));
+
+    const lookup = await assertSucceeds(ownMembershipLookup(trainee, 'trainee'));
+    assert.equal(lookup.size, 0);
+  });
+
+  test('Trainee own-membership query returns the membership after it exists', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+
+    const lookup = await assertSucceeds(ownMembershipLookup(trainee, 'trainee'));
+    assert.equal(lookup.size, 1);
+    assert.equal(lookup.docs[0].id, MEMBERSHIP_ID);
+    assert.equal(lookup.docs[0].data().status, 'pending');
+    await assertSucceeds(getDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID)));
+  });
+
+  test('Trainee cannot query another Trainee memberships', async () => {
+    await seedUsers();
+    await seedSecondTrainee();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+    const trainee2 = context('trainee2').firestore();
+    await assertFails(ownMembershipLookup(trainee2, 'trainee'));
+  });
+
+  test('unfiltered group_memberships list remains denied', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+    await assertFails(getDocs(collection(trainee, 'group_memberships')));
+    await assertFails(getDocs(collection(context('teacher').firestore(), 'group_memberships')));
+    await assertFails(getDocs(collection(context('other').firestore(), 'group_memberships')));
+  });
+
+  test('exact GET of another Trainee existing membership remains denied', async () => {
+    await seedUsers();
+    await seedSecondTrainee();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+    const trainee2 = context('trainee2').firestore();
+    await assertFails(getDoc(doc(trainee2, 'group_memberships', MEMBERSHIP_ID)));
+  });
+
+  test('exact GET of a missing membership remains denied', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertFails(getDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID)));
+    await assertFails(
+      getDoc(doc(trainee, 'group_memberships', `${GROUP_ID}_someoneelse`)),
     );
   });
 });

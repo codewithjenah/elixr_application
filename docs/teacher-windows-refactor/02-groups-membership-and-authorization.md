@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19)  
+**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19); Trainee-scoped membership preflight (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19; verified-Teacher decision rules applied 2026-08-19
+Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19; verified-Teacher decision rules applied 2026-08-19; Trainee-scoped membership preflight applied 2026-08-19
 
 ## 2. Goal
 
@@ -510,4 +510,41 @@ GitHub review found that Teacher membership approval/rejection/removal and legac
 - Verified owning Teacher can still decide pending requests
 - Progress Access / General Evidence Access rules untouched
 - `teacher_app/` untouched
+- Phase 3 not started
+
+## 27. Phase 2 live-Firebase membership preflight (2026-08-19)
+
+Trainee email-verification was already fixed (`validPendingMembershipCreate()` uses `isSignedIn()`). The next live failure happened earlier in `FirebaseGroupRepository.requestGroupJoin`: first-time join performed an exact GET of `group_memberships/{groupId}_{traineeId}` before create. That document does not exist yet, and `allow get: if isMembershipParticipant()` depends on `resource.data`, so the GET was denied before pending-create rules ran.
+
+### Fix
+
+- **Repository preflight** — Replaced `_memberships.doc(id).get()` with a Trainee-scoped query (`trainee_id == authenticated traineeId`), then locate the deterministic `{groupId}_{traineeId}` document if present.
+- **Membership exact-read privacy was not loosened** — `allow get: if isMembershipParticipant()` is unchanged. Missing exact-document GET remains denied so clients cannot probe arbitrary missing membership IDs.
+- **Duplicate / re-request semantics preserved** — approved → alreadyMember; pending → alreadyPending; rejected / cancelled / removed → pending update with immutable `created_at`.
+- **Post-write `ref.get()` retained** — after create/update the membership exists and is readable by its Trainee participant.
+
+### Tests run
+
+- `dart format --output=none --set-exit-if-changed lib test` — 0 changed
+- `flutter analyze lib test` — 4 pre-existing info lints only (`curly_braces_in_flow_control_structures`)
+- `flutter test` — **1133 passed**, 0 failed
+- `cd packages\elixr_core; flutter test` — **66 passed**, 0 failed (7 new FirebaseGroupRepository tests)
+- `cd teacher_app; flutter test` — **95 passed**, 0 failed
+- `cd firestore-tests; npm test` (Android Studio JBR 21 on `JAVA_HOME` and `PATH`) — **186 passed**, 0 failed (6 new Trainee-scoped membership lookup tests)
+
+### Not verified
+
+- Firestore rules/indexes deployment to production after this correction
+- Manual Trainee group join on live Firebase after this repository change
+
+### Explicit confirmations
+
+- First-time Trainee Group join no longer performs an exact GET on a missing membership
+- Own-membership query is Trainee-scoped
+- Broad membership listing remains denied
+- Unrelated membership reads remain denied
+- Duplicate / re-request semantics preserved
+- Verified Teacher decision rules preserved
+- Progress/Evidence untouched
+- `teacher_app/` intact
 - Phase 3 not started
