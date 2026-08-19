@@ -533,6 +533,9 @@ class _CollapseButton extends StatefulWidget {
 class _CollapseButtonState extends State<_CollapseButton> {
   bool _hovered = false;
 
+  static const _buttonSize = 40.0;
+  static const _iconSize = 20.0;
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -548,29 +551,30 @@ class _CollapseButtonState extends State<_CollapseButton> {
             onTap: widget.onTap,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
-              width: 28,
-              height: 28,
+              width: _buttonSize,
+              height: _buttonSize,
               decoration: BoxDecoration(
                 color: _hovered
-                    ? context.elixCardSurface.withValues(alpha: 0.7)
-                    : Colors.transparent,
-                shape: BoxShape.circle,
+                    ? context.elixCardSurface.withValues(alpha: 0.9)
+                    : context.elixCardSurface.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: _hovered
-                      ? _pink.withValues(alpha: 0.35)
-                      : Colors.transparent,
+                      ? _pink.withValues(alpha: 0.55)
+                      : context.elixBorder.withValues(alpha: 0.7),
                 ),
               ),
               child: Center(
-                child: AnimatedRotation(
-                  turns: widget.isCollapsed ? 0.5 : 0,
-                  duration: const Duration(milliseconds: 220),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 150),
                   child: Icon(
-                    FluentIcons.chevron_left,
-                    size: 11,
-                    color: _hovered
-                        ? context.elixTextPrimary
-                        : context.elixTextSecondary.withValues(alpha: 0.7),
+                    // Action icon: expanded → collapse (arrow left), collapsed → expand.
+                    widget.isCollapsed
+                        ? FluentIcons.open_pane_mirrored
+                        : FluentIcons.close_pane_mirrored,
+                    key: ValueKey(widget.isCollapsed),
+                    size: _iconSize,
+                    color: _hovered ? _pink : context.elixTextPrimary,
                   ),
                 ),
               ),
