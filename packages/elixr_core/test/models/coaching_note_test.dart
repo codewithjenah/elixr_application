@@ -86,6 +86,28 @@ void main() {
       expect(note!.groupId, 'group-1');
     });
 
+    test('rejects empty, whitespace-only, and overlong group ids', () {
+      expect(
+        CoachingNote.tryFromMap({...validMap(), 'group_id': ''}, id: 'note'),
+        isNull,
+      );
+      expect(
+        CoachingNote.tryFromMap({...validMap(), 'group_id': '   '}, id: 'note'),
+        isNull,
+      );
+      expect(
+        CoachingNote.tryFromMap({
+          ...validMap(),
+          'group_id': 'g' * 129,
+        }, id: 'note'),
+        isNull,
+      );
+      expect(CoachingNote.isValidGroupId('group-1'), isTrue);
+      expect(CoachingNote.isValidGroupId(''), isFalse);
+      expect(CoachingNote.isValidGroupId('   '), isFalse);
+      expect(CoachingNote.isValidGroupId('g' * 129), isFalse);
+    });
+
     test('fails safely for malformed required data', () {
       final invalidMaps = <Map<String, dynamic>>[
         {...validMap(), 'teacher_id': ''},

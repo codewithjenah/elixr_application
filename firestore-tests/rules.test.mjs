@@ -21,6 +21,8 @@ import {
   updateDoc,
   query,
   where,
+  orderBy,
+  documentId,
   limit,
   writeBatch,
   Timestamp,
@@ -90,6 +92,52 @@ describe('teacher coaching notes', () => {
     body: 'Keep your wrist steady.', created_at: serverTimestamp(), updated_at: serverTimestamp(),
     ...overrides,
   });
+  const legacyNoteData = (overrides = {}) => noteData({
+    authorization_source: 'legacy_link',
+    ...overrides,
+  });
+  function teacherGroupBackedQuery(db, {
+    teacherId = 'bob',
+    traineeId = 'alice',
+    groupId = 'group-1',
+  } = {}) {
+    return getDocs(query(
+      collection(db, 'teacher_coaching_notes'),
+      where('teacher_id', '==', teacherId),
+      where('trainee_id', '==', traineeId),
+      where('group_id', '==', groupId),
+      orderBy('created_at', 'desc'),
+      orderBy(documentId(), 'desc'),
+    ));
+  }
+  function teacherLegacyQuery(db, {
+    teacherId = 'bob',
+    traineeId = 'alice',
+  } = {}) {
+    return getDocs(query(
+      collection(db, 'teacher_coaching_notes'),
+      where('teacher_id', '==', teacherId),
+      where('trainee_id', '==', traineeId),
+      where('authorization_source', '==', 'legacy_link'),
+      orderBy('created_at', 'desc'),
+      orderBy(documentId(), 'desc'),
+    ));
+  }
+  function traineeReceiveQuery(db, traineeId = 'alice') {
+    return getDocs(query(
+      collection(db, 'teacher_coaching_notes'),
+      where('trainee_id', '==', traineeId),
+      orderBy('created_at', 'desc'),
+      orderBy(documentId(), 'desc'),
+    ));
+  }
+  function broadTeacherTraineeQuery(db, teacherId = 'bob', traineeId = 'alice') {
+    return getDocs(query(
+      collection(db, 'teacher_coaching_notes'),
+      where('teacher_id', '==', teacherId),
+      where('trainee_id', '==', traineeId),
+    ));
+  }
   async function seed({ status = 'approved', note = false } = {}) {
     await seedBypassingRules(async (admin) => {
       await setDoc(doc(admin, 'users', 'bob'), { full_name: 'Bob Teacher', role: ROLE_TEACHER });
@@ -104,19 +152,20 @@ describe('teacher coaching notes', () => {
   test('approved teacher creates valid note and can query their exact history', async () => {
     await seed();
     const bob = bobDb();
-    await assertSucceeds(setDoc(notePath(bob), noteData({ movement_name: 'Bottle in a tin' })));
-    await assertSucceeds(getDocs(query(collection(bob, 'teacher_coaching_notes'), where('teacher_id', '==', 'bob'), where('trainee_id', '==', 'alice'))));
+    await assertSucceeds(setDoc(notePath(bob), legacyNoteData({ movement_name: 'Bottle in a tin' })));
+    const notes = await assertSucceeds(teacherLegacyQuery(bob));
+    assert.equal(notes.docs.length, 1);
   });
 
   test('non-approved relationship states and unauthenticated callers cannot create', async () => {
     for (const status of ['pending', 'rejected', 'cancelled', 'revoked']) {
       await testEnv.clearFirestore();
       await seed({ status });
-      await assertFails(setDoc(notePath(bobDb(), status), noteData()));
+      await assertFails(setDoc(notePath(bobDb(), status), legacyNoteData()));
     }
     await testEnv.clearFirestore();
     await seed();
-    await assertFails(setDoc(notePath(testEnv.unauthenticatedContext().firestore(), 'anon'), noteData()));
+    await assertFails(setDoc(notePath(testEnv.unauthenticatedContext().firestore(), 'anon'), legacyNoteData()));
   });
 
   test('create rejects spoofing, unrelated targets, invalid contents, and extra fields', async () => {
@@ -126,7 +175,7 @@ describe('teacher coaching notes', () => {
       ['spoof', { teacher_id: 'eve' }], ['target', { trainee_id: 'carol' }],
       ['whitespace', { body: ' \n\t ' }], ['long', { body: 'a'.repeat(1001) }],
       ['movement', { movement_name: 'Bottle in a Tin' }], ['extra', { extra: true }],
-    ]) await assertFails(setDoc(notePath(bob, id), noteData(overrides)));
+    ]) await assertFails(setDoc(notePath(bob, id), legacyNoteData(overrides)));
   });
 
   test('author may update only mutable note fields while approved', async () => {
@@ -156,7 +205,7 @@ describe('teacher coaching notes', () => {
     const bob = bobDb();
     await assertSucceeds(deleteDoc(notePath(bob)));
     await seed({ note: true, status: 'revoked' });
-    await assertFails(setDoc(notePath(bob, 'new'), noteData()));
+    await assertFails(setDoc(notePath(bob, 'new'), legacyNoteData()));
     await assertFails(updateDoc(notePath(bob), { body: 'blocked', updated_at: serverTimestamp() }));
     await assertFails(deleteDoc(notePath(bob)));
     await assertSucceeds(getDoc(notePath(aliceDb())));
@@ -167,7 +216,7 @@ describe('teacher coaching notes', () => {
     await seedBypassingRules(async (admin) => {
       await updateDoc(doc(admin, 'teacher_student_links', linkId), { progress_access: 'none' });
     });
-    await assertSucceeds(setDoc(notePath(bobDb()), noteData()));
+    await assertSucceeds(setDoc(notePath(bobDb()), legacyNoteData()));
   });
 
   test('broad or partial teacher collection queries are denied', async () => {
@@ -207,6 +256,16 @@ describe('teacher coaching notes', () => {
     const saved = await assertSucceeds(getDoc(notePath(bob, 'group-note')));
     assert.equal(saved.data().group_id, 'group-1');
     await assertSucceeds(getDoc(notePath(aliceDb(), 'group-note')));
+    const listed = await assertSucceeds(teacherGroupBackedQuery(bob));
+    assert.equal(listed.docs.length, 1);
+    assert.equal(listed.docs[0].id, 'group-note');
+    const received = await assertSucceeds(traineeReceiveQuery(aliceDb()));
+    assert.equal(received.docs.some((item) => item.id === 'group-note'), true);
+    await assertFails(broadTeacherTraineeQuery(bob));
+    await seedBypassingRules(async (admin) => {
+      const linkSnap = await getDoc(doc(admin, 'teacher_student_links', 'bob_alice'));
+      assert.equal(linkSnap.exists(), false);
+    });
   });
 
   test('pending group membership does not authorize group-backed coaching', async () => {
@@ -267,9 +326,132 @@ describe('teacher coaching notes', () => {
         group_id: 'group-1', created_at: Timestamp.now(), updated_at: Timestamp.now(),
       }));
     });
-    await assertFails(updateDoc(notePath(bobDb()), {
+    await assertFails(updateDoc(notePath(bobDb(), 'group-note'), {
       group_id: 'group-2', updated_at: serverTimestamp(),
     }));
+  });
+
+  async function seedGroupClassroom({
+    groupId = 'group-1',
+    teacherId = 'bob',
+    traineeId = 'alice',
+    status = 'approved',
+    noteId = null,
+    noteGroupId = groupId,
+  } = {}) {
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', teacherId), { full_name: 'Bob Teacher', role: ROLE_TEACHER });
+      await setDoc(doc(admin, 'users', 'eve'), { full_name: 'Eve Teacher', role: ROLE_TEACHER });
+      await setDoc(doc(admin, 'users', traineeId), { full_name: 'Alice Trainee', role: ROLE_TRAINEE });
+      await setDoc(doc(admin, 'groups', groupId), {
+        teacher_id: teacherId, name: groupId, status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', `${groupId}_${traineeId}`), {
+        group_id: groupId, teacher_id: teacherId, trainee_id: traineeId,
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status, request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      if (noteId) {
+        await setDoc(notePath(admin, noteId), noteData({
+          group_id: noteGroupId,
+          created_at: Timestamp.now(),
+          updated_at: Timestamp.now(),
+        }));
+      }
+    });
+  }
+
+  test('group-backed production query returns the note and denies unrelated teachers', async () => {
+    await seedGroupClassroom({ noteId: 'group-note' });
+    const bob = bobDb();
+    const listed = await assertSucceeds(teacherGroupBackedQuery(bob));
+    assert.equal(listed.docs.map((item) => item.id).join(','), 'group-note');
+    const eve = testEnv.authenticatedContext('eve').firestore();
+    await assertFails(teacherGroupBackedQuery(eve));
+    await assertFails(teacherGroupBackedQuery(eve, { teacherId: 'eve' }));
+  });
+
+  test('owning teacher cannot list a group A note using group B', async () => {
+    await seedGroupClassroom({ noteId: 'group-a-note', groupId: 'group-1' });
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'groups', 'group-2'), {
+        teacher_id: 'bob', name: 'Class B', status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', 'group-2_alice'), {
+        group_id: 'group-2', teacher_id: 'bob', trainee_id: 'alice',
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status: 'approved', request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+    });
+    const bob = bobDb();
+    const groupB = await assertSucceeds(teacherGroupBackedQuery(bob, { groupId: 'group-2' }));
+    assert.equal(groupB.docs.length, 0);
+    const groupA = await assertSucceeds(teacherGroupBackedQuery(bob, { groupId: 'group-1' }));
+    assert.equal(groupA.docs.map((item) => item.id).join(','), 'group-a-note');
+  });
+
+  test('pending membership does not authorize the group-backed production query', async () => {
+    await seedGroupClassroom({ status: 'pending', noteId: 'pending-note' });
+    await assertFails(teacherGroupBackedQuery(bobDb()));
+  });
+
+  test('removed membership does not authorize the group-backed production query', async () => {
+    await seedGroupClassroom({ status: 'removed', noteId: 'removed-note' });
+    await assertFails(teacherGroupBackedQuery(bobDb()));
+  });
+
+  test('teacher plus trainee without provenance remains denied for mixed authorization types', async () => {
+    await seed();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(notePath(admin, 'legacy'), noteData({
+        authorization_source: 'legacy_link',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      }));
+      await setDoc(doc(admin, 'groups', 'group-1'), {
+        teacher_id: 'bob', name: 'Class A', status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', 'group-1_alice'), {
+        group_id: 'group-1', teacher_id: 'bob', trainee_id: 'alice',
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status: 'approved', request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(notePath(admin, 'classroom'), noteData({
+        group_id: 'group-1',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      }));
+    });
+    await assertFails(broadTeacherTraineeQuery(bobDb()));
+  });
+
+  test('legacy approved-link teacher query works and revoke blocks live author history', async () => {
+    await seed();
+    const bob = bobDb();
+    await assertSucceeds(setDoc(notePath(bob, 'legacy-note'), legacyNoteData()));
+    const listed = await assertSucceeds(teacherLegacyQuery(bob));
+    assert.equal(listed.docs.map((item) => item.id).join(','), 'legacy-note');
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'teacher_student_links', 'bob_alice'), { status: 'revoked' });
+    });
+    await assertFails(teacherLegacyQuery(bob));
+    await assertFails(getDoc(notePath(bob, 'legacy-note')));
+    await assertSucceeds(getDoc(notePath(aliceDb(), 'legacy-note')));
+  });
+
+  test('group-backed create does not write teacher_student_links', async () => {
+    await seedGroupClassroom();
+    await assertSucceeds(setDoc(notePath(bobDb(), 'classroom-note'), noteData({ group_id: 'group-1' })));
+    await seedBypassingRules(async (admin) => {
+      const link = await getDoc(doc(admin, 'teacher_student_links', 'bob_alice'));
+      assert.equal(link.exists(), false);
+    });
   });
 });
 

@@ -2,7 +2,102 @@ import 'dart:async';
 
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
+import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
+
+class Phase3TestAuthRepository implements AuthRepositoryBase {
+  @override
+  Future<User?> loadPersistedUser() async => null;
+
+  @override
+  Future<void> clearCurrentUser() async {}
+
+  @override
+  Future<User> login({required String email, required String password}) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<User> register({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    required String email,
+    required String password,
+    required String defaultRole,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> sendPasswordResetEmail({required String email}) async {}
+
+  @override
+  Future<EmailChangeRequestResult> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  }) async => EmailChangeRequestResult.unchanged;
+
+  @override
+  Future<bool> isCurrentEmailVerified() async => true;
+
+  @override
+  Future<void> requestCurrentEmailVerification() async {}
+
+  @override
+  Future<User?> refreshAuthenticatedUser() async => null;
+
+  @override
+  Future<User> updateProfileDetails({
+    required String userId,
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    ProfilePictureUpdate? profilePictureUpdate,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> updatePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> deleteAccount({required String password}) async {}
+
+  @override
+  Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({
+    required String originalUid,
+    required String pendingEmail,
+    required String recoveryPassword,
+    String? originalEmail,
+  }) async => PendingEmailChangeRecoveryResult.pending();
+}
+
+AuthService phase3TeacherAuth() {
+  return AuthService(
+    repository: Phase3TestAuthRepository(),
+    awaitInitialAuthState: () async {},
+  )..seedAuthenticatedUser(
+    User(
+      id: 'teacher',
+      firstName: 'Grace',
+      lastName: 'Hopper',
+      email: 'teacher@example.com',
+      role: User.roleTeacher,
+    ),
+  );
+}
 
 class FakeTeacherLinksRepository implements TeacherRelationshipRepository {
   final _controllers = <StreamController<List<TeacherStudentLink>>>[];

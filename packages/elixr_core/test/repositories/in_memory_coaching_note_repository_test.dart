@@ -46,6 +46,54 @@ void main() {
   );
 
   test(
+    'group-backed fetch stays scoped and legacy fetch excludes group notes',
+    () async {
+      repository.approvedClassroom.add('group-a::teacher::trainee');
+      repository.approvedClassroom.add('group-b::teacher::trainee');
+      final noteA = await repository.createNote(
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        body: 'Group A note',
+        groupId: 'group-a',
+      );
+      final noteB = await repository.createNote(
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        body: 'Group B note',
+        groupId: 'group-b',
+      );
+      final legacy = await repository.createNote(
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        body: 'Legacy note',
+      );
+      expect(
+        (await repository.fetchForTeacher(
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+          groupId: 'group-a',
+        )).notes.map((n) => n.id),
+        [noteA.id],
+      );
+      expect(
+        (await repository.fetchForTeacher(
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+          groupId: 'group-b',
+        )).notes.map((n) => n.id),
+        [noteB.id],
+      );
+      expect(
+        (await repository.fetchForTeacher(
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+        )).notes.map((n) => n.id),
+        [legacy.id],
+      );
+    },
+  );
+
+  test(
     'orders newest first, paginates without duplicates, and rejects foreign cursors',
     () async {
       repository.notes.addAll([

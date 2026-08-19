@@ -43,13 +43,37 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
   Future<CoachingNotePage> fetchForTeacher({
     required String teacherId,
     required String traineeId,
+    String? groupId,
     int pageSize = CoachingNoteRepository.defaultPageSize,
     CoachingNoteCursor? startAfter,
-  }) => _page(
-    notes.where((n) => n.teacherId == teacherId && n.traineeId == traineeId),
-    pageSize,
-    startAfter,
-  );
+  }) {
+    final trimmed = groupId?.trim();
+    if (groupId != null &&
+        (trimmed == null || !CoachingNote.isValidGroupId(trimmed))) {
+      throw ArgumentError.value(
+        groupId,
+        'groupId',
+        'must be a non-empty participant-shaped id',
+      );
+    }
+    final scopedGroupId = trimmed != null && trimmed.isNotEmpty
+        ? trimmed
+        : null;
+    return _page(
+      notes.where((n) {
+        if (n.teacherId != teacherId || n.traineeId != traineeId) {
+          return false;
+        }
+        if (scopedGroupId != null) {
+          return n.groupId == scopedGroupId;
+        }
+        return n.groupId == null;
+      }),
+      pageSize,
+      startAfter,
+    );
+  }
+
   @override
   Future<CoachingNotePage> fetchReceived({
     required String traineeId,
@@ -96,10 +120,21 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
     if (error != null) {
       throw CoachingNoteException(CoachingNoteError.invalidNote, error);
     }
+    String? trimmedGroupId;
+    if (groupId != null) {
+      final trimmed = groupId.trim();
+      if (!CoachingNote.isValidGroupId(trimmed)) {
+        throw const CoachingNoteException(
+          CoachingNoteError.invalidNote,
+          'Group id is invalid.',
+        );
+      }
+      trimmedGroupId = trimmed;
+    }
     _assertCanAuthor(
       teacherId: teacherId,
       traineeId: traineeId,
-      groupId: groupId,
+      groupId: trimmedGroupId,
     );
     final now = DateTime.now().toUtc();
     final note = CoachingNote(
@@ -109,7 +144,7 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
       teacherDisplayName: 'Teacher',
       body: body.trim(),
       movementName: movementName,
-      groupId: groupId?.trim().isEmpty == true ? null : groupId?.trim(),
+      groupId: trimmedGroupId,
       createdAt: now,
       updatedAt: now,
     );

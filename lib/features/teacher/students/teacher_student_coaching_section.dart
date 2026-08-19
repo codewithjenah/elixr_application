@@ -30,15 +30,62 @@ class _TeacherStudentCoachingSectionState
   bool _busy = false;
   CoachingNoteCursor? _cursor;
   bool _hasMore = false;
+  String? _loadedGroupId;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_onControllerChanged);
+    _loadedGroupId = widget.controller.selectedGroupId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _load(initial: true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(TeacherStudentCoachingSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+      _loadedGroupId = widget.controller.selectedGroupId;
+      _cursor = null;
+      _load(initial: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    final nextGroupId = widget.controller.selectedGroupId;
+    if (nextGroupId == _loadedGroupId) return;
+    _loadedGroupId = nextGroupId;
+    _cursor = null;
     _load(initial: true);
   }
 
   Future<void> _load({bool initial = false, bool more = false}) async {
-    if (_busy) return;
+    if (more && _busy) return;
+    final groupId = widget.controller.selectedGroupId;
+    final generation = initial ? ++_loadGeneration : _loadGeneration;
+    if (groupId == null) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _notes.clear();
+        _cursor = null;
+        _hasMore = false;
+        _loading = false;
+        _error = null;
+        _busy = false;
+      });
+      return;
+    }
     _busy = true;
     if (initial) {
       _loading = true;
@@ -50,9 +97,10 @@ class _TeacherStudentCoachingSectionState
       final page = await repository.fetchForTeacher(
         teacherId: widget.controller.teacherId,
         traineeId: widget.controller.traineeId,
+        groupId: groupId,
         startAfter: more ? _cursor : null,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         if (more) {
           _notes.addAll(page.notes);
@@ -66,13 +114,15 @@ class _TeacherStudentCoachingSectionState
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _error = 'Could not load coaching notes.';
         _loading = false;
       });
     } finally {
-      _busy = false;
+      if (generation == _loadGeneration) {
+        _busy = false;
+      }
     }
   }
 
@@ -216,9 +266,19 @@ class _TeacherStudentCoachingSectionState
             ),
           ],
         ),
+        if (widget.controller.selectedGroupId != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Classroom group: ${widget.controller.selectedGroupId}',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
         const SizedBox(height: AppSpacing.md),
         if (_loading)
-          const ProgressRing()
+          Text(
+            'Loading coaching notes…',
+            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+          )
         else if (_error != null)
           Text(_error!, style: AppTheme.body)
         else if (_notes.isEmpty)

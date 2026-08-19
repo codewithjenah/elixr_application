@@ -2,6 +2,12 @@ import '../constants/coaching_movement_names.dart';
 
 class CoachingNote {
   static const maximumBodyLength = 1000;
+
+  /// Firestore discriminant for legacy-link Teacher list queries.
+  /// Group-backed notes use [groupId] instead and must not write this field.
+  static const authorizationSourceField = 'authorization_source';
+  static const authorizationSourceLegacyLink = 'legacy_link';
+
   const CoachingNote({
     required this.id,
     required this.teacherId,
@@ -36,6 +42,13 @@ class CoachingNote {
     return null;
   }
 
+  /// Group ids follow the same bound as Firestore `isParticipantId`.
+  static bool isValidGroupId(String? value) {
+    if (value == null) return false;
+    final trimmed = value.trim();
+    return trimmed.isNotEmpty && trimmed.length <= 128;
+  }
+
   static CoachingNote? tryFromMap(
     Map<String, dynamic> map, {
     required String id,
@@ -67,7 +80,14 @@ class CoachingNote {
     final createdAt = date('created_at');
     final updatedAt = date('updated_at');
     final movement = map['movement_name'];
-    final groupId = string('group_id');
+    String? groupId;
+    if (map.containsKey('group_id')) {
+      final rawGroupId = map['group_id'];
+      if (rawGroupId is! String || !isValidGroupId(rawGroupId.trim())) {
+        return null;
+      }
+      groupId = rawGroupId.trim();
+    }
     if (teacherId == null ||
         traineeId == null ||
         teacherId == traineeId ||
@@ -80,7 +100,6 @@ class CoachingNote {
         createdAt == null ||
         updatedAt == null ||
         updatedAt.isBefore(createdAt) ||
-        (groupId != null && groupId.length > 128) ||
         (movement != null &&
             (movement is! String ||
                 movement.trim().isEmpty ||

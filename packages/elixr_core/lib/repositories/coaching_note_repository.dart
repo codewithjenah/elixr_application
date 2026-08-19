@@ -25,6 +25,7 @@ abstract class CoachingNoteRepository {
   Future<CoachingNotePage> fetchForTeacher({
     required String teacherId,
     required String traineeId,
+    String? groupId,
     int pageSize = defaultPageSize,
     CoachingNoteCursor? startAfter,
   });

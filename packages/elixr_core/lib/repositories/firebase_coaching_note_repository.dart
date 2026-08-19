@@ -91,15 +91,22 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
   Future<CoachingNotePage> fetchForTeacher({
     required String teacherId,
     required String traineeId,
+    String? groupId,
     int pageSize = CoachingNoteRepository.defaultPageSize,
     CoachingNoteCursor? startAfter,
-  }) => _fetch(
-    teacherId: teacherId,
-    traineeId: traineeId,
-    pageSize: pageSize,
-    startAfter: startAfter,
-    server: true,
-  );
+  }) {
+    final scopedGroupId = _validatedFetchGroupId(groupId);
+    return _fetch(
+      teacherId: teacherId,
+      traineeId: traineeId,
+      groupId: scopedGroupId,
+      legacyLinkOnly: scopedGroupId == null,
+      pageSize: pageSize,
+      startAfter: startAfter,
+      server: true,
+    );
+  }
+
   @override
   Future<CoachingNotePage> fetchReceived({
     required String traineeId,
@@ -111,9 +118,25 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
     startAfter: startAfter,
     server: false,
   );
+
+  String? _validatedFetchGroupId(String? groupId) {
+    if (groupId == null) return null;
+    final trimmed = groupId.trim();
+    if (!CoachingNote.isValidGroupId(trimmed)) {
+      throw ArgumentError.value(
+        groupId,
+        'groupId',
+        'must be a non-empty participant-shaped id',
+      );
+    }
+    return trimmed;
+  }
+
   Future<CoachingNotePage> _fetch({
     String? teacherId,
     required String traineeId,
+    String? groupId,
+    bool legacyLinkOnly = false,
     required int pageSize,
     CoachingNoteCursor? startAfter,
     required bool server,
@@ -125,6 +148,14 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
     );
     if (teacherId != null) {
       query = query.where('teacher_id', isEqualTo: teacherId);
+    }
+    if (groupId != null) {
+      query = query.where('group_id', isEqualTo: groupId);
+    } else if (legacyLinkOnly) {
+      query = query.where(
+        CoachingNote.authorizationSourceField,
+        isEqualTo: CoachingNote.authorizationSourceLegacyLink,
+      );
     }
     query = query
         .orderBy('created_at', descending: true)
@@ -164,7 +195,7 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
   }) async {
     _draft(body, movementName);
     final ref = _notes.doc();
-    final trimmedGroupId = groupId?.trim();
+    final trimmedGroupId = _createGroupId(groupId);
     try {
       await _firestore.runTransaction((tx) async {
         final user = await tx.get(
@@ -174,7 +205,7 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
         if (name is! String || name.trim().isEmpty) {
           throw const CoachingNoteException(CoachingNoteError.permissionDenied);
         }
-        if (trimmedGroupId != null && trimmedGroupId.isNotEmpty) {
+        if (trimmedGroupId != null) {
           await _assertApprovedClassroomMembership(
             tx,
             teacherId,
@@ -189,9 +220,11 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
           'trainee_id': traineeId,
           'teacher_display_name': name,
           'body': body.trim(),
-          if (movementName != null) 'movement_name': movementName,
-          if (trimmedGroupId != null && trimmedGroupId.isNotEmpty)
-            'group_id': trimmedGroupId,
+          'movement_name': ?movementName,
+          'group_id': ?trimmedGroupId,
+          if (trimmedGroupId == null)
+            CoachingNote.authorizationSourceField:
+                CoachingNote.authorizationSourceLegacyLink,
           'created_at': FieldValue.serverTimestamp(),
           'updated_at': FieldValue.serverTimestamp(),
         });
@@ -264,6 +297,18 @@ class FirebaseCoachingNoteRepository implements CoachingNoteRepository {
     } catch (e) {
       throw classifyError(e);
     }
+  }
+
+  String? _createGroupId(String? groupId) {
+    if (groupId == null) return null;
+    final trimmed = groupId.trim();
+    if (!CoachingNote.isValidGroupId(trimmed)) {
+      throw const CoachingNoteException(
+        CoachingNoteError.invalidNote,
+        'Group id is invalid.',
+      );
+    }
+    return trimmed;
   }
 
   static CoachingNoteException classifyError(Object error) {

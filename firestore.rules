@@ -2521,12 +2521,24 @@ service cloud.firestore {
         'created_at', 'updated_at'];
     }
     function coachingAllowedKeys() {
-      return coachingKeys().concat(['movement_name', 'group_id']);
+      return coachingKeys().concat(['movement_name', 'group_id',
+        'authorization_source']);
     }
+    // Group-backed notes are listed with teacher_id + trainee_id + group_id.
+    // Legacy-link notes are listed with teacher_id + trainee_id +
+    // authorization_source == 'legacy_link'. Firestore cannot prove
+    // "group_id is absent", so Teacher+Trainee without a discriminant is denied.
     function isGroupBackedCoachingNote(data) {
       return data.keys().hasAll(['group_id'])
-        && data.group_id is string
-        && data.group_id.size() > 0;
+        && isParticipantId(data.group_id);
+    }
+    function isLegacyLinkCoachingSource(data) {
+      return data.keys().hasAll(['authorization_source'])
+        && data.authorization_source == 'legacy_link';
+    }
+    function isHistoricalLegacyCoachingNote(data) {
+      return !data.keys().hasAny(['group_id'])
+        && !data.keys().hasAny(['authorization_source']);
     }
     function approvedClassroomCoaching(data) {
       return isSignedIn()
@@ -2562,6 +2574,8 @@ service cloud.firestore {
         && (
           (isGroupBackedCoachingNote(data) && approvedClassroomCoaching(data))
           || (!data.keys().hasAny(['group_id'])
+            && (isLegacyLinkCoachingSource(data)
+              || isHistoricalLegacyCoachingNote(data))
             && approvedCoachingLink(data.teacher_id, data.trainee_id))
         );
     }
@@ -2571,8 +2585,11 @@ service cloud.firestore {
         && data.teacher_id != data.trainee_id && isParticipantId(data.teacher_id)
         && isParticipantId(data.trainee_id)
         && (
-          (isGroupBackedCoachingNote(data) && approvedClassroomCoaching(data))
+          (isGroupBackedCoachingNote(data)
+            && !data.keys().hasAny(['authorization_source'])
+            && approvedClassroomCoaching(data))
           || (!data.keys().hasAny(['group_id'])
+            && isLegacyLinkCoachingSource(data)
             && approvedCoachingLink(data.teacher_id, data.trainee_id))
         )
         && exists(userPath(request.auth.uid)) && data.teacher_display_name == userFullName(request.auth.uid)
@@ -2589,6 +2606,9 @@ service cloud.firestore {
         && request.resource.data.created_at == resource.data.created_at
         && (!resource.data.keys().hasAny(['group_id'])
           || request.resource.data.group_id == resource.data.group_id)
+        && (!resource.data.keys().hasAny(['authorization_source'])
+          || request.resource.data.authorization_source
+            == resource.data.authorization_source)
         && request.resource.data.updated_at == request.time
         && request.resource.data.updated_at >= request.resource.data.created_at
         && validCoachingBody(request.resource.data.body) && validCoachingMovement(request.resource.data);
@@ -2596,8 +2616,18 @@ service cloud.firestore {
     match /teacher_coaching_notes/{noteId} {
       allow get: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
       allow get: if isSignedIn() && isCoachingAuthor(resource.data);
+      // Trainee receive: trainee_id == auth, orderBy created_at/__name__.
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
-      allow list: if isSignedIn() && isCoachingAuthor(resource.data);
+      // Group-backed Teacher history: teacher_id + trainee_id + group_id.
+      allow list: if isSignedIn()
+        && resource.data.teacher_id == request.auth.uid
+        && isGroupBackedCoachingNote(resource.data)
+        && approvedClassroomCoaching(resource.data);
+      // Legacy-link Teacher history: teacher_id + trainee_id + authorization_source.
+      allow list: if isSignedIn()
+        && resource.data.teacher_id == request.auth.uid
+        && isLegacyLinkCoachingSource(resource.data)
+        && approvedCoachingLink(resource.data.teacher_id, resource.data.trainee_id);
       allow list: if isErasingOwnCoaching(resource.data);
       allow create: if validCoachingCreate(request.resource.data);
       allow update: if validCoachingUpdate();
