@@ -31,6 +31,10 @@ class InMemoryTeacherRelationshipRepository
   final _teacherControllers =
       <String, StreamController<List<TeacherStudentLink>>>{};
 
+  /// `group_invites` codes reserved for cross-namespace collision tests.
+  @visibleForTesting
+  Set<String> groupInviteCodes = {};
+
   DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
 
   @visibleForTesting
@@ -63,6 +67,7 @@ class InMemoryTeacherRelationshipRepository
     for (var attempt = 0; attempt < maxCodeAttempts; attempt++) {
       final normalized = generateNormalizedCode();
       if (!CoachCode.isNormalized(normalized) ||
+          groupInviteCodes.contains(normalized) ||
           (invites.containsKey(normalized) && previous != normalized)) {
         continue;
       }

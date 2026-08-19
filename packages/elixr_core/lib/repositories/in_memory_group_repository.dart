@@ -33,6 +33,10 @@ class InMemoryGroupRepository implements GroupRepository {
   final Map<String, GroupMembership> memberships = {};
   int _groupCounter = 0;
 
+  /// Legacy `teacher_invites` codes reserved for cross-namespace collision tests.
+  @visibleForTesting
+  Set<String> legacyTeacherInviteCodes = {};
+
   final _teacherGroupControllers =
       <String, StreamController<List<ElixrGroup>>>{};
   final _groupMembershipControllers =
@@ -107,11 +111,16 @@ class InMemoryGroupRepository implements GroupRepository {
       updatedAt: timestamp,
     );
     groups[id] = group;
-    await createOrRotateGroupInvite(
-      groupId: id,
-      teacherId: teacherId,
-      teacherDisplayName: teacherDisplayName,
-    );
+    try {
+      await createOrRotateGroupInvite(
+        groupId: id,
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
+      );
+    } catch (e) {
+      groups.remove(id);
+      rethrow;
+    }
     _emitGroups();
     return groups[id]!;
   }
@@ -181,6 +190,7 @@ class InMemoryGroupRepository implements GroupRepository {
     for (var attempt = 0; attempt < maxCodeAttempts; attempt++) {
       final normalized = generateNormalizedCode();
       if (!CoachCode.isNormalized(normalized) ||
+          legacyTeacherInviteCodes.contains(normalized) ||
           (invites.containsKey(normalized) && previous != normalized)) {
         continue;
       }

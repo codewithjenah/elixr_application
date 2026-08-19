@@ -23,6 +23,8 @@ class FirebaseTeacherRelationshipRepository
 
   CollectionReference<Map<String, dynamic>> get _invites =>
       _firestore.collection(FirestoreCollections.teacherInvites);
+  CollectionReference<Map<String, dynamic>> get _groupInvites =>
+      _firestore.collection(FirestoreCollections.groupInvites);
   CollectionReference<Map<String, dynamic>> get _links =>
       _firestore.collection(FirestoreCollections.teacherStudentLinks);
   DocumentReference<Map<String, dynamic>> _userRef(String id) =>
@@ -41,6 +43,7 @@ class FirebaseTeacherRelationshipRepository
       if (!CoachCode.isNormalized(normalized)) continue;
       final inviteRef = _invites.doc(normalized);
       if ((await inviteRef.get()).exists) continue;
+      if ((await _groupInvites.doc(normalized).get()).exists) continue;
       final batch = _firestore.batch();
       if (previous is String && previous.isNotEmpty && previous != normalized) {
         batch.delete(_invites.doc(previous));

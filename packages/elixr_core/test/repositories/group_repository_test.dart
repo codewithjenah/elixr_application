@@ -210,4 +210,45 @@ void main() {
       throwsA(isA<GroupException>()),
     );
   });
+
+  test(
+    'group invite allocation skips legacy teacher_invites namespace',
+    () async {
+      groupRepository.legacyTeacherInviteCodes = {'7KPMXR4DQ2WT'};
+      final group = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      expect(invite?.normalizedCode, 'ABCD2345EFGH');
+    },
+  );
+
+  test('createGroup rolls back when invite provisioning fails', () async {
+    final failingRepository = InMemoryGroupRepository(
+      generateNormalizedCode: () => '7KPMXR4DQ2WT',
+      maxCodeAttempts: 2,
+      now: () => DateTime.utc(2026, 8, 19, 8),
+      generateGroupId: () => 'group-rollback',
+    );
+    failingRepository.legacyTeacherInviteCodes = {'7KPMXR4DQ2WT'};
+    addTearDown(failingRepository.dispose);
+
+    await expectLater(
+      failingRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      ),
+      throwsA(
+        predicate<GroupException>(
+          (error) => error.code == GroupError.collisionExhausted,
+        ),
+      ),
+    );
+    expect(failingRepository.groups, isEmpty);
+  });
 }

@@ -25,6 +25,8 @@ class FirebaseGroupRepository implements GroupRepository {
       _firestore.collection(FirestoreCollections.groups);
   CollectionReference<Map<String, dynamic>> get _invites =>
       _firestore.collection(FirestoreCollections.groupInvites);
+  CollectionReference<Map<String, dynamic>> get _legacyTeacherInvites =>
+      _firestore.collection(FirestoreCollections.teacherInvites);
   CollectionReference<Map<String, dynamic>> get _memberships =>
       _firestore.collection(FirestoreCollections.groupMemberships);
 
@@ -50,11 +52,20 @@ class FirebaseGroupRepository implements GroupRepository {
       'created_at': FieldValue.serverTimestamp(),
       'updated_at': FieldValue.serverTimestamp(),
     });
-    await createOrRotateGroupInvite(
-      groupId: ref.id,
-      teacherId: teacherId,
-      teacherDisplayName: teacherDisplayName,
-    );
+    try {
+      await createOrRotateGroupInvite(
+        groupId: ref.id,
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
+      );
+    } catch (e) {
+      try {
+        await ref.delete();
+      } on FirebaseException {
+        // Best-effort rollback when invite provisioning fails.
+      }
+      rethrow;
+    }
     final snapshot = await ref.get();
     return ElixrGroup.tryFromMap(
           snapshot.data() ?? const {},
@@ -147,6 +158,7 @@ class FirebaseGroupRepository implements GroupRepository {
       if (!CoachCode.isNormalized(normalized)) continue;
       final inviteRef = _invites.doc(normalized);
       if ((await inviteRef.get()).exists) continue;
+      if ((await _legacyTeacherInvites.doc(normalized).get()).exists) continue;
       final batch = _firestore.batch();
       if (previous != null && previous.isNotEmpty && previous != normalized) {
         batch.delete(_invites.doc(previous));

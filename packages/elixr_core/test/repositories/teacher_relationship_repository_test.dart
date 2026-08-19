@@ -179,4 +179,14 @@ void main() {
       TeacherStudentLinkStatus.revoked,
     );
   });
+
+  test('roster invite allocation skips group_invites namespace', () async {
+    repository.groupInviteCodes = {'7KPMXR4DQ2WT'};
+    final invite = await repository.createOrRotateRosterInvite(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+    );
+    expect(invite.normalizedCode, 'ABCD2345EFGH');
+    expect(repository.invites.containsKey('7KPMXR4DQ2WT'), isFalse);
+  });
 }

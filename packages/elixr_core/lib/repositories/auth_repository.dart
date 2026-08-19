@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 
 import '../database/firestore_collections.dart';
 import '../database/user_profile_store.dart';
+import '../models/coach_code.dart';
 import '../models/user.dart';
 import '../utils/manila_day.dart';
 import '../utils/user_name.dart';
@@ -241,6 +242,53 @@ void _logAccountPurgeFailure(Object error) {
   debugPrint(
     'Account erasure purge failed: ${_describeAccountPurgeError(error)}',
   );
+}
+
+/// Purges Phase 2 `groups`, `group_invites`, and `group_memberships` data for
+/// account erasure. Trainees lose their memberships; Teachers lose owned groups,
+/// active group invites (derived from group pointers), and related memberships.
+@visibleForTesting
+Future<void> purgePhase2GroupDataForAccountErasure({
+  required FirebaseFirestore firestore,
+  required Future<void> Function(List<DocumentReference>) commitDeletes,
+  required String uid,
+}) async {
+  final refs = <String, DocumentReference>{};
+
+  final asTraineeMemberships = await firestore
+      .collection(FirestoreCollections.groupMemberships)
+      .where('trainee_id', isEqualTo: uid)
+      .get();
+  for (final doc in asTraineeMemberships.docs) {
+    refs[doc.reference.path] = doc.reference;
+  }
+
+  final ownedGroups = await firestore
+      .collection(FirestoreCollections.groups)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final doc in ownedGroups.docs) {
+    final inviteCode = doc.data()['invite_code'];
+    if (inviteCode is String &&
+        inviteCode.isNotEmpty &&
+        CoachCode.isNormalized(inviteCode)) {
+      final inviteRef = firestore
+          .collection(FirestoreCollections.groupInvites)
+          .doc(inviteCode);
+      refs[inviteRef.path] = inviteRef;
+    }
+    refs[doc.reference.path] = doc.reference;
+  }
+
+  final asTeacherMemberships = await firestore
+      .collection(FirestoreCollections.groupMemberships)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final doc in asTeacherMemberships.docs) {
+    refs[doc.reference.path] = doc.reference;
+  }
+
+  await commitDeletes(refs.values.toList());
 }
 
 /// Purges account data then deletes Auth. Auth deletion runs only after a
@@ -984,6 +1032,14 @@ class AuthRepository implements AuthRepositoryBase {
         ...asTrainee.docs.map((d) => d.reference),
         ...asTeacher.docs.map((d) => d.reference),
       ]);
+    });
+
+    await _runPurgeStage('group data purge', () {
+      return purgePhase2GroupDataForAccountErasure(
+        firestore: _firestore,
+        commitDeletes: _commitDeletes,
+        uid: uid,
+      );
     });
 
     await _runPurgeStage('users document purge', () {

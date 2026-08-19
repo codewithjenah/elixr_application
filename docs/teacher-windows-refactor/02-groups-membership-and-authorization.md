@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Complete (2026-08-19)  
+**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Complete (2026-08-19)
+Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19
 
 ## 2. Goal
 
@@ -369,6 +369,74 @@ Phase 2 completion (2026-08-19)
 - `teacher_app` still present: confirmed
 - No production migrator ran: confirmed
 ```
+
+## 24. Phase 2 correction pass (2026-08-19)
+
+GitHub review findings addressed on `main` without starting Phase 3.
+
+### Root causes fixed
+
+1. **Invite pointer rules gap** — `validGroupTeacherUpdate()` had no active→active transition for `invite_code` set/rotate, so repository batch writes were denied by rules.
+2. **Split invite namespace** — `group_invites` and `teacher_invites` collision-checked only their own collection, allowing cross-collection code shadowing during legacy compatibility.
+3. **Account-erasure regression** — `_purgeUserData()` did not delete Phase 2 `groups`, `group_invites`, or `group_memberships`.
+4. **Classroom Authorization viewer binding** — `hasClassroomAuthorization()` did not require `request.auth.uid` to match the group/membership Teacher.
+
+### Corrections implemented
+
+- **Invite pointer rules** — Added `validGroupInvitePointerUpdate(groupId)` and `validGroupTeacherUpdate(groupId)` so an owning verified Teacher may set/rotate `invite_code` only when the group stays active with unchanged identity fields, `updated_at == request.time`, and a matching `group_invites/{code}` exists in the same atomic write (`getAfter`). Rename and archive transitions preserved.
+- **Global invite-code uniqueness** — Firebase repositories check both collections before commit; rules deny `group_invites` create when `teacher_invites/{code}` exists and vice versa.
+- **createGroup rollback** — `FirebaseGroupRepository.createGroup()` and `InMemoryGroupRepository.createGroup()` roll back the new group when initial invite provisioning fails (no silent swallow).
+- **Account erasure** — `purgePhase2GroupDataForAccountErasure()` deletes trainee memberships, teacher-owned memberships, teacher-owned groups, and active group invites derived from each owned group's `invite_code` pointer (no `group_invites` list). Fail-closed Auth deletion preserved.
+- **Classroom Authorization** — `hasClassroomAuthorization(groupId, traineeId)` now requires `request.auth.uid == group.teacher_id == membership.teacher_id` plus approved membership for the trainee in that group. No Progress/Evidence consent attached.
+- **Firestore emulator coverage** — Added `firestore-tests/groups_v1.test.mjs` and wired it into `npm test`.
+
+### Files created
+
+- `firestore-tests/groups_v1.test.mjs`
+- `packages/elixr_core/test/repositories/auth_account_erasure_groups_test.dart`
+
+### Files modified
+
+- `firestore.rules`
+- `firestore-tests/package.json`
+- `packages/elixr_core/pubspec.yaml` (dev: `fake_cloud_firestore`)
+- `packages/elixr_core/lib/repositories/auth_repository.dart`
+- `packages/elixr_core/lib/repositories/firebase_group_repository.dart`
+- `packages/elixr_core/lib/repositories/firebase_teacher_relationship_repository.dart`
+- `packages/elixr_core/lib/repositories/in_memory_group_repository.dart`
+- `packages/elixr_core/lib/repositories/in_memory_teacher_relationship_repository.dart`
+- `packages/elixr_core/test/repositories/group_repository_test.dart`
+- `packages/elixr_core/test/repositories/teacher_relationship_repository_test.dart`
+- `test/services/join_code_resolver_test.dart`
+- This phase document
+
+### Commands run and results
+
+- `dart format` — applied to changed Dart files
+- `flutter analyze lib test` — 4 pre-existing info lints only (`curly_braces_in_flow_control_structures`)
+- `flutter test` — **1133 passed**, 0 failed
+- `cd packages\elixr_core; flutter test` — **59 passed**, 0 failed
+- `cd teacher_app; flutter test` — **95 passed**, 0 failed
+- `cd firestore-tests; npm test` (with `JAVA_HOME` = Android Studio JBR 21) — **163 passed**, 0 failed (includes new `groups_v1` suite)
+- `flutter build windows` — succeeded (`elixr_application.exe`)
+
+### Not verified
+
+- Firestore rules/indexes deployment to production
+- Manual Teacher/Trainee join on Windows against live Firebase
+- Emulator run with system default Java 17 PATH (requires JDK 21 on `PATH` or `JAVA_HOME`)
+
+### Explicit confirmations
+
+- Group invite create/rotate accepted by rules when paired with matching `group_invites` batch write
+- Ambiguous legacy/group code creation denied by rules and avoided by repositories
+- Deleting a Trainee removes their `group_memberships`
+- Deleting a Teacher removes owned groups, derived active `group_invites`, and related memberships
+- Classroom Authorization binds to authenticated Teacher viewer
+- No Progress/Evidence consent silently granted via membership or Classroom helper
+- No production migrator ran
+- `teacher_app/` remains intact
+- Phase 3 not started
 
 ## 23. Handoff requirements for Phase 3
 

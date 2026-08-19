@@ -59,4 +59,53 @@ void main() {
       throwsA(isA<GroupException>()),
     );
   });
+
+  test(
+    'supported write paths cannot leave the same code in both namespaces',
+    () async {
+      var rosterCodeAttempt = 0;
+      final collisionAwareRelationshipRepository =
+          InMemoryTeacherRelationshipRepository(
+            generateNormalizedCode: () =>
+                ['RSTU23456ABC', 'ABCD2345EFGH'][rosterCodeAttempt++],
+            now: () => DateTime.utc(2026, 8, 19),
+          );
+      addTearDown(collisionAwareRelationshipRepository.dispose);
+      collisionAwareRelationshipRepository.groupInviteCodes = {'RSTU23456ABC'};
+      final rosterInvite = await collisionAwareRelationshipRepository
+          .createOrRotateRosterInvite(
+            teacherId: 'teacher-1',
+            teacherDisplayName: 'Grace Hopper',
+          );
+      expect(rosterInvite.normalizedCode, 'ABCD2345EFGH');
+      expect(
+        collisionAwareRelationshipRepository.invites.containsKey(
+          'RSTU23456ABC',
+        ),
+        isFalse,
+      );
+
+      var groupCodeAttempt = 0;
+      final collisionAwareGroupRepository = InMemoryGroupRepository(
+        generateNormalizedCode: () =>
+            ['7KPMXR4DQ2WT', 'ABCD2345EFGH'][groupCodeAttempt++],
+        now: () => DateTime.utc(2026, 8, 19),
+        generateGroupId: () => 'group-collision',
+      );
+      addTearDown(collisionAwareGroupRepository.dispose);
+      collisionAwareGroupRepository.legacyTeacherInviteCodes = {'7KPMXR4DQ2WT'};
+      final group = await collisionAwareGroupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final groupInvite = await collisionAwareGroupRepository
+          .getActiveGroupInvite(groupId: group.id);
+      expect(groupInvite?.normalizedCode, 'ABCD2345EFGH');
+      expect(
+        collisionAwareGroupRepository.invites.containsKey('7KPMXR4DQ2WT'),
+        isFalse,
+      );
+    },
+  );
 }

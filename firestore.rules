@@ -1893,6 +1893,7 @@ service cloud.firestore {
     function validInviteCreate(data, inviteId) {
       return hasVerifiedEmail()
         && isNormalizedCoachCode(inviteId)
+        && !exists(groupInvitePath(inviteId))
         && data.keys().hasOnly(inviteKeys())
         && data.keys().hasAll(inviteKeys())
         && data.teacher_id == request.auth.uid
@@ -2235,7 +2236,27 @@ service cloud.firestore {
         && data.updated_at == request.time;
     }
 
-    function validGroupTeacherUpdate() {
+    function validGroupInvitePointerUpdate(groupId) {
+      let newCode = request.resource.data.invite_code;
+      let inviteAfter = getAfter(groupInvitePath(newCode));
+      return resource.data.status == 'active'
+        && request.resource.data.status == 'active'
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.schema_version == resource.data.schema_version
+        && request.resource.data.updated_at == request.time
+        && isNormalizedCoachCode(newCode)
+        && inviteAfter != null
+        && inviteAfter.data.group_id == groupId
+        && inviteAfter.data.teacher_id == request.auth.uid
+        && inviteAfter.data.teacher_display_name == userFullName(request.auth.uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'invite_code', 'updated_at'
+        ]);
+    }
+
+    function validGroupTeacherUpdate(groupId) {
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
         && request.resource.data.keys().hasOnly(groupAllowedKeys())
@@ -2262,6 +2283,7 @@ service cloud.firestore {
             && request.resource.data.name == resource.data.name
             && request.resource.data.invite_code == resource.data.get('invite_code', '')
           )
+          || validGroupInvitePointerUpdate(groupId)
         );
     }
 
@@ -2286,6 +2308,7 @@ service cloud.firestore {
     function validGroupInviteCreate(data, inviteId) {
       return isVerifiedTeacher()
         && isNormalizedCoachCode(inviteId)
+        && !exists(invitePath(inviteId))
         && data.keys().hasOnly(groupInviteKeys())
         && data.keys().hasAll(groupInviteKeys())
         && data.teacher_id == request.auth.uid
@@ -2338,14 +2361,18 @@ service cloud.firestore {
         );
     }
 
+    // Binds authorization to the authenticated Teacher viewer (Phase 3+).
     function hasClassroomAuthorization(groupId, traineeId) {
-      return exists(groupMembershipPath(groupId, traineeId))
-        && get(groupMembershipPath(groupId, traineeId)).data.group_id == groupId
-        && get(groupMembershipPath(groupId, traineeId)).data.trainee_id == traineeId
-        && get(groupMembershipPath(groupId, traineeId)).data.status == 'approved'
+      return isSignedIn()
         && exists(groupPath(groupId))
-        && get(groupPath(groupId)).data.teacher_id
-          == get(groupMembershipPath(groupId, traineeId)).data.teacher_id;
+        && request.auth.uid == get(groupPath(groupId)).data.teacher_id
+        && exists(groupMembershipPath(groupId, traineeId))
+        && get(groupMembershipPath(groupId, traineeId)).data.group_id == groupId
+        && get(groupMembershipPath(groupId, traineeId)).data.trainee_id
+          == traineeId
+        && get(groupMembershipPath(groupId, traineeId)).data.teacher_id
+          == request.auth.uid
+        && get(groupMembershipPath(groupId, traineeId)).data.status == 'approved';
     }
 
     // Phase 5/6 placeholder — must fail closed until assignment_attempts exist.
@@ -2447,7 +2474,7 @@ service cloud.firestore {
 
       allow create: if validGroupCreate(request.resource.data, groupId);
 
-      allow update: if validGroupTeacherUpdate();
+      allow update: if validGroupTeacherUpdate(groupId);
 
       allow delete: if isSignedIn()
         && resource != null
