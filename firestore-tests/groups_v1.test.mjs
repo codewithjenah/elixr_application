@@ -907,6 +907,37 @@ describe('Teacher-scoped membership listener queries (Windows Groups screen)', (
     await assertFails(getDoc(doc(context('other').firestore(), 'group_memberships', MEMBERSHIP_ID)));
     await assertFails(getDoc(doc(context('trainee2').firestore(), 'group_memberships', MEMBERSHIP_ID)));
   });
+
+  test('owning teacher can list memberships by teacher_id ordered newest first', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'group_memberships', MEMBERSHIP_ID), {
+        group_id: GROUP_ID,
+        teacher_id: 'teacher',
+        trainee_id: 'trainee',
+        teacher_display_name: 'Grace Hopper',
+        trainee_display_name: 'Ada Lovelace',
+        status: 'approved',
+        request_version: 1,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    });
+    const teacher = context('teacher').firestore();
+    const owned = await assertSucceeds(getDocs(query(
+      collection(teacher, 'group_memberships'),
+      where('teacher_id', '==', 'teacher'),
+      orderBy('created_at', 'desc'),
+    )));
+    assert.equal(owned.size, 1);
+    await assertFails(getDocs(query(
+      collection(context('other').firestore(), 'group_memberships'),
+      where('teacher_id', '==', 'teacher'),
+      orderBy('created_at', 'desc'),
+    )));
+    await assertFails(getDocs(collection(teacher, 'group_memberships')));
+  });
 });
 
 describe('Classroom Authorization helper contract', () => {

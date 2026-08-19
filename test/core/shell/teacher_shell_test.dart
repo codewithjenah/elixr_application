@@ -7,6 +7,8 @@ import 'package:elixr_application/services/join_link_service.dart';
 import 'package:elixr_application/services/tutorial_progress_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -117,9 +119,15 @@ void main() {
     addTearDown(tutorials.dispose);
     addTearDown(joinLinks.dispose);
 
+    final groups = InMemoryGroupRepository();
+    addTearDown(groups.dispose);
+
     await tester.pumpWidget(
-      ChangeNotifierProvider<AuthService>.value(
-        value: auth,
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthService>.value(value: auth),
+          Provider<GroupRepository>.value(value: groups),
+        ],
         child: FluentApp.router(routerConfig: router, theme: FluentThemeData()),
       ),
     );
@@ -133,11 +141,16 @@ void main() {
     expect(find.text('Leaderboard'), findsWidgets);
     expect(find.text('Movements'), findsWidgets);
     expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Your classroom is ready'), findsOneWidget);
+    expect(find.byType(TeacherShell), findsOneWidget);
+    expect(find.byType(AppShell), findsNothing);
+
+    router.go(AppRoutePaths.teacherLeaderboard);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(
       find.text('Available in a later ELIXR Teacher phase.'),
       findsOneWidget,
     );
-    expect(find.byType(TeacherShell), findsOneWidget);
-    expect(find.byType(AppShell), findsNothing);
   });
 }

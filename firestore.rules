@@ -2520,7 +2520,19 @@ service cloud.firestore {
       return ['teacher_id', 'trainee_id', 'teacher_display_name', 'body',
         'created_at', 'updated_at'];
     }
-    function coachingAllowedKeys() { return coachingKeys().concat(['movement_name']); }
+    function coachingAllowedKeys() {
+      return coachingKeys().concat(['movement_name', 'group_id']);
+    }
+    function isGroupBackedCoachingNote(data) {
+      return data.keys().hasAll(['group_id'])
+        && data.group_id is string
+        && data.group_id.size() > 0;
+    }
+    function approvedClassroomCoaching(data) {
+      return isSignedIn()
+        && data.teacher_id == request.auth.uid
+        && hasClassroomAuthorization(data.group_id, data.trainee_id);
+    }
     function coachingMovementNames() {
       return ['Normal Grip', "Bartender's Grip", 'Reverse Grip', 'Claw Grip',
         'Hand Stall', 'One Finger Stall', 'Forearm Stall', 'Elbow Stall',
@@ -2547,13 +2559,22 @@ service cloud.firestore {
     }
     function isCoachingAuthor(data) {
       return isSignedIn() && data.teacher_id == request.auth.uid
-        && approvedCoachingLink(data.teacher_id, data.trainee_id);
+        && (
+          (isGroupBackedCoachingNote(data) && approvedClassroomCoaching(data))
+          || (!data.keys().hasAny(['group_id'])
+            && approvedCoachingLink(data.teacher_id, data.trainee_id))
+        );
     }
     function validCoachingCreate(data) {
       return isSignedIn() && data.keys().hasOnly(coachingAllowedKeys())
         && data.keys().hasAll(coachingKeys()) && data.teacher_id == request.auth.uid
         && data.teacher_id != data.trainee_id && isParticipantId(data.teacher_id)
-        && isParticipantId(data.trainee_id) && approvedCoachingLink(data.teacher_id, data.trainee_id)
+        && isParticipantId(data.trainee_id)
+        && (
+          (isGroupBackedCoachingNote(data) && approvedClassroomCoaching(data))
+          || (!data.keys().hasAny(['group_id'])
+            && approvedCoachingLink(data.teacher_id, data.trainee_id))
+        )
         && exists(userPath(request.auth.uid)) && data.teacher_display_name == userFullName(request.auth.uid)
         && isDisplayName(data.teacher_display_name) && validCoachingBody(data.body)
         && validCoachingMovement(data) && data.created_at == request.time && data.updated_at == request.time;
@@ -2566,12 +2587,15 @@ service cloud.firestore {
         && request.resource.data.trainee_id == resource.data.trainee_id
         && request.resource.data.teacher_display_name == resource.data.teacher_display_name
         && request.resource.data.created_at == resource.data.created_at
+        && (!resource.data.keys().hasAny(['group_id'])
+          || request.resource.data.group_id == resource.data.group_id)
         && request.resource.data.updated_at == request.time
         && request.resource.data.updated_at >= request.resource.data.created_at
         && validCoachingBody(request.resource.data.body) && validCoachingMovement(request.resource.data);
     }
     match /teacher_coaching_notes/{noteId} {
-      allow get: if isSignedIn() && (resource.data.trainee_id == request.auth.uid || isCoachingAuthor(resource.data));
+      allow get: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
+      allow get: if isSignedIn() && isCoachingAuthor(resource.data);
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
       allow list: if isSignedIn() && isCoachingAuthor(resource.data);
       allow list: if isErasingOwnCoaching(resource.data);

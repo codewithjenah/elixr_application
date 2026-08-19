@@ -49,6 +49,11 @@ abstract class GroupRepository {
     GroupMembershipStatus? status,
   });
 
+  /// Teacher-wide membership stream ordered newest first.
+  Stream<List<GroupMembership>> watchTeacherMemberships({
+    required String teacherId,
+  });
+
   Stream<List<GroupMembership>> watchTraineeMemberships({
     required String traineeId,
   });

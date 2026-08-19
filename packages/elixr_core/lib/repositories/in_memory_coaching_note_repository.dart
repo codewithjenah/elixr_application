@@ -3,14 +3,42 @@ import '../models/coaching_note_exception.dart';
 import 'coaching_note_repository.dart';
 
 /// Test implementation. Callers may configure [approvedPairs] to mimic the
-/// relationship rule without needing Firebase.
+/// legacy link rule and [approvedClassroom] for group-backed authorization.
 class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
   final List<CoachingNote> notes = [];
   final Set<String> approvedPairs = {};
+  final Set<String> approvedClassroom = {};
   int _nextId = 0;
   String _pair(String teacher, String trainee) => '${teacher}_$trainee';
-  bool _approved(String teacher, String trainee) =>
+  String _classroom(String groupId, String teacher, String trainee) =>
+      '$groupId::$teacher::$trainee';
+
+  bool _legacyApproved(String teacher, String trainee) =>
       approvedPairs.contains(_pair(teacher, trainee));
+
+  bool _classroomApproved(String groupId, String teacher, String trainee) =>
+      approvedClassroom.contains(_classroom(groupId, teacher, trainee));
+
+  void _assertCanAuthor({
+    required String teacherId,
+    required String traineeId,
+    String? groupId,
+    CoachingNote? existing,
+  }) {
+    final effectiveGroupId = groupId ?? existing?.groupId;
+    if (effectiveGroupId != null && effectiveGroupId.isNotEmpty) {
+      if (!_classroomApproved(effectiveGroupId, teacherId, traineeId)) {
+        throw const CoachingNoteException(
+          CoachingNoteError.relationshipRequired,
+        );
+      }
+      return;
+    }
+    if (!_legacyApproved(teacherId, traineeId)) {
+      throw const CoachingNoteException(CoachingNoteError.relationshipRequired);
+    }
+  }
+
   @override
   Future<CoachingNotePage> fetchForTeacher({
     required String teacherId,
@@ -41,8 +69,9 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
         return time != 0 ? time : b.id.compareTo(a.id);
       });
     final offset = cursor is _MemoryCursor ? cursor.offset : 0;
-    if (cursor != null && cursor is! _MemoryCursor)
+    if (cursor != null && cursor is! _MemoryCursor) {
       throw ArgumentError('Cursor belongs to another repository');
+    }
     final page = all.skip(offset).take(size).toList();
     final next = offset + page.length;
     return CoachingNotePage(
@@ -58,15 +87,20 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
     required String traineeId,
     required String body,
     String? movementName,
+    String? groupId,
   }) async {
     final error = CoachingNote.validateDraft(
       body: body,
       movementName: movementName,
     );
-    if (error != null)
+    if (error != null) {
       throw CoachingNoteException(CoachingNoteError.invalidNote, error);
-    if (!_approved(teacherId, traineeId))
-      throw const CoachingNoteException(CoachingNoteError.relationshipRequired);
+    }
+    _assertCanAuthor(
+      teacherId: teacherId,
+      traineeId: traineeId,
+      groupId: groupId,
+    );
     final now = DateTime.now().toUtc();
     final note = CoachingNote(
       id: 'note_${++_nextId}',
@@ -75,6 +109,7 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
       teacherDisplayName: 'Teacher',
       body: body.trim(),
       movementName: movementName,
+      groupId: groupId?.trim().isEmpty == true ? null : groupId?.trim(),
       createdAt: now,
       updatedAt: now,
     );
@@ -94,10 +129,9 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
       body: body,
       movementName: movementName,
     );
-    if (error != null)
+    if (error != null) {
       throw CoachingNoteException(CoachingNoteError.invalidNote, error);
-    if (!_approved(teacherId, traineeId))
-      throw const CoachingNoteException(CoachingNoteError.relationshipRequired);
+    }
     final i = notes.indexWhere(
       (n) =>
           n.id == noteId &&
@@ -106,6 +140,7 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
     );
     if (i < 0) throw const CoachingNoteException(CoachingNoteError.notFound);
     final old = notes[i];
+    _assertCanAuthor(teacherId: teacherId, traineeId: traineeId, existing: old);
     final changed = CoachingNote(
       id: old.id,
       teacherId: old.teacherId,
@@ -113,6 +148,7 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
       teacherDisplayName: old.teacherDisplayName,
       body: body.trim(),
       movementName: movementName,
+      groupId: old.groupId,
       createdAt: old.createdAt,
       updatedAt: DateTime.now().toUtc(),
     );
@@ -126,8 +162,6 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
     required String teacherId,
     required String traineeId,
   }) async {
-    if (!_approved(teacherId, traineeId))
-      throw const CoachingNoteException(CoachingNoteError.relationshipRequired);
     final i = notes.indexWhere(
       (n) =>
           n.id == noteId &&
@@ -135,6 +169,11 @@ class InMemoryCoachingNoteRepository implements CoachingNoteRepository {
           n.traineeId == traineeId,
     );
     if (i < 0) throw const CoachingNoteException(CoachingNoteError.notFound);
+    _assertCanAuthor(
+      teacherId: teacherId,
+      traineeId: traineeId,
+      existing: notes[i],
+    );
     notes.removeAt(i);
   }
 }

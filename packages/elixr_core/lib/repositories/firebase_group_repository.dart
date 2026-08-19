@@ -254,6 +254,24 @@ class FirebaseGroupRepository implements GroupRepository {
   }
 
   @override
+  Stream<List<GroupMembership>> watchTeacherMemberships({
+    required String teacherId,
+  }) {
+    return _memberships
+        .where('teacher_id', isEqualTo: teacherId)
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => [
+            for (final doc in snapshot.docs)
+              if (GroupMembership.tryFromMap(doc.data(), id: doc.id)
+                  case final membership?)
+                membership,
+          ],
+        );
+  }
+
+  @override
   Stream<List<GroupMembership>> watchTraineeMemberships({
     required String traineeId,
   }) {

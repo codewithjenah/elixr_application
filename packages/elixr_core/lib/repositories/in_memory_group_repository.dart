@@ -41,6 +41,8 @@ class InMemoryGroupRepository implements GroupRepository {
       <String, StreamController<List<ElixrGroup>>>{};
   final _groupMembershipControllers =
       <String, StreamController<List<GroupMembership>>>{};
+  final _teacherMembershipControllers =
+      <String, StreamController<List<GroupMembership>>>{};
   final _traineeMembershipControllers =
       <String, StreamController<List<GroupMembership>>>{};
 
@@ -79,6 +81,9 @@ class InMemoryGroupRepository implements GroupRepository {
       controller.close();
     }
     for (final controller in _groupMembershipControllers.values) {
+      controller.close();
+    }
+    for (final controller in _teacherMembershipControllers.values) {
       controller.close();
     }
     for (final controller in _traineeMembershipControllers.values) {
@@ -273,6 +278,15 @@ class InMemoryGroupRepository implements GroupRepository {
   );
 
   @override
+  Stream<List<GroupMembership>> watchTeacherMemberships({
+    required String teacherId,
+  }) => _watchMemberships(
+    _teacherMembershipControllers,
+    teacherId,
+    () => _membershipsForTeacher(teacherId),
+  );
+
+  @override
   Stream<List<GroupMembership>> watchTraineeMemberships({
     required String traineeId,
   }) => _watchMemberships(
@@ -461,6 +475,17 @@ class InMemoryGroupRepository implements GroupRepository {
     return result;
   }
 
+  List<GroupMembership> _membershipsForTeacher(String teacherId) {
+    final result = memberships.values
+        .where((membership) => membership.teacherId == teacherId)
+        .toList();
+    result.sort(
+      (a, b) =>
+          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+    );
+    return result;
+  }
+
   List<GroupMembership> _membershipsForTrainee(String traineeId) {
     final result = memberships.values
         .where((membership) => membership.traineeId == traineeId)
@@ -487,6 +512,11 @@ class InMemoryGroupRepository implements GroupRepository {
           entry.key,
         );
         entry.value.add(_membershipsForGroup(teacherId, groupId, status));
+      }
+    }
+    for (final entry in _teacherMembershipControllers.entries) {
+      if (!entry.value.isClosed) {
+        entry.value.add(_membershipsForTeacher(entry.key));
       }
     }
     for (final entry in _traineeMembershipControllers.entries) {

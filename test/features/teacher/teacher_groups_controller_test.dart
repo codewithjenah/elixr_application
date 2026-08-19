@@ -132,6 +132,13 @@ class _SpyGroupRepository implements GroupRepository {
   }
 
   @override
+  Stream<List<GroupMembership>> watchTeacherMemberships({
+    required String teacherId,
+  }) {
+    return inner.watchTeacherMemberships(teacherId: teacherId);
+  }
+
+  @override
   Stream<List<GroupMembership>> watchTraineeMemberships({
     required String traineeId,
   }) {

@@ -353,4 +353,35 @@ void main() {
       expect(pending.map((m) => m.id), [newer.id]);
     },
   );
+
+  test('watchTeacherMemberships scopes by owning teacher', () async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = (await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    ))!;
+    await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite.normalizedCode,
+    );
+    await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-2',
+      traineeDisplayName: 'Alan Turing',
+      code: invite.normalizedCode,
+    );
+
+    final owned = await groupRepository
+        .watchTeacherMemberships(teacherId: 'teacher-1')
+        .first;
+    expect(owned, hasLength(2));
+
+    final otherTeacher = await groupRepository
+        .watchTeacherMemberships(teacherId: 'teacher-2')
+        .first;
+    expect(otherTeacher, isEmpty);
+  });
 }

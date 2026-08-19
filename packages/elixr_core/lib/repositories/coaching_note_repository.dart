@@ -38,6 +38,7 @@ abstract class CoachingNoteRepository {
     required String traineeId,
     required String body,
     String? movementName,
+    String? groupId,
   });
   Future<CoachingNote> updateNote({
     required String noteId,

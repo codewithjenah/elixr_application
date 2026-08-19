@@ -77,6 +77,15 @@ void main() {
       expect(note!.movementName, isNull);
     });
 
+    test('parses optional immutable group_id for classroom-backed notes', () {
+      final note = CoachingNote.tryFromMap({
+        ...validMap(movement: null),
+        'group_id': 'group-1',
+      }, id: 'note');
+      expect(note, isNotNull);
+      expect(note!.groupId, 'group-1');
+    });
+
     test('fails safely for malformed required data', () {
       final invalidMaps = <Map<String, dynamic>>[
         {...validMap(), 'teacher_id': ''},

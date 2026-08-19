@@ -4,6 +4,8 @@ import 'package:elixr_core/repositories/firebase_group_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/firebase_teacher_progress_repository.dart';
+import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:elixr_core/repositories/coaching_note_repository.dart';
 import 'package:elixr_core/repositories/firebase_coaching_note_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -116,6 +118,9 @@ class _ElixrAppState extends State<ElixrApp> {
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),
         Provider<CoachingNoteRepository>(
           create: (_) => FirebaseCoachingNoteRepository(),
+        ),
+        Provider<TeacherProgressRepository>(
+          create: (_) => FirebaseTeacherProgressRepository(),
         ),
       ],
       child: Consumer<SettingsService>(

@@ -34,6 +34,7 @@ abstract final class AppRoutePaths {
   static const teacherDashboard = '/teacher/dashboard';
   static const teacherGroups = '/teacher/groups';
   static const teacherStudents = '/teacher/students';
+  static const teacherStudentDetailSegment = 'students';
   static const teacherLeaderboard = '/teacher/leaderboard';
   static const teacherMovements = '/teacher/movements';
   static const teacherSettings = '/teacher/settings';
@@ -68,6 +69,12 @@ abstract final class AppRoutePaths {
 
   static bool isTeacherShellRoute(String location) {
     return location.startsWith('/teacher/');
+  }
+
+  static String teacherStudentDetail(String traineeId, {String? groupId}) {
+    final base = '/teacher/students/$traineeId';
+    if (groupId == null || groupId.isEmpty) return base;
+    return '$base?groupId=$groupId';
   }
 
   static bool isTraineeShellRoute(String location) {

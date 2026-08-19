@@ -184,6 +184,93 @@ describe('teacher coaching notes', () => {
     const notes = await assertSucceeds(getDocs(query(collection(bob, 'teacher_coaching_notes'), where('teacher_id', '==', 'bob'))));
     await assertSucceeds(deleteDoc(notes.docs[0].ref));
   });
+
+  test('group-only approved trainee can create group-backed coaching note without a link', async () => {
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'bob'), { full_name: 'Bob Teacher', role: 'Teacher' });
+      await setDoc(doc(admin, 'users', 'alice'), { full_name: 'Alice Trainee', role: 'Trainee' });
+      await setDoc(doc(admin, 'groups', 'group-1'), {
+        teacher_id: 'bob', name: 'Class A', status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', 'group-1_alice'), {
+        group_id: 'group-1', teacher_id: 'bob', trainee_id: 'alice',
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status: 'approved', request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+    });
+    const bob = bobDb();
+    await assertSucceeds(setDoc(notePath(bob, 'group-note'), noteData({
+      group_id: 'group-1',
+    })));
+    const saved = await assertSucceeds(getDoc(notePath(bob, 'group-note')));
+    assert.equal(saved.data().group_id, 'group-1');
+    await assertSucceeds(getDoc(notePath(aliceDb(), 'group-note')));
+  });
+
+  test('pending group membership does not authorize group-backed coaching', async () => {
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'bob'), { full_name: 'Bob Teacher', role: 'Teacher' });
+      await setDoc(doc(admin, 'users', 'alice'), { full_name: 'Alice Trainee', role: 'Trainee' });
+      await setDoc(doc(admin, 'groups', 'group-1'), {
+        teacher_id: 'bob', name: 'Class A', status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', 'group-1_alice'), {
+        group_id: 'group-1', teacher_id: 'bob', trainee_id: 'alice',
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status: 'pending', request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+    });
+    await assertFails(setDoc(notePath(bobDb(), 'pending-note'), noteData({ group_id: 'group-1' })));
+  });
+
+  test('unrelated teacher cannot spoof group_id for another classroom', async () => {
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'bob'), { full_name: 'Bob Teacher', role: 'Teacher' });
+      await setDoc(doc(admin, 'users', 'eve'), { full_name: 'Eve Teacher', role: 'Teacher' });
+      await setDoc(doc(admin, 'users', 'alice'), { full_name: 'Alice Trainee', role: 'Trainee' });
+      await setDoc(doc(admin, 'groups', 'group-1'), {
+        teacher_id: 'bob', name: 'Class A', status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', 'group-1_alice'), {
+        group_id: 'group-1', teacher_id: 'bob', trainee_id: 'alice',
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status: 'approved', request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+    });
+    const eve = testEnv.authenticatedContext('eve').firestore();
+    await assertFails(setDoc(notePath(eve, 'spoof'), noteData({
+      teacher_id: 'eve', group_id: 'group-1',
+    })));
+  });
+
+  test('group_id is immutable on update for group-backed notes', async () => {
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'bob'), { full_name: 'Bob Teacher', role: 'Teacher' });
+      await setDoc(doc(admin, 'users', 'alice'), { full_name: 'Alice Trainee', role: 'Trainee' });
+      await setDoc(doc(admin, 'groups', 'group-1'), {
+        teacher_id: 'bob', name: 'Class A', status: 'active', schema_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(admin, 'group_memberships', 'group-1_alice'), {
+        group_id: 'group-1', teacher_id: 'bob', trainee_id: 'alice',
+        teacher_display_name: 'Bob Teacher', trainee_display_name: 'Alice Trainee',
+        status: 'approved', request_version: 1,
+        created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      });
+      await setDoc(notePath(admin, 'group-note'), noteData({
+        group_id: 'group-1', created_at: Timestamp.now(), updated_at: Timestamp.now(),
+      }));
+    });
+    await assertFails(updateDoc(notePath(bobDb()), {
+      group_id: 'group-2', updated_at: serverTimestamp(),
+    }));
+  });
 });
 
 after(async () => {

@@ -11,6 +11,7 @@ class CoachingNote {
     required this.createdAt,
     required this.updatedAt,
     this.movementName,
+    this.groupId,
   });
 
   final String id;
@@ -19,6 +20,7 @@ class CoachingNote {
   final String teacherDisplayName;
   final String body;
   final String? movementName;
+  final String? groupId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -65,6 +67,7 @@ class CoachingNote {
     final createdAt = date('created_at');
     final updatedAt = date('updated_at');
     final movement = map['movement_name'];
+    final groupId = string('group_id');
     if (teacherId == null ||
         traineeId == null ||
         teacherId == traineeId ||
@@ -77,6 +80,7 @@ class CoachingNote {
         createdAt == null ||
         updatedAt == null ||
         updatedAt.isBefore(createdAt) ||
+        (groupId != null && groupId.length > 128) ||
         (movement != null &&
             (movement is! String ||
                 movement.trim().isEmpty ||
@@ -92,6 +96,7 @@ class CoachingNote {
       createdAt: createdAt,
       updatedAt: updatedAt,
       movementName: movement as String?,
+      groupId: groupId,
     );
   }
 }

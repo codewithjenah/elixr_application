@@ -21,7 +21,10 @@ import '../../features/practice/practice_screen.dart';
 import '../../features/profile/profile_route_args.dart';
 import '../../features/profile/user_profile_screen.dart';
 import '../../features/progress/progress_screen.dart';
+import '../../features/teacher/dashboard/teacher_dashboard_screen.dart';
 import '../../features/teacher/groups/teacher_groups_screen.dart';
+import '../../features/teacher/students/teacher_student_detail_screen.dart';
+import '../../features/teacher/students/teacher_students_screen.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
 import '../../features/teacher_access/join_teacher_screen.dart';
 import '../../features/training/training_screen.dart';
@@ -281,7 +284,7 @@ class AppRouter {
               path: AppRoutePaths.teacherDashboard,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const TeacherPlaceholderScreen(title: 'Dashboard'),
+                child: const TeacherDashboardScreen(),
               ),
             ),
             GoRoute(
@@ -295,8 +298,23 @@ class AppRouter {
               path: AppRoutePaths.teacherStudents,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const TeacherPlaceholderScreen(title: 'Students'),
+                child: const TeacherStudentsScreen(),
               ),
+              routes: [
+                GoRoute(
+                  path: ':traineeId',
+                  pageBuilder: (context, state) {
+                    final traineeId = state.pathParameters['traineeId'] ?? '';
+                    return fadeTransitionPage(
+                      key: state.pageKey,
+                      child: TeacherStudentDetailScreen(
+                        traineeId: traineeId,
+                        preferredGroupId: state.uri.queryParameters['groupId'],
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
             GoRoute(
               path: AppRoutePaths.teacherLeaderboard,
