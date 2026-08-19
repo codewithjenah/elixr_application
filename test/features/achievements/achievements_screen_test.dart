@@ -386,6 +386,7 @@ void main() {
       );
 
       expect(find.text('All achievements'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.view_all), findsOneWidget);
       expect(
         find.descendant(
           of: find.byWidgetPredicate(
@@ -421,6 +422,11 @@ void main() {
       expect(find.text('In progress'), findsWidgets);
       expect(find.text('Claimed'), findsWidgets);
       expect(find.text('Locked'), findsWidgets);
+      expect(find.byIcon(FluentIcons.view_all), findsWidgets);
+      expect(find.byIcon(FluentIcons.giftbox_open), findsOneWidget);
+      expect(find.byIcon(FluentIcons.processing_run), findsOneWidget);
+      expect(find.byIcon(FluentIcons.completed_solid), findsOneWidget);
+      expect(find.byIcon(FluentIcons.lock_solid), findsOneWidget);
       expect(find.text('${counts['all']}'), findsWidgets);
       expect(find.text('${counts['claimable']}'), findsWidgets);
       expect(find.text('${counts['inProgress']}'), findsWidgets);

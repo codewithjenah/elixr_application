@@ -175,6 +175,9 @@ void main() {
         expect(find.text('This month'), findsOneWidget);
         expect(find.text('All time'), findsOneWidget);
         expect(find.text('All Time'), findsNothing);
+        expect(find.byIcon(FluentIcons.clock), findsOneWidget);
+        expect(find.byIcon(FluentIcons.calendar), findsOneWidget);
+        expect(find.byIcon(FluentIcons.globe), findsOneWidget);
 
         await tester.tap(find.text('Today'));
         expect(selected, LeaderboardPeriod.today);

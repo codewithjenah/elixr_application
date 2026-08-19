@@ -71,9 +71,15 @@ class HistoryFilterBar extends StatelessWidget {
                 for (final mode in HistorySortMode.values)
                   ComboBoxItem<HistorySortMode>(
                     value: mode,
-                    child: Text(mode.label),
+                    child: _SortModeOptionRow(mode: mode),
                   ),
               ],
+              selectedItemBuilder: (context) {
+                return [
+                  for (final mode in HistorySortMode.values)
+                    _SortModeOptionRow(mode: mode),
+                ];
+              },
               onChanged: (mode) {
                 if (mode != null) onSortChanged(mode);
               },
@@ -126,6 +132,26 @@ class HistoryFilterBar extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _SortModeOptionRow extends StatelessWidget {
+  const _SortModeOptionRow({required this.mode});
+
+  final HistorySortMode mode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ExcludeSemantics(
+          child: Icon(mode.icon, size: 13, color: context.elixTextSecondary),
+        ),
+        const SizedBox(width: 8),
+        Text(mode.label),
+      ],
     );
   }
 }

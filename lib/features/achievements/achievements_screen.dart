@@ -41,6 +41,16 @@ String _achievementFilterDisplayLabel(_AchievementFilter filter) {
   };
 }
 
+IconData _achievementFilterIcon(_AchievementFilter filter) {
+  return switch (filter) {
+    _AchievementFilter.all => FluentIcons.view_all,
+    _AchievementFilter.claimable => FluentIcons.giftbox_open,
+    _AchievementFilter.inProgress => FluentIcons.processing_run,
+    _AchievementFilter.claimed => FluentIcons.completed_solid,
+    _AchievementFilter.locked => FluentIcons.lock_solid,
+  };
+}
+
 int _achievementFilterCount(
   _AchievementFilter filter,
   Map<_AchievementFilter, int> counts,
@@ -538,6 +548,7 @@ class _AchievementFilterDropdown extends StatelessWidget {
         ComboBoxItem<_AchievementFilter>(
           value: option,
           child: _AchievementFilterOptionRow(
+            icon: _achievementFilterIcon(option),
             label: _achievementFilterDisplayLabel(option),
             count: _achievementFilterCount(option, filterCounts),
           ),
@@ -567,6 +578,7 @@ class _AchievementFilterDropdown extends StatelessWidget {
               return [
                 for (final option in _AchievementFilter.values)
                   _AchievementFilterOptionRow(
+                    icon: _achievementFilterIcon(option),
                     label: _achievementFilterDisplayLabel(option),
                     count: _achievementFilterCount(option, filterCounts),
                   ),
@@ -583,8 +595,13 @@ class _AchievementFilterDropdown extends StatelessWidget {
 }
 
 class _AchievementFilterOptionRow extends StatelessWidget {
-  const _AchievementFilterOptionRow({required this.label, required this.count});
+  const _AchievementFilterOptionRow({
+    required this.icon,
+    required this.label,
+    required this.count,
+  });
 
+  final IconData icon;
   final String label;
   final int count;
 
@@ -592,6 +609,10 @@ class _AchievementFilterOptionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
+        ExcludeSemantics(
+          child: Icon(icon, size: 13, color: context.elixTextSecondary),
+        ),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             label,

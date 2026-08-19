@@ -41,7 +41,7 @@ class LeaderboardHeader extends StatelessWidget {
             children: [
               Expanded(child: title),
               const SizedBox(width: AppSpacing.lg),
-              SizedBox(width: 348, child: selector),
+              SizedBox(width: 392, child: selector),
               const SizedBox(width: AppSpacing.sm),
               refresh,
             ],
@@ -148,6 +148,7 @@ class LeaderboardPeriodSelector extends StatelessWidget {
               Expanded(
                 child: _PeriodButton(
                   key: ValueKey('leaderboard-period-${value.name}'),
+                  icon: _periodIcon(value),
                   label: LeaderboardPresentation.periodLabel(value),
                   selected: value == period,
                   onPressed: onChanged == null || value == period
@@ -162,14 +163,24 @@ class LeaderboardPeriodSelector extends StatelessWidget {
   }
 }
 
+IconData _periodIcon(LeaderboardPeriod period) {
+  return switch (period) {
+    LeaderboardPeriod.today => FluentIcons.clock,
+    LeaderboardPeriod.thisMonth => FluentIcons.calendar,
+    LeaderboardPeriod.allTime => FluentIcons.globe,
+  };
+}
+
 class _PeriodButton extends StatefulWidget {
   const _PeriodButton({
     super.key,
+    required this.icon,
     required this.label,
     required this.selected,
     required this.onPressed,
   });
 
+  final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback? onPressed;
@@ -221,6 +232,7 @@ class _PeriodButtonState extends State<_PeriodButton> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
             alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
             decoration: BoxDecoration(
               color: widget.selected
                   ? AppColors.primary.withValues(
@@ -239,17 +251,36 @@ class _PeriodButtonState extends State<_PeriodButton> {
                 width: _focused ? 1.5 : 1,
               ),
             ),
-            child: Text(
-              widget.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: highlighted ? FontWeight.w700 : FontWeight.w600,
-                color: widget.selected
-                    ? AppColors.primarySoft
-                    : context.elixTextSecondary,
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ExcludeSemantics(
+                  child: Icon(
+                    widget.icon,
+                    size: 12,
+                    color: widget.selected
+                        ? AppColors.primarySoft
+                        : context.elixTextSecondary,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: highlighted
+                          ? FontWeight.w700
+                          : FontWeight.w600,
+                      color: widget.selected
+                          ? AppColors.primarySoft
+                          : context.elixTextSecondary,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

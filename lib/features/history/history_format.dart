@@ -115,4 +115,14 @@ extension HistorySortModeLabel on HistorySortMode {
         return 'Longest Session';
     }
   }
+
+  IconData get icon {
+    return switch (this) {
+      HistorySortMode.mostRecent => FluentIcons.clock,
+      HistorySortMode.oldest => FluentIcons.history,
+      HistorySortMode.highestScore => FluentIcons.sort_up,
+      HistorySortMode.lowestScore => FluentIcons.sort_down,
+      HistorySortMode.longestSession => FluentIcons.timer,
+    };
+  }
 }

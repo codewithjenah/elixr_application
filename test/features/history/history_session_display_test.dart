@@ -5,6 +5,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/features/history/history_format.dart';
+import 'package:elixr_application/features/history/widgets/history_filter_bar.dart';
 import 'package:elixr_application/features/history/widgets/history_session_details.dart';
 import 'package:elixr_application/features/history/widgets/history_summary_section.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -116,6 +117,67 @@ void main() {
       expect(sessionMatchesFocusDate(session, DateTime(2026, 8, 2)), isTrue);
       expect(sessionMatchesFocusDate(session, DateTime(2026, 8, 3)), isFalse);
       expect(sessionMatchesFocusDate(session, null), isTrue);
+    });
+  });
+
+  group('HistorySortMode', () {
+    test('labels and icons stay aligned', () {
+      expect(HistorySortMode.mostRecent.label, 'Most Recent');
+      expect(HistorySortMode.oldest.label, 'Oldest');
+      expect(HistorySortMode.highestScore.label, 'Highest Score');
+      expect(HistorySortMode.lowestScore.label, 'Lowest Score');
+      expect(HistorySortMode.longestSession.label, 'Longest Session');
+      expect(HistorySortMode.mostRecent.icon, FluentIcons.clock);
+      expect(HistorySortMode.oldest.icon, FluentIcons.history);
+      expect(HistorySortMode.highestScore.icon, FluentIcons.sort_up);
+      expect(HistorySortMode.lowestScore.icon, FluentIcons.sort_down);
+      expect(HistorySortMode.longestSession.icon, FluentIcons.timer);
+    });
+  });
+
+  group('HistoryFilterBar', () {
+    testWidgets('sort dropdown shows an icon for each option', (tester) async {
+      tester.view.physicalSize = const Size(1100, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        _wrap(
+          HistoryFilterBar(
+            difficultyFilter: null,
+            searchQuery: '',
+            sortMode: HistorySortMode.mostRecent,
+            hasActiveFilters: false,
+            onDifficultyChanged: (_) {},
+            onSearchChanged: (_) {},
+            onSortChanged: (_) {},
+            onClearFilters: () {},
+          ),
+          width: 1100,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Most Recent'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.clock), findsOneWidget);
+
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) => widget.runtimeType.toString().startsWith('ComboBox<'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Oldest'), findsOneWidget);
+      expect(find.text('Highest Score'), findsOneWidget);
+      expect(find.text('Lowest Score'), findsOneWidget);
+      expect(find.text('Longest Session'), findsOneWidget);
+      expect(find.byIcon(FluentIcons.clock), findsWidgets);
+      expect(find.byIcon(FluentIcons.history), findsOneWidget);
+      expect(find.byIcon(FluentIcons.sort_up), findsOneWidget);
+      expect(find.byIcon(FluentIcons.sort_down), findsOneWidget);
+      expect(find.byIcon(FluentIcons.timer), findsOneWidget);
     });
   });
 
