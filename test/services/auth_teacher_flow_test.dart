@@ -12,13 +12,19 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   });
 
   User? loginUser;
+  User? refreshUser;
   Object? loginThrows;
   User? persistedUser;
   int registerCallCount = 0;
   String? lastDefaultRole;
   bool verificationRequested = false;
   bool emailVerified = false;
+  bool staleTokenRefreshSucceeds = false;
   bool clearCalled = false;
+  int isCurrentEmailVerifiedCalls = 0;
+  int refreshAuthenticatedUserCalls = 0;
+  Object? isCurrentEmailVerifiedThrows;
+  Object? refreshAuthenticatedUserThrows;
 
   @override
   Future<User> register({
@@ -57,7 +63,17 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<bool> isCurrentEmailVerified() async => emailVerified;
+  Future<bool> isCurrentEmailVerified() async {
+    isCurrentEmailVerifiedCalls++;
+    if (isCurrentEmailVerifiedThrows != null) {
+      throw isCurrentEmailVerifiedThrows!;
+    }
+    if (staleTokenRefreshSucceeds) {
+      emailVerified = true;
+      return true;
+    }
+    return emailVerified;
+  }
 
   @override
   Future<void> requestCurrentEmailVerification() async {
@@ -65,7 +81,13 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<User?> refreshAuthenticatedUser() async => loginUser;
+  Future<User?> refreshAuthenticatedUser() async {
+    refreshAuthenticatedUserCalls++;
+    if (refreshAuthenticatedUserThrows != null) {
+      throw refreshAuthenticatedUserThrows!;
+    }
+    return refreshUser ?? loginUser;
+  }
 
   @override
   Future<EmailChangeRequestResult> requestEmailChange({
@@ -297,4 +319,169 @@ void main() {
       expect(auth.needsTeacherEmailVerification, isFalse);
     },
   );
+
+  group('ensureTeacherAuthorizationFresh', () {
+    const teacher = User(
+      id: 't1',
+      firstName: 'T',
+      lastName: 'E',
+      email: 't@school.edu',
+      role: User.roleTeacher,
+    );
+
+    AuthService buildAuth(_TeacherFlowRepository repository) {
+      return AuthService(
+        repository: repository,
+        awaitInitialAuthState: () async {},
+      );
+    }
+
+    test('returns true for a verified Teacher', () async {
+      final repository = _TeacherFlowRepository(loginUser: teacher)
+        ..emailVerified = true
+        ..refreshUser = teacher;
+      final auth = buildAuth(repository);
+      auth.seedAuthenticatedUser(teacher);
+
+      final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+      expect(allowed, isTrue);
+      expect(repository.isCurrentEmailVerifiedCalls, 1);
+      expect(repository.refreshAuthenticatedUserCalls, 1);
+      expect(auth.needsTeacherEmailVerification, isFalse);
+      expect(auth.currentUser?.isTeacher, isTrue);
+    });
+
+    test(
+      'returns true when repository refresh succeeds for a stale token',
+      () async {
+        final repository = _TeacherFlowRepository(loginUser: teacher)
+          ..emailVerified = false
+          ..staleTokenRefreshSucceeds = true
+          ..refreshUser = teacher;
+        final auth = buildAuth(repository);
+        auth.seedAuthenticatedUser(teacher);
+
+        final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+        expect(allowed, isTrue);
+        expect(repository.isCurrentEmailVerifiedCalls, 1);
+        expect(repository.emailVerified, isTrue);
+        expect(auth.needsTeacherEmailVerification, isFalse);
+      },
+    );
+
+    test('returns false for an unverified Teacher', () async {
+      final repository = _TeacherFlowRepository(loginUser: teacher)
+        ..emailVerified = false;
+      final auth = buildAuth(repository);
+      auth.seedAuthenticatedUser(teacher);
+
+      final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+      expect(allowed, isFalse);
+      expect(repository.isCurrentEmailVerifiedCalls, 1);
+      expect(repository.refreshAuthenticatedUserCalls, 0);
+      expect(auth.needsTeacherEmailVerification, isTrue);
+      expect(auth.isAuthenticated, isTrue);
+    });
+
+    test(
+      'returns false for a Trainee without checking Teacher verification',
+      () async {
+        const trainee = User(
+          id: 'tr1',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.com',
+          role: User.roleTrainee,
+        );
+        final repository = _TeacherFlowRepository(loginUser: trainee)
+          ..emailVerified = true;
+        final auth = buildAuth(repository);
+        auth.seedAuthenticatedUser(trainee);
+
+        final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+        expect(allowed, isFalse);
+        expect(repository.isCurrentEmailVerifiedCalls, 0);
+        expect(repository.refreshAuthenticatedUserCalls, 0);
+      },
+    );
+
+    test('returns false when no authenticated user is present', () async {
+      final repository = _TeacherFlowRepository();
+      final auth = buildAuth(repository);
+
+      final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+      expect(allowed, isFalse);
+      expect(repository.isCurrentEmailVerifiedCalls, 0);
+      expect(auth.isAuthenticated, isFalse);
+    });
+
+    test('fails closed when refreshed profile is no longer Teacher', () async {
+      const trainee = User(
+        id: 't1',
+        firstName: 'T',
+        lastName: 'E',
+        email: 't@school.edu',
+        role: User.roleTrainee,
+      );
+      final repository = _TeacherFlowRepository(loginUser: teacher)
+        ..emailVerified = true
+        ..refreshUser = trainee;
+      final auth = buildAuth(repository);
+      auth.seedAuthenticatedUser(teacher);
+
+      final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+      expect(allowed, isFalse);
+      expect(repository.refreshAuthenticatedUserCalls, 1);
+      expect(auth.currentUser?.isTeacher, isNot(true));
+    });
+
+    test(
+      'fails closed on repository refresh error without signing out',
+      () async {
+        final repository = _TeacherFlowRepository(loginUser: teacher)
+          ..emailVerified = true
+          ..refreshAuthenticatedUserThrows = Exception(
+            'Network error. Check your connection and try again.',
+          );
+        final auth = buildAuth(repository);
+        auth.seedAuthenticatedUser(teacher);
+
+        final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+        expect(allowed, isFalse);
+        expect(auth.isAuthenticated, isTrue);
+        expect(auth.currentUser?.isTeacher, isTrue);
+        expect(auth.teacherAuthErrorMessage, isNotNull);
+        expect(auth.teacherAuthErrorMessage, isNot(contains('Firebase')));
+        expect(auth.teacherAuthErrorMessage, isNot(contains('token')));
+      },
+    );
+
+    test(
+      'fails closed when email verification lookup throws without signing out',
+      () async {
+        final repository = _TeacherFlowRepository(loginUser: teacher)
+          ..emailVerified = true
+          ..isCurrentEmailVerifiedThrows = Exception(
+            'Network error. Check your connection and try again.',
+          );
+        final auth = buildAuth(repository);
+        auth.seedAuthenticatedUser(teacher);
+
+        final allowed = await auth.ensureTeacherAuthorizationFresh();
+
+        expect(allowed, isFalse);
+        expect(repository.refreshAuthenticatedUserCalls, 0);
+        expect(auth.isAuthenticated, isTrue);
+        expect(auth.currentUser?.isTeacher, isTrue);
+        expect(auth.teacherAuthErrorMessage, isNotNull);
+      },
+    );
+  });
 }

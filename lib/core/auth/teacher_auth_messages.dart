@@ -10,6 +10,8 @@ abstract final class TeacherAuthMessages {
   static const missingProfile = MissingUserProfileException.message;
   static const emailNotVerifiedYet =
       'Email is not verified yet. Check your inbox and try again.';
+  static const teacherAuthorizationRefreshRequired =
+      'Teacher verification needs to be refreshed. Verify your email and try again.';
   static const verificationSent = 'Verification email sent.';
   static const unsupportedRole =
       'This account cannot access ELIXR. Sign in with a Trainee or Teacher account.';

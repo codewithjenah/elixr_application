@@ -326,6 +326,53 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Ensures a Teacher session has a fresh `email_verified` ID-token claim
+  /// before privileged Firestore writes.
+  ///
+  /// Reuses [AuthRepositoryBase.isCurrentEmailVerified], which reloads the
+  /// Firebase User and force-refreshes a stale cached token. Does not mint a
+  /// new token when the claim is already verified. Trainee sessions and
+  /// missing users fail closed. Transient repository errors fail closed
+  /// without signing the Teacher out.
+  Future<bool> ensureTeacherAuthorizationFresh() async {
+    final user = _currentUser;
+    if (user == null || !user.isTeacher) {
+      return false;
+    }
+
+    try {
+      final verified = await _repository.isCurrentEmailVerified();
+      if (!verified) {
+        final changed = _teacherEmailVerified != false;
+        _teacherEmailVerified = false;
+        if (changed) {
+          notifyListeners();
+        }
+        return false;
+      }
+
+      final previousVerified = _teacherEmailVerified;
+      _teacherEmailVerified = true;
+      final refreshed = await _repository.refreshAuthenticatedUser();
+      if (refreshed == null || !refreshed.isTeacher) {
+        await logout();
+        _teacherAuthErrorMessage = TeacherAuthMessages.notATeacher;
+        notifyListeners();
+        return false;
+      }
+
+      _currentUser = refreshed;
+      if (previousVerified != true) {
+        notifyListeners();
+      }
+      return true;
+    } catch (error) {
+      _teacherAuthErrorMessage = _sanitizeTeacherAuthError(error);
+      notifyListeners();
+      return false;
+    }
+  }
+
   void clearTeacherAuthMessages() => _clearTeacherAuthMessages();
 
   Future<void> _refreshTeacherEmailVerificationState() async {

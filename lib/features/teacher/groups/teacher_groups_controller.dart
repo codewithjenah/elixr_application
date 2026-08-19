@@ -7,16 +7,20 @@ import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../core/auth/teacher_auth_messages.dart';
+
 class TeacherGroupsController extends ChangeNotifier {
   TeacherGroupsController({
     required this.repository,
     required this.teacherId,
     required this.teacherDisplayName,
+    this.ensureTeacherAuthorization,
   });
 
   final GroupRepository repository;
   final String teacherId;
   final String teacherDisplayName;
+  final Future<bool> Function()? ensureTeacherAuthorization;
 
   List<ElixrGroup> groups = const [];
   ElixrGroup? selectedGroup;
@@ -94,118 +98,99 @@ class TeacherGroupsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createGroup(String name) async {
-    if (busy) return;
-    busy = true;
-    errorMessage = null;
-    notifyListeners();
-    try {
-      final group = await repository.createGroup(
-        teacherId: teacherId,
-        teacherDisplayName: teacherDisplayName,
-        name: name,
-      );
-      actionMessage = 'Created ${group.name}.';
-      await selectGroup(group);
-    } on GroupException catch (error) {
-      errorMessage = error.message ?? 'Could not create that group.';
-    } catch (_) {
-      errorMessage = 'Could not create that group.';
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
+  Future<void> createGroup(String name) {
+    return _runTeacherAction(
+      operation: 'createGroup',
+      failureMessage: 'Could not create that group.',
+      action: () async {
+        final group = await repository.createGroup(
+          teacherId: teacherId,
+          teacherDisplayName: teacherDisplayName,
+          name: name,
+        );
+        actionMessage = 'Created ${group.name}.';
+        await selectGroup(group);
+      },
+    );
   }
 
-  Future<void> renameSelectedGroup(String name) async {
+  Future<void> renameSelectedGroup(String name) {
     final group = selectedGroup;
-    if (busy || group == null) return;
-    busy = true;
-    errorMessage = null;
-    notifyListeners();
-    try {
-      await repository.renameGroup(
-        groupId: group.id,
-        teacherId: teacherId,
-        name: name,
-      );
-      actionMessage = 'Renamed group.';
-    } on GroupException catch (error) {
-      errorMessage = error.message ?? 'Could not rename that group.';
-    } catch (_) {
-      errorMessage = 'Could not rename that group.';
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
+    if (group == null) return Future.value();
+    return _runTeacherAction(
+      operation: 'renameGroup',
+      failureMessage: 'Could not rename that group.',
+      action: () async {
+        await repository.renameGroup(
+          groupId: group.id,
+          teacherId: teacherId,
+          name: name,
+        );
+        actionMessage = 'Renamed group.';
+      },
+    );
   }
 
-  Future<void> archiveSelectedGroup() async {
+  Future<void> archiveSelectedGroup() {
     final group = selectedGroup;
-    if (busy || group == null) return;
-    busy = true;
-    errorMessage = null;
-    notifyListeners();
-    try {
-      await repository.archiveGroup(groupId: group.id, teacherId: teacherId);
-      actionMessage = 'Archived ${group.name}.';
-      clearSelection();
-    } on GroupException catch (error) {
-      errorMessage = error.message ?? 'Could not archive that group.';
-    } catch (_) {
-      errorMessage = 'Could not archive that group.';
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
+    if (group == null) return Future.value();
+    return _runTeacherAction(
+      operation: 'archiveGroup',
+      failureMessage: 'Could not archive that group.',
+      action: () async {
+        await repository.archiveGroup(groupId: group.id, teacherId: teacherId);
+        actionMessage = 'Archived ${group.name}.';
+        clearSelection();
+      },
+    );
   }
 
-  Future<void> rotateInvite() async {
+  Future<void> rotateInvite() {
     final group = selectedGroup;
-    if (busy || group == null) return;
-    busy = true;
-    errorMessage = null;
-    notifyListeners();
-    try {
-      activeInvite = await repository.createOrRotateGroupInvite(
-        groupId: group.id,
-        teacherId: teacherId,
-        teacherDisplayName: teacherDisplayName,
-      );
-      actionMessage = 'Invite code rotated.';
-    } on GroupException catch (error) {
-      errorMessage = error.message ?? 'Could not rotate the invite code.';
-    } catch (_) {
-      errorMessage = 'Could not rotate the invite code.';
-    } finally {
-      busy = false;
-      notifyListeners();
-    }
+    if (group == null) return Future.value();
+    return _runTeacherAction(
+      operation: 'rotateInvite',
+      failureMessage: 'Could not rotate the invite code.',
+      action: () async {
+        activeInvite = await repository.createOrRotateGroupInvite(
+          groupId: group.id,
+          teacherId: teacherId,
+          teacherDisplayName: teacherDisplayName,
+        );
+        actionMessage = 'Invite code rotated.';
+      },
+    );
   }
 
-  Future<void> approveMembership(GroupMembership membership) => _run(
-    () => repository.approveMembership(
-      membershipId: membership.id,
-      teacherId: teacherId,
-    ),
-    'Could not approve that request.',
-  );
+  Future<void> approveMembership(GroupMembership membership) =>
+      _runTeacherAction(
+        operation: 'approveMembership',
+        failureMessage: 'Could not approve that request.',
+        action: () => repository.approveMembership(
+          membershipId: membership.id,
+          teacherId: teacherId,
+        ),
+      );
 
-  Future<void> rejectMembership(GroupMembership membership) => _run(
-    () => repository.rejectMembership(
-      membershipId: membership.id,
-      teacherId: teacherId,
-    ),
-    'Could not reject that request.',
-  );
+  Future<void> rejectMembership(GroupMembership membership) =>
+      _runTeacherAction(
+        operation: 'rejectMembership',
+        failureMessage: 'Could not reject that request.',
+        action: () => repository.rejectMembership(
+          membershipId: membership.id,
+          teacherId: teacherId,
+        ),
+      );
 
-  Future<void> removeMembership(GroupMembership membership) => _run(
-    () => repository.removeMembership(
-      membershipId: membership.id,
-      teacherId: teacherId,
-    ),
-    'Could not remove that member.',
-  );
+  Future<void> removeMembership(GroupMembership membership) =>
+      _runTeacherAction(
+        operation: 'removeMembership',
+        failureMessage: 'Could not remove that member.',
+        action: () => repository.removeMembership(
+          membershipId: membership.id,
+          teacherId: teacherId,
+        ),
+      );
 
   Future<void> _watchSelectedGroup(String groupId) async {
     await _pendingSub?.cancel();
@@ -251,19 +236,52 @@ class TeacherGroupsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _run(Future<void> Function() action, String failure) async {
+  Future<void> _runTeacherAction({
+    required String operation,
+    required Future<void> Function() action,
+    required String failureMessage,
+  }) async {
     if (busy) return;
     busy = true;
     errorMessage = null;
     notifyListeners();
     try {
+      final authorized = await _ensureAuthorizationFresh(operation);
+      if (!authorized) {
+        errorMessage = TeacherAuthMessages.teacherAuthorizationRefreshRequired;
+        return;
+      }
       await action();
-    } catch (_) {
-      errorMessage = failure;
+    } on GroupException catch (error, stackTrace) {
+      _logTeacherActionFailure(operation, error, stackTrace);
+      errorMessage = error.message ?? failureMessage;
+    } catch (error, stackTrace) {
+      _logTeacherActionFailure(operation, error, stackTrace);
+      errorMessage = failureMessage;
     } finally {
       busy = false;
       notifyListeners();
     }
+  }
+
+  Future<bool> _ensureAuthorizationFresh(String operation) async {
+    final callback = ensureTeacherAuthorization;
+    if (callback == null) return false;
+    try {
+      return await callback();
+    } catch (error, stackTrace) {
+      _logTeacherActionFailure(operation, error, stackTrace);
+      return false;
+    }
+  }
+
+  void _logTeacherActionFailure(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    if (!kDebugMode) return;
+    debugPrint('[TeacherGroups] $operation failed: $error\n$stackTrace');
   }
 
   @override

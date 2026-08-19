@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19); Trainee-scoped membership preflight (2026-08-19)  
+**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19); Trainee-scoped membership preflight (2026-08-19); Teacher ID-token freshness (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19; verified-Teacher decision rules applied 2026-08-19; Trainee-scoped membership preflight applied 2026-08-19
+Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19; verified-Teacher decision rules applied 2026-08-19; Trainee-scoped membership preflight applied 2026-08-19; Teacher ID-token freshness applied 2026-08-19
 
 ## 2. Goal
 
@@ -546,5 +546,115 @@ Trainee email-verification was already fixed (`validPendingMembershipCreate()` u
 - Duplicate / re-request semantics preserved
 - Verified Teacher decision rules preserved
 - Progress/Evidence untouched
+- `teacher_app/` intact
+- Phase 3 not started
+
+## 28. Phase 2 Teacher ID-token freshness (2026-08-19)
+
+Live Windows Teacher flow could see a pending Group membership but Approve failed until the Teacher logged out and logged back in. After a fresh login, the same pending request succeeded.
+
+### Live evidence of stale authorization
+
+```
+Teacher account already open
+        ↓
+new verified-Teacher Firestore rule active
+        ↓
+Teacher sees pending membership
+        ↓
+Approve denied
+        ↓
+Teacher logs out
+        ↓
+Teacher logs back in
+        ↓
+Approve succeeds
+```
+
+That pattern is stale Firebase ID-token authorization state:
+
+- Firebase `User.emailVerified == true`
+- cached Firestore ID-token claim may still be `email_verified == false`
+
+Firestore evaluates `request.auth.token.email_verified`, not `User.emailVerified`. A fresh login mints a fresh token, which is why logout/login unblocked Approve.
+
+### Fix
+
+Firestore security was **correct** and was **not** weakened. `validTeacherMembershipDecision()`, `validTeacherMembershipRemoval()`, and legacy `validTeacherDecisionTransition()` still require `isVerifiedTeacher()`.
+
+The client now refreshes Teacher authorization automatically before privileged Group writes, reusing existing `AuthRepository.isCurrentEmailVerified()` / `refreshStaleEmailVerifiedIdToken()` (User reload + stale-claim `getIdToken(true)`). No second token-refresh subsystem was added.
+
+`AuthService.ensureTeacherAuthorizationFresh()`:
+
+1. Fails closed for missing user, Trainee, or non-Teacher.
+2. Calls `_repository.isCurrentEmailVerified()` (owns reload + stale-token force refresh; does not force-refresh when the cached claim is already verified).
+3. Updates Teacher verification state; refreshes the authoritative profile; fails closed if the profile is missing or no longer Teacher.
+4. Transient repository errors fail closed without signing the Teacher out.
+
+`TeacherGroupsController` runs that callback immediately before:
+
+- `createGroup`
+- `renameGroup`
+- `archiveGroup`
+- `rotateInvite`
+- `approveMembership`
+- `rejectMembership`
+- `removeMembership`
+
+It does **not** refresh from `build()`, stream listeners, membership snapshots, or timers.
+
+If refresh returns false or throws, the repository mutation is skipped and the UI shows a safe message (`Teacher verification needs to be refreshed. Verify your email and try again.`). Debug builds log `[TeacherGroups] <operation> failed:` with the real exception; production UI does not show token, UID, stack traces, or `cloud_firestore/permission-denied`.
+
+Expected live flow after this fix:
+
+```
+Teacher remains logged in
+        ↓
+Approve
+        ↓
+automatic authorization refresh
+        ↓
+Approve succeeds
+```
+
+No logout/login workaround.
+
+### Files modified
+
+- `lib/services/auth_service.dart` — `ensureTeacherAuthorizationFresh()`
+- `lib/core/auth/teacher_auth_messages.dart` — safe Teacher verification-refresh copy
+- `lib/features/teacher/groups/teacher_groups_controller.dart` — authorization preflight + debug action runner
+- `lib/features/teacher/groups/teacher_groups_screen.dart` — injects AuthService callback
+- `test/services/auth_teacher_flow_test.dart` — AuthService freshness tests
+- `test/features/teacher/teacher_groups_controller_test.dart` — privileged-action preflight tests
+- This phase document
+
+`firestore.rules` unchanged. `FirebaseGroupRepository` Teacher decision GET/update path unchanged. Trainee-scoped first-time join lookup unchanged.
+
+### Tests run
+
+- `dart format --output=none --set-exit-if-changed lib test` — 0 changed
+- `flutter analyze lib test` — 4 pre-existing info lints only (`curly_braces_in_flow_control_structures`)
+- `flutter test` — **1152 passed**, 0 failed
+- `cd packages\elixr_core; flutter test` — **66 passed**, 0 failed
+- `cd teacher_app; flutter test` — **95 passed**, 0 failed (`teacher_app` unmodified)
+- `cd firestore-tests; npm test` (Android Studio JBR 21 on `JAVA_HOME` and `PATH`) — **186 passed**, 0 failed (rules unchanged; verified/unverified Teacher decision and Trainee join coverage still green)
+- `flutter build windows` — not run (Dart-only AuthService/Groups preflight; no native/startup/asset change)
+
+### Not verified
+
+- Manual Windows Teacher Approve against live Firebase after this client change (no interactive Teacher session in this run)
+- Firestore rules/indexes deployment (not requested; rules unchanged)
+
+### Explicit confirmations
+
+- Teacher no longer needs logout/login after verification/token staleness (client now refreshes the ID-token claim before privileged writes)
+- Verified Teacher can approve/reject/remove after successful authorization refresh
+- Unverified Teacher remains denied by Firestore and by the client preflight
+- Trainee can still request membership without email verification
+- Firestore security was not weakened
+- Trainee membership privacy unchanged
+- Progress Access untouched
+- General Evidence Access untouched
 - `teacher_app/` intact
 - Phase 3 not started

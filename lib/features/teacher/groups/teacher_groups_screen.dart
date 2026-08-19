@@ -27,13 +27,15 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_controller != null) return;
-    final user = context.read<AuthService>().currentUser;
+    final auth = context.read<AuthService>();
+    final user = auth.currentUser;
     final userId = user?.id;
     if (user == null || userId == null) return;
     _controller = TeacherGroupsController(
       repository: context.read<GroupRepository>(),
       teacherId: userId,
       teacherDisplayName: user.fullName,
+      ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
     )..start();
   }
 
