@@ -2137,7 +2137,8 @@ service cloud.firestore {
     }
 
     function validTeacherDecisionTransition() {
-      return resource.data.teacher_id == request.auth.uid
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
         && resource.data.status == 'pending'
         && resource.data.get('request_version', 0) == 2
         && request.resource.data.status in ['approved', 'rejected']
@@ -2451,7 +2452,8 @@ service cloud.firestore {
     }
 
     function validTeacherMembershipDecision() {
-      return resource.data.teacher_id == request.auth.uid
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
         && resource.data.status == 'pending'
         && resource.data.get('request_version', 0) == 1
         && request.resource.data.status in ['approved', 'rejected']
@@ -2460,7 +2462,8 @@ service cloud.firestore {
     }
 
     function validTeacherMembershipRemoval() {
-      return resource.data.teacher_id == request.auth.uid
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
         && resource.data.status == 'approved'
         && request.resource.data.status == 'removed'
         && membershipParticipantsUnchanged()

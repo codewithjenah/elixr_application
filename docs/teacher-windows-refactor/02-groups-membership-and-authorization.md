@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19)  
+**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19
+Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19; verified-Teacher decision rules applied 2026-08-19
 
 ## 2. Goal
 
@@ -471,3 +471,43 @@ After deploying Phase 2 rules/indexes to `elixr-app-2026`, normal Windows Traine
 
 - Redeploy of `firestore.rules` to production after this hotfix
 - Manual Trainee group join on live Firebase after redeploy
+
+## 26. Phase 2 verified-Teacher decision rules (2026-08-19)
+
+GitHub review found that Teacher membership approval/rejection/removal and legacy roster approve/reject were not enforcing verified-Teacher status in Firestore rules (Windows UI routing is not a security boundary per Phase 1).
+
+### Fix
+
+- **`validTeacherMembershipDecision()`** — Now requires `isVerifiedTeacher()` in addition to owning `teacher_id`, pending status, valid transition, and identity immutability.
+- **`validTeacherMembershipRemoval()`** — Same `isVerifiedTeacher()` requirement for approved→removed transitions.
+- **`validTeacherDecisionTransition()`** — Legacy `teacher_student_links` approve/reject now requires `isVerifiedTeacher()` plus existing participant, transition, and consent protections.
+- **Trainee pending creates unchanged** — `validPendingMembershipCreate()` and `validPendingLinkCreate()` still use `isSignedIn()` only (unverified Trainees may submit join requests).
+- **Teacher invite/group create unchanged** — `validInviteCreate()`, `validGroupCreate()`, `validGroupInviteCreate()` still require verified email via `isVerifiedTeacher()` / `hasVerifiedEmail()`.
+
+### Emulator coverage
+
+- `groups_v1.test.mjs` — unverified owning Teacher cannot approve, reject, or remove; unrelated verified Teacher still denied; unverified Trainee pending create still allowed.
+- `roster_v2.test.mjs` — verified owning Teacher can approve/reject unverified Trainee link; unverified owning Teacher cannot approve or reject.
+
+### Tests run (verified-Teacher decision rules)
+
+- `dart format --output=none --set-exit-if-changed lib test` — 0 changed
+- `flutter analyze lib test` — 4 pre-existing info lints only (`curly_braces_in_flow_control_structures`)
+- `flutter test` — **1133 passed**, 0 failed
+- `cd packages\elixr_core; flutter test` — **59 passed**, 0 failed
+- `cd teacher_app; flutter test` — **95 passed**, 0 failed
+- `cd firestore-tests; npm test` (Android Studio JBR 21 on `JAVA_HOME` and `PATH`) — **180 passed**, 0 failed (8 new verified-Teacher decision tests)
+
+### Not verified
+
+- Firestore rules deployment to production after this correction
+- Manual unverified-Teacher decision attempt on live Firebase
+
+### Explicit confirmations
+
+- Unverified Trainee can still request group membership and legacy Teacher relationship
+- Unverified Teacher cannot approve/reject/remove group membership or approve/reject legacy link
+- Verified owning Teacher can still decide pending requests
+- Progress Access / General Evidence Access rules untouched
+- `teacher_app/` untouched
+- Phase 3 not started

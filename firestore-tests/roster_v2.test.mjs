@@ -321,6 +321,59 @@ describe('unverified Trainee roster join (Windows auth parity)', () => {
   });
 });
 
+describe('unverified Teacher roster decisions (rules boundary)', () => {
+  async function seedPendingLink({ traineeVerified = false } = {}) {
+    await seedUsers();
+    await createInvite();
+    const trainee = context('trainee', { emailVerified: traineeVerified }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'teacher_student_links', LINK_ID), v2Request()),
+    );
+  }
+
+  test('verified owning Teacher can approve unverified Trainee pending link', async () => {
+    await seedPendingLink({ traineeVerified: false });
+    await assertSucceeds(
+      updateDoc(doc(context('teacher').firestore(), 'teacher_student_links', LINK_ID), {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('verified owning Teacher can reject unverified Trainee pending link', async () => {
+    await seedPendingLink({ traineeVerified: false });
+    await assertSucceeds(
+      updateDoc(doc(context('teacher').firestore(), 'teacher_student_links', LINK_ID), {
+        status: 'rejected',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unverified owning Teacher cannot approve pending link', async () => {
+    await seedPendingLink();
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    await assertFails(
+      updateDoc(doc(unverifiedTeacher, 'teacher_student_links', LINK_ID), {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unverified owning Teacher cannot reject pending link', async () => {
+    await seedPendingLink();
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    await assertFails(
+      updateDoc(doc(unverifiedTeacher, 'teacher_student_links', LINK_ID), {
+        status: 'rejected',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+});
+
 describe('per-Teacher evidence Storage access', () => {
   test('only owner or fully authorized Teacher reads the bounded JPEG path', async () => {
     await seedUsers();

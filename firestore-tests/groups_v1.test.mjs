@@ -551,6 +551,69 @@ describe('unverified Trainee group join (Windows auth parity)', () => {
   });
 });
 
+describe('unverified Teacher membership decisions (rules boundary)', () => {
+  async function seedPendingMembership({ traineeVerified = false } = {}) {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee', { emailVerified: traineeVerified }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+  }
+
+  test('unverified owning Teacher cannot approve pending membership', async () => {
+    await seedPendingMembership();
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    await assertFails(
+      updateDoc(doc(unverifiedTeacher, 'group_memberships', MEMBERSHIP_ID), {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unverified owning Teacher cannot reject pending membership', async () => {
+    await seedPendingMembership();
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    await assertFails(
+      updateDoc(doc(unverifiedTeacher, 'group_memberships', MEMBERSHIP_ID), {
+        status: 'rejected',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unverified owning Teacher cannot remove approved membership', async () => {
+    await seedPendingMembership();
+    const verifiedTeacher = context('teacher').firestore();
+    const membershipRef = doc(verifiedTeacher, 'group_memberships', MEMBERSHIP_ID);
+    await assertSucceeds(
+      updateDoc(membershipRef, {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    await assertFails(
+      updateDoc(doc(unverifiedTeacher, 'group_memberships', MEMBERSHIP_ID), {
+        status: 'removed',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unrelated verified Teacher still cannot decide another Teacher membership', async () => {
+    await seedPendingMembership();
+    await assertFails(
+      updateDoc(doc(context('other').firestore(), 'group_memberships', MEMBERSHIP_ID), {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+});
+
 describe('Classroom Authorization helper contract', () => {
   test('hasClassroomAuthorization binds request.auth.uid to group and membership teacher_id', () => {
     const start = RULES_SOURCE.indexOf('function hasClassroomAuthorization');
