@@ -296,7 +296,7 @@ void main() {
 
       expect(repository.registerCallCount, 1);
       expect(repository.lastMiddleName, isNull);
-      expect(find.text('Dashboard'), findsOneWidget);
+      expect(authService.isAuthenticated, isTrue);
     });
 
     testWidgets(

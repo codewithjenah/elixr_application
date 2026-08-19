@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -52,7 +53,6 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      if (mounted) context.go('/dashboard');
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -109,7 +109,15 @@ class _LoginScreenState extends State<LoginScreen> {
             child: AuthFooterLink(
               prompt: "Don't have an account?",
               action: 'Create one',
-              onTap: () => context.go('/register'),
+              onTap: () => context.go(AppRoutePaths.register),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Center(
+            child: AuthFooterLink(
+              prompt: 'Are you a Teacher?',
+              action: 'Create Teacher account',
+              onTap: () => context.go(AppRoutePaths.registerTeacher),
             ),
           ),
         ],

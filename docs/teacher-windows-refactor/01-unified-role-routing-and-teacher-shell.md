@@ -1,6 +1,6 @@
 # Phase 1 — Unified role routing and Teacher shell
 
-**Status:** Planned  
+**Status:** Complete  
 **Sequence:** `01` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** none (first phase). Read [00-master-plan.md](00-master-plan.md) first.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Planned
+**Complete** (2026-08-19)
 
 ## 2. Goal
 
@@ -252,13 +252,47 @@ No pytest required unless accidentally touched.
 ```
 Phase 1 completion
 - Behavior implemented:
+  - Shared `/login` routes Trainees and Teachers by persisted `users.role`.
+  - `/register` remains Trainee registration; `/register/teacher` creates `role = Teacher`.
+  - Teacher email verification gate at `/verify-email` before Teacher shell access.
+  - Dedicated Fluent `TeacherShell` with six destinations (five placeholders + Settings).
+  - Role-aware `GoRouter` redirects; Teachers blocked from trainee practice/join-coach.
+  - `AuthService` uses `createMissingProfile: false` (fail closed on missing profile).
+  - Teacher registration skips trainee public-profile / achievement projection seeding.
+  - Trainee onboarding gated to `isTrainee` only; Teachers use separate shell.
 - Files changed and why:
+  - `lib/core/router/app_route_paths.dart`, `app_redirect.dart`, `app_router.dart` — role routing.
+  - `lib/core/auth/teacher_auth_messages.dart` — shared Teacher auth copy.
+  - `lib/core/shell/teacher_shell.dart`, `teacher_sidebar.dart` — Teacher chrome.
+  - `lib/features/auth/teacher_register_screen.dart`, `verify_email_screen.dart` — Teacher auth UI.
+  - `lib/features/teacher/teacher_settings_screen.dart` — Teacher Settings/Profile basics.
+  - `lib/services/auth_service.dart` — Teacher register, verification, fail-closed login.
+  - `lib/features/auth/login_screen.dart`, `register_screen.dart` — router-driven navigation + Teacher register link.
+  - `lib/core/widgets/app_shell.dart`, `lib/app.dart` — Trainee-only onboarding/tutorial wiring.
+  - Tests under `test/core/router/`, `test/services/auth_teacher_flow_test.dart`, `test/core/shell/`, `test/features/auth/teacher_register_screen_test.dart`, `test/core/widgets/app_shell_teacher_onboarding_test.dart`; updated `register_screen_test.dart`.
 - Commands run and results:
+  - `dart format lib test` — passed (formatted 2 test files on final pass).
+  - `flutter analyze lib test` — passed (4 pre-existing info-level lints only).
+  - `flutter test` — **1117 passed**, 0 failed.
+  - `cd packages\elixr_core; flutter test` — **46 passed**, 0 failed.
+  - `cd teacher_app; flutter test` — **95 passed**, 0 failed (teacher_app unmodified).
+  - `flutter build windows` — succeeded (`build\windows\x64\runner\Release\elixr_application.exe`).
 - Manual checks:
+  - Not performed (no interactive Windows login/register session in this run).
 - Assumptions:
+  - Existing Trainee accounts already have Firestore profiles (login no longer auto-creates missing profiles).
+  - Teacher email verification uses existing Firebase `sendEmailVerification` flow (OTP architecture preserved).
+  - `Admin` role accounts follow trainee-safe redirects (not mapped to Teacher shell).
 - Limitations / risks:
+  - Teacher placeholder pages have no data wiring (intentional for Phase 1).
+  - Full widget test of `OnboardingOverlay` absence for Teachers avoided (AppShell pulls trainee-only sidebar services); guarded by source regression test + `isTrainee` checks in `app_shell.dart` and `app.dart`.
+  - `flutter analyze` at repo root still reports unrelated `teacher_app` qr_flutter analyzer errors when analyzing the whole workspace; `lib test` scope is clean.
 - Not completed:
+  - Phase 2+ features (groups, students data, leaderboard tabs, movements, etc.).
 - Not verified:
+  - Manual Trainee/Teacher login on a physical Windows device.
+  - Existing teacher_app Android account login on Windows (requires Firebase test account).
+  - teacher_app Android device login/register.
 - teacher_app still present: yes
 ```
 

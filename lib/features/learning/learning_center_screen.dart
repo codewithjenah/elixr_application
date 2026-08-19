@@ -198,9 +198,7 @@ class _HeroOverview extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.elixBackground.withValues(alpha: 0.42),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.accent.withValues(alpha: 0.22),
-        ),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.22)),
       ),
       child: Row(
         children: [

@@ -57,6 +57,7 @@ class _AppShellState extends State<AppShell> {
     final tutorials = context.watch<TutorialProgressService>();
 
     if (auth.isAuthenticated &&
+        auth.currentUser?.isTrainee == true &&
         settings.isInitialized &&
         tutorials.isInitialized &&
         !tutorials.onboardingComplete &&
@@ -64,6 +65,7 @@ class _AppShellState extends State<AppShell> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _onboardingShown) return;
         if (!context.read<AuthService>().isAuthenticated) return;
+        if (context.read<AuthService>().currentUser?.isTrainee != true) return;
         if (!context.read<SettingsService>().isInitialized) return;
         if (context.read<TutorialProgressService>().onboardingComplete) return;
         _onboardingShown = true;

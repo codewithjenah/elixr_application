@@ -5,6 +5,7 @@ import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 
+import '../core/auth/teacher_auth_messages.dart';
 import '../core/constants/app_constants.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
@@ -41,7 +42,7 @@ class AuthService extends ChangeNotifier {
     Duration? pendingEmailPollInterval,
     Duration? pendingEmailTimeout,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
-  }) : _repository = repository ?? AuthRepository(),
+  }) : _repository = repository ?? AuthRepository(createMissingProfile: false),
        _leaderboardRepository = leaderboardRepository,
        _publicProfileRepository = publicProfileRepository,
        _explicitProfileImageRepository = profileImageRepository,
@@ -65,6 +66,7 @@ class AuthService extends ChangeNotifier {
 
   User? _currentUser;
   bool _isLoading = true;
+  bool? _teacherEmailVerified;
   bool _disposed = false;
   bool _checkingPendingEmail = false;
   _PendingEmailChangeState? _pendingEmailChange;
@@ -72,11 +74,17 @@ class AuthService extends ChangeNotifier {
   String? _pendingEmailRecoveryError;
   String? _pendingEmailChangeSuccessMessage;
   String? _accountDeletedMessage;
+  String? _teacherAuthInfoMessage;
+  String? _teacherAuthErrorMessage;
   Future<void>? _pendingEmailCheckInFlight;
 
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
   bool get isLoading => _isLoading;
+  bool get needsTeacherEmailVerification =>
+      _currentUser?.isTeacher == true && _teacherEmailVerified == false;
+  String? get teacherAuthInfoMessage => _teacherAuthInfoMessage;
+  String? get teacherAuthErrorMessage => _teacherAuthErrorMessage;
   String? get pendingEmail => _pendingEmailChange?.pendingEmail;
   bool get hasPendingEmailChange =>
       _pendingEmailChange != null && !_isPendingEmailExpired;
@@ -124,6 +132,7 @@ class AuthService extends ChangeNotifier {
       await fb.FirebaseAuth.instance.authStateChanges().first;
     }
     _currentUser = await _repository.loadPersistedUser();
+    await _refreshTeacherEmailVerificationState();
     _isLoading = false;
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
@@ -171,9 +180,44 @@ class AuthService extends ChangeNotifier {
     _scheduleClaimedAchievementProjectionSync();
   }
 
+  /// Explicit Teacher registration. Does not seed trainee social/gamification
+  /// documents and requests email verification before shell access.
+  Future<void> registerTeacher({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    required String email,
+    required String password,
+  }) async {
+    _clearTeacherAuthMessages();
+    final user = await _repository.register(
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+      email: email,
+      password: password,
+      defaultRole: User.roleTeacher,
+    );
+    if (!user.isTeacher) {
+      await logout();
+      throw Exception(TeacherAuthMessages.notATeacher);
+    }
+    _currentUser = user;
+    try {
+      await _repository.requestCurrentEmailVerification();
+      _teacherAuthInfoMessage = TeacherAuthMessages.verificationSent;
+    } catch (error) {
+      _teacherAuthErrorMessage = _sanitizeTeacherAuthError(error);
+    }
+    await _refreshTeacherEmailVerificationState();
+    notifyListeners();
+  }
+
   Future<void> login({required String email, required String password}) async {
+    _clearTeacherAuthMessages();
     final user = await _repository.login(email: email, password: password);
     _currentUser = user;
+    await _refreshTeacherEmailVerificationState();
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
   }
@@ -193,7 +237,9 @@ class AuthService extends ChangeNotifier {
   void _scheduleClaimedAchievementProjectionSync() {
     final user = _currentUser;
     final userId = user?.id?.trim();
-    if (user == null || userId == null || userId.isEmpty) return;
+    if (user == null || user.isTeacher || userId == null || userId.isEmpty) {
+      return;
+    }
 
     final repository = _publicProfileRepository;
     if (repository == null) return;
@@ -219,9 +265,89 @@ class AuthService extends ChangeNotifier {
 
   Future<void> logout() async {
     _clearPendingEmailChange(clearError: true);
+    _clearTeacherAuthMessages();
+    _teacherEmailVerified = null;
     _currentUser = null;
     await _repository.clearCurrentUser();
     notifyListeners();
+  }
+
+  Future<bool> resendTeacherVerificationEmail() async {
+    if (_currentUser?.isTeacher != true) return false;
+    _clearTeacherAuthMessages();
+    try {
+      await _repository.requestCurrentEmailVerification();
+      _teacherAuthInfoMessage = TeacherAuthMessages.verificationSent;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _teacherAuthErrorMessage = _sanitizeTeacherAuthError(error);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> checkTeacherEmailVerification() async {
+    if (_currentUser?.isTeacher != true) return false;
+    _clearTeacherAuthMessages();
+    try {
+      final verified = await _repository.isCurrentEmailVerified();
+      if (!verified) {
+        _teacherAuthErrorMessage = TeacherAuthMessages.emailNotVerifiedYet;
+        notifyListeners();
+        return false;
+      }
+      final refreshed = await _repository.refreshAuthenticatedUser();
+      if (refreshed == null || !refreshed.isTeacher) {
+        await logout();
+        _teacherAuthErrorMessage = TeacherAuthMessages.notATeacher;
+        notifyListeners();
+        return false;
+      }
+      _currentUser = refreshed;
+      await _refreshTeacherEmailVerificationState();
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _teacherAuthErrorMessage = _sanitizeTeacherAuthError(error);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void clearTeacherAuthMessages() => _clearTeacherAuthMessages();
+
+  Future<void> _refreshTeacherEmailVerificationState() async {
+    final user = _currentUser;
+    if (user == null || !user.isTeacher) {
+      _teacherEmailVerified = null;
+      return;
+    }
+    try {
+      _teacherEmailVerified = await _repository.isCurrentEmailVerified();
+    } catch (_) {
+      _teacherEmailVerified = false;
+    }
+  }
+
+  void _clearTeacherAuthMessages() {
+    _teacherAuthInfoMessage = null;
+    _teacherAuthErrorMessage = null;
+  }
+
+  String _sanitizeTeacherAuthError(Object error) {
+    if (error is MissingUserProfileException) {
+      return TeacherAuthMessages.missingProfile;
+    }
+    var message = error.toString();
+    const prefix = 'Exception: ';
+    if (message.startsWith(prefix)) {
+      message = message.substring(prefix.length);
+    }
+    if (message.trim().isEmpty) {
+      return 'Something went wrong. Please try again.';
+    }
+    return message;
   }
 
   /// Updates the display name and, optionally, uploads a new profile

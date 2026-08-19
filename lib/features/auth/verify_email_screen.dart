@@ -1,0 +1,99 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
+import '../../core/widgets/auth_scaffold.dart';
+import '../../core/widgets/elix_primary_button.dart';
+import '../../services/auth_service.dart';
+
+class VerifyEmailScreen extends StatefulWidget {
+  const VerifyEmailScreen({super.key});
+
+  @override
+  State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
+}
+
+class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
+  bool _isBusy = false;
+
+  Future<void> _checkVerification() async {
+    setState(() => _isBusy = true);
+    context.read<AuthService>().clearTeacherAuthMessages();
+    try {
+      final verified = await context
+          .read<AuthService>()
+          .checkTeacherEmailVerification();
+      if (verified && mounted) {
+        context.go(AppRoutePaths.teacherDashboard);
+      }
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _resend() async {
+    setState(() => _isBusy = true);
+    try {
+      await context.read<AuthService>().resendTeacherVerificationEmail();
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    await context.read<AuthService>().logout();
+    if (mounted) context.go(AppRoutePaths.login);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthService>();
+    final email = auth.currentUser?.email ?? '';
+
+    return AuthScaffold(
+      title: 'Verify your email',
+      subtitle: email.isEmpty
+          ? 'Confirm this Teacher account from the message we sent you.'
+          : 'We sent a verification message to $email',
+      formTitle: 'Teacher email verification',
+      formSubtitle:
+          'Verify your email before accessing the ELIXR Teacher shell.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (auth.teacherAuthErrorMessage != null) ...[
+            AuthErrorBanner(message: auth.teacherAuthErrorMessage!),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          if (auth.teacherAuthInfoMessage != null) ...[
+            InfoBar(
+              title: Text(auth.teacherAuthInfoMessage!),
+              severity: InfoBarSeverity.success,
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          ElixPrimaryButton(
+            key: const Key('verify_check_button'),
+            label: "I've verified my email",
+            isLoading: _isBusy,
+            onPressed: _checkVerification,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Button(
+            key: const Key('verify_resend_button'),
+            onPressed: _isBusy ? null : _resend,
+            child: const Text('Resend verification email'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Button(
+            key: const Key('verify_sign_out'),
+            onPressed: _isBusy ? null : _signOut,
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+  }
+}

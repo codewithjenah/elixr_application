@@ -2,9 +2,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/router/app_route_paths.dart';
+import '../../core/auth/teacher_auth_messages.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/auth_scaffold.dart';
@@ -12,14 +13,14 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
 
-class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+class TeacherRegisterScreen extends StatefulWidget {
+  const TeacherRegisterScreen({super.key});
 
   @override
-  State<RegisterScreen> createState() => _RegisterScreenState();
+  State<TeacherRegisterScreen> createState() => _TeacherRegisterScreenState();
 }
 
-class _RegisterScreenState extends State<RegisterScreen> {
+class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   final _firstNameController = TextEditingController();
   final _middleNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -62,15 +63,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    if (!_agreedToLegal) return;
+    if (!_agreedToLegal) {
+      setState(() => _error = TeacherAuthMessages.legalConsentRequired);
+      return;
+    }
     if (!_validatePersonalDetails()) return;
 
     if (_passwordController.text != _confirmController.text) {
-      setState(() => _error = 'Passwords do not match');
+      setState(() => _error = TeacherAuthMessages.passwordMismatch);
       return;
     }
     if (_passwordController.text.length < 6) {
-      setState(() => _error = 'Password must be at least 6 characters');
+      setState(() => _error = TeacherAuthMessages.passwordTooShort);
       return;
     }
 
@@ -86,13 +90,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
 
     try {
-      await context.read<AuthService>().register(
+      await context.read<AuthService>().registerTeacher(
         firstName: normalized.firstName,
         middleName: normalized.middleName,
         lastName: normalized.lastName,
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+      if (mounted) context.go(AppRoutePaths.verifyEmail);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -102,64 +107,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final viewportHeight = MediaQuery.sizeOf(context).height;
-    final verticalTight = viewportHeight < 720;
-    final verticalCompact = viewportHeight < 840;
-    final dense = verticalCompact;
-
-    final fieldGap = verticalTight ? AppSpacing.xs : AppSpacing.sm;
-    final actionGap = verticalTight ? AppSpacing.sm : AppSpacing.md;
-
     return AuthScaffold(
       formOnLeft: true,
-      title: 'Train with intention',
-      subtitle: 'Start your flair training journey',
-      formTitle: _step == 0 ? 'Create your profile' : 'Secure your account',
+      title: 'Teach with ELIXR',
+      subtitle: 'Create a dedicated Teacher account',
+      formTitle: _step == 0 ? 'Your name' : 'Work email & password',
       formSubtitle: _step == 0
-          ? 'Tell us how to address you.'
-          : 'Use an email and password to finish setup.',
-      formVerticalCompact: verticalCompact,
-      formVerticalTight: verticalTight,
+          ? 'Students will see this name in classroom contexts.'
+          : 'We will send a verification email before you can access the Teacher shell.',
       child: Column(
-        key: const Key('register_form_fields'),
+        key: const Key('teacher_register_form_fields'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _RegistrationProgress(step: _step),
-          SizedBox(height: actionGap),
           if (_step == 0) ...[
             AuthTextField(
               controller: _firstNameController,
               label: 'First name',
               placeholder: 'First name',
               icon: FluentIcons.contact,
-              dense: dense,
             ),
-            SizedBox(height: fieldGap),
+            const SizedBox(height: AppSpacing.sm),
             AuthTextField(
               controller: _middleNameController,
               label: 'Middle name (optional)',
               placeholder: 'Middle name (optional)',
               icon: FluentIcons.contact,
-              dense: dense,
             ),
-            SizedBox(height: fieldGap),
+            const SizedBox(height: AppSpacing.sm),
             AuthTextField(
               controller: _lastNameController,
               label: 'Last name',
               placeholder: 'Last name',
               icon: FluentIcons.contact,
-              dense: dense,
             ),
           ] else ...[
             AuthTextField(
               controller: _emailController,
-              label: 'Email address',
-              placeholder: 'Email address',
+              label: 'Work email',
+              placeholder: 'Work email',
               icon: FluentIcons.mail_solid,
               keyboardType: TextInputType.emailAddress,
-              dense: dense,
             ),
-            SizedBox(height: fieldGap),
+            const SizedBox(height: AppSpacing.sm),
             AuthTextField(
               controller: _passwordController,
               label: 'Password',
@@ -167,9 +156,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               icon: FluentIcons.lock_solid,
               obscureText: true,
               helperText: 'At least 6 characters',
-              dense: dense,
             ),
-            SizedBox(height: fieldGap),
+            const SizedBox(height: AppSpacing.sm),
             AuthTextField(
               controller: _confirmController,
               label: 'Confirm password',
@@ -179,25 +167,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
               onSubmitted: (_) {
                 if (_agreedToLegal) _register();
               },
-              dense: dense,
             ),
-            SizedBox(height: fieldGap),
-            _RegisterLegalConsent(
+            const SizedBox(height: AppSpacing.sm),
+            _TeacherRegisterLegalConsent(
               agreed: _agreedToLegal,
               onChanged: (value) => setState(() => _agreedToLegal = value),
             ),
           ],
           if (_error != null) ...[
-            SizedBox(height: actionGap),
+            const SizedBox(height: AppSpacing.md),
             AuthErrorBanner(message: _error!),
           ],
-          SizedBox(height: actionGap),
+          const SizedBox(height: AppSpacing.lg),
           if (_step == 0)
-            ElixPrimaryButton(
-              label: 'Continue',
-              onPressed: _continueToAccount,
-              dense: dense,
-            )
+            ElixPrimaryButton(label: 'Continue', onPressed: _continueToAccount)
           else ...[
             Row(
               children: [
@@ -213,21 +196,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: ElixPrimaryButton(
-                    label: 'Create Account',
+                    label: 'Create Teacher account',
                     isLoading: _isLoading,
                     onPressed: _agreedToLegal ? _register : null,
-                    dense: dense,
                   ),
                 ),
               ],
             ),
           ],
-          SizedBox(height: verticalTight ? AppSpacing.xs : AppSpacing.sm),
+          const SizedBox(height: AppSpacing.sm),
           Center(
             child: AuthFooterLink(
               prompt: 'Already have an account?',
               action: 'Sign in',
               onTap: () => context.go(AppRoutePaths.login),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Center(
+            child: AuthFooterLink(
+              prompt: 'Training as a student?',
+              action: 'Create Trainee account',
+              onTap: () => context.go(AppRoutePaths.register),
             ),
           ),
         ],
@@ -236,52 +226,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 }
 
-class _RegistrationProgress extends StatelessWidget {
-  const _RegistrationProgress({required this.step});
-  final int step;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget segment(String label, int index) {
-      final active = index <= step;
-      return Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: active ? AppColors.primary : context.elixBorder,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              '${index + 1}. $label',
-              style: AppTheme.caption.copyWith(
-                color: active
-                    ? context.elixTextPrimary
-                    : context.elixTextSecondary,
-                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Row(
-      children: [
-        segment('Personal details', 0),
-        const SizedBox(width: AppSpacing.sm),
-        segment('Account & security', 1),
-      ],
-    );
-  }
-}
-
-class _RegisterLegalConsent extends StatelessWidget {
-  const _RegisterLegalConsent({required this.agreed, required this.onChanged});
+class _TeacherRegisterLegalConsent extends StatelessWidget {
+  const _TeacherRegisterLegalConsent({
+    required this.agreed,
+    required this.onChanged,
+  });
 
   final bool agreed;
   final ValueChanged<bool> onChanged;
@@ -303,7 +252,7 @@ class _RegisterLegalConsent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Checkbox(
-          key: const Key('register_privacy_consent'),
+          key: const Key('teacher_register_privacy_consent'),
           checked: agreed,
           onChanged: (value) => onChanged(value == true),
         ),
@@ -317,12 +266,12 @@ class _RegisterLegalConsent extends StatelessWidget {
                 child: Text('I agree to the ', style: plainStyle),
               ),
               GestureDetector(
-                onTap: () => context.push('/privacy-policy'),
+                onTap: () => context.push(AppRoutePaths.privacyPolicy),
                 child: Text('Privacy Policy', style: linkStyle),
               ),
               Text(' and ', style: plainStyle),
               GestureDetector(
-                onTap: () => context.push('/terms-of-service'),
+                onTap: () => context.push(AppRoutePaths.termsOfService),
                 child: Text('Terms of Service', style: linkStyle),
               ),
             ],

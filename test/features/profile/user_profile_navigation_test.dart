@@ -783,7 +783,10 @@ void main() {
       expect(find.text('Achievements'), findsOneWidget);
       expect(find.text('Completed Movements'), findsOneWidget);
       expect(find.text('Hand Stall'), findsOneWidget);
-      expect(find.bySemanticsLabel('Movement image: Hand Stall'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Movement image: Hand Stall'),
+        findsOneWidget,
+      );
       expect(find.text('First Steps'), findsOneWidget);
     });
 

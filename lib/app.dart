@@ -82,8 +82,11 @@ class _ElixrAppState extends State<ElixrApp> {
           create: (_) => _tutorialProgressService,
           update: (_, auth, tutorial) {
             tutorial ??= _tutorialProgressService;
-            // setUser coalesces identical calls and clears state on logout.
-            unawaited(tutorial.setUser(auth.currentUser?.id));
+            // Teachers do not use trainee tutorial/onboarding state.
+            final userId = auth.currentUser?.isTrainee == true
+                ? auth.currentUser?.id
+                : null;
+            unawaited(tutorial.setUser(userId));
             return tutorial;
           },
         ),

@@ -1,0 +1,143 @@
+import 'package:elixr_application/core/router/app_router.dart';
+import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/core/shell/teacher_shell.dart';
+import 'package:elixr_application/core/widgets/app_shell.dart';
+import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/join_link_service.dart';
+import 'package:elixr_application/services/tutorial_progress_service.dart';
+import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+class _ShellTestAuthRepository implements AuthRepositoryBase {
+  @override
+  Future<User?> loadPersistedUser() async => null;
+
+  @override
+  Future<void> clearCurrentUser() async {}
+
+  @override
+  Future<User> login({required String email, required String password}) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<User> register({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    required String email,
+    required String password,
+    required String defaultRole,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> sendPasswordResetEmail({required String email}) async {}
+
+  @override
+  Future<EmailChangeRequestResult> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  }) async => EmailChangeRequestResult.unchanged;
+
+  @override
+  Future<bool> isCurrentEmailVerified() async => true;
+
+  @override
+  Future<void> requestCurrentEmailVerification() async {}
+
+  @override
+  Future<User?> refreshAuthenticatedUser() async => null;
+
+  @override
+  Future<User> updateProfileDetails({
+    required String userId,
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    ProfilePictureUpdate? profilePictureUpdate,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<User> updateProfilePicture({
+    required String userId,
+    required ProfilePictureUpdate profilePictureUpdate,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> updatePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> deleteAccount({required String password}) async {}
+
+  @override
+  Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({
+    required String originalUid,
+    required String pendingEmail,
+    required String recoveryPassword,
+    String? originalEmail,
+  }) async => PendingEmailChangeRecoveryResult.pending();
+}
+
+void main() {
+  testWidgets('teacher shell renders six destinations', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth =
+        AuthService(
+          repository: _ShellTestAuthRepository(),
+          awaitInitialAuthState: () async {},
+        )..seedAuthenticatedUser(
+          User(
+            id: 'teacher-1',
+            firstName: 'Tea',
+            lastName: 'Cher',
+            email: 'teacher@example.com',
+            role: User.roleTeacher,
+          ),
+        );
+    final tutorials = TutorialProgressService();
+    final joinLinks = JoinLinkService();
+    final router = AppRouter.create(auth, tutorials, joinLinks);
+
+    addTearDown(router.dispose);
+    addTearDown(auth.dispose);
+    addTearDown(tutorials.dispose);
+    addTearDown(joinLinks.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp.router(routerConfig: router, theme: FluentThemeData()),
+      ),
+    );
+    router.go(AppRoutePaths.teacherDashboard);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.text('Dashboard'), findsWidgets);
+    expect(find.text('Groups'), findsOneWidget);
+    expect(find.text('Students'), findsOneWidget);
+    expect(find.text('Leaderboard'), findsWidgets);
+    expect(find.text('Movements'), findsWidgets);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(
+      find.text('Available in a later ELIXR Teacher phase.'),
+      findsOneWidget,
+    );
+    expect(find.byType(TeacherShell), findsOneWidget);
+    expect(find.byType(AppShell), findsNothing);
+  });
+}

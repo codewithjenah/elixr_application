@@ -14,10 +14,7 @@ void main() {
     for (final size in const [Size(1440, 900), Size(560, 900)]) {
       tester.view.physicalSize = size;
       await tester.pumpWidget(
-        FluentApp(
-          theme: AppTheme.dark,
-          home: const LearningCenterScreen(),
-        ),
+        FluentApp(theme: AppTheme.dark, home: const LearningCenterScreen()),
       );
       await tester.pumpAndSettle();
 
