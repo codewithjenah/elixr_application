@@ -1,3 +1,4 @@
+import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
+import '../../services/join_code_resolver.dart';
 import '../../services/join_link_service.dart';
 import 'teacher_access_controller.dart';
 import 'teacher_access_section.dart';
@@ -28,7 +30,9 @@ class _JoinTeacherScreenState extends State<JoinTeacherScreen> {
     if (user == null || userId == null) return;
     final links = context.read<JoinLinkService>();
     _controller = TeacherAccessController(
-      repository: context.read<TeacherRelationshipRepository>(),
+      relationshipRepository: context.read<TeacherRelationshipRepository>(),
+      groupRepository: context.read<GroupRepository>(),
+      joinCodeResolver: context.read<JoinCodeResolver>(),
       traineeId: userId,
       traineeDisplayName: user.fullName,
       privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
@@ -54,7 +58,7 @@ class _JoinTeacherScreenState extends State<JoinTeacherScreen> {
     final controller = _controller;
     return ScaffoldPage(
       header: PageHeader(
-        title: const Text('Join a Teacher'),
+        title: const Text('Join a group'),
         leading: IconButton(
           icon: const Icon(FluentIcons.back),
           onPressed: () {

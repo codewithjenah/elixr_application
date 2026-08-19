@@ -2180,6 +2180,310 @@ service cloud.firestore {
         && (resource == null || isLinkParticipant());
     }
 
+    // ---- Teacher-owned groups (Phase 2) ------------------------------------
+    // Classroom Authorization = approved group_memberships.
+    // Progress Access / General Evidence Access remain on teacher_student_links.
+    // Assignment Submission Authorization is not implemented until Phase 5/6.
+
+    function groupPath(groupId) {
+      return /databases/$(database)/documents/groups/$(groupId);
+    }
+
+    function groupInvitePath(code) {
+      return /databases/$(database)/documents/group_invites/$(code);
+    }
+
+    function groupMembershipPath(groupId, traineeId) {
+      return /databases/$(database)/documents/group_memberships/$(groupId + '_' + traineeId);
+    }
+
+    function isGroupStatus(value) {
+      return value in ['active', 'archived'];
+    }
+
+    function groupKeys() {
+      return [
+        'teacher_id',
+        'name',
+        'status',
+        'created_at',
+        'updated_at',
+        'schema_version'
+      ];
+    }
+
+    function groupAllowedKeys() {
+      return groupKeys().concat(['invite_code']);
+    }
+
+    function isVerifiedTeacher() {
+      return hasVerifiedEmail()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get('role', '') == 'Teacher';
+    }
+
+    function validGroupCreate(data, groupId) {
+      return isVerifiedTeacher()
+        && data.keys().hasOnly(groupAllowedKeys())
+        && data.keys().hasAll(groupKeys())
+        && data.teacher_id == request.auth.uid
+        && isParticipantId(data.teacher_id)
+        && isDisplayName(data.name)
+        && data.status == 'active'
+        && data.schema_version == 1
+        && data.created_at == request.time
+        && data.updated_at == request.time;
+    }
+
+    function validGroupTeacherUpdate() {
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
+        && request.resource.data.keys().hasOnly(groupAllowedKeys())
+        && request.resource.data.keys().hasAll(groupKeys())
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.schema_version == resource.data.schema_version
+        && isGroupStatus(request.resource.data.status)
+        && isDisplayName(request.resource.data.name)
+        && request.resource.data.updated_at == request.time
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'updated_at'
+          ])
+          || (
+            resource.data.status == 'active'
+            && request.resource.data.status == 'archived'
+            && request.resource.data.name == resource.data.name
+            && request.resource.data.invite_code == resource.data.get('invite_code', '')
+          )
+          || (
+            resource.data.status == 'archived'
+            && request.resource.data.status == 'archived'
+            && request.resource.data.name == resource.data.name
+            && request.resource.data.invite_code == resource.data.get('invite_code', '')
+          )
+        );
+    }
+
+    function groupInviteKeys() {
+      return ['group_id', 'teacher_id', 'teacher_display_name', 'created_at'];
+    }
+
+    function liveGroupInviteMatchesOwner(data) {
+      return isNormalizedCoachCode(data.invite_id)
+        && exists(groupInvitePath(data.invite_id))
+        && exists(groupPath(data.group_id))
+        && get(groupInvitePath(data.invite_id)).data.group_id == data.group_id
+        && get(groupInvitePath(data.invite_id)).data.teacher_id == data.teacher_id
+        && get(groupPath(data.group_id)).data.teacher_id == data.teacher_id
+        && get(groupPath(data.group_id)).data.status == 'active'
+        && get(groupPath(data.group_id)).data.get('invite_code', '')
+          == data.invite_id
+        && data.teacher_display_name
+          == get(groupInvitePath(data.invite_id)).data.teacher_display_name;
+    }
+
+    function validGroupInviteCreate(data, inviteId) {
+      return isVerifiedTeacher()
+        && isNormalizedCoachCode(inviteId)
+        && data.keys().hasOnly(groupInviteKeys())
+        && data.keys().hasAll(groupInviteKeys())
+        && data.teacher_id == request.auth.uid
+        && isParticipantId(data.teacher_id)
+        && isParticipantId(data.group_id)
+        && isDisplayName(data.teacher_display_name)
+        && exists(groupPath(data.group_id))
+        && get(groupPath(data.group_id)).data.teacher_id == request.auth.uid
+        && get(groupPath(data.group_id)).data.status == 'active'
+        && data.teacher_display_name == userFullName(request.auth.uid)
+        && data.created_at == request.time
+        && getAfter(groupPath(data.group_id)).data.get('invite_code', '') == inviteId;
+    }
+
+    function membershipKeys() {
+      return [
+        'group_id',
+        'teacher_id',
+        'trainee_id',
+        'teacher_display_name',
+        'trainee_display_name',
+        'status',
+        'invite_id',
+        'created_at',
+        'updated_at'
+      ];
+    }
+
+    function membershipAllowedKeys() {
+      return membershipKeys().concat(['request_version']);
+    }
+
+    function isMembershipStatus(value) {
+      return value in ['pending', 'approved', 'rejected', 'cancelled', 'removed'];
+    }
+
+    function membershipIdsMatchDocument(data, membershipId) {
+      return isParticipantId(data.group_id)
+        && isParticipantId(data.teacher_id)
+        && isParticipantId(data.trainee_id)
+        && data.teacher_id != data.trainee_id
+        && membershipId == data.group_id + '_' + data.trainee_id;
+    }
+
+    function isMembershipParticipant() {
+      return isSignedIn()
+        && (
+          resource.data.teacher_id == request.auth.uid
+          || resource.data.trainee_id == request.auth.uid
+        );
+    }
+
+    function hasClassroomAuthorization(groupId, traineeId) {
+      return exists(groupMembershipPath(groupId, traineeId))
+        && get(groupMembershipPath(groupId, traineeId)).data.group_id == groupId
+        && get(groupMembershipPath(groupId, traineeId)).data.trainee_id == traineeId
+        && get(groupMembershipPath(groupId, traineeId)).data.status == 'approved'
+        && exists(groupPath(groupId))
+        && get(groupPath(groupId)).data.teacher_id
+          == get(groupMembershipPath(groupId, traineeId)).data.teacher_id;
+    }
+
+    // Phase 5/6 placeholder — must fail closed until assignment_attempts exist.
+    function hasAssignmentSubmissionAuthorization(
+      teacherId,
+      groupId,
+      traineeId,
+      assignmentId,
+      attemptId
+    ) {
+      return false;
+    }
+
+    function validPendingMembershipCreate(data, membershipId) {
+      return hasVerifiedEmail()
+        && data.keys().hasOnly(membershipAllowedKeys())
+        && data.keys().hasAll(membershipKeys())
+        && data.trainee_id == request.auth.uid
+        && data.status == 'pending'
+        && data.request_version == 1
+        && membershipIdsMatchDocument(data, membershipId)
+        && isDisplayName(data.teacher_display_name)
+        && isDisplayName(data.trainee_display_name)
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get('role', '') == 'Trainee'
+        && data.trainee_display_name == userFullName(request.auth.uid)
+        && liveGroupInviteMatchesOwner(data)
+        && data.created_at == request.time
+        && data.updated_at == request.time;
+    }
+
+    function membershipParticipantsUnchanged() {
+      return request.resource.data.group_id == resource.data.group_id
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.trainee_id == resource.data.trainee_id
+        && request.resource.data.created_at == resource.data.created_at;
+    }
+
+    function membershipIdentitySnapshotsUnchanged() {
+      return request.resource.data.teacher_display_name
+          == resource.data.teacher_display_name
+        && request.resource.data.trainee_display_name
+          == resource.data.trainee_display_name
+        && request.resource.data.invite_id == resource.data.invite_id
+        && request.resource.data.get('request_version', 0)
+          == resource.data.get('request_version', 0);
+    }
+
+    function validMembershipUpdateShape(data) {
+      return data.keys().hasOnly(membershipAllowedKeys())
+        && data.keys().hasAll(membershipKeys())
+        && isMembershipStatus(data.status)
+        && data.updated_at == request.time;
+    }
+
+    function validTraineeMembershipTransition(membershipId) {
+      return resource.data.trainee_id == request.auth.uid
+        && membershipParticipantsUnchanged()
+        && (
+          (resource.data.status == 'pending'
+            && request.resource.data.status == 'cancelled'
+            && membershipIdentitySnapshotsUnchanged())
+          || (resource.data.status != 'approved'
+            && (resource.data.status != 'pending'
+              || resource.data.get('request_version', 0) != 1)
+            && request.resource.data.status == 'pending'
+            && request.resource.data.request_version == 1
+            && membershipIdsMatchDocument(request.resource.data, membershipId)
+            && isDisplayName(request.resource.data.teacher_display_name)
+            && isDisplayName(request.resource.data.trainee_display_name)
+            && get(userPath(request.auth.uid)).data.get('role', '') == 'Trainee'
+            && request.resource.data.trainee_display_name
+              == userFullName(request.auth.uid)
+            && liveGroupInviteMatchesOwner(request.resource.data))
+        );
+    }
+
+    function validTeacherMembershipDecision() {
+      return resource.data.teacher_id == request.auth.uid
+        && resource.data.status == 'pending'
+        && resource.data.get('request_version', 0) == 1
+        && request.resource.data.status in ['approved', 'rejected']
+        && membershipParticipantsUnchanged()
+        && membershipIdentitySnapshotsUnchanged();
+    }
+
+    function validTeacherMembershipRemoval() {
+      return resource.data.teacher_id == request.auth.uid
+        && resource.data.status == 'approved'
+        && request.resource.data.status == 'removed'
+        && membershipParticipantsUnchanged()
+        && membershipIdentitySnapshotsUnchanged();
+    }
+
+    match /groups/{groupId} {
+      allow get: if isSignedIn()
+        && resource.data.status == 'active';
+      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+
+      allow create: if validGroupCreate(request.resource.data, groupId);
+
+      allow update: if validGroupTeacherUpdate();
+
+      allow delete: if isSignedIn()
+        && resource != null
+        && resource.data.teacher_id == request.auth.uid;
+    }
+
+    match /group_invites/{inviteId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create: if validGroupInviteCreate(request.resource.data, inviteId);
+      allow update: if false;
+      allow delete: if isSignedIn()
+        && resource != null
+        && resource.data.teacher_id == request.auth.uid;
+    }
+
+    match /group_memberships/{membershipId} {
+      allow get: if isMembershipParticipant();
+      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
+
+      allow create: if validPendingMembershipCreate(request.resource.data, membershipId);
+
+      allow update: if isSignedIn()
+        && validMembershipUpdateShape(request.resource.data)
+        && (
+          validTraineeMembershipTransition(membershipId)
+          || validTeacherMembershipDecision()
+          || validTeacherMembershipRemoval()
+        );
+
+      allow delete: if isSignedIn()
+        && (resource == null || isMembershipParticipant());
+    }
+
     // Phase 3A asynchronous teacher recommendations. They intentionally carry
     // no session or assessment data, and progress sharing is not consulted.
     function coachingKeys() {

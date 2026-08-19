@@ -1,16 +1,25 @@
 import 'dart:async';
 
+import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_exception.dart';
+import 'package:elixr_core/models/group_invite.dart';
+import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/teacher_relationship_exception.dart';
 import 'package:elixr_core/models/teacher_roster_invite.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
+
+import '../../services/join_code_resolver.dart';
 
 enum JoinTeacherStep { enterCode, confirm }
 
 class TeacherAccessController extends ChangeNotifier {
   TeacherAccessController({
-    required this.repository,
+    required this.relationshipRepository,
+    required this.groupRepository,
+    required this.joinCodeResolver,
     required this.traineeId,
     required this.traineeDisplayName,
     this.privateImageSavingEnabled = false,
@@ -18,7 +27,9 @@ class TeacherAccessController extends ChangeNotifier {
     this.onJoinCompleted,
   });
 
-  final TeacherRelationshipRepository repository;
+  final TeacherRelationshipRepository relationshipRepository;
+  final GroupRepository groupRepository;
+  final JoinCodeResolver joinCodeResolver;
   final String traineeId;
   final String traineeDisplayName;
   final bool privateImageSavingEnabled;
@@ -27,14 +38,21 @@ class TeacherAccessController extends ChangeNotifier {
 
   List<TeacherStudentLink> pending = const [];
   List<TeacherStudentLink> approved = const [];
+  List<GroupMembership> pendingGroupMemberships = const [];
+  List<GroupMembership> approvedGroupMemberships = const [];
+  final Map<String, ElixrGroup> groupNamesById = {};
   bool loading = false;
   bool busy = false;
   String? errorMessage;
   String codeInput = '';
   JoinTeacherStep joinStep = JoinTeacherStep.enterCode;
-  TeacherRosterInvite? resolvedInvite;
+  JoinCodeKind? resolvedKind;
+  TeacherRosterInvite? resolvedTeacherInvite;
+  GroupInvite? resolvedGroupInvite;
   String? joinError;
   StreamSubscription<List<TeacherStudentLink>>? _linksSub;
+  StreamSubscription<List<GroupMembership>>? _groupMembershipsSub;
+  bool _disposed = false;
 
   Future<void> start() async {
     loading = true;
@@ -42,8 +60,10 @@ class TeacherAccessController extends ChangeNotifier {
     notifyListeners();
     try {
       await _linksSub?.cancel();
-      final first = Completer<void>();
-      _linksSub = repository
+      await _groupMembershipsSub?.cancel();
+      final firstLinks = Completer<void>();
+      final firstGroups = Completer<void>();
+      _linksSub = relationshipRepository
           .watchTraineeLinks(traineeId: traineeId)
           .listen(
             (links) {
@@ -55,16 +75,38 @@ class TeacherAccessController extends ChangeNotifier {
                 for (final link in links)
                   if (link.isApproved) link,
               ];
-              if (!first.isCompleted) first.complete();
+              if (!firstLinks.isCompleted) firstLinks.complete();
               notifyListeners();
             },
             onError: (Object error) {
               errorMessage = 'Could not load Teacher Access.';
-              if (!first.isCompleted) first.completeError(error);
+              if (!firstLinks.isCompleted) firstLinks.completeError(error);
               notifyListeners();
             },
           );
-      await first.future;
+      _groupMembershipsSub = groupRepository
+          .watchTraineeMemberships(traineeId: traineeId)
+          .listen(
+            (memberships) {
+              pendingGroupMemberships = [
+                for (final membership in memberships)
+                  if (membership.isPending) membership,
+              ];
+              approvedGroupMemberships = [
+                for (final membership in memberships)
+                  if (membership.isApproved) membership,
+              ];
+              if (!firstGroups.isCompleted) firstGroups.complete();
+              _safeNotifyListeners();
+              unawaited(_refreshGroupNames(memberships));
+            },
+            onError: (Object error) {
+              errorMessage = 'Could not load group memberships.';
+              if (!firstGroups.isCompleted) firstGroups.completeError(error);
+              notifyListeners();
+            },
+          );
+      await Future.wait([firstLinks.future, firstGroups.future]);
     } catch (_) {
       errorMessage = 'Could not load Teacher Access.';
     } finally {
@@ -76,7 +118,9 @@ class TeacherAccessController extends ChangeNotifier {
   void prefillCode(String code) {
     codeInput = code;
     joinStep = JoinTeacherStep.enterCode;
-    resolvedInvite = null;
+    resolvedKind = null;
+    resolvedTeacherInvite = null;
+    resolvedGroupInvite = null;
     joinError = null;
     notifyListeners();
   }
@@ -90,7 +134,9 @@ class TeacherAccessController extends ChangeNotifier {
   void resetJoin() {
     codeInput = '';
     joinStep = JoinTeacherStep.enterCode;
-    resolvedInvite = null;
+    resolvedKind = null;
+    resolvedTeacherInvite = null;
+    resolvedGroupInvite = null;
     joinError = null;
     notifyListeners();
   }
@@ -101,18 +147,26 @@ class TeacherAccessController extends ChangeNotifier {
     joinError = null;
     notifyListeners();
     try {
-      resolvedInvite = await repository.resolveRosterCode(codeInput);
+      final resolved = await joinCodeResolver.resolve(codeInput);
+      resolvedKind = resolved.kind;
+      switch (resolved) {
+        case ResolvedGroupJoinCode(:final invite):
+          resolvedGroupInvite = invite;
+          resolvedTeacherInvite = null;
+        case ResolvedTeacherRosterJoinCode(:final invite):
+          resolvedTeacherInvite = invite;
+          resolvedGroupInvite = null;
+      }
       joinStep = JoinTeacherStep.confirm;
-    } on TeacherRelationshipException catch (error) {
+    } on GroupException catch (error) {
       joinError = switch (error.code) {
-        TeacherRelationshipError.malformedCode =>
-          'That roster code is not valid.',
-        TeacherRelationshipError.inviteNotFound =>
-          'No Teacher is using that roster code.',
-        _ => error.message ?? 'Could not look up that roster code.',
+        GroupError.malformedCode => 'That code is not valid.',
+        GroupError.inviteNotFound =>
+          'No group or Teacher roster is using that code.',
+        _ => error.message ?? 'Could not look up that code.',
       };
     } catch (_) {
-      joinError = 'Could not look up that roster code.';
+      joinError = 'Could not look up that code.';
     } finally {
       busy = false;
       notifyListeners();
@@ -120,21 +174,51 @@ class TeacherAccessController extends ChangeNotifier {
   }
 
   Future<bool> confirmJoin() async {
-    final invite = resolvedInvite;
-    if (busy || invite == null) return false;
+    if (busy) return false;
     busy = true;
     joinError = null;
     notifyListeners();
     try {
-      final link = await repository.requestTeacherJoin(
-        traineeId: traineeId,
-        traineeDisplayName: traineeDisplayName,
-        code: invite.normalizedCode,
-      );
-      pending = [link, ...pending.where((item) => item.id != link.id)];
+      switch (resolvedKind) {
+        case JoinCodeKind.groupInvite:
+          final invite = resolvedGroupInvite;
+          if (invite == null) return false;
+          final membership = await groupRepository.requestGroupJoin(
+            traineeId: traineeId,
+            traineeDisplayName: traineeDisplayName,
+            code: invite.normalizedCode,
+          );
+          pendingGroupMemberships = [
+            membership,
+            ...pendingGroupMemberships.where(
+              (item) => item.id != membership.id,
+            ),
+          ];
+        case JoinCodeKind.teacherRosterInvite:
+          final invite = resolvedTeacherInvite;
+          if (invite == null) return false;
+          final link = await relationshipRepository.requestTeacherJoin(
+            traineeId: traineeId,
+            traineeDisplayName: traineeDisplayName,
+            code: invite.normalizedCode,
+          );
+          pending = [link, ...pending.where((item) => item.id != link.id)];
+        case null:
+          return false;
+      }
       resetJoin();
       onJoinCompleted?.call();
       return true;
+    } on GroupException catch (error) {
+      joinError = switch (error.code) {
+        GroupError.alreadyPending =>
+          'A request is already waiting for this group.',
+        GroupError.alreadyMember => 'You are already a member of this group.',
+        GroupError.groupInactive =>
+          'That group is no longer accepting members.',
+        _ => error.message ?? 'Could not send that request.',
+      };
+      return false;
     } on TeacherRelationshipException catch (error) {
       joinError = switch (error.code) {
         TeacherRelationshipError.alreadyPending =>
@@ -154,23 +238,44 @@ class TeacherAccessController extends ChangeNotifier {
   }
 
   Future<void> cancelPending(TeacherStudentLink link) => _run(() async {
-    await repository.cancelJoin(linkId: link.id, traineeId: traineeId);
+    await relationshipRepository.cancelJoin(
+      linkId: link.id,
+      traineeId: traineeId,
+    );
     pending = pending.where((item) => item.id != link.id).toList();
   }, 'Could not cancel that request.');
 
+  Future<void> cancelPendingGroup(GroupMembership membership) => _run(() async {
+    await groupRepository.cancelMembership(
+      membershipId: membership.id,
+      traineeId: traineeId,
+    );
+    pendingGroupMemberships = pendingGroupMemberships
+        .where((item) => item.id != membership.id)
+        .toList();
+  }, 'Could not cancel that group request.');
+
   Future<void> revokeTeacher(TeacherStudentLink link) => _run(
-    () => repository.revokeLink(linkId: link.id, traineeId: traineeId),
+    () => relationshipRepository.revokeLink(
+      linkId: link.id,
+      traineeId: traineeId,
+    ),
     'Could not revoke that Teacher.',
   );
 
   Future<void> shareProgress(TeacherStudentLink link) => _run(
-    () => repository.grantProgressAccess(linkId: link.id, traineeId: traineeId),
+    () => relationshipRepository.grantProgressAccess(
+      linkId: link.id,
+      traineeId: traineeId,
+    ),
     'Could not enable progress sharing. Check your connection and try again.',
   );
 
   Future<void> stopSharingProgress(TeacherStudentLink link) => _run(
-    () =>
-        repository.removeProgressAccess(linkId: link.id, traineeId: traineeId),
+    () => relationshipRepository.removeProgressAccess(
+      linkId: link.id,
+      traineeId: traineeId,
+    ),
     'Could not stop progress sharing. Check your connection and try again.',
   );
 
@@ -180,7 +285,7 @@ class TeacherAccessController extends ChangeNotifier {
         throw StateError('Private image saving is disabled');
       }
       await reconcileEvidenceAvailability?.call(traineeId);
-      await repository.grantEvidenceAccess(
+      await relationshipRepository.grantEvidenceAccess(
         linkId: link.id,
         traineeId: traineeId,
       );
@@ -189,8 +294,10 @@ class TeacherAccessController extends ChangeNotifier {
   );
 
   Future<void> stopSharingEvidence(TeacherStudentLink link) => _run(
-    () =>
-        repository.removeEvidenceAccess(linkId: link.id, traineeId: traineeId),
+    () => relationshipRepository.removeEvidenceAccess(
+      linkId: link.id,
+      traineeId: traineeId,
+    ),
     'Could not stop saved-image sharing.',
   );
 
@@ -209,9 +316,26 @@ class TeacherAccessController extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshGroupNames(List<GroupMembership> memberships) async {
+    for (final membership in memberships) {
+      if (_disposed) return;
+      final group = await groupRepository.getGroup(groupId: membership.groupId);
+      if (group != null) {
+        groupNamesById[membership.groupId] = group;
+      }
+    }
+    _safeNotifyListeners();
+  }
+
+  void _safeNotifyListeners() {
+    if (!_disposed) notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     unawaited(_linksSub?.cancel());
+    unawaited(_groupMembershipsSub?.cancel());
     super.dispose();
   }
 }

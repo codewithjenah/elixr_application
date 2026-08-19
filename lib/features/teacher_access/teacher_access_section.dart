@@ -1,4 +1,6 @@
+import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +11,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
+import '../../services/join_code_resolver.dart';
 import '../../data/repositories/session_evidence_repository.dart';
 import '../settings/widgets/settings_components.dart';
 import 'teacher_access_controller.dart';
@@ -66,8 +69,12 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
     if (userId == null) return;
     final repository =
         widget.repository ?? context.read<TeacherRelationshipRepository>();
+    final groupRepository = context.read<GroupRepository>();
+    final joinCodeResolver = context.read<JoinCodeResolver>();
     _owned = TeacherAccessController(
-      repository: repository,
+      relationshipRepository: repository,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
       traineeId: userId,
       traineeDisplayName: user!.fullName,
       privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
@@ -123,9 +130,10 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Join a Teacher with their roster code. The Teacher must approve '
-                'your request. Progress and saved movement images remain private '
-                'until you enable each permission separately.',
+                'Join a group with a class invite code, or use a legacy Teacher '
+                'roster code. The Teacher must approve your request. Progress and '
+                'saved movement images remain private until you enable each '
+                'permission separately on a linked Teacher.',
                 style: AppTheme.bodySecondary.copyWith(
                   color: context.elixTextSecondary,
                   height: 1.4,
@@ -138,7 +146,11 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
               ],
               _JoinTeacherCard(controller: controller),
               const SizedBox(height: AppSpacing.lg),
+              _PendingGroupRequestsCard(controller: controller),
+              const SizedBox(height: AppSpacing.lg),
               _PendingRequestsCard(controller: controller),
+              const SizedBox(height: AppSpacing.lg),
+              _GroupMembershipsCard(controller: controller),
               const SizedBox(height: AppSpacing.lg),
               _LinkedTeachersCard(controller: controller),
             ],
@@ -194,7 +206,7 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Join a Teacher',
+            'Join a group',
             style: AppTheme.headingMedium.copyWith(
               fontSize: 16,
               color: context.elixTextPrimary,
@@ -203,7 +215,7 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
           const SizedBox(height: AppSpacing.sm),
           if (controller.joinStep == JoinTeacherStep.enterCode) ...[
             Text(
-              'Enter the durable roster code shared by your Teacher.',
+              'Enter a group invite code or a legacy Teacher roster code.',
               style: AppTheme.bodySecondary.copyWith(
                 color: context.elixTextSecondary,
               ),
@@ -234,7 +246,11 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
             ),
           ] else ...[
             Text(
-              controller.resolvedInvite?.teacherDisplayName ?? 'Teacher',
+              controller.resolvedKind == JoinCodeKind.groupInvite
+                  ? controller.resolvedGroupInvite?.teacherDisplayName ??
+                        'Teacher'
+                  : controller.resolvedTeacherInvite?.teacherDisplayName ??
+                        'Teacher',
               key: const Key('teacher_access_confirm_teacher'),
               style: AppTheme.headingMedium.copyWith(
                 color: context.elixTextPrimary,
@@ -242,8 +258,11 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Send a join request? Nothing is shared until the Teacher approves, '
-              'and progress and images remain off by default.',
+              controller.resolvedKind == JoinCodeKind.groupInvite
+                  ? 'Send a group join request? Classroom membership does not share '
+                        'progress or saved images.'
+                  : 'Send a legacy Teacher roster request? Nothing is shared until '
+                        'the Teacher approves, and progress and images remain off by default.',
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
               ),
@@ -275,6 +294,99 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingGroupRequestsCard extends StatelessWidget {
+  const _PendingGroupRequestsCard({required this.controller});
+
+  final TeacherAccessController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsGroup(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Pending Group Requests',
+            style: AppTheme.headingMedium.copyWith(
+              fontSize: 16,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (controller.pendingGroupMemberships.isEmpty)
+            Text(
+              'No pending group requests.',
+              style: AppTheme.bodySecondary.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            )
+          else
+            for (final membership in controller.pendingGroupMemberships) ...[
+              _GroupMembershipRow(
+                membership: membership,
+                groupName:
+                    controller.groupNamesById[membership.groupId]?.name ??
+                    'Group',
+                trailing: Button(
+                  onPressed: controller.busy
+                      ? null
+                      : () => controller.cancelPendingGroup(membership),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              if (membership != controller.pendingGroupMemberships.last)
+                const SizedBox(height: AppSpacing.md),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupMembershipsCard extends StatelessWidget {
+  const _GroupMembershipsCard({required this.controller});
+
+  final TeacherAccessController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsGroup(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Group Memberships',
+            style: AppTheme.headingMedium.copyWith(
+              fontSize: 16,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (controller.approvedGroupMemberships.isEmpty)
+            Text(
+              'No approved group memberships yet.',
+              style: AppTheme.bodySecondary.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            )
+          else
+            for (final membership in controller.approvedGroupMemberships) ...[
+              _GroupMembershipRow(
+                membership: membership,
+                groupName:
+                    controller.groupNamesById[membership.groupId]?.name ??
+                    'Group',
+                subtitleOverride: 'Classroom membership approved',
+              ),
+              if (membership != controller.approvedGroupMemberships.last)
+                const SizedBox(height: AppSpacing.md),
+            ],
         ],
       ),
     );
@@ -552,6 +664,43 @@ Future<void> _confirmRevokeTeacher(
     ),
   );
   if (accepted == true) await controller.revokeTeacher(link);
+}
+
+class _GroupMembershipRow extends StatelessWidget {
+  const _GroupMembershipRow({
+    required this.membership,
+    required this.groupName,
+    this.trailing,
+    this.subtitleOverride,
+  });
+
+  final GroupMembership membership;
+  final String groupName;
+  final Widget? trailing;
+  final String? subtitleOverride;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          groupName,
+          style: AppTheme.body.copyWith(color: context.elixTextPrimary),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitleOverride ??
+              '${membership.teacherDisplayName} · ${_formatTime(membership.createdAt)}',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Align(alignment: Alignment.centerLeft, child: trailing),
+        ],
+      ],
+    );
+  }
 }
 
 class _RequestRow extends StatelessWidget {

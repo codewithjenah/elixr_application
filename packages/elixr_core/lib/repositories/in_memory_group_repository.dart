@@ -1,0 +1,479 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../models/coach_code.dart';
+import '../models/elixr_group.dart';
+import '../models/group_exception.dart';
+import '../models/group_invite.dart';
+import '../models/group_membership.dart';
+import 'group_repository.dart';
+
+typedef GroupCodeGenerator = String Function();
+
+class InMemoryGroupRepository implements GroupRepository {
+  InMemoryGroupRepository({
+    GroupCodeGenerator? generateNormalizedCode,
+    DateTime Function()? now,
+    String Function()? generateGroupId,
+    this.maxCodeAttempts = 8,
+  }) : generateNormalizedCode =
+           generateNormalizedCode ?? CoachCode.generateNormalized,
+       _now = now,
+       _generateGroupId = generateGroupId ?? _defaultGroupId;
+
+  final GroupCodeGenerator generateNormalizedCode;
+  final DateTime Function()? _now;
+  final String Function() _generateGroupId;
+  final int maxCodeAttempts;
+
+  final Map<String, ElixrGroup> groups = {};
+  final Map<String, GroupInvite> invites = {};
+  final Map<String, String> activeInviteByGroup = {};
+  final Map<String, GroupMembership> memberships = {};
+  int _groupCounter = 0;
+
+  final _teacherGroupControllers =
+      <String, StreamController<List<ElixrGroup>>>{};
+  final _groupMembershipControllers =
+      <String, StreamController<List<GroupMembership>>>{};
+  final _traineeMembershipControllers =
+      <String, StreamController<List<GroupMembership>>>{};
+
+  static String _defaultGroupId() =>
+      'group-${DateTime.now().microsecondsSinceEpoch}';
+
+  DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
+
+  @visibleForTesting
+  void seedGroup(ElixrGroup group) {
+    groups[group.id] = group;
+    _emitGroups();
+  }
+
+  @visibleForTesting
+  void seedInvite(GroupInvite invite) {
+    invites[invite.normalizedCode] = invite;
+    activeInviteByGroup[invite.groupId] = invite.normalizedCode;
+    final group = groups[invite.groupId];
+    if (group != null) {
+      groups[invite.groupId] = group.copyWith(
+        inviteCode: invite.normalizedCode,
+      );
+    }
+    _emitGroups();
+  }
+
+  @visibleForTesting
+  void seedMembership(GroupMembership membership) {
+    memberships[membership.id] = membership;
+    _emitMemberships();
+  }
+
+  void dispose() {
+    for (final controller in _teacherGroupControllers.values) {
+      controller.close();
+    }
+    for (final controller in _groupMembershipControllers.values) {
+      controller.close();
+    }
+    for (final controller in _traineeMembershipControllers.values) {
+      controller.close();
+    }
+  }
+
+  @override
+  Future<ElixrGroup> createGroup({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const GroupException(
+        GroupError.forbidden,
+        'Group name is required.',
+      );
+    }
+    final timestamp = now;
+    final id = _generateGroupId();
+    _groupCounter++;
+    final group = ElixrGroup(
+      id: id,
+      teacherId: teacherId,
+      name: trimmed,
+      status: ElixrGroupStatus.active,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+    groups[id] = group;
+    await createOrRotateGroupInvite(
+      groupId: id,
+      teacherId: teacherId,
+      teacherDisplayName: teacherDisplayName,
+    );
+    _emitGroups();
+    return groups[id]!;
+  }
+
+  @override
+  Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId}) =>
+      _watchGroups(teacherId);
+
+  @override
+  Future<ElixrGroup?> getGroup({required String groupId}) async =>
+      groups[groupId];
+
+  @override
+  Future<void> renameGroup({
+    required String groupId,
+    required String teacherId,
+    required String name,
+  }) async {
+    final group = groups[groupId];
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const GroupException(
+        GroupError.forbidden,
+        'Group name is required.',
+      );
+    }
+    groups[groupId] = group.copyWith(name: trimmed, updatedAt: now);
+    _emitGroups();
+  }
+
+  @override
+  Future<void> archiveGroup({
+    required String groupId,
+    required String teacherId,
+  }) async {
+    final group = groups[groupId];
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    groups[groupId] = group.copyWith(
+      status: ElixrGroupStatus.archived,
+      updatedAt: now,
+    );
+    _emitGroups();
+  }
+
+  @override
+  Future<GroupInvite> createOrRotateGroupInvite({
+    required String groupId,
+    required String teacherId,
+    required String teacherDisplayName,
+  }) async {
+    final group = groups[groupId];
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    if (!group.isActive) {
+      throw const GroupException(
+        GroupError.groupInactive,
+        'Cannot rotate invite for an archived group.',
+      );
+    }
+    final previous = activeInviteByGroup[groupId];
+    for (var attempt = 0; attempt < maxCodeAttempts; attempt++) {
+      final normalized = generateNormalizedCode();
+      if (!CoachCode.isNormalized(normalized) ||
+          (invites.containsKey(normalized) && previous != normalized)) {
+        continue;
+      }
+      if (previous != null && previous != normalized) {
+        invites.remove(previous);
+      }
+      final invite = GroupInvite(
+        normalizedCode: normalized,
+        groupId: groupId,
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
+        createdAt: now,
+      );
+      invites[normalized] = invite;
+      activeInviteByGroup[groupId] = normalized;
+      groups[groupId] = group.copyWith(inviteCode: normalized, updatedAt: now);
+      _emitGroups();
+      return invite;
+    }
+    throw const GroupException(
+      GroupError.collisionExhausted,
+      'Could not allocate a unique group invite code.',
+    );
+  }
+
+  @override
+  Future<GroupInvite?> getActiveGroupInvite({required String groupId}) async {
+    final code = activeInviteByGroup[groupId];
+    return code == null ? null : invites[code];
+  }
+
+  @override
+  Future<GroupInvite> resolveGroupInviteCode(String code) async {
+    final normalized = CoachCode.tryNormalize(code);
+    if (normalized == null) {
+      throw const GroupException(
+        GroupError.malformedCode,
+        'That group code is not valid.',
+      );
+    }
+    final invite = invites[normalized];
+    if (invite == null) {
+      throw const GroupException(
+        GroupError.inviteNotFound,
+        'No group is using that invite code.',
+      );
+    }
+    return invite;
+  }
+
+  String _membershipWatchKey(String groupId, GroupMembershipStatus? status) =>
+      '$groupId::${status?.name ?? 'all'}';
+
+  (String groupId, GroupMembershipStatus? status) _parseMembershipWatchKey(
+    String key,
+  ) {
+    final separator = key.lastIndexOf('::');
+    if (separator < 0) return (key, null);
+    final groupId = key.substring(0, separator);
+    final statusName = key.substring(separator + 2);
+    return (
+      groupId,
+      statusName == 'all' ? null : GroupMembershipStatus.tryParse(statusName),
+    );
+  }
+
+  @override
+  Stream<List<GroupMembership>> watchGroupMemberships({
+    required String groupId,
+    GroupMembershipStatus? status,
+  }) => _watchMemberships(
+    _groupMembershipControllers,
+    _membershipWatchKey(groupId, status),
+    () => _membershipsForGroup(groupId, status),
+  );
+
+  @override
+  Stream<List<GroupMembership>> watchTraineeMemberships({
+    required String traineeId,
+  }) => _watchMemberships(
+    _traineeMembershipControllers,
+    traineeId,
+    () => _membershipsForTrainee(traineeId),
+  );
+
+  @override
+  Future<GroupMembership> requestGroupJoin({
+    required String traineeId,
+    required String traineeDisplayName,
+    required String code,
+  }) async {
+    final invite = await resolveGroupInviteCode(code);
+    final group = groups[invite.groupId];
+    if (group == null) {
+      throw const GroupException(GroupError.groupNotFound);
+    }
+    if (!group.isActive) {
+      throw const GroupException(
+        GroupError.groupInactive,
+        'That group is no longer accepting members.',
+      );
+    }
+    if (invite.teacherId == traineeId) {
+      throw const GroupException(
+        GroupError.invalidParticipant,
+        'You cannot join your own group.',
+      );
+    }
+    final id = GroupMembership.documentId(
+      groupId: invite.groupId,
+      traineeId: traineeId,
+    );
+    final existing = memberships[id];
+    if (existing?.isApproved == true) {
+      throw const GroupException(
+        GroupError.alreadyMember,
+        'You are already a member of this group.',
+      );
+    }
+    if (existing?.isPending == true) {
+      throw const GroupException(
+        GroupError.alreadyPending,
+        'A request is already waiting for this group.',
+      );
+    }
+    final timestamp = now;
+    final membership = GroupMembership(
+      id: id,
+      groupId: invite.groupId,
+      teacherId: invite.teacherId,
+      traineeId: traineeId,
+      traineeDisplayName: traineeDisplayName,
+      teacherDisplayName: invite.teacherDisplayName,
+      status: GroupMembershipStatus.pending,
+      inviteId: invite.normalizedCode,
+      requestVersion: GroupMembership.currentRequestVersion,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    );
+    memberships[id] = membership;
+    _emitMemberships();
+    return membership;
+  }
+
+  @override
+  Future<void> approveMembership({
+    required String membershipId,
+    required String teacherId,
+  }) => _transition(
+    membershipId: membershipId,
+    participantId: teacherId,
+    teacherOwned: true,
+    from: GroupMembershipStatus.pending,
+    to: GroupMembershipStatus.approved,
+  );
+
+  @override
+  Future<void> rejectMembership({
+    required String membershipId,
+    required String teacherId,
+  }) => _transition(
+    membershipId: membershipId,
+    participantId: teacherId,
+    teacherOwned: true,
+    from: GroupMembershipStatus.pending,
+    to: GroupMembershipStatus.rejected,
+  );
+
+  @override
+  Future<void> removeMembership({
+    required String membershipId,
+    required String teacherId,
+  }) => _transition(
+    membershipId: membershipId,
+    participantId: teacherId,
+    teacherOwned: true,
+    from: GroupMembershipStatus.approved,
+    to: GroupMembershipStatus.removed,
+  );
+
+  @override
+  Future<void> cancelMembership({
+    required String membershipId,
+    required String traineeId,
+  }) => _transition(
+    membershipId: membershipId,
+    participantId: traineeId,
+    teacherOwned: false,
+    from: GroupMembershipStatus.pending,
+    to: GroupMembershipStatus.cancelled,
+  );
+
+  Future<void> _transition({
+    required String membershipId,
+    required String participantId,
+    required bool teacherOwned,
+    required GroupMembershipStatus from,
+    required GroupMembershipStatus to,
+  }) async {
+    final membership = memberships[membershipId];
+    final matches = teacherOwned
+        ? membership?.teacherId == participantId
+        : membership?.traineeId == participantId;
+    if (membership == null || !matches || membership.status != from) {
+      throw const GroupException(GroupError.notFound);
+    }
+    memberships[membershipId] = membership.copyWith(status: to, updatedAt: now);
+    _emitMemberships();
+  }
+
+  Stream<List<ElixrGroup>> _watchGroups(String teacherId) {
+    final existing = _teacherGroupControllers[teacherId];
+    if (existing != null && !existing.isClosed) return existing.stream;
+    late final StreamController<List<ElixrGroup>> controller;
+    controller = StreamController<List<ElixrGroup>>.broadcast(
+      onListen: () => controller.add(_groupsForTeacher(teacherId)),
+    );
+    _teacherGroupControllers[teacherId] = controller;
+    return controller.stream;
+  }
+
+  Stream<List<GroupMembership>> _watchMemberships(
+    Map<String, StreamController<List<GroupMembership>>> controllers,
+    String key,
+    List<GroupMembership> Function() current,
+  ) {
+    final existing = controllers[key];
+    if (existing != null && !existing.isClosed) return existing.stream;
+    late final StreamController<List<GroupMembership>> controller;
+    controller = StreamController<List<GroupMembership>>.broadcast(
+      onListen: () => controller.add(current()),
+    );
+    controllers[key] = controller;
+    return controller.stream;
+  }
+
+  List<ElixrGroup> _groupsForTeacher(String teacherId) {
+    final result = groups.values
+        .where((group) => group.teacherId == teacherId)
+        .toList();
+    result.sort(
+      (a, b) =>
+          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+    );
+    return result;
+  }
+
+  List<GroupMembership> _membershipsForGroup(
+    String groupId,
+    GroupMembershipStatus? status,
+  ) {
+    final result = memberships.values.where((membership) {
+      if (membership.groupId != groupId) return false;
+      if (status != null && membership.status != status) return false;
+      return true;
+    }).toList();
+    result.sort(
+      (a, b) =>
+          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+    );
+    return result;
+  }
+
+  List<GroupMembership> _membershipsForTrainee(String traineeId) {
+    final result = memberships.values
+        .where((membership) => membership.traineeId == traineeId)
+        .toList();
+    result.sort(
+      (a, b) =>
+          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+    );
+    return result;
+  }
+
+  void _emitGroups() {
+    for (final entry in _teacherGroupControllers.entries) {
+      if (!entry.value.isClosed) {
+        entry.value.add(_groupsForTeacher(entry.key));
+      }
+    }
+  }
+
+  void _emitMemberships() {
+    for (final entry in _groupMembershipControllers.entries) {
+      if (!entry.value.isClosed) {
+        final (groupId, status) = _parseMembershipWatchKey(entry.key);
+        entry.value.add(_membershipsForGroup(groupId, status));
+      }
+    }
+    for (final entry in _traineeMembershipControllers.entries) {
+      if (!entry.value.isClosed) {
+        entry.value.add(_membershipsForTrainee(entry.key));
+      }
+    }
+  }
+}

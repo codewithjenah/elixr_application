@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:elixr_core/repositories/firebase_group_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/coaching_note_repository.dart';
 import 'package:elixr_core/repositories/firebase_coaching_note_repository.dart';
@@ -19,6 +21,7 @@ import 'services/camera_device_service.dart';
 import 'services/session_service.dart';
 import 'services/settings_service.dart';
 import 'services/tutorial_progress_service.dart';
+import 'services/join_code_resolver.dart';
 import 'services/join_link_service.dart';
 
 class ElixrApp extends StatefulWidget {
@@ -35,6 +38,8 @@ class _ElixrAppState extends State<ElixrApp> {
   late final TutorialProgressService _tutorialProgressService;
   late final PublicProfileRepository _publicProfileRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
+  late final GroupRepository _groupRepository;
+  late final JoinCodeResolver _joinCodeResolver;
   late final JoinLinkService _joinLinkService;
   late final GoRouter _router;
   bool _splashFinished = false;
@@ -44,6 +49,11 @@ class _ElixrAppState extends State<ElixrApp> {
     super.initState();
     _publicProfileRepository = PublicProfileRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
+    _groupRepository = FirebaseGroupRepository();
+    _joinCodeResolver = JoinCodeResolver(
+      groupRepository: _groupRepository,
+      relationshipRepository: _teacherRelationshipRepository,
+    );
     _joinLinkService = JoinLinkService();
     _authService = AuthService(
       leaderboardRepository: LeaderboardRepository(),
@@ -102,6 +112,8 @@ class _ElixrAppState extends State<ElixrApp> {
         Provider<TeacherRelationshipRepository>.value(
           value: _teacherRelationshipRepository,
         ),
+        Provider<GroupRepository>.value(value: _groupRepository),
+        Provider<JoinCodeResolver>.value(value: _joinCodeResolver),
         Provider<CoachingNoteRepository>(
           create: (_) => FirebaseCoachingNoteRepository(),
         ),

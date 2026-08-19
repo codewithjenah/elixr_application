@@ -21,6 +21,7 @@ import '../../features/practice/practice_screen.dart';
 import '../../features/profile/profile_route_args.dart';
 import '../../features/profile/user_profile_screen.dart';
 import '../../features/progress/progress_screen.dart';
+import '../../features/teacher/groups/teacher_groups_screen.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
 import '../../features/teacher_access/join_teacher_screen.dart';
 import '../../features/training/training_screen.dart';
@@ -287,7 +288,7 @@ class AppRouter {
               path: AppRoutePaths.teacherGroups,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const TeacherPlaceholderScreen(title: 'Groups'),
+                child: const TeacherGroupsScreen(),
               ),
             ),
             GoRoute(

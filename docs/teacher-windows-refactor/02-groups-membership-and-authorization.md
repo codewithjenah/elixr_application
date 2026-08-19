@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Planned  
+**Status:** Complete (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Planned
+Complete (2026-08-19)
 
 ## 2. Goal
 
@@ -280,14 +280,94 @@ Only if Python was touched (should not be).
 ## 22. Completion report template
 
 ```
-Phase 2 completion
+Phase 2 completion (2026-08-19)
+
 - Inventory findings:
+  - Legacy `teacher_invites/{12-char code}`: one active Teacher-level roster code per Teacher (`users.teacher_roster_invite_code`). List denied; exact GET for signed-in users.
+  - Legacy `teacher_student_links/{teacherId}_{traineeId}` statuses: pending, approved, rejected, cancelled, revoked. `request_version` current = 2.
+  - Consent fields on links: `progress_access`, `progress_access_version`, `progress_access_granted_at`, `evidence_access`, `evidence_access_version`, `evidence_access_granted_at`. Evidence requires progress.
+  - Trainees may hold multiple approved Teacher links (no single-coach constraint).
+  - Coaching notes still require approved legacy link only (unchanged this phase).
+  - Production Firebase document counts: Not verified.
+
 - Collections added:
-- Migrator shipped? (must be **not shipped**; U4 forbids automatic production/default-group migration):
-- Legacy documents retained: yes/no
-- Commands run:
-- Not verified:
+  - `groups/{groupId}` — `teacher_id`, `name`, `status` (`active`|`archived`), `invite_code`, `schema_version`, `created_at`, `updated_at`
+  - `group_invites/{code}` — `group_id`, `teacher_id`, `teacher_display_name`, `created_at`
+  - `group_memberships/{groupId}_{traineeId}` — membership lifecycle; no consent fields
+
+- Migrator shipped? **not shipped** (U4: no automatic production/default-group migration)
+
+- Legacy documents retained: yes (`teacher_invites`, `teacher_student_links`, `teacher_app/`)
+
 - Authorization functions named in rules:
+  - `hasClassroomAuthorization(groupId, traineeId)`
+  - `hasApprovedProgressAccess(traineeId)` (unchanged, on `teacher_student_links`)
+  - `hasApprovedEvidenceAccess(traineeId)` (unchanged)
+  - `hasAssignmentSubmissionAuthorization(...)` — fail-closed stub returning `false`
+  - `approvedCoachingLink` — unchanged (approved legacy link only)
+
+- Behavior implemented:
+  - Teacher Groups Fluent UI: create/rename/archive groups, per-group invite code display/copy/rotate, pending approve/reject, approved member remove.
+  - Trainee join distinguishes `group_invites` vs legacy `teacher_invites` via typed `JoinCodeResolver`.
+  - Approved `group_memberships` = Classroom Authorization only; no automatic `teacher_student_links` writes.
+  - Dual legacy + group flows coexist; deep links (`elixr://join?code=`) unchanged.
+
+- Files created:
+  - `packages/elixr_core/lib/models/elixr_group.dart`
+  - `packages/elixr_core/lib/models/group_invite.dart`
+  - `packages/elixr_core/lib/models/group_membership.dart`
+  - `packages/elixr_core/lib/models/group_exception.dart`
+  - `packages/elixr_core/lib/repositories/group_repository.dart`
+  - `packages/elixr_core/lib/repositories/in_memory_group_repository.dart`
+  - `packages/elixr_core/lib/repositories/firebase_group_repository.dart`
+  - `packages/elixr_core/test/repositories/group_repository_test.dart`
+  - `lib/services/join_code_resolver.dart`
+  - `lib/features/teacher/groups/teacher_groups_controller.dart`
+  - `lib/features/teacher/groups/teacher_groups_screen.dart`
+  - `test/features/teacher/teacher_groups_controller_test.dart`
+  - `test/services/join_code_resolver_test.dart`
+
+- Files modified:
+  - `packages/elixr_core/lib/database/firestore_collections.dart`
+  - `packages/elixr_core/lib/elixr_core.dart`
+  - `firestore.rules`
+  - `firestore.indexes.json`
+  - `lib/app.dart`
+  - `lib/core/router/app_router.dart`
+  - `lib/features/teacher_access/teacher_access_controller.dart`
+  - `lib/features/teacher_access/teacher_access_section.dart`
+  - `lib/features/teacher_access/join_teacher_screen.dart`
+  - `test/features/teacher_access/teacher_access_controller_test.dart`
+  - `test/features/teacher_access/teacher_access_section_test.dart`
+  - This phase document
+
+- Commands run and results:
+  - `dart format` — applied to changed Dart files
+  - `flutter analyze lib test` — 4 pre-existing info lints only
+  - `flutter test` — **1132 passed**, 0 failed
+  - `cd packages\elixr_core; flutter test` — **53 passed**, 0 failed
+  - `cd teacher_app; flutter test` — **95 passed**, 0 failed
+  - `flutter build windows` — succeeded (`elixr_application.exe`)
+
+- Manual checks: Not performed (no interactive Firebase session in this run)
+
+- Assumptions:
+  - Firestore rules/indexes are reviewed in-repo but not deployed unless a human requests deployment.
+  - Group invite rotation deletes the previous `group_invites` document; legacy `teacher_invites` are untouched.
+
+- Not verified:
+  - Firebase rules emulator tests
+  - Firestore rules/indexes deployment to production
+  - Manual Teacher/Trainee join on Windows against live Firebase
+  - Locked-profile Trainee membership with live `public_profiles.visibility = private`
+
+- Known risks:
+  - Rules/indexes must be deployed before production use of new collections.
+  - `group_invites` and `teacher_invites` codes share the same alphabet/format; resolver checks group first, then legacy roster.
+
+- Phase 3 not started: confirmed
+- `teacher_app` still present: confirmed
+- No production migrator ran: confirmed
 ```
 
 ## 23. Handoff requirements for Phase 3
