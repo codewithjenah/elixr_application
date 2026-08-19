@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19); Trainee-scoped membership preflight (2026-08-19); Teacher ID-token freshness (2026-08-19)  
+**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19); verified-Teacher decision rules (2026-08-19); Trainee-scoped membership preflight (2026-08-19); Teacher ID-token freshness (2026-08-19); Teacher membership listener authorization (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -654,6 +654,127 @@ No logout/login workaround.
 - Trainee can still request membership without email verification
 - Firestore security was not weakened
 - Trainee membership privacy unchanged
+- Progress Access untouched
+- General Evidence Access untouched
+- `teacher_app/` intact
+- Phase 3 not started
+
+## 29. Phase 2 Teacher membership listener authorization (2026-08-19)
+
+Live Windows Teacher Groups screen showed approved Trainees but also displayed **"Could not load members."** when the approved-membership Firestore listener failed.
+
+### Observed live bug flow
+
+```
+Teacher opens Groups
+        ↓
+BSHM 4A selected
+        ↓
+Approved member visible (stale/cached or partial state)
+        ↓
+server membership listener fails (permission-denied)
+        ↓
+"Could not load members."
+```
+
+### Root cause
+
+Firestore security rules are **not** result filters. A query must be provably constrained so every possible returned document satisfies the list rule.
+
+`group_memberships` list authorization for Teachers requires:
+
+```
+resource.data.teacher_id == request.auth.uid
+```
+
+The repository listener queried only:
+
+```
+group_id == selectedGroupId
+status == approved | pending   (optional)
+orderBy created_at DESC
+```
+
+That query shape does **not** prove `teacher_id == authenticated Teacher`, so Firestore correctly denied the listener even though individual GET paths or cached UI state could still show a member.
+
+### Fix
+
+1. **Repository contract** — `watchGroupMemberships` now requires explicit `teacherId` (authenticated Teacher session), not inferred from returned documents.
+2. **Firebase query** — Teacher membership listeners now query:
+   - `teacher_id == teacherId`
+   - `group_id == groupId`
+   - `status == pending | approved` (when filtered)
+   - `orderBy created_at DESC`
+3. **Controller** — `TeacherGroupsController` passes its authoritative `teacherId` to both pending and approved listeners.
+4. **In-memory parity** — `InMemoryGroupRepository` filters by `teacherId` + `groupId` (+ optional status).
+5. **Indexes** — Added composite indexes including `teacher_id` for the new query shapes.
+6. **Diagnostics** — Debug builds log `[TeacherGroups] pending memberships stream failed:` / `[TeacherGroups] approved memberships stream failed:`; production UI keeps safe messages only.
+
+`firestore.rules` were **not** weakened. Broad membership listing remains denied.
+
+### Corrected flow
+
+```
+Teacher opens Groups
+        ↓
+query:
+  teacher_id == current Teacher
+  group_id == selected Group
+  status == approved | pending
+        ↓
+Firestore can prove every result is owned by current Teacher
+        ↓
+listener succeeds
+```
+
+### Files modified
+
+- `packages/elixr_core/lib/repositories/group_repository.dart` — `teacherId` on `watchGroupMemberships`
+- `packages/elixr_core/lib/repositories/firebase_group_repository.dart` — owner-scoped query
+- `packages/elixr_core/lib/repositories/in_memory_group_repository.dart` — owner-scoped stream parity
+- `lib/features/teacher/groups/teacher_groups_controller.dart` — pass `teacherId`; stream debug logging
+- `firestore.indexes.json` — `teacher_id` composite indexes
+- `firestore-tests/groups_v1.test.mjs` — emulator tests for exact Teacher listener query shape
+- `packages/elixr_core/test/repositories/group_repository_test.dart` — in-memory watch scoping tests
+- `packages/elixr_core/test/repositories/firebase_group_repository_test.dart` — repository query scoping tests
+- `test/features/teacher/teacher_groups_controller_test.dart` — listener subscription + error-state tests
+- This phase document
+
+`firestore.rules` unchanged. Phase 3 not started.
+
+### Old vs new Teacher membership query
+
+| Aspect | Before | After |
+|---|---|---|
+| `teacher_id` | not in query | `teacher_id == authenticatedTeacherId` |
+| `group_id` | `group_id == selectedGroupId` | unchanged |
+| `status` | optional `pending` / `approved` | unchanged |
+| `orderBy` | `created_at DESC` | unchanged |
+| Rules provability | denied (not owner-provable) | allowed (every result owned by caller) |
+
+### Tests run
+
+- `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` — 0 changed
+- `flutter analyze lib test` — 4 pre-existing info lints only (`curly_braces_in_flow_control_structures`)
+- `flutter test` — **1156 passed**, 0 failed
+- `cd packages\elixr_core; flutter test` — **69 passed**, 0 failed
+- `cd teacher_app; flutter test` — **95 passed**, 0 failed (`teacher_app` unmodified)
+- `cd firestore-tests; npm test` (Android Studio JBR 21) — **194 passed**, 0 failed (8 new Teacher listener query tests)
+- `flutter build windows` — not run (Dart-only repository/controller/index change)
+
+### Not verified
+
+- Manual Windows Teacher Groups screen against live Firebase after this change
+
+### Explicit confirmations
+
+- Teacher membership query is `teacher_id` scoped
+- Pending and approved listeners both use authenticated Teacher ID
+- Unrelated Teachers remain denied
+- Broad membership listing remains denied
+- Trainee own-membership reads remain intact
+- Teacher token-refresh fix preserved
+- Trainee join fix preserved
 - Progress Access untouched
 - General Evidence Access untouched
 - `teacher_app/` intact

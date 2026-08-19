@@ -241,17 +241,21 @@ class InMemoryGroupRepository implements GroupRepository {
     return invite;
   }
 
-  String _membershipWatchKey(String groupId, GroupMembershipStatus? status) =>
-      '$groupId::${status?.name ?? 'all'}';
+  String _membershipWatchKey(
+    String teacherId,
+    String groupId,
+    GroupMembershipStatus? status,
+  ) => '$teacherId::$groupId::${status?.name ?? 'all'}';
 
-  (String groupId, GroupMembershipStatus? status) _parseMembershipWatchKey(
-    String key,
-  ) {
-    final separator = key.lastIndexOf('::');
-    if (separator < 0) return (key, null);
-    final groupId = key.substring(0, separator);
-    final statusName = key.substring(separator + 2);
+  (String teacherId, String groupId, GroupMembershipStatus? status)
+  _parseMembershipWatchKey(String key) {
+    final parts = key.split('::');
+    if (parts.length < 2) return (key, '', null);
+    final teacherId = parts[0];
+    final groupId = parts[1];
+    final statusName = parts.length > 2 ? parts[2] : 'all';
     return (
+      teacherId,
       groupId,
       statusName == 'all' ? null : GroupMembershipStatus.tryParse(statusName),
     );
@@ -260,11 +264,12 @@ class InMemoryGroupRepository implements GroupRepository {
   @override
   Stream<List<GroupMembership>> watchGroupMemberships({
     required String groupId,
+    required String teacherId,
     GroupMembershipStatus? status,
   }) => _watchMemberships(
     _groupMembershipControllers,
-    _membershipWatchKey(groupId, status),
-    () => _membershipsForGroup(groupId, status),
+    _membershipWatchKey(teacherId, groupId, status),
+    () => _membershipsForGroup(teacherId, groupId, status),
   );
 
   @override
@@ -439,10 +444,12 @@ class InMemoryGroupRepository implements GroupRepository {
   }
 
   List<GroupMembership> _membershipsForGroup(
+    String teacherId,
     String groupId,
     GroupMembershipStatus? status,
   ) {
     final result = memberships.values.where((membership) {
+      if (membership.teacherId != teacherId) return false;
       if (membership.groupId != groupId) return false;
       if (status != null && membership.status != status) return false;
       return true;
@@ -476,8 +483,10 @@ class InMemoryGroupRepository implements GroupRepository {
   void _emitMemberships() {
     for (final entry in _groupMembershipControllers.entries) {
       if (!entry.value.isClosed) {
-        final (groupId, status) = _parseMembershipWatchKey(entry.key);
-        entry.value.add(_membershipsForGroup(groupId, status));
+        final (teacherId, groupId, status) = _parseMembershipWatchKey(
+          entry.key,
+        );
+        entry.value.add(_membershipsForGroup(teacherId, groupId, status));
       }
     }
     for (final entry in _traineeMembershipControllers.entries) {

@@ -45,6 +45,7 @@ abstract class GroupRepository {
 
   Stream<List<GroupMembership>> watchGroupMemberships({
     required String groupId,
+    required String teacherId,
     GroupMembershipStatus? status,
   });
 

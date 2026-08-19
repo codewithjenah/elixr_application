@@ -14,6 +14,7 @@ import {
   getDoc,
   getDocs,
   query,
+  orderBy,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -714,6 +715,197 @@ describe('unverified Teacher membership decisions (rules boundary)', () => {
         updated_at: serverTimestamp(),
       }),
     );
+  });
+});
+
+describe('Teacher-scoped membership listener queries (Windows Groups screen)', () => {
+  const GROUP_ID_2 = 'group-2';
+  const MEMBERSHIP_ID_2 = `${GROUP_ID_2}_trainee`;
+
+  function teacherMembershipQuery(db, {
+    teacherId = 'teacher',
+    groupId = GROUP_ID,
+    status = null,
+  } = {}) {
+    const constraints = [
+      where('teacher_id', '==', teacherId),
+      where('group_id', '==', groupId),
+    ];
+    if (status != null) {
+      constraints.push(where('status', '==', status));
+    }
+    constraints.push(orderBy('created_at', 'desc'));
+    return getDocs(query(collection(db, 'group_memberships'), ...constraints));
+  }
+
+  function legacyGroupOnlyQuery(db, groupId = GROUP_ID, status = 'approved') {
+    return getDocs(query(
+      collection(db, 'group_memberships'),
+      where('group_id', '==', groupId),
+      where('status', '==', status),
+      orderBy('created_at', 'desc'),
+    ));
+  }
+
+  async function seedApprovedMembership({
+    membershipId = MEMBERSHIP_ID,
+    groupId = GROUP_ID,
+    teacherId = 'teacher',
+    traineeId = 'trainee',
+  } = {}) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'group_memberships', membershipId), {
+        group_id: groupId,
+        teacher_id: teacherId,
+        trainee_id: traineeId,
+        teacher_display_name: 'Grace Hopper',
+        trainee_display_name: 'Ada Lovelace',
+        status: 'approved',
+        invite_id: CODE,
+        request_version: 1,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+    });
+  }
+
+  async function seedSecondGroupForTeacher() {
+    const teacher = context('teacher').firestore();
+    await assertSucceeds(
+      setDoc(doc(teacher, 'groups', GROUP_ID_2), activeGroupPayload('BSHM 4B')),
+    );
+    await provisionGroupInvite({ groupId: GROUP_ID_2, code: CODE2 });
+  }
+
+  test('owning Teacher can query pending memberships with teacher_id scope', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+
+    const teacher = context('teacher').firestore();
+    const snapshot = await assertSucceeds(
+      teacherMembershipQuery(teacher, { status: 'pending' }),
+    );
+    assert.equal(snapshot.size, 1);
+    assert.equal(snapshot.docs[0].id, MEMBERSHIP_ID);
+    assert.equal(snapshot.docs[0].data().status, 'pending');
+  });
+
+  test('owning Teacher can query approved memberships with teacher_id scope', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    await seedApprovedMembership();
+
+    const teacher = context('teacher').firestore();
+    const snapshot = await assertSucceeds(
+      teacherMembershipQuery(teacher, { status: 'approved' }),
+    );
+    assert.equal(snapshot.size, 1);
+    assert.equal(snapshot.docs[0].id, MEMBERSHIP_ID);
+    assert.equal(snapshot.docs[0].data().status, 'approved');
+  });
+
+  test('owning Teacher query returns only memberships for the selected group', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    await seedSecondGroupForTeacher();
+    await seedApprovedMembership();
+    await seedApprovedMembership({
+      membershipId: MEMBERSHIP_ID_2,
+      groupId: GROUP_ID_2,
+    });
+
+    const teacher = context('teacher').firestore();
+    const groupOne = await assertSucceeds(
+      teacherMembershipQuery(teacher, { groupId: GROUP_ID, status: 'approved' }),
+    );
+    assert.equal(groupOne.size, 1);
+    assert.equal(groupOne.docs[0].id, MEMBERSHIP_ID);
+
+    const groupTwo = await assertSucceeds(
+      teacherMembershipQuery(teacher, { groupId: GROUP_ID_2, status: 'approved' }),
+    );
+    assert.equal(groupTwo.size, 1);
+    assert.equal(groupTwo.docs[0].id, MEMBERSHIP_ID_2);
+  });
+
+  test('unrelated Teacher cannot query another Teacher memberships', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    await seedApprovedMembership();
+
+    const other = context('other').firestore();
+    await assertFails(
+      teacherMembershipQuery(other, { status: 'approved' }),
+    );
+    await assertFails(
+      teacherMembershipQuery(other, { status: 'pending' }),
+    );
+  });
+
+  test('group_id + status query without teacher_id remains denied', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    await seedApprovedMembership();
+
+    const teacher = context('teacher').firestore();
+    await assertFails(legacyGroupOnlyQuery(teacher, GROUP_ID, 'approved'));
+    await assertFails(legacyGroupOnlyQuery(teacher, GROUP_ID, 'pending'));
+  });
+
+  test('unfiltered group_memberships list remains denied for Teacher listener path', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    await seedApprovedMembership();
+
+    await assertFails(getDocs(collection(context('teacher').firestore(), 'group_memberships')));
+  });
+
+  test('Trainee own-membership query by trainee_id remains allowed', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+
+    const lookup = await assertSucceeds(getDocs(query(
+      collection(trainee, 'group_memberships'),
+      where('trainee_id', '==', 'trainee'),
+      orderBy('created_at', 'desc'),
+    )));
+    assert.equal(lookup.size, 1);
+    assert.equal(lookup.docs[0].id, MEMBERSHIP_ID);
+  });
+
+  test('exact GET privacy behavior remains unchanged', async () => {
+    await seedUsers();
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'users', 'trainee2'), {
+        full_name: 'Second Trainee',
+        role: 'Trainee',
+      });
+    });
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+
+    await assertSucceeds(getDoc(doc(context('teacher').firestore(), 'group_memberships', MEMBERSHIP_ID)));
+    await assertFails(getDoc(doc(context('other').firestore(), 'group_memberships', MEMBERSHIP_ID)));
+    await assertFails(getDoc(doc(context('trainee2').firestore(), 'group_memberships', MEMBERSHIP_ID)));
   });
 });
 

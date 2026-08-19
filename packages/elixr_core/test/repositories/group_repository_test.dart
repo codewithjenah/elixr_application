@@ -251,4 +251,106 @@ void main() {
     );
     expect(failingRepository.groups, isEmpty);
   });
+
+  test('watchGroupMemberships scopes by teacher and group', () async {
+    final groupA = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final groupB = await groupRepository.createGroup(
+      teacherId: 'teacher-2',
+      teacherDisplayName: 'Other Teacher',
+      name: 'Other Class',
+    );
+    final inviteA = (await groupRepository.getActiveGroupInvite(
+      groupId: groupA.id,
+    ))!;
+    final inviteB = (await groupRepository.getActiveGroupInvite(
+      groupId: groupB.id,
+    ))!;
+    final membershipA = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: inviteA.normalizedCode,
+    );
+    await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-2',
+      traineeDisplayName: 'Other Trainee',
+      code: inviteB.normalizedCode,
+    );
+
+    final sameGroupSameTeacher = await groupRepository
+        .watchGroupMemberships(
+          groupId: groupA.id,
+          teacherId: 'teacher-1',
+          status: GroupMembershipStatus.pending,
+        )
+        .first;
+    expect(sameGroupSameTeacher.map((m) => m.id), [membershipA.id]);
+
+    final sameGroupDifferentTeacher = await groupRepository
+        .watchGroupMemberships(
+          groupId: groupA.id,
+          teacherId: 'teacher-2',
+          status: GroupMembershipStatus.pending,
+        )
+        .first;
+    expect(sameGroupDifferentTeacher, isEmpty);
+
+    final differentGroupSameTeacher = await groupRepository
+        .watchGroupMemberships(
+          groupId: groupB.id,
+          teacherId: 'teacher-1',
+          status: GroupMembershipStatus.pending,
+        )
+        .first;
+    expect(differentGroupSameTeacher, isEmpty);
+  });
+
+  test(
+    'watchGroupMemberships filters by status and orders newest first',
+    () async {
+      final group = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final invite = (await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      ))!;
+      final older = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: older.id,
+        teacherId: 'teacher-1',
+      );
+      final newer = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-2',
+        traineeDisplayName: 'Alan Turing',
+        code: invite.normalizedCode,
+      );
+
+      final approved = await groupRepository
+          .watchGroupMemberships(
+            groupId: group.id,
+            teacherId: 'teacher-1',
+            status: GroupMembershipStatus.approved,
+          )
+          .first;
+      expect(approved.map((m) => m.id), [older.id]);
+
+      final pending = await groupRepository
+          .watchGroupMemberships(
+            groupId: group.id,
+            teacherId: 'teacher-1',
+            status: GroupMembershipStatus.pending,
+          )
+          .first;
+      expect(pending.map((m) => m.id), [newer.id]);
+    },
+  );
 }

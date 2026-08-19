@@ -8,7 +8,13 @@ class _SpyGroupRepository implements GroupRepository {
 
   final InMemoryGroupRepository inner;
   final List<String> privilegedCalls = [];
+  final List<
+    ({String groupId, String teacherId, GroupMembershipStatus? status})
+  >
+  membershipWatchCalls = [];
   Object? throwOnNextWrite;
+  Object? throwOnNextPendingStream;
+  Object? throwOnNextApprovedStream;
 
   Future<T> _record<T>(String operation, Future<T> Function() action) async {
     privilegedCalls.add(operation);
@@ -99,9 +105,30 @@ class _SpyGroupRepository implements GroupRepository {
   @override
   Stream<List<GroupMembership>> watchGroupMemberships({
     required String groupId,
+    required String teacherId,
     GroupMembershipStatus? status,
   }) {
-    return inner.watchGroupMemberships(groupId: groupId, status: status);
+    membershipWatchCalls.add((
+      groupId: groupId,
+      teacherId: teacherId,
+      status: status,
+    ));
+    final stream = inner.watchGroupMemberships(
+      groupId: groupId,
+      teacherId: teacherId,
+      status: status,
+    );
+    final pendingError = throwOnNextPendingStream;
+    if (pendingError != null && status == GroupMembershipStatus.pending) {
+      throwOnNextPendingStream = null;
+      return Stream<List<GroupMembership>>.error(pendingError);
+    }
+    final approvedError = throwOnNextApprovedStream;
+    if (approvedError != null && status == GroupMembershipStatus.approved) {
+      throwOnNextApprovedStream = null;
+      return Stream<List<GroupMembership>>.error(approvedError);
+    }
+    return stream;
   }
 
   @override
@@ -467,5 +494,102 @@ void main() {
     expect(controller.errorMessage, isNot(contains('token=')));
     expect(controller.errorMessage, isNot(contains('uid=')));
     expect(controller.errorMessage, isNot(contains('eyJ')));
+  });
+
+  test(
+    'selectGroup subscribes with authenticated teacherId and statuses',
+    () async {
+      final group = await memory.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      await controller.start();
+      repository.membershipWatchCalls.clear();
+
+      await controller.selectGroup(group);
+
+      expect(
+        repository.membershipWatchCalls,
+        containsAll([
+          (
+            groupId: group.id,
+            teacherId: 'teacher-1',
+            status: GroupMembershipStatus.pending,
+          ),
+          (
+            groupId: group.id,
+            teacherId: 'teacher-1',
+            status: GroupMembershipStatus.approved,
+          ),
+        ]),
+      );
+    },
+  );
+
+  test('unrelated Teacher membership data does not appear', () async {
+    final group = await memory.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final otherGroup = await memory.createGroup(
+      teacherId: 'teacher-2',
+      teacherDisplayName: 'Other Teacher',
+      name: 'Other Class',
+    );
+    final otherInvite = (await memory.getActiveGroupInvite(
+      groupId: otherGroup.id,
+    ))!;
+    final otherMembership = await memory.requestGroupJoin(
+      traineeId: 'trainee-2',
+      traineeDisplayName: 'Other Trainee',
+      code: otherInvite.normalizedCode,
+    );
+    await memory.approveMembership(
+      membershipId: otherMembership.id,
+      teacherId: 'teacher-2',
+    );
+
+    await controller.start();
+    await controller.selectGroup(group);
+
+    expect(controller.approvedMemberships, isEmpty);
+    expect(controller.pendingMemberships, isEmpty);
+  });
+
+  test(
+    'approved stream error shows safe message and preserves last state',
+    () async {
+      final membership = await seedPendingMembership();
+      await controller.approveMembership(membership);
+      expect(controller.approvedMemberships, hasLength(1));
+      repository.throwOnNextApprovedStream = Exception(
+        'cloud_firestore/permission-denied',
+      );
+
+      await controller.selectGroup(controller.selectedGroup!);
+
+      expect(controller.errorMessage, 'Could not load members.');
+      expect(controller.errorMessage, isNot(contains('cloud_firestore')));
+      expect(controller.approvedMemberships, hasLength(1));
+    },
+  );
+
+  test('pending stream error shows safe message', () async {
+    final group = await memory.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    await controller.start();
+    repository.throwOnNextPendingStream = Exception(
+      'cloud_firestore/permission-denied',
+    );
+
+    await controller.selectGroup(group);
+
+    expect(controller.errorMessage, 'Could not load pending requests.');
+    expect(controller.errorMessage, isNot(contains('cloud_firestore')));
   });
 }

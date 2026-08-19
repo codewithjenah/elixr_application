@@ -201,6 +201,7 @@ class TeacherGroupsController extends ChangeNotifier {
     _pendingSub = repository
         .watchGroupMemberships(
           groupId: groupId,
+          teacherId: teacherId,
           status: GroupMembershipStatus.pending,
         )
         .listen(
@@ -209,15 +210,17 @@ class TeacherGroupsController extends ChangeNotifier {
             if (!pendingFirst.isCompleted) pendingFirst.complete();
             notifyListeners();
           },
-          onError: (Object error) {
+          onError: (Object error, StackTrace stackTrace) {
+            _logMembershipStreamFailure('pending', error, stackTrace);
             errorMessage = 'Could not load pending requests.';
-            if (!pendingFirst.isCompleted) pendingFirst.completeError(error);
+            if (!pendingFirst.isCompleted) pendingFirst.complete();
             notifyListeners();
           },
         );
     _approvedSub = repository
         .watchGroupMemberships(
           groupId: groupId,
+          teacherId: teacherId,
           status: GroupMembershipStatus.approved,
         )
         .listen(
@@ -226,9 +229,10 @@ class TeacherGroupsController extends ChangeNotifier {
             if (!approvedFirst.isCompleted) approvedFirst.complete();
             notifyListeners();
           },
-          onError: (Object error) {
+          onError: (Object error, StackTrace stackTrace) {
+            _logMembershipStreamFailure('approved', error, stackTrace);
             errorMessage = 'Could not load members.';
-            if (!approvedFirst.isCompleted) approvedFirst.completeError(error);
+            if (!approvedFirst.isCompleted) approvedFirst.complete();
             notifyListeners();
           },
         );
@@ -282,6 +286,17 @@ class TeacherGroupsController extends ChangeNotifier {
   ) {
     if (!kDebugMode) return;
     debugPrint('[TeacherGroups] $operation failed: $error\n$stackTrace');
+  }
+
+  void _logMembershipStreamFailure(
+    String stream,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    if (!kDebugMode) return;
+    debugPrint(
+      '[TeacherGroups] $stream memberships stream failed: $error\n$stackTrace',
+    );
   }
 
   @override

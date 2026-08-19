@@ -231,12 +231,12 @@ class FirebaseGroupRepository implements GroupRepository {
   @override
   Stream<List<GroupMembership>> watchGroupMemberships({
     required String groupId,
+    required String teacherId,
     GroupMembershipStatus? status,
   }) {
-    Query<Map<String, dynamic>> query = _memberships.where(
-      'group_id',
-      isEqualTo: groupId,
-    );
+    Query<Map<String, dynamic>> query = _memberships
+        .where('teacher_id', isEqualTo: teacherId)
+        .where('group_id', isEqualTo: groupId);
     if (status != null) {
       query = query.where('status', isEqualTo: status.name);
     }
