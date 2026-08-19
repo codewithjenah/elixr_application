@@ -214,4 +214,198 @@ void main() {
     await pumpEventQueue();
     expect(controller.sessions, isNotEmpty);
   });
+
+  test('selected group id resolves to the Teacher group name', () async {
+    seedApprovedMembership();
+    await boot();
+    expect(controller.selectedGroupId, 'group-1');
+    expect(controller.groupNameForId('group-1'), 'BSHM 4A');
+    expect(controller.selectedGroupName, 'BSHM 4A');
+    expect(controller.classroomGroupCaption, 'Classroom group: BSHM 4A');
+    expect(controller.hasClassroomAuthorization, isTrue);
+  });
+
+  test(
+    'renaming a Teacher group updates selectedGroupName reactively',
+    () async {
+      seedApprovedMembership();
+      await boot();
+      expect(controller.selectedGroupName, 'BSHM 4A');
+
+      await groups.renameGroup(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        name: 'BSHM 4B',
+      );
+      await pumpEventQueue();
+
+      expect(controller.selectedGroupId, 'group-1');
+      expect(controller.selectedGroupName, 'BSHM 4B');
+      expect(controller.classroomGroupCaption, 'Classroom group: BSHM 4B');
+      expect(controller.hasClassroomAuthorization, isTrue);
+    },
+  );
+
+  test(
+    'missing group metadata does not expose the id or revoke classroom authorization',
+    () async {
+      groups.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+        ),
+      );
+      await boot();
+      links.emit(const []);
+      await pumpEventQueue();
+
+      expect(controller.selectedGroupId, 'group-1');
+      expect(controller.groupNameForId('group-1'), isNull);
+      expect(controller.selectedGroupName, isNull);
+      expect(controller.classroomGroupCaption, 'Group name unavailable');
+      expect(
+        controller.displayNameForGroupId('group-1'),
+        'Group name unavailable',
+      );
+      expect(controller.hasClassroomAuthorization, isTrue);
+      expect(controller.state, TeacherStudentDetailState.waitingForAccess);
+    },
+  );
+
+  test(
+    'group metadata stream failure keeps classroom authorization and selectedGroupId',
+    () async {
+      final failing = _FailingTeacherGroupsRepository(groups);
+      controller.dispose();
+      controller = TeacherStudentDetailController(
+        groupRepository: failing,
+        relationshipRepository: links,
+        progressRepository: progress,
+        publicProfileRepository: profiles,
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+      );
+      groups.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+        ),
+      );
+      await controller.start();
+      await pumpEventQueue();
+      links.emit(const []);
+      await pumpEventQueue();
+
+      expect(controller.selectedGroupId, 'group-1');
+      expect(controller.selectedGroupName, isNull);
+      expect(controller.classroomGroupCaption, 'Group name unavailable');
+      expect(controller.hasClassroomAuthorization, isTrue);
+      expect(controller.state, TeacherStudentDetailState.waitingForAccess);
+      expect(controller.state, isNot(TeacherStudentDetailState.unauthorized));
+      expect(
+        controller.state,
+        isNot(TeacherStudentDetailState.connectionRequired),
+      );
+    },
+  );
+}
+
+class _FailingTeacherGroupsRepository implements GroupRepository {
+  _FailingTeacherGroupsRepository(this.inner);
+
+  final InMemoryGroupRepository inner;
+
+  @override
+  Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId}) {
+    return Stream.error(Exception('group metadata unavailable'));
+  }
+
+  @override
+  Stream<List<GroupMembership>> watchTeacherMemberships({
+    required String teacherId,
+  }) => inner.watchTeacherMemberships(teacherId: teacherId);
+
+  @override
+  Future<ElixrGroup> createGroup({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<ElixrGroup?> getGroup({required String groupId}) =>
+      inner.getGroup(groupId: groupId);
+
+  @override
+  Future<void> renameGroup({
+    required String groupId,
+    required String teacherId,
+    required String name,
+  }) => inner.renameGroup(groupId: groupId, teacherId: teacherId, name: name);
+
+  @override
+  Future<void> archiveGroup({
+    required String groupId,
+    required String teacherId,
+  }) => inner.archiveGroup(groupId: groupId, teacherId: teacherId);
+
+  @override
+  Future<GroupInvite> createOrRotateGroupInvite({
+    required String groupId,
+    required String teacherId,
+    required String teacherDisplayName,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<GroupInvite?> getActiveGroupInvite({required String groupId}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<GroupInvite> resolveGroupInviteCode(String code) =>
+      throw UnimplementedError();
+
+  @override
+  Stream<List<GroupMembership>> watchGroupMemberships({
+    required String groupId,
+    required String teacherId,
+    GroupMembershipStatus? status,
+  }) => throw UnimplementedError();
+
+  @override
+  Stream<List<GroupMembership>> watchTraineeMemberships({
+    required String traineeId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<GroupMembership> requestGroupJoin({
+    required String traineeId,
+    required String traineeDisplayName,
+    required String code,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> approveMembership({
+    required String membershipId,
+    required String teacherId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> rejectMembership({
+    required String membershipId,
+    required String teacherId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> removeMembership({
+    required String membershipId,
+    required String teacherId,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> cancelMembership({
+    required String membershipId,
+    required String traineeId,
+  }) => throw UnimplementedError();
 }

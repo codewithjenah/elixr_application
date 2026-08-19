@@ -42,6 +42,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
   TeacherStudentDetailState state = TeacherStudentDetailState.loadingClassroom;
   List<GroupMembership> classroomMemberships = const [];
   List<GroupMembership> approvedMemberships = const [];
+  List<ElixrGroup> teacherGroups = const [];
   String? selectedGroupId;
   TeacherStudentLink? link;
   PublicProfile? profileRoot;
@@ -54,6 +55,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
   String? errorMessage;
 
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
+  StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<TeacherStudentLink>>? _linksSub;
   StreamSubscription<PublicProfile?>? _profileSub;
   StreamSubscription<PublicProfileSummary?>? _summarySub;
@@ -65,9 +67,40 @@ class TeacherStudentDetailController extends ChangeNotifier {
   bool _hadEffectiveAccess = false;
   bool _firstSummarySettled = false;
   bool _firstPageSettled = false;
+  bool _teacherGroupsLoaded = false;
   bool _disposed = false;
 
   bool get hasClassroomAuthorization => approvedMemberships.isNotEmpty;
+
+  /// Human-readable group name from Teacher group metadata, never the document ID.
+  String? groupNameForId(String groupId) {
+    for (final group in teacherGroups) {
+      if (group.id != groupId) continue;
+      final name = group.name.trim();
+      if (name.isNotEmpty) return name;
+    }
+    return null;
+  }
+
+  String? get selectedGroupName {
+    final groupId = selectedGroupId;
+    if (groupId == null) return null;
+    return groupNameForId(groupId);
+  }
+
+  /// ComboBox label that never falls back to a Firestore document ID.
+  String displayNameForGroupId(String groupId) {
+    return groupNameForId(groupId) ?? 'Group name unavailable';
+  }
+
+  /// Caption under Coaching. Omits the raw group ID when metadata is missing.
+  String? get classroomGroupCaption {
+    if (selectedGroupId == null) return null;
+    final name = selectedGroupName;
+    if (name != null) return 'Classroom group: $name';
+    if (!_teacherGroupsLoaded) return 'Classroom group';
+    return 'Group name unavailable';
+  }
 
   bool get isPrivateProfile =>
       profileRoot?.visibility == ProfileVisibility.private;
@@ -94,11 +127,23 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _resetProtected(TeacherStudentDetailState.loadingClassroom);
     classroomMemberships = const [];
     approvedMemberships = const [];
+    teacherGroups = const [];
+    _teacherGroupsLoaded = false;
     link = null;
     profileRoot = null;
     selectedGroupId = preferredGroupId;
     if (_disposed || epoch != _classroomEpoch) return;
 
+    _groupsSub = groupRepository
+        .watchTeacherGroups(teacherId: teacherId)
+        .listen(
+          (groups) => _onTeacherGroups(groups, epoch),
+          onError: (_) {
+            if (!_isCurrentClassroom(epoch)) return;
+            _teacherGroupsLoaded = true;
+            if (!_disposed) notifyListeners();
+          },
+        );
     _membershipsSub = groupRepository
         .watchTeacherMemberships(teacherId: teacherId)
         .listen(
@@ -108,6 +153,13 @@ class TeacherStudentDetailController extends ChangeNotifier {
             _resetProtected(TeacherStudentDetailState.connectionRequired);
           },
         );
+  }
+
+  void _onTeacherGroups(List<ElixrGroup> groups, int epoch) {
+    if (!_isCurrentClassroom(epoch)) return;
+    teacherGroups = groups;
+    _teacherGroupsLoaded = true;
+    notifyListeners();
   }
 
   void _onMemberships(List<GroupMembership> all, int epoch) {
@@ -388,10 +440,12 @@ class TeacherStudentDetailController extends ChangeNotifier {
 
   Future<void> _cancelAll() async {
     await _membershipsSub?.cancel();
+    await _groupsSub?.cancel();
     await _linksSub?.cancel();
     await _profileSub?.cancel();
     await _summarySub?.cancel();
     _membershipsSub = null;
+    _groupsSub = null;
     _linksSub = null;
     _profileSub = null;
     _summarySub = null;

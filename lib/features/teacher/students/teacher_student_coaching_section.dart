@@ -64,10 +64,13 @@ class _TeacherStudentCoachingSectionState
 
   void _onControllerChanged() {
     final nextGroupId = widget.controller.selectedGroupId;
-    if (nextGroupId == _loadedGroupId) return;
-    _loadedGroupId = nextGroupId;
-    _cursor = null;
-    _load(initial: true);
+    if (nextGroupId != _loadedGroupId) {
+      _loadedGroupId = nextGroupId;
+      _cursor = null;
+      _load(initial: true);
+      return;
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _load({bool initial = false, bool more = false}) async {
@@ -250,7 +253,11 @@ class _TeacherStudentCoachingSectionState
                       in widget.controller.approvedMemberships)
                     ComboBoxItem(
                       value: membership.groupId,
-                      child: Text(membership.groupId),
+                      child: Text(
+                        widget.controller.displayNameForGroupId(
+                          membership.groupId,
+                        ),
+                      ),
                     ),
                 ],
                 onChanged: (value) {
@@ -266,10 +273,10 @@ class _TeacherStudentCoachingSectionState
             ),
           ],
         ),
-        if (widget.controller.selectedGroupId != null) ...[
+        if (widget.controller.classroomGroupCaption != null) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Classroom group: ${widget.controller.selectedGroupId}',
+            widget.controller.classroomGroupCaption!,
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
         ],
