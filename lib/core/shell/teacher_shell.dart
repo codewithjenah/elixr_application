@@ -117,24 +117,36 @@ class TeacherPlaceholderScreen extends StatelessWidget {
 }
 
 /// Minimal scaffold page wrapper used by Teacher shell destinations.
+///
+/// Defaults to a document-style [SingleChildScrollView]. Pass [scrollable]
+/// `false` for viewport pages whose child owns scrolling (for example a
+/// `Column` with an `Expanded` `ListView`).
 class ElixScaffoldPage extends StatelessWidget {
   const ElixScaffoldPage({
     super.key,
     required this.header,
     required this.content,
+    this.scrollable = true,
   });
 
   final PageHeader header;
   final Widget content;
 
+  /// When true, content is wrapped in [SingleChildScrollView] with page
+  /// padding. When false, content receives bounded [ScaffoldPage] height and
+  /// the same padding, without an outer vertical scroll view.
+  final bool scrollable;
+
+  static const EdgeInsets _pagePadding = EdgeInsets.all(AppSpacing.lg);
+
   @override
   Widget build(BuildContext context) {
+    final paddedContent = Padding(padding: _pagePadding, child: content);
     return ScaffoldPage(
       header: header,
-      content: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: content,
-      ),
+      content: scrollable
+          ? SingleChildScrollView(padding: _pagePadding, child: content)
+          : paddedContent,
     );
   }
 }

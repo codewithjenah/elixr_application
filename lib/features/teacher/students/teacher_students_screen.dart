@@ -47,6 +47,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
     if (controller == null) {
       return const ElixScaffoldPage(
         header: PageHeader(title: Text('Students')),
+        scrollable: false,
         content: Center(child: ProgressRing()),
       );
     }
@@ -56,6 +57,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
       builder: (context, _) {
         return ElixScaffoldPage(
           header: const PageHeader(title: Text('Students')),
+          scrollable: false,
           content: controller.loading
               ? const Center(child: ProgressRing())
               : controller.errorMessage != null
@@ -111,6 +113,7 @@ class _Toolbar extends StatelessWidget {
         ),
         ComboBox<String?>(
           value: controller.selectedGroupId,
+          placeholder: const Text('All groups'),
           items: [
             const ComboBoxItem(value: null, child: Text('All groups')),
             for (final group in controller.groups.where((g) => g.isActive))
