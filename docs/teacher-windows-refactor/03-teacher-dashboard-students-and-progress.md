@@ -1,6 +1,6 @@
 # Phase 3 — Teacher Dashboard, Students, and progress
 
-**Status:** Complete after Phase 3 correction pass (2026-08-19); automated verification passed; manual production checklist remains **Not verified**  
+**Status:** Complete after Phase 3 historical-provenance backfill (2026-08-19); Flutter/planner checks passed; Firestore emulator 205/206 with one unrelated daily-quest flake; production backfill and manual checklist remain **Not verified**  
 **Sequence:** `03` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 2 complete.
 
@@ -17,7 +17,7 @@
 
 ## 1. Status
 
-**Complete after Phase 3 correction pass (2026-08-19).** Group-backed create was already correct. The production Teacher coaching-list query was not authorization-provable because it omitted `group_id`. Firestore rules are not result filters. The exact production collection query is now emulator-tested. Manual production checklist items remain **Not verified**. Phase 4 was not started.
+**Complete after Phase 3 historical-provenance backfill (2026-08-19).** Group-backed create was already correct. Teacher list queries are discriminant-scoped (`group_id` or `authorization_source`). Historical notes created before `authorization_source` existed are omitted from the legacy LIST until a controlled Admin backfill stamps `authorization_source: "legacy_link"`. Production backfill was **not** executed. Phase 4 was not started.
 
 ## 2. Goal
 
@@ -56,7 +56,9 @@ Give Teachers a Fluent Dashboard, a Students list with filter/search, a student 
 - `test/features/teacher/students/teacher_student_detail_controller_test.dart`
 - `test/features/teacher/students/teacher_student_detail_screen_test.dart` (correction pass)
 - `test/features/teacher/students/teacher_student_coaching_section_test.dart` (correction pass)
-- `packages/elixr_core/test/repositories/firebase_coaching_note_repository_test.dart` (correction pass)
+- `packages/elixr_core/test/repositories/firebase_coaching_note_repository_test.dart` (correction pass + historical backfill visibility)
+- `scripts/backfill_legacy_coaching_provenance.dart` (pointer)
+- `scripts/legacy_coaching_provenance/` (planner, Admin CLI, planner tests)
 
 ## 6. Actual files modified
 
@@ -69,7 +71,7 @@ See the original Phase 3 implementation plus this correction pass: coaching repo
   - Group-backed Teacher: `teacher_id == auth` + `group_id` present + `hasClassroomAuthorization`
   - Legacy Teacher: `teacher_id == auth` + `authorization_source == 'legacy_link'` + `approvedCoachingLink`
   - Account erasure list unchanged
-- Create: Group-backed notes must have `group_id` and must not include `authorization_source`. New legacy notes must write `authorization_source: 'legacy_link'` and must not include `group_id`. Historical notes without either field remain GET/update/delete readable via live approved link; they are not returned by the new legacy LIST query (no automatic backfill).
+- Create: Group-backed notes must have `group_id` and must not include `authorization_source`. New legacy notes must write `authorization_source: 'legacy_link'` and must not include `group_id`. Historical notes without either field remain GET/update/delete readable via live approved link. They are not returned by the provenance-scoped legacy LIST until the controlled Admin backfill stamps `authorization_source: "legacy_link"`. No client-side rewrite on Teacher list reads. No mixed `teacher_id`+`trainee_id` list query. No `allow list: if isSignedIn()`.
 - `group_id` and `authorization_source` are immutable on update.
 - Helpers `isCoachingAuthor`, `approvedClassroomCoaching`, `approvedCoachingLink`, `hasClassroomAuthorization` were not loosened.
 - **Indexes added (existing coaching indexes retained):**
@@ -80,20 +82,23 @@ See the original Phase 3 implementation plus this correction pass: coaching repo
 
 - Dashboard / Students / student-detail controller tests preserved.
 - Widget: waitingForAccess copy, private-profile badge, unauthorized UID, progress ready/empty/withdrawn, Group coaching + selected-group reload.
-- Repository: FakeFirebaseFirestore Group A/B scoping, pagination, legacy provenance write, create/update/delete `group_id`.
-- Firestore emulator: exact production Teacher Group-backed and legacy collection queries (not getDoc-only).
+- Repository: FakeFirebaseFirestore Group A/B scoping, pagination, legacy provenance write, historical-note visibility only after provenance stamp, create/update/delete `group_id`.
+- Planner: `scripts/legacy_coaching_provenance` eligibility, skip buckets, idempotence, batch chunking.
+- Firestore emulator: exact production Teacher Group-backed and legacy collection queries (not getDoc-only). Rules unchanged in this backfill pass.
 
 ## 9. Verification commands (executed)
 
 ```powershell
 dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test  # 0 changed
-flutter analyze   # 0 errors; pre-existing infos/warnings only
+flutter analyze   # 0 errors; 15 pre-existing infos/warnings (exit 1)
 flutter test      # 1190 passed
-cd packages\elixr_core; flutter test   # 79 passed
+cd packages\elixr_core; flutter test   # 80 passed
 cd ..\..\teacher_app; flutter test     # 95 passed
-cd firestore-tests; npm test           # 206 passed (Temurin JRE 21)
+cd firestore-tests; npm test           # 205 passed, 1 failed (Temurin JRE 21)
+  # failure: daily_quest_boards "board is fully immutable after creation"
+  # (Manila-day offset flake; unrelated to coaching). Coaching suite passed.
+cd scripts\legacy_coaching_provenance; dart test  # 9 passed
 flutter build windows                  # succeeded (elixr_application.exe)
-python json load firestore.indexes.json  # ok
 ```
 
 ## 10. Manual verification still required
@@ -112,15 +117,19 @@ python json load firestore.indexes.json  # ok
 ## 11. Completion report
 
 ```
-Phase 3 completion + correction pass
+Phase 3 completion + correction pass + historical provenance backfill
 - States implemented: loadingClassroom, unauthorized, pending, relationshipRemoved,
   waitingForAccess, loadingProgress, ready, empty, accessWithdrawn, connectionRequired, error
 - Coaching rules: Classroom Authorization OR approved link: yes
 - Teacher list queries are discriminant-scoped (group_id or authorization_source): yes
 - Silent link creation: no
 - Optional group_id on coaching notes: yes
+- Historical legacy LIST visibility: controlled Admin backfill of authorization_source only
+- firestore.rules / firestore.indexes.json: unchanged in the backfill pass
+- teacher_app fetchForTeacher(teacherId, traineeId) unchanged
 - Commands run: see section 9
-- Not verified: manual checklist section 10
+- Not verified: manual checklist section 10; production backfill not executed
+- Phase 4 not started
 ```
 
 ## 12. Handoff requirements for Phase 4
@@ -145,7 +154,9 @@ Windows `fetchForTeacher` queried `teacher_id` + `trainee_id` + `orderBy created
 
 ### Provenance field
 
-`authorization_source: 'legacy_link'` is written only on **new** legacy-link creates. It is required because Firestore cannot query “`group_id` is absent.” Group-backed notes continue to use `group_id` only. Historical notes without the field remain GET/update/delete accessible under a live approved link; they will not appear in the new legacy LIST until a later human-approved backfill. No automatic document rewrite.
+`authorization_source: 'legacy_link'` is required because Firestore cannot query “`group_id` is absent” as a safe list discriminant. Group-backed notes continue to use `group_id` only. New legacy creates write provenance at create time.
+
+Historical notes created before that field existed would otherwise stay invisible on `teacher_app` `fetchForTeacher(teacherId, traineeId)` (no `groupId`). They remain GET/update/delete accessible under a live approved link. Visibility on the legacy LIST is restored by a **controlled Admin backfill** (§14), not by relaxing list rules and not by rewriting documents during normal Teacher list reads.
 
 ### Explicit confirmations
 
@@ -161,3 +172,66 @@ Windows `fetchForTeacher` queried `teacher_id` + `trainee_id` + `orderBy created
 - Achievements unchanged
 - `teacher_app/` intact
 - Phase 4 not started
+
+## 14. Historical legacy provenance backfill (2026-08-19)
+
+### Why provenance is necessary
+
+Firestore rules authorize the query shape, they do not filter result rows after the fact. A Teacher list of `teacher_id` + `trainee_id` only can mix Group-backed notes, new legacy-link notes, and historical notes that have different authorization proofs. The production queries stay split:
+
+- Group-backed: `teacher_id` + `trainee_id` + `group_id`
+- Legacy: `teacher_id` + `trainee_id` + `authorization_source == "legacy_link"`
+
+### Compatibility gap
+
+Documents created before `authorization_source` existed have no `group_id` and no `authorization_source`. Exact GET/update/delete may still succeed under a live approved `teacher_student_link`. The legacy LIST does not return them, so `teacher_app` history looked empty for those notes.
+
+### Strategy
+
+Do **not** restore the mixed list query. Do **not** add `allow list: if isSignedIn()`. Do **not** rewrite notes during normal Flutter list reads.
+
+Give eligible historical notes the explicit field `authorization_source: "legacy_link"` via a privileged Admin script. After that stamp, the existing provenance-scoped query returns them. Group-backed notes are never converted. No Group provenance is inferred. No links are created.
+
+### Eligibility (all required)
+
+- document has no `group_id`
+- document has no `authorization_source`
+- `teacher_id` and `trainee_id` are valid participant ids and are not equal
+- deterministic `teacher_student_links/{teacherId}_{traineeId}` exists
+- link `teacher_id` matches the note
+- link `trainee_id` matches the note
+- link `status == approved`
+
+Then set **only** `authorization_source = "legacy_link"`. Do not alter `teacher_id`, `trainee_id`, `teacher_display_name`, `body`, `movement_name`, `created_at`, or `updated_at`.
+
+### Commands (from `scripts/legacy_coaching_provenance`)
+
+Requires Application Default Credentials or `--credentials=<service-account.json>`. Never commit credentials.
+
+Dry run (default, no Firestore writes):
+
+```powershell
+cd scripts\legacy_coaching_provenance
+dart pub get
+dart test
+npm install
+node backfill.mjs --dry-run --project=elixr-app-2026
+```
+
+Write (human-approved only; **not** executed in this pass):
+
+```powershell
+cd scripts\legacy_coaching_provenance
+node backfill.mjs --write --project=elixr-app-2026
+```
+
+Write mode batches updates (400 per batch, under the 500 Firestore limit), is idempotent, does not delete documents, and reports per-document failures. Eligibility is planned in Dart (`lib/legacy_coaching_provenance_planner.dart`) and applied by the Admin Node runner (`backfill.mjs`); keep those checks aligned.
+
+### Safety
+
+- Privileged Admin path only (`firebase-admin` in this scripts package). No new client mutation rule. The repository had no existing Admin migrator; this scripts-only package is that path.
+- `firestore.rules` query split unchanged.
+- `firestore.indexes.json` unchanged.
+- `teacher_app` still calls `fetchForTeacher(teacherId:, traineeId:)` with no `groupId`.
+- Production backfill: **Not verified** (not executed).
+- Phase 4 not started.

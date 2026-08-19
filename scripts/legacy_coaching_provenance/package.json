@@ -1,0 +1,14 @@
+{
+  "name": "legacy-coaching-provenance-backfill",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Privileged Admin dry-run/write backfill for historical Teacher coaching-note provenance. Not part of the Flutter app.",
+  "type": "module",
+  "scripts": {
+    "dry-run": "node backfill.mjs --dry-run",
+    "write": "node backfill.mjs --write"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.5.0"
+  }
+}

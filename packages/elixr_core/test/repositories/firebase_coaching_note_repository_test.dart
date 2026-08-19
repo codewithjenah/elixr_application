@@ -110,6 +110,42 @@ void main() {
   });
 
   test(
+    'legacy fetch returns a historical note only after provenance backfill',
+    () async {
+      await firestore
+          .collection(FirestoreCollections.teacherCoachingNotes)
+          .doc('historical-legacy')
+          .set({
+            'teacher_id': teacherId,
+            'trainee_id': traineeId,
+            'teacher_display_name': 'Teacher One',
+            'body': 'Historical advice.',
+            'created_at': DateTime.utc(2026, 1, 2),
+            'updated_at': DateTime.utc(2026, 1, 2),
+          });
+      final before = await repository.fetchForTeacher(
+        teacherId: teacherId,
+        traineeId: traineeId,
+      );
+      expect(before.notes, isEmpty);
+
+      await firestore
+          .collection(FirestoreCollections.teacherCoachingNotes)
+          .doc('historical-legacy')
+          .update({
+            CoachingNote.authorizationSourceField:
+                CoachingNote.authorizationSourceLegacyLink,
+          });
+      final after = await repository.fetchForTeacher(
+        teacherId: teacherId,
+        traineeId: traineeId,
+      );
+      expect(after.notes.map((n) => n.id), ['historical-legacy']);
+      expect(after.notes.single.body, 'Historical advice.');
+    },
+  );
+
+  test(
     'legacy fetch excludes group-backed notes and writes provenance',
     () async {
       await repository.createNote(
