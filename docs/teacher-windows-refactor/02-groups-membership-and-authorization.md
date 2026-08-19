@@ -1,6 +1,6 @@
 # Phase 2 — Groups, membership, and authorization
 
-**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19)  
+**Status:** Complete (2026-08-19); Phase 2 correction pass (2026-08-19); live-Firebase hotfix (2026-08-19)  
 **Sequence:** `02` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 1 complete per its handoff section. If Phase 1 is missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19
+Complete (2026-08-19); Phase 2 correction pass applied 2026-08-19; live-Firebase hotfix applied 2026-08-19
 
 ## 2. Goal
 
@@ -447,3 +447,27 @@ GitHub review findings addressed on `main` without starting Phase 3.
 5. `teacher_app/` still present.
 6. This completion report includes the inventory.
 7. Coaching-note rules still approved-link-only (Phase 3 extends them). No silent consent links.
+
+## 25. Phase 2 live-Firebase hotfix (2026-08-19)
+
+After deploying Phase 2 rules/indexes to `elixr-app-2026`, normal Windows Trainees could resolve a group invite code and reach the confirmation UI, but `Send Request` failed with Firestore permission denied. Firebase logs showed `validPendingMembershipCreate()` required `hasVerifiedEmail()` while Trainee registration/login on Windows does not gate on email verification (only Teacher registration requests verification).
+
+### Fix
+
+- **`validPendingMembershipCreate()`** — Replaced `hasVerifiedEmail()` with `isSignedIn()`; existing Trainee role, `trainee_id == request.auth.uid`, invite, and schema checks remain.
+- **`validPendingLinkCreate()`** — Same correction for legacy roster join (`teacher_student_links` pending create).
+- **Teacher verification unchanged** — `validInviteCreate()`, `validGroupCreate()`, `validGroupInviteCreate()`, and `isVerifiedTeacher()` still require `hasVerifiedEmail()`.
+- **Debug diagnostics** — `TeacherAccessController.confirmJoin()` logs the underlying error in debug builds only; production UI remains a safe generic message.
+- **Emulator coverage** — `groups_v1.test.mjs` and `roster_v2.test.mjs` helpers accept `emailVerified: false`; new tests cover unverified Trainee pending join (group + legacy roster), self-approval denial, unverified Trainee group/invite denial, verified Teacher approval, and unverified Teacher invite/group denial.
+
+### Tests run (hotfix)
+
+- `flutter test` — **1133 passed**, 0 failed
+- `cd packages\elixr_core; flutter test` — **59 passed**, 0 failed
+- `cd teacher_app; flutter test` — **95 passed**, 0 failed
+- `cd firestore-tests; npm test` (Android Studio JBR 21 on `JAVA_HOME` and `PATH`) — **172 passed**, 0 failed (includes unverified Trainee/Teacher parity tests)
+
+### Not verified
+
+- Redeploy of `firestore.rules` to production after this hotfix
+- Manual Trainee group join on live Firebase after redeploy

@@ -165,7 +165,10 @@ class TeacherAccessController extends ChangeNotifier {
           'No group or Teacher roster is using that code.',
         _ => error.message ?? 'Could not look up that code.',
       };
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[TeacherAccess] resolveCode failed: $error\n$stackTrace');
+      }
       joinError = 'Could not look up that code.';
     } finally {
       busy = false;
@@ -228,7 +231,10 @@ class TeacherAccessController extends ChangeNotifier {
         _ => error.message ?? 'Could not send that request.',
       };
       return false;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[TeacherAccess] confirmJoin failed: $error\n$stackTrace');
+      }
       joinError = 'Could not send that request.';
       return false;
     } finally {

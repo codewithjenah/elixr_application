@@ -50,10 +50,10 @@ after(async () => {
   await testEnv.cleanup();
 });
 
-function context(uid) {
+function context(uid, { emailVerified = true } = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`,
-    email_verified: true,
+    email_verified: emailVerified,
   });
 }
 
@@ -447,6 +447,107 @@ describe('group memberships', () => {
         evidence_access: 'granted',
       }),
     );
+  });
+});
+
+describe('unverified Trainee group join (Windows auth parity)', () => {
+  test('unverified Trainee creates own pending membership', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+  });
+
+  test('unverified Trainee cannot approve self', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+    await assertFails(
+      updateDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unverified Trainee cannot create group', async () => {
+    await seedUsers();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertFails(setDoc(doc(trainee, 'groups', GROUP_ID), activeGroupPayload()));
+  });
+
+  test('unverified Trainee cannot create group_invite', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertFails(
+      setDoc(doc(trainee, 'group_invites', CODE), {
+        group_id: GROUP_ID,
+        teacher_id: 'trainee',
+        teacher_display_name: 'Ada Lovelace',
+        created_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('verified owning Teacher approves unverified Trainee request', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+    await assertSucceeds(
+      updateDoc(doc(context('teacher').firestore(), 'group_memberships', MEMBERSHIP_ID), {
+        status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('unverified Teacher cannot create group', async () => {
+    await seedUsers();
+    const teacher = context('teacher', { emailVerified: false }).firestore();
+    await assertFails(setDoc(doc(teacher, 'groups', GROUP_ID), activeGroupPayload()));
+  });
+
+  test('unverified Teacher cannot create or rotate group invite', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    const batch = writeBatch(unverifiedTeacher);
+    batch.set(doc(unverifiedTeacher, 'group_invites', CODE), {
+      group_id: GROUP_ID,
+      teacher_id: 'teacher',
+      teacher_display_name: 'Grace Hopper',
+      created_at: serverTimestamp(),
+    });
+    batch.update(doc(unverifiedTeacher, 'groups', GROUP_ID), {
+      invite_code: CODE,
+      updated_at: serverTimestamp(),
+    });
+    await assertFails(batch.commit());
+    await provisionGroupInvite();
+    const rotateBatch = writeBatch(unverifiedTeacher);
+    rotateBatch.set(doc(unverifiedTeacher, 'group_invites', CODE2), {
+      group_id: GROUP_ID,
+      teacher_id: 'teacher',
+      teacher_display_name: 'Grace Hopper',
+      created_at: serverTimestamp(),
+    });
+    rotateBatch.update(doc(unverifiedTeacher, 'groups', GROUP_ID), {
+      invite_code: CODE2,
+      updated_at: serverTimestamp(),
+    });
+    await assertFails(rotateBatch.commit());
   });
 });
 

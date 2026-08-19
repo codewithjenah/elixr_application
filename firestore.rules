@@ -2035,7 +2035,7 @@ service cloud.firestore {
     }
 
     function validPendingLinkCreate(data, linkId) {
-      return hasVerifiedEmail()
+      return isSignedIn()
         && data.keys().hasOnly(linkAllowedKeys())
         && data.keys().hasAll(linkKeys())
         && data.trainee_id == request.auth.uid
@@ -2387,7 +2387,7 @@ service cloud.firestore {
     }
 
     function validPendingMembershipCreate(data, membershipId) {
-      return hasVerifiedEmail()
+      return isSignedIn()
         && data.keys().hasOnly(membershipAllowedKeys())
         && data.keys().hasAll(membershipKeys())
         && data.trainee_id == request.auth.uid

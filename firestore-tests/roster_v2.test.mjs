@@ -52,10 +52,10 @@ after(async () => {
   await testEnv.cleanup();
 });
 
-function context(uid) {
+function context(uid, { emailVerified = true } = {}) {
   return testEnv.authenticatedContext(uid, {
     email: `${uid}@example.com`,
-    email_verified: true,
+    email_verified: emailVerified,
   });
 }
 
@@ -281,6 +281,43 @@ describe('Teacher-owned roster V2', () => {
     )));
     await assertFails(getDocs(collection(teacher, 'teacher_student_links')));
     await assertFails(getDoc(doc(context('other').firestore(), 'teacher_student_links', LINK_ID)));
+  });
+});
+
+describe('unverified Trainee roster join (Windows auth parity)', () => {
+  test('unverified Trainee submits valid pending teacher_student_link', async () => {
+    await seedUsers();
+    await createInvite();
+    const trainee = context('trainee', { emailVerified: false }).firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'teacher_student_links', LINK_ID), v2Request()),
+    );
+  });
+
+  test('unverified Teacher cannot create or rotate roster invite', async () => {
+    await seedUsers();
+    const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
+    const batch = writeBatch(unverifiedTeacher);
+    batch.set(doc(unverifiedTeacher, 'teacher_invites', CODE), {
+      teacher_id: 'teacher',
+      teacher_display_name: 'Grace Hopper',
+      created_at: serverTimestamp(),
+    });
+    batch.update(doc(unverifiedTeacher, 'users', 'teacher'), {
+      teacher_roster_invite_code: CODE,
+    });
+    await assertFails(batch.commit());
+    await createInvite();
+    const rotateBatch = writeBatch(unverifiedTeacher);
+    rotateBatch.set(doc(unverifiedTeacher, 'teacher_invites', 'ABCD2345EFGH'), {
+      teacher_id: 'teacher',
+      teacher_display_name: 'Grace Hopper',
+      created_at: serverTimestamp(),
+    });
+    rotateBatch.update(doc(unverifiedTeacher, 'users', 'teacher'), {
+      teacher_roster_invite_code: 'ABCD2345EFGH',
+    });
+    await assertFails(rotateBatch.commit());
   });
 });
 
