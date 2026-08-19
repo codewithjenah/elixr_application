@@ -6,6 +6,7 @@ import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/features/calendar/calendar_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/session_service.dart';
@@ -296,6 +297,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Flair'), findsOneWidget);
+    expect(find.byType(MovementImage), findsOneWidget);
+    expect(find.bySemanticsLabel('Movement icon: Flair'), findsOneWidget);
     expect(find.text('No practice recorded'), findsNothing);
     expect(find.text('10 / 12'), findsWidgets);
     expect(find.text('Proficient'), findsOneWidget);
@@ -366,6 +369,11 @@ void main() {
 
     expect(find.text('July 2026'), findsOneWidget);
     expect(find.text('Shoulder Stall'), findsOneWidget);
+    expect(find.byType(MovementImage), findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Movement image: Shoulder Stall'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('invalid initialDate falls back to today safely', (tester) async {

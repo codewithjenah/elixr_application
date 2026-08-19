@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/session.dart';
 import '../models/calendar_day_summary.dart';
 import '../utils/calendar_metrics.dart';
@@ -232,6 +233,8 @@ class _SessionRow extends StatelessWidget {
       ),
       child: Row(
         children: [
+          _MovementAvatar(movementName: session.movementName),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -317,6 +320,31 @@ class _SessionRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MovementAvatar extends StatelessWidget {
+  const _MovementAvatar({required this.movementName});
+
+  final String movementName;
+
+  static const double _size = 42;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: _size,
+      height: _size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: AppColors.accent.withValues(
+          alpha: context.isDarkTheme ? 0.18 : 0.1,
+        ),
+        border: Border.all(color: context.elixBorder),
+      ),
+      child: MovementImage(movementName: movementName, size: _size),
     );
   }
 }
