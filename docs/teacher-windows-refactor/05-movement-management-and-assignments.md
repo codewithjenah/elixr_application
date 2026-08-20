@@ -1,6 +1,6 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
-**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Final revision-publication correction: `abd00be13ac5d648995450848b67d40e49f53e64`. Firestore rules/indexes are **not** production deployed. Live Teacher/Trainee assignment flow is **not** verified. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
+**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Final revision-publication correction: `abd00be13ac5d648995450848b67d40e49f53e64`. Live-fix (not yet production-closed): Teacher-created start uses create-first (no missing-document `get`), and public-profile summary writes replace the document with the current allowed schema. Production Firestore rules/indexes must not be redeployed until this client fix is reviewed. Live Teacher-created start and public-profile canonicalization are **not** re-verified in production after this fix. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
 **Sequence:** `05` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 4 official XP gate is on `main`. If non-catalog sessions can still award global XP, **STOP**.
 
@@ -19,7 +19,7 @@
 
 ## 1. Status
 
-Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0` hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. Final revision-publication correction `abd00be13ac5d648995450848b67d40e49f53e64` requires a Teacher movement edit to publish a **new** immutable revision in the same atomic write (`!exists` + `existsAfter` of the target revision), so a client cannot repoint `current_revision_id` at a historical revision. Not marked CLOSED: production rules/indexes undeployed, live classroom flow unverified. Phase 6/7 not started.
+Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0` hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. Final revision-publication correction `abd00be13ac5d648995450848b67d40e49f53e64` requires a Teacher movement edit to publish a **new** immutable revision in the same atomic write (`!exists` + `existsAfter` of the target revision), so a client cannot repoint `current_revision_id` at a historical revision. Production live verification then found two client-side Firestore interaction bugs (Teacher-created start pre-read of a missing attempt; public-profile summary merge of unknown legacy keys). Those are fixed in this working tree and **must be retested live** before Phase 5 can close. Phase 6/7 not started.
 
 ## 2. Goal
 
@@ -405,6 +405,39 @@ Remaining decision/risk: if a Teacher account is erased first, classroom attempt
 - [ ] Locked public profile still shows the assignment on Assigned Movements and the pointer to the assigning Teacher.
 - [ ] Teacher Movements / Assigned Movements at existing desktop sizes and collapsed Trainee sidebar.
 - [ ] Camera + backend live path for both official assigned practice and Teacher-created Free Practice mode.
+
+### Production live verification (2026-08-20)
+
+PASSED:
+
+- Official Hand Stall assignment appears in Teacher Assignments
+- Teacher sees "1 completed"
+- official result visible as 12/12 Mastered
+
+FAILED / discovered:
+
+- first Teacher-created assignment start was blocked by a pre-read of a nonexistent deterministic `assignment_attempts` document (`get` uses `resource.data` ownership, so missing docs are permission-denied before create)
+- public-profile summary rebuild hit permission-denied on the canonicalization path because `SetOptions(merge: true)` preserved unknown legacy keys, and `validPublicProfileSummary` requires `keys().hasOnly(...)`
+
+Client fix (this change, not committed): Teacher-created start is create-first with a strict identity-checked fallback read; public-profile summary writes replace the document with only current supported keys. Assignment-attempt read rules and `validPublicProfileSummary` were **not** loosened.
+
+Phase 5 remains **not CLOSED** until Teacher-created start and public-profile `ensurePublicProfile` are retested against production after this client ships. Automated tests are not a substitute for that live retest.
+
+Separate technical debt (not this fix): the `audioplayers` Windows native-thread warning is a plugin/platform-channel issue. It is not the cause of the assignment permission denial. Do not mix a player upgrade into this correction.
+
+### Commands actually run (Teacher-created start + public-profile canonical summary live fix)
+
+| Command | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | Clean (0 files changed) after format |
+| `flutter analyze` | **0 errors**. 15 infos/warnings, all pre-existing |
+| `flutter test` | **1309 passed**, 0 failed (was 1293; +16 Dart regressions) |
+| `packages/elixr_core` `flutter test` | **85 passed**, 0 failed |
+| `teacher_app` `flutter test` | **95 passed**, 0 failed (package untouched) |
+| `cd firestore-tests; npm test` with Temurin JRE 21 | **271 passed**, 0 failed (was 266; +4 assignment create-first cases, +1 legacy summary replacement) |
+| `cd backend; .\.venv\Scripts\python.exe -m pytest -q tests` | **1094 passed** |
+| `flutter build windows` | **Succeeded** (`build\windows\x64\runner\Release\elixr_application.exe`) |
+| `firebase deploy` | **Not run** |
 
 Phase 6 NOT started. Phase 7 NOT started. `teacher_app/` intact. Firebase not deployed.
 

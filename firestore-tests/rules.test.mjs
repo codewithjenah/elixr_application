@@ -2991,6 +2991,38 @@ describe('public_profiles', () => {
     );
   });
 
+  test('owner canonical replacement of a legacy summary succeeds without loosening keys', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));
+      await setDoc(doc(adminDb, 'public_profiles', 'alice', 'details', 'summary'), {
+        ...publicProfileSummary(),
+        legacy_unknown_field: 1,
+      });
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+        { merge: true },
+      ),
+    );
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+      ),
+    );
+    const bob = bobDb();
+    await assertFails(
+      setDoc(
+        doc(bob, 'public_profiles', 'alice', 'details', 'summary'),
+        publicProfileSummary(),
+      ),
+    );
+  });
+
   test('cross-user cannot write summary projection', async () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'public_profiles', 'alice'), publicProfileRoot('alice'));

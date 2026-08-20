@@ -189,6 +189,93 @@ AssignmentAttempt teacherCreatedDraftAttempt({
   );
 }
 
+/// Exact Phase 5 identity required before reusing a Teacher-created attempt.
+bool isReusableTeacherCreatedStartAttempt({
+  required AssignmentAttempt attempt,
+  required String traineeId,
+  required GroupAssignment assignment,
+}) {
+  return attempt.traineeId == traineeId &&
+      attempt.teacherId == assignment.teacherId &&
+      attempt.groupId == assignment.groupId &&
+      attempt.assignmentId == assignment.id &&
+      attempt.movementId == assignment.movementId &&
+      attempt.revisionId == assignment.revisionId &&
+      attempt.origin == MovementOrigin.teacherCreated &&
+      attempt.assessmentMode == AssessmentMode.teacherReviewed &&
+      attempt.attemptKind == AssignmentAttemptKind.teacherReviewDraft &&
+      attempt.awardsGlobalXp == false &&
+      attempt.sourceSessionId == null &&
+      (attempt.status == AssignmentAttemptStatus.draft ||
+          attempt.status == AssignmentAttemptStatus.inProgress);
+}
+
+AssignmentAttempt teacherCreatedAttemptWithStatus({
+  required AssignmentAttempt attempt,
+  required AssignmentAttemptStatus status,
+}) {
+  return AssignmentAttempt(
+    id: attempt.id,
+    traineeId: attempt.traineeId,
+    teacherId: attempt.teacherId,
+    groupId: attempt.groupId,
+    assignmentId: attempt.assignmentId,
+    movementId: attempt.movementId,
+    revisionId: attempt.revisionId,
+    origin: attempt.origin,
+    assessmentMode: attempt.assessmentMode,
+    attemptKind: attempt.attemptKind,
+    status: status,
+    awardsGlobalXp: attempt.awardsGlobalXp,
+    sourceSessionId: attempt.sourceSessionId,
+    rubric: attempt.rubric,
+    durationSeconds: attempt.durationSeconds,
+    propType: attempt.propType,
+    completedAt: attempt.completedAt,
+    createdAt: attempt.createdAt,
+  );
+}
+
+/// Create the canonical draft first. Only read an existing document after a
+/// permission-denied write, which is how Firestore evaluates `set` on an
+/// already-created deterministic ID (update, not create).
+Future<AssignmentAttempt> startTeacherCreatedAttemptWorkflow({
+  required String traineeId,
+  required GroupAssignment assignment,
+  required Future<void> Function(AssignmentAttempt draft) create,
+  required Future<AssignmentAttempt?> Function(String attemptId) readExisting,
+  required Future<AssignmentAttempt> Function(AssignmentAttempt existing)
+  promoteDraftToInProgress,
+  required bool Function(Object error) isPermissionDenied,
+}) async {
+  final draft = teacherCreatedDraftAttempt(
+    traineeId: traineeId,
+    assignment: assignment,
+  );
+  try {
+    await create(draft);
+    return draft;
+  } catch (error) {
+    if (!isPermissionDenied(error)) rethrow;
+  }
+
+  final existing = await readExisting(draft.id);
+  if (existing == null) {
+    throw const ClassroomException(ClassroomError.notFound);
+  }
+  if (!isReusableTeacherCreatedStartAttempt(
+    attempt: existing,
+    traineeId: traineeId,
+    assignment: assignment,
+  )) {
+    throw const ClassroomException(ClassroomError.identityMismatch);
+  }
+  if (existing.status == AssignmentAttemptStatus.inProgress) {
+    return existing;
+  }
+  return promoteDraftToInProgress(existing);
+}
+
 TrainingProp? assignmentAllowedProp(GroupAssignment assignment) {
   return assignment.allowedProp;
 }

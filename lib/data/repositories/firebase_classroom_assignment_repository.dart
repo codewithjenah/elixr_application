@@ -205,22 +205,36 @@ class FirebaseClassroomAssignmentRepository
   Future<AssignmentAttempt> startTeacherCreatedAttempt({
     required String traineeId,
     required GroupAssignment assignment,
-  }) async {
-    final draft = teacherCreatedDraftAttempt(
+  }) {
+    return startTeacherCreatedAttemptWorkflow(
       traineeId: traineeId,
       assignment: assignment,
+      create: (draft) async {
+        await _attempts
+            .doc(draft.id)
+            .set(draft.toCreateMap(createdAt: FieldValue.serverTimestamp()));
+      },
+      readExisting: (attemptId) async {
+        final snap = await _attempts.doc(attemptId).get();
+        if (!snap.exists || snap.data() == null) return null;
+        return AssignmentAttempt.tryFromMap(snap.data()!, id: snap.id) ??
+            (throw const ClassroomException(ClassroomError.malformed));
+      },
+      promoteDraftToInProgress: (existing) async {
+        await _attempts.doc(existing.id).update({
+          'status': AssignmentAttemptStatus.inProgress.wireValue,
+        });
+        return teacherCreatedAttemptWithStatus(
+          attempt: existing,
+          status: AssignmentAttemptStatus.inProgress,
+        );
+      },
+      isPermissionDenied: _isFirestorePermissionDenied,
     );
-    final ref = _attempts.doc(draft.id);
-    final existing = await ref.get();
-    if (existing.exists) {
-      return AssignmentAttempt.tryFromMap(
-            existing.data() ?? const {},
-            id: existing.id,
-          ) ??
-          draft;
-    }
-    await ref.set(draft.toCreateMap(createdAt: FieldValue.serverTimestamp()));
-    return draft;
+  }
+
+  static bool _isFirestorePermissionDenied(Object error) {
+    return error is FirebaseException && error.code == 'permission-denied';
   }
 
   static void _sortAssignments(List<GroupAssignment> items) {

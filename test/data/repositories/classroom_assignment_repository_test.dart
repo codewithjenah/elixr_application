@@ -1,3 +1,5 @@
+import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
@@ -209,4 +211,141 @@ void main() {
       );
     },
   );
+
+  test(
+    'starting the same Teacher-created assignment again is idempotent',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'First.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      final first = await assignments.startTeacherCreatedAttempt(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      );
+      final second = await assignments.startTeacherCreatedAttempt(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      );
+      expect(second.id, first.id);
+      expect(second.status, first.status);
+      expect(second.awardsGlobalXp, isFalse);
+      expect(second.sourceSessionId, isNull);
+    },
+  );
+
+  test(
+    'seeded draft Teacher-created attempt promotes without rewriting identity',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'First.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      final createdAt = DateTime.utc(2026, 8, 1);
+      assignments.seedAttempt(
+        AssignmentAttempt(
+          id: assignmentAttemptIdForTeacherCreatedDraft(
+            assignmentId: assignment.id,
+            traineeId: 'trainee-1',
+          ),
+          traineeId: 'trainee-1',
+          teacherId: assignment.teacherId,
+          groupId: assignment.groupId,
+          assignmentId: assignment.id,
+          movementId: assignment.movementId,
+          revisionId: assignment.revisionId,
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewDraft,
+          status: AssignmentAttemptStatus.draft,
+          createdAt: createdAt,
+        ),
+      );
+      final started = await assignments.startTeacherCreatedAttempt(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      );
+      expect(started.status, AssignmentAttemptStatus.inProgress);
+      expect(started.createdAt, createdAt);
+      expect(started.awardsGlobalXp, isFalse);
+      expect(started.sourceSessionId, isNull);
+    },
+  );
+
+  test('mismatched existing Teacher-created attempt fails closed', () async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'First.',
+      requiredProp: TrainingProp.bottle,
+    );
+    final revision = (await movements.getRevision(
+      movementId: movement.id,
+      revisionId: movement.currentRevisionId,
+    ))!;
+    final assignment = await assignments.createTeacherCreatedAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      movement: movement,
+      revision: revision,
+    );
+    assignments.seedAttempt(
+      AssignmentAttempt(
+        id: assignmentAttemptIdForTeacherCreatedDraft(
+          assignmentId: assignment.id,
+          traineeId: 'trainee-1',
+        ),
+        traineeId: 'trainee-1',
+        teacherId: 'other-teacher',
+        groupId: assignment.groupId,
+        assignmentId: assignment.id,
+        movementId: assignment.movementId,
+        revisionId: assignment.revisionId,
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        attemptKind: AssignmentAttemptKind.teacherReviewDraft,
+        status: AssignmentAttemptStatus.inProgress,
+      ),
+    );
+    expect(
+      () => assignments.startTeacherCreatedAttempt(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (error) => error.code,
+          'code',
+          ClassroomError.identityMismatch,
+        ),
+      ),
+    );
+  });
 }

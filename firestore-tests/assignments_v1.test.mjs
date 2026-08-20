@@ -1306,3 +1306,99 @@ describe('Phase 5 integrity: canonical teacher-created draft attempt IDs', () =>
     );
   });
 });
+
+describe('Phase 5 live fix: create-first Teacher-created start vs missing get', () => {
+  test('GET of a nonexistent assignment_attempt remains denied', async () => {
+    await seedClassroom();
+    const db = context('trainee').firestore();
+    await assertFails(
+      getDoc(doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee')),
+    );
+    await assertFails(
+      getDoc(doc(db, 'assignment_attempts', 'arbitrary_missing_attempt')),
+    );
+  });
+
+  test('canonical Teacher-created draft CREATE succeeds without a prior GET', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgCustom'),
+        teacherCreatedAssignmentDoc(),
+      );
+    });
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+        teacherDraftAttempt(),
+      ),
+    );
+    const created = await getDoc(
+      doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+    );
+    assert.equal(created.exists(), true);
+    assert.equal(created.data().awards_global_xp, false);
+    assert.equal(created.data().source_session_id, undefined);
+    assert.equal(created.data().attempt_kind, 'teacher_review_draft');
+    assert.equal(created.data().origin, 'teacher_created');
+    assert.equal(created.data().assessment_mode, 'teacher_reviewed');
+    assert.equal(created.data().status, 'in_progress');
+  });
+
+  test('owned canonical attempt remains readable; other trainee is denied', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgCustom'),
+        teacherCreatedAssignmentDoc(),
+      );
+      await setDoc(
+        doc(admin, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+        {
+          ...teacherDraftAttempt(),
+          created_at: Timestamp.now(),
+        },
+      );
+    });
+    await assertSucceeds(
+      getDoc(
+        doc(context('trainee').firestore(), 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+      ),
+    );
+    await assertFails(
+      getDoc(
+        doc(context('otherTrainee').firestore(), 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+      ),
+    );
+  });
+
+  test('second CREATE/SET of an existing in_progress draft is denied; GET remains allowed', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgCustom'),
+        teacherCreatedAssignmentDoc(),
+      );
+    });
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+        teacherDraftAttempt(),
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+        teacherDraftAttempt(),
+      ),
+    );
+    const existing = await assertSucceeds(
+      getDoc(doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee')),
+    );
+    assert.equal(existing.data().status, 'in_progress');
+    assert.equal(existing.data().awards_global_xp, false);
+    assert.equal(existing.data().source_session_id, undefined);
+  });
+});

@@ -215,19 +215,47 @@ class InMemoryClassroomAssignmentRepository
   Future<AssignmentAttempt> startTeacherCreatedAttempt({
     required String traineeId,
     required GroupAssignment assignment,
-  }) async {
-    final draft = teacherCreatedDraftAttempt(
+  }) {
+    return startTeacherCreatedAttemptWorkflow(
       traineeId: traineeId,
       assignment: assignment,
-      createdAt: now,
+      create: (draft) async {
+        if (attempts.containsKey(draft.id)) {
+          throw const ClassroomException(ClassroomError.forbidden);
+        }
+        attempts[draft.id] = AssignmentAttempt(
+          id: draft.id,
+          traineeId: draft.traineeId,
+          teacherId: draft.teacherId,
+          groupId: draft.groupId,
+          assignmentId: draft.assignmentId,
+          movementId: draft.movementId,
+          revisionId: draft.revisionId,
+          origin: draft.origin,
+          assessmentMode: draft.assessmentMode,
+          attemptKind: draft.attemptKind,
+          status: draft.status,
+          createdAt: draft.createdAt ?? now,
+        );
+        _emitAssignmentAttempts(assignment.teacherId, assignment.id);
+        _emitTraineeAttempts(traineeId);
+        _emitTeacherAttempts(assignment.teacherId);
+      },
+      readExisting: (attemptId) async => attempts[attemptId],
+      promoteDraftToInProgress: (existing) async {
+        final promoted = teacherCreatedAttemptWithStatus(
+          attempt: existing,
+          status: AssignmentAttemptStatus.inProgress,
+        );
+        attempts[existing.id] = promoted;
+        _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+        _emitTraineeAttempts(existing.traineeId);
+        _emitTeacherAttempts(existing.teacherId);
+        return promoted;
+      },
+      isPermissionDenied: (error) =>
+          error is ClassroomException && error.code == ClassroomError.forbidden,
     );
-    final existing = attempts[draft.id];
-    if (existing != null) return existing;
-    attempts[draft.id] = draft;
-    _emitAssignmentAttempts(assignment.teacherId, assignment.id);
-    _emitTraineeAttempts(traineeId);
-    _emitTeacherAttempts(assignment.teacherId);
-    return draft;
   }
 
   void seedAssignment(GroupAssignment assignment) {

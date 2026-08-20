@@ -67,6 +67,117 @@ class PublicProfileRootCreation {
   }
 }
 
+/// Canonical `public_profiles/{userId}/details/summary` writer.
+///
+/// Replaces the document with the current allowed schema. Unknown legacy
+/// keys must not be merged forward — Firestore `hasOnly` validates the
+/// final document, so merge writes of old fields fail.
+class PublicProfileSummaryWrite {
+  const PublicProfileSummaryWrite._();
+
+  static const supportedKeys = {
+    'total_duration_seconds',
+    'completed_movement_names',
+    'updated_at',
+    'last_backfill_session_id',
+  };
+
+  static String? recognizedLastBackfillSessionId(Object? value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || trimmed.length > 128) return null;
+    return trimmed;
+  }
+
+  static Map<String, dynamic> canonicalMap({
+    required int totalDurationSeconds,
+    required Iterable<String> completedMovementNames,
+    required Object updatedAt,
+    Object? lastBackfillSessionId,
+  }) {
+    final payload = <String, dynamic>{
+      'total_duration_seconds': totalDurationSeconds < 0
+          ? 0
+          : totalDurationSeconds,
+      'completed_movement_names': _sortedUniqueMovements(
+        completedMovementNames,
+      ),
+      'updated_at': updatedAt,
+    };
+    final backfill = recognizedLastBackfillSessionId(lastBackfillSessionId);
+    if (backfill != null) {
+      payload['last_backfill_session_id'] = backfill;
+    }
+    return payload;
+  }
+
+  static Map<String, dynamic> rebuildMap({
+    required int totalDurationSeconds,
+    required Iterable<String> completedMovementNames,
+    required Object updatedAt,
+    Map<String, dynamic>? existingSummary,
+  }) {
+    return canonicalMap(
+      totalDurationSeconds: totalDurationSeconds,
+      completedMovementNames: completedMovementNames,
+      updatedAt: updatedAt,
+      lastBackfillSessionId: existingSummary?['last_backfill_session_id'],
+    );
+  }
+
+  static Map<String, dynamic> afterSessionMap({
+    required Map<String, dynamic>? existingSummary,
+    required int sessionDurationSeconds,
+    required String sessionMovementName,
+    required String sessionId,
+    required Object updatedAt,
+  }) {
+    var totalDuration = sessionDurationSeconds;
+    final movements = <String>{};
+    if (existingSummary != null) {
+      totalDuration =
+          (_readRecognizedInt(existingSummary['total_duration_seconds']) ?? 0) +
+          sessionDurationSeconds;
+      movements.addAll(
+        _readRecognizedStringList(existingSummary['completed_movement_names']),
+      );
+    }
+    final movement = sessionMovementName.trim();
+    if (movement.isNotEmpty) movements.add(movement);
+
+    return canonicalMap(
+      totalDurationSeconds: totalDuration,
+      completedMovementNames: movements,
+      updatedAt: updatedAt,
+      lastBackfillSessionId: sessionId,
+    );
+  }
+
+  static int? _readRecognizedInt(Object? value) {
+    if (value is int) return value;
+    if (value is num && value.isFinite) return value.toInt();
+    return null;
+  }
+
+  static List<String> _readRecognizedStringList(Object? value) {
+    if (value is! List) return const [];
+    return [
+      for (final item in value)
+        if (item is String) item,
+    ];
+  }
+
+  static List<String> _sortedUniqueMovements(Iterable<String> names) {
+    final unique = <String>{};
+    for (final name in names) {
+      final trimmed = name.trim();
+      if (trimmed.isNotEmpty) unique.add(trimmed);
+    }
+    final list = unique.toList()..sort();
+    return list;
+  }
+}
+
 /// Draft payload for a missing public achievement projection document.
 @immutable
 class ClaimedAchievementProjectionDraft {
@@ -439,11 +550,15 @@ class PublicProfileRepository {
         }
       }
 
-      await _summaryRef(userId).set({
-        'total_duration_seconds': totalDuration,
-        'completed_movement_names': movementNames.toList()..sort(),
-        'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final existingSummary = (await _summaryRef(userId).get()).data();
+      await _summaryRef(userId).set(
+        PublicProfileSummaryWrite.rebuildMap(
+          totalDurationSeconds: totalDuration,
+          completedMovementNames: movementNames,
+          updatedAt: FieldValue.serverTimestamp(),
+          existingSummary: existingSummary,
+        ),
+      );
 
       // Reuse the focused achievement sync implementation directly (no nested
       // achievement-sync guard) to avoid deadlocking with ensure's guard.
@@ -620,7 +735,11 @@ class PublicProfileRepository {
     );
     await _sessionRef(userId, sessionId).set(payload, SetOptions(merge: true));
 
-    await _updateSummaryAfterSession(userId: userId, session: session);
+    await _updateSummaryAfterSession(
+      userId: userId,
+      session: session,
+      sessionId: sessionId,
+    );
   }
 
   /// Sanitized official-practice fields only. Classroom assignment identity
@@ -658,34 +777,19 @@ class PublicProfileRepository {
   Future<void> _updateSummaryAfterSession({
     required String userId,
     required Session session,
+    required String sessionId,
   }) async {
     final summaryRef = _summaryRef(userId);
-    final snap = await summaryRef.get();
-    final existing = snap.data();
-
-    var totalDuration = session.durationSeconds;
-    final movements = <String>{};
-
-    if (existing != null) {
-      totalDuration =
-          (_readInt(existing['total_duration_seconds']) ?? 0) +
-          session.durationSeconds;
-      for (final name in _readStringList(
-        existing['completed_movement_names'],
-      )) {
-        movements.add(name);
-      }
-    }
-
-    final movement = session.movementName.trim();
-    if (movement.isNotEmpty) movements.add(movement);
-
-    await summaryRef.set({
-      'total_duration_seconds': totalDuration < 0 ? 0 : totalDuration,
-      'completed_movement_names': movements.toList()..sort(),
-      'updated_at': FieldValue.serverTimestamp(),
-      'last_backfill_session_id': session.id,
-    }, SetOptions(merge: true));
+    final existing = (await summaryRef.get()).data();
+    await summaryRef.set(
+      PublicProfileSummaryWrite.afterSessionMap(
+        existingSummary: existing,
+        sessionDurationSeconds: session.durationSeconds,
+        sessionMovementName: session.movementName,
+        sessionId: sessionId,
+        updatedAt: FieldValue.serverTimestamp(),
+      ),
+    );
   }
 
   /// Idempotently projects a claimed achievement into the public profile.
@@ -701,17 +805,6 @@ class PublicProfileRepository {
       'claimed_at': FieldValue.serverTimestamp(),
       'updated_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-  }
-
-  static int? _readInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return null;
-  }
-
-  static List<String> _readStringList(dynamic value) {
-    if (value is! List) return const [];
-    return value.whereType<String>().toList(growable: false);
   }
 
   static String? _readCreatedAt(dynamic value) {
