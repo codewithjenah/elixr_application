@@ -1,24 +1,33 @@
 # Phase 4 — Leaderboard refactor (Global / My Students / Group) and official XP gate
 
-**Status:** Complete (code) after Phase 4 implementation on 2026-08-20, plus a Phase 4 closure correction pass on 2026-08-20. Flutter checks and Firestore emulator tests for the correction pass are recorded below. Phase 4 is **not** live verified. Production rules/indexes were **not** deployed. Manual live checklist remains **Not verified**. Phase 5 was not started.  
+**Status:** Phase 4 — CLOSED as of 2026-08-20.  
 **Sequence:** `04` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 3 complete. If membership + student-detail gates are missing, **STOP**.
 
 ## Implementing agent instructions
 
-- Re-read current `main`, [AGENTS.md](../../AGENTS.md), [00-master-plan.md](00-master-plan.md), Phase 3 handoff, and this file before editing.
+Phase 4 is **CLOSED**. Do not reopen implementation from this file. Do not start Phase 5 from this document’s historical implementation list; use [05-custom-movements-and-assignment-creation.md](05-custom-movements-and-assignment-creation.md) when Phase 5 begins.
+
+Historical constraints that remain true:
+
 - Work only on existing `main`. Do not create another branch.
-- Implement **only this phase**. Do not add Teacher-created movements, `assignment_attempts`, or video.
-- **Do** harden official-movement global XP now, before custom movements exist.
+- Do not add Teacher-created movements, `assignment_attempts`, or video from this phase file.
 - Do not delete [teacher_app/](../../teacher_app/).
-- Do not execute [docs/phase1-teacher-rankings-plan.md](../phase1-teacher-rankings-plan.md) (Android Material Rankings). This phase is Windows Fluent Teacher + Trainee global boards.
-- Update this document’s Status and Completion report when done.
+- Do not execute [docs/phase1-teacher-rankings-plan.md](../phase1-teacher-rankings-plan.md) (Android Material Rankings).
 
 ---
 
 ## 1. Status
 
-**Complete (code) after Phase 4 implementation (2026-08-20), with a closure correction pass the same day.** Official-only global XP is enforced in Dart session persistence, Dart award/sync, and Firestore rules (session create, session identity immutability on update, processed-session marker create, and leaderboard session awards). Teacher My Students / Group period rankings now resolve Asia/Manila `daily_key` / `monthly_key` the same way the global board does. Scoped fetch errors no longer block a healthy Global board. Production rules/indexes were **not** deployed. Manual live checklist remains **Not verified**. Phase 4 is **not** fully closed or live verified. Phase 5 was not started.
+**Phase 4 — CLOSED (2026-08-20).** Official-only global XP is enforced in Dart session persistence, Dart award/sync, and production Firestore rules (session create, session identity immutability on update, processed-session marker create, and leaderboard session awards). Teacher My Students / Group period rankings resolve Asia/Manila `daily_key` / `monthly_key` the same way the global board does. Scoped fetch errors no longer block a healthy Global board. After atomic session persistence succeeds, leaderboard award and public-profile projection run independently and cannot hold Session Complete indefinitely. Production `firestore.rules` were deployed successfully. No new Phase 4 Firestore indexes were required. Phase 5 was not started. `assignment_attempts` still does not exist. `teacher_app` remains intact.
+
+Current Phase 4 implementation on `main` includes:
+
+| Commit | Role |
+|---|---|
+| `9a2663b3f7086079270758ef3a7f89c0528921dd` | Phase 4 implementation |
+| `b58d03a0ffe3a624292176f7b8f9f0ca12ddfbb4` | Closure correction |
+| `93d64567b2cefd54d91630d07d8e0b9b31e55d03` | Session Complete post-save fix |
 
 ## 2. Goal
 
@@ -38,7 +47,7 @@ Provide Global, My Students, and Group leaderboard views for Teachers (and keep 
 After Phase 4:
 
 - Dart predicate: `isOfficialElixrMovementName` / `officialElixrMovementNames` in [packages/elixr_core/lib/constants/coaching_movement_names.dart](../../packages/elixr_core/lib/constants/coaching_movement_names.dart), aliased to the existing `coachingMovementNames` set. Flutter `movementCatalog` remains the product catalog authority via parity tests.
-- [lib/services/session_service.dart](../../lib/services/session_service.dart) rejects non-official names before evidence upload, session persist, feedback writes, and award.
+- [lib/services/session_service.dart](../../lib/services/session_service.dart) authoritatively saves only after official-movement validation, optional evidence upload, and atomic session + feedback persistence. Leaderboard award and public-profile projection start after that commit as independent best-effort idempotent work; they do not block Session Complete. Later reconciliation can repair missed projections.
 - [lib/data/repositories/leaderboard_repository.dart](../../lib/data/repositories/leaderboard_repository.dart) `recordCompletedSession` requires an official `movement_name` before creating a processed marker or awarding +25 XP.
 - `LeaderboardSyncPlanner.sessionsEligibleForGlobalXp` skips historical non-official sessions without creating fake markers and without counting them as `newlyProcessed`.
 - [firestore.rules](../../firestore.rules) reuses `coachingMovementNames()` as `officialElixrMovementNames()` / `isOfficialElixrMovementName()` for new V2 session creates, processed-session marker creates, and session-award create/update. Session **update** also freezes `movement_name` (and the other completed-session identity fields `difficulty`, `prop_type`, `duration_seconds`, `assessment_version`) so a historical non-official session cannot be renamed into an official identity and then awarded.
@@ -93,6 +102,19 @@ Teacher UI:
 - My Students: fetch or filter leaderboard docs for UIDs in the Teacher’s approved memberships (any group).
 - Group: same for one `group_id`.
 
+Authoritative `SessionService.saveCompletedSession` boundary:
+
+1. Official movement validation (`isOfficialElixrMovementName`).
+2. Evidence upload when enabled.
+3. Atomic session + feedback persistence.
+
+After persistence succeeds:
+
+- Leaderboard award starts as an independent best-effort idempotent projection (`recordCompletedSession` / processed-session marker).
+- Public-profile projection starts independently.
+- Neither can block the Session Complete UI indefinitely.
+- Later reconciliation can repair missed projections (`syncCurrentUserLeaderboard`, `ensurePublicProfile`).
+
 Do not compute My Students XP from `assignment_attempts` (does not exist yet; **U7** forbids mixing classroom scores into this board later).
 
 ## 9. Data models and persisted schema affected
@@ -118,7 +140,7 @@ Do not compute My Students XP from `assignment_attempts` (does not exist yet; **
 - Possibly `SessionService.saveCompletedSession` guard (defense in depth).
 - Tests: award plan, session_service_leaderboard, rules comments.
 - Python `validate_movement_name` already rejects unknown WS names; Firestore must catch persistence anyway.
-- Indexes: existing leaderboard composites should suffice; membership-filtered client-side filter is OK for capstone scale. If querying `leaderboard` by UID `in` chunks, document the chunk size.
+- Indexes: existing leaderboard composites suffice; no new Phase 4 Firestore indexes were required. Membership-filtered client-side filter is OK for capstone scale. UID `whereIn` batching uses chunk size **30** (`LeaderboardRepository.userIdQueryChunkSize`).
 
 ## 12. Existing files that must be inspected
 
@@ -195,17 +217,27 @@ Rules: human review of `firestore.rules`. Emulator if available; else `Not verif
 
 ## 19. Manual verification checklist
 
-- [ ] Complete Hand Stall → +25 XP.
-- [ ] Teacher Global shows that Trainee; lock toggle does not remove the row.
-- [ ] Teacher cannot open a stranger’s student page from the board.
-- [ ] My Students shows only members, including 0-XP approved trainees.
-- [ ] Group picker shows classroom names and recovers if a group is archived.
-- [ ] teacher_app roster ranking still loads.
-- [ ] Deployed production rules/indexes for the official XP gate (not done in this phase).
+Recorded PASS on 2026-08-20 against the closed Phase 4 implementation (including the Session Complete post-save fix).
+
+- [x] Complete Hand Stall → +25 XP. **PASS** — one official completed session awards +25 XP exactly once; refresh/reopen does not duplicate the same session XP.
+- [x] Teacher Global shows that Trainee; lock toggle does not remove the row. **PASS** — Teacher Global works; locked/private profiles remain visible on the leaderboard.
+- [x] Teacher cannot open a stranger’s student page from the board. **PASS** — unrelated Global rows remain non-privileged/inert; authorized classroom student drill-down works.
+- [x] My Students shows only members, including 0-XP approved trainees. **PASS** — Teacher My Students works and includes approved 0-XP students.
+- [x] Group picker shows classroom names and recovers if a group is archived. **PASS** — Teacher Group works, shows correct approved members, and group names are human-readable.
+- [x] teacher_app roster ranking still loads. **PASS** — `teacher_app` remains intact.
+- [x] Deployed production rules for the official XP gate. **PASS** — production `firestore.rules` were deployed successfully. No new Phase 4 Firestore indexes were required.
+
+Additional live checks from the same close-out:
+
+- Session Complete modal no longer hangs after successful atomic session persistence. **PASS**
+- Official Hand Stall appears in History immediately without restart. **PASS**
+- Today / This month no longer display stale previous-period XP. **PASS**
+- All Time remains correct. **PASS**
+- Global / My Students / Group use the same official leaderboard XP source. **PASS**
 
 ## 20. Performance / storage / privacy risks
 
-- Client-side filter of global page vs membership may be slow; capstone-acceptable if documented. Do not download the entire leaderboard unbounded — page as today, or query by UID list in chunks of 10 (`in` query limit).
+- Client-side filter of global page vs membership may be slow; capstone-acceptable if documented. Do not download the entire leaderboard unbounded — page as today, or query by UID list in chunks of **30** (`whereIn` / `LeaderboardRepository.userIdQueryChunkSize`).
 - Teachers seeing global XP of strangers is **already** true (`allow read: if isSignedIn()`). Do not add extra PII to `leaderboard` rows.
 
 ## 21. Explicit “Do not” list
@@ -222,11 +254,18 @@ Rules: human review of `firestore.rules`. Emulator if available; else `Not verif
 ## 22. Completion report
 
 ```
-Phase 4 completion
-- Current HEAD before changes: 3323080f8099ee8a97d9b115255b7480be4ec69e
+Phase 4 — CLOSED (2026-08-20)
+- Implementation commits:
+  - 9a2663b3f7086079270758ef3a7f89c0528921dd (Phase 4 implementation)
+  - b58d03a0ffe3a624292176f7b8f9f0ca12ddfbb4 (closure correction)
+  - 93d64567b2cefd54d91630d07d8e0b9b31e55d03 (Session Complete post-save fix)
 - XP gate location (rules + Dart):
   - Dart: isOfficialElixrMovementName (elixr_core coaching/official identity set)
-  - SessionService.saveCompletedSession (before evidence/persist/award)
+  - SessionService.saveCompletedSession authoritative boundary:
+    official validation → evidence upload when enabled →
+    atomic session + feedback persistence
+  - After persist: independent best-effort idempotent leaderboard award
+    and public-profile projection; neither blocks Session Complete
   - LeaderboardRepository.recordCompletedSession
   - LeaderboardSyncPlanner.sessionsEligibleForGlobalXp
   - firestore.rules: session create, session update identity freeze
@@ -236,24 +275,28 @@ Phase 4 completion
   coachingMovementNames / officialElixrMovementNames and
   test/fixtures/enabled_scored_movements.json. Rules reuse coachingMovementNames().
 - Teacher views shipped: Global, My Students, Group (Windows Fluent)
-- Commands run: see section 24
-- Rules deployed? no
-- Indexes changed? no
-- Not verified: live camera/session XP, live Teacher UI against production,
-  production rules deployment
-- Phase 5 not started; assignment_attempts not created; teacher_app intact
+- Commands run: see sections 24–26
+- Rules deployed? yes (production firestore.rules deployed successfully)
+- Indexes changed? no (no new Phase 4 Firestore indexes required)
+- UID whereIn batching: 30
+- Phase 5 not started; assignment_attempts still does not exist;
+  teacher_app intact
+- Ranking is not claimed tamper-proof
 ```
 
 ## 23. Handoff requirements for Phase 5
+
+Phase 5 is now **unblocked**. Phase 5 was not started in this phase. `assignment_attempts` still does not exist.
 
 1. Official-only global XP is enforced on `sessions` create + award. Historical non-official sessions cannot be renamed on update to become newly XP eligible.
 2. Teacher can list members for scoping assignments later.
 3. Implementers understand classroom work must use `assignment_attempts`, not `sessions`.
 4. `teacher_app/` still present.
+5. Session Complete must remain independent of leaderboard/public-profile projection latency.
 
 ## 24. Verification commands (executed)
 
-Recorded 2026-08-20 from repository root unless noted. Production Firebase was not deployed and production data was not mutated.
+Phase 4 initial implementation. Recorded 2026-08-20 from repository root unless noted. At this pass, production Firebase was not yet deployed.
 
 | Command | Result |
 |---|---|
@@ -267,7 +310,7 @@ Recorded 2026-08-20 from repository root unless noted. Production Firebase was n
 | `flutter build windows` | Passed; built `build\windows\x64\runner\Release\elixr_application.exe` |
 | `firebase deploy` | **Not run** |
 
-Manual live Teacher UI, live camera/session XP, and production rules deployment remain **Not verified**.
+This pass’s automated totals: Flutter **1243**, elixr_core **82**, teacher_app **95**, Firestore **216/0**, backend **1094**, Windows build passed. Live Teacher UI and production deploy were still open at this pass; they were closed in later 2026-08-20 passes (sections 25–26).
 
 ## 25. Closure correction pass (2026-08-20)
 
@@ -300,4 +343,28 @@ Recorded 2026-08-20 from repository root unless noted. Production Firebase was *
 | Backend pytest | Not run — official movement allowlist / Python aliases unchanged |
 | `firebase deploy` | **Not run** |
 
-Phase 4 remains **not** fully closed or live verified. Remaining: deploy production rules after human review; run the section 19 live checklist.
+This pass’s automated totals: Flutter **1258**, elixr_core **82**, teacher_app **95**, Firestore **221/0**. Production deploy and the section 19 live checklist were still open at this pass; they were closed in the Session Complete / live-verification pass (section 26).
+
+## 26. Session Complete post-save fix and live close-out (2026-08-20)
+
+Commit `93d64567b2cefd54d91630d07d8e0b9b31e55d03` on `main`. Authoritative save returns after atomic session + feedback persistence. Leaderboard award and public-profile projection continue independently as best-effort idempotent work. Phase 5 was not started. `assignment_attempts` was not created.
+
+### Automated verification (this pass)
+
+| Command | Result |
+|---|---|
+| `flutter test` | Passed **1265** tests |
+| `cd packages\elixr_core; flutter test` | Passed **82** tests |
+| `cd teacher_app; flutter test` | Passed **95** tests |
+| Firestore rules / emulator | Unchanged in this pass (still **221/0** from the closure correction) |
+
+### Production deploy
+
+- Production `firestore.rules` were deployed successfully.
+- No new Phase 4 Firestore indexes were required.
+
+### Live checklist
+
+Section 19 is **PASS**. Session Complete no longer hangs after successful atomic persistence. Official Hand Stall appears in History immediately without restart. One official completed session awards +25 XP exactly once; refresh/reopen does not duplicate that session XP. Teacher Global, My Students (including approved 0-XP students), and Group (correct approved members, human-readable names) work and share the same official leaderboard XP source. Authorized classroom drill-down works; unrelated Global rows stay inert. Locked/private profiles remain visible. Today / This month no longer show stale previous-period XP; All Time remains correct. `teacher_app` remains intact.
+
+**Final status: Phase 4 — CLOSED. Phase 5 may start.**
