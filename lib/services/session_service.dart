@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
@@ -20,6 +22,12 @@ typedef LeaderboardSessionRecorder =
       required String userId,
       required String displayName,
       String? profilePictureUrl,
+    });
+
+typedef PublicProfileSessionProjector =
+    Future<void> Function({
+      required String sessionId,
+      required Session session,
     });
 
 typedef CompletedSessionAtomicSaver =
@@ -50,6 +58,7 @@ class SessionService extends ChangeNotifier {
     CompletedSessionAtomicSaver? saveCompletedSessionAtomicOverride,
     String Function()? allocateSessionIdOverride,
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
+    PublicProfileSessionProjector? projectSessionOverride,
     SessionEvidenceRepository? evidenceRepository,
     TeacherRelationshipRepository? teacherRelationshipRepository,
   }) : _repositoryOrNull = repository,
@@ -58,6 +67,7 @@ class SessionService extends ChangeNotifier {
        _saveCompletedSessionAtomicOverride = saveCompletedSessionAtomicOverride,
        _allocateSessionIdOverride = allocateSessionIdOverride,
        _recordCompletedSessionOverride = recordCompletedSessionOverride,
+       _projectSessionOverride = projectSessionOverride,
        _evidenceRepositoryOrNull = evidenceRepository,
        _teacherRelationshipRepository = teacherRelationshipRepository;
 
@@ -67,6 +77,7 @@ class SessionService extends ChangeNotifier {
   final CompletedSessionAtomicSaver? _saveCompletedSessionAtomicOverride;
   final String Function()? _allocateSessionIdOverride;
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
+  final PublicProfileSessionProjector? _projectSessionOverride;
   SessionEvidenceRepository? _evidenceRepositoryOrNull;
   final TeacherRelationshipRepository? _teacherRelationshipRepository;
 
@@ -168,7 +179,65 @@ class SessionService extends ChangeNotifier {
       feedbacks: feedbacks,
     );
 
-    // Leaderboard sync must not erase a successfully saved practice session.
+    if (kDebugMode) {
+      debugPrint(
+        'Session persistence completed: sessionId=$sessionId userId=$userId',
+      );
+    }
+
+    // Authoritative persistence already succeeded. Leaderboard XP and public
+    // profile projection are idempotent side effects and must not keep the
+    // Session Complete UI pending if a Firestore Future never resolves.
+    _synchronizeAfterSessionCommit(
+      sessionId: sessionId,
+      session: session,
+      userId: userId,
+      displayName: displayName,
+      profilePictureUrl: profilePictureUrl,
+    );
+
+    notifyListeners();
+    return sessionId;
+  }
+
+  /// Best-effort post-commit projections. Failures and hangs must not throw
+  /// back into [saveCompletedSession]. Late completion remains safe because
+  /// [LeaderboardRepository.recordCompletedSession] is idempotent via the
+  /// processed-session marker, and [PublicProfileRepository.projectSession]
+  /// merge-writes the same session document. Missed awards are recoverable
+  /// through [LeaderboardRepository.syncCurrentUserLeaderboard]; missed
+  /// profile rows through [PublicProfileRepository.ensurePublicProfile].
+  void _synchronizeAfterSessionCommit({
+    required String sessionId,
+    required Session session,
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) {
+    unawaited(
+      _attemptLeaderboardAward(
+        sessionId: sessionId,
+        userId: userId,
+        displayName: displayName,
+        profilePictureUrl: profilePictureUrl,
+      ),
+    );
+    unawaited(
+      _attemptPublicProfileProjection(sessionId: sessionId, session: session),
+    );
+  }
+
+  Future<void> _attemptLeaderboardAward({
+    required String sessionId,
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {
+    if (kDebugMode) {
+      debugPrint(
+        'Leaderboard projection started: sessionId=$sessionId userId=$userId',
+      );
+    }
     try {
       final recorder =
           _recordCompletedSessionOverride ??
@@ -179,34 +248,54 @@ class SessionService extends ChangeNotifier {
         displayName: displayName,
         profilePictureUrl: profilePictureUrl,
       );
+      if (kDebugMode) {
+        debugPrint(
+          'Leaderboard projection completed: sessionId=$sessionId userId=$userId',
+        );
+      }
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(
-          'Leaderboard sync failed after session save: '
+          'Leaderboard projection failed: '
           'sessionId=$sessionId userId=$userId error=$error',
         );
         debugPrint('$stackTrace');
       }
     }
+  }
 
-    // Public profile projection must not erase a successfully saved session.
-    try {
-      await _publicProfileRepositoryOrNull?.projectSession(
-        sessionId: sessionId,
-        session: session,
+  Future<void> _attemptPublicProfileProjection({
+    required String sessionId,
+    required Session session,
+  }) async {
+    final projector =
+        _projectSessionOverride ??
+        _publicProfileRepositoryOrNull?.projectSession;
+    if (projector == null) return;
+
+    if (kDebugMode) {
+      debugPrint(
+        'Public profile projection started: '
+        'sessionId=$sessionId userId=${session.userId}',
       );
+    }
+    try {
+      await projector(sessionId: sessionId, session: session);
+      if (kDebugMode) {
+        debugPrint(
+          'Public profile projection completed: '
+          'sessionId=$sessionId userId=${session.userId}',
+        );
+      }
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(
-          'Public profile projection failed after session save: '
-          'sessionId=$sessionId userId=$userId error=$error',
+          'Public profile projection failed: '
+          'sessionId=$sessionId userId=${session.userId} error=$error',
         );
         debugPrint('$stackTrace');
       }
     }
-
-    notifyListeners();
-    return sessionId;
   }
 
   static List<Feedback> _buildSessionImprovementFeedbacks(

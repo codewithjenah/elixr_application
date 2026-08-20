@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/data/database/firestore_helper.dart';
 import 'package:elixr_application/data/models/feedback.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
@@ -415,6 +417,277 @@ void main() {
 
       expect(atomicCalls, 0);
       expect(leaderboardCalls, 0);
+    },
+  );
+
+  test('does not report success while atomic persistence is pending', () async {
+    final hang = Completer<void>();
+    var leaderboardCalls = 0;
+    var profileCalls = 0;
+
+    final service = SessionService(
+      allocateSessionIdOverride: () => 'session-atomic',
+      saveCompletedSessionAtomicOverride:
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+          }) async {
+            await hang.future;
+          },
+      recordCompletedSessionOverride:
+          ({
+            required String sessionId,
+            required String userId,
+            required String displayName,
+            String? profilePictureUrl,
+          }) async {
+            leaderboardCalls++;
+          },
+      projectSessionOverride:
+          ({required String sessionId, required Session session}) async {
+            profileCalls++;
+          },
+    );
+
+    final saveFuture = service.saveCompletedSession(
+      userId: 'u1',
+      displayName: 'Ada',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
+      rubric: _testRubric,
+      durationSeconds: 30,
+      sessionImprovements: const [],
+    );
+
+    await expectLater(
+      saveFuture.timeout(const Duration(milliseconds: 80)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(leaderboardCalls, 0);
+    expect(profileCalls, 0);
+
+    hang.complete();
+    expect(
+      await saveFuture.timeout(const Duration(milliseconds: 80)),
+      'session-atomic',
+    );
+  });
+
+  test(
+    'returns the committed sessionId when leaderboard projection never completes',
+    () async {
+      final hang = Completer<void>();
+      addTearDown(() {
+        if (!hang.isCompleted) hang.complete();
+      });
+      var atomicCalls = 0;
+      var leaderboardCalls = 0;
+      var profileCalls = 0;
+
+      final service = SessionService(
+        allocateSessionIdOverride: () => 'session-atomic',
+        saveCompletedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+            }) async {
+              atomicCalls++;
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {
+              leaderboardCalls++;
+              await hang.future;
+            },
+        projectSessionOverride:
+            ({required String sessionId, required Session session}) async {
+              profileCalls++;
+            },
+      );
+
+      final id = await service
+          .saveCompletedSession(
+            userId: 'u1',
+            displayName: 'Ada',
+            movementName: 'Hand Stall',
+            difficulty: 'Medium',
+            rubric: _testRubric,
+            durationSeconds: 30,
+            sessionImprovements: const [],
+          )
+          .timeout(const Duration(milliseconds: 200));
+
+      expect(id, 'session-atomic');
+      expect(atomicCalls, 1);
+      expect(leaderboardCalls, 1);
+      expect(profileCalls, 1);
+    },
+  );
+
+  test(
+    'returns the committed sessionId when public-profile projection never completes',
+    () async {
+      final hang = Completer<void>();
+      addTearDown(() {
+        if (!hang.isCompleted) hang.complete();
+      });
+      var atomicCalls = 0;
+      var leaderboardCalls = 0;
+      var profileCalls = 0;
+
+      final service = SessionService(
+        allocateSessionIdOverride: () => 'session-atomic',
+        saveCompletedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+            }) async {
+              atomicCalls++;
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {
+              leaderboardCalls++;
+            },
+        projectSessionOverride:
+            ({required String sessionId, required Session session}) async {
+              profileCalls++;
+              await hang.future;
+            },
+      );
+
+      final id = await service
+          .saveCompletedSession(
+            userId: 'u1',
+            displayName: 'Ada',
+            movementName: 'Hand Stall',
+            difficulty: 'Medium',
+            rubric: _testRubric,
+            durationSeconds: 30,
+            sessionImprovements: const [],
+          )
+          .timeout(const Duration(milliseconds: 200));
+
+      expect(id, 'session-atomic');
+      expect(atomicCalls, 1);
+      expect(leaderboardCalls, 1);
+      expect(profileCalls, 1);
+    },
+  );
+
+  test(
+    'public-profile projection failure does not fail a saved session',
+    () async {
+      var atomicCalls = 0;
+      var profileCalls = 0;
+
+      final service = SessionService(
+        allocateSessionIdOverride: () => 'session-atomic',
+        saveCompletedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+            }) async {
+              atomicCalls++;
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {},
+        projectSessionOverride:
+            ({required String sessionId, required Session session}) async {
+              profileCalls++;
+              throw Exception('public profile unavailable');
+            },
+      );
+
+      final id = await service.saveCompletedSession(
+        userId: 'u1',
+        displayName: 'Ada',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: _testRubric,
+        durationSeconds: 30,
+        sessionImprovements: const [],
+      );
+
+      expect(id, 'session-atomic');
+      expect(atomicCalls, 1);
+      expect(profileCalls, 1);
+    },
+  );
+
+  test(
+    'successful post-save path attempts leaderboard and profile once',
+    () async {
+      var atomicCalls = 0;
+      var leaderboardCalls = 0;
+      var profileCalls = 0;
+      String? awardedSessionId;
+      String? projectedSessionId;
+
+      final service = SessionService(
+        allocateSessionIdOverride: () => 'session-atomic',
+        saveCompletedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+            }) async {
+              atomicCalls++;
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {
+              leaderboardCalls++;
+              awardedSessionId = sessionId;
+              expect(userId, 'u1');
+              expect(displayName, 'Ada');
+            },
+        projectSessionOverride:
+            ({required String sessionId, required Session session}) async {
+              profileCalls++;
+              projectedSessionId = sessionId;
+              expect(session.userId, 'u1');
+              expect(session.movementName, 'Hand Stall');
+            },
+      );
+
+      final id = await service.saveCompletedSession(
+        userId: 'u1',
+        displayName: 'Ada',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: _testRubric,
+        durationSeconds: 30,
+        sessionImprovements: const [],
+      );
+
+      expect(id, 'session-atomic');
+      expect(atomicCalls, 1);
+      expect(leaderboardCalls, 1);
+      expect(profileCalls, 1);
+      expect(awardedSessionId, id);
+      expect(projectedSessionId, id);
     },
   );
 

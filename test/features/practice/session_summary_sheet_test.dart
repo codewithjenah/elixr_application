@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
@@ -1268,6 +1270,109 @@ void main() {
 
       expect(saveCalls, 1);
       expect(result, SessionSummaryResult.saved);
+      expect(find.byKey(const Key('session-summary-dialog')), findsNothing);
     });
+
+    testWidgets(
+      'successful Finish save pops instead of remaining on the spinner',
+      (tester) async {
+        SessionSummaryResult? result;
+
+        tester.view.physicalSize = const Size(1200, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        await tester.pumpWidget(
+          FluentApp(
+            home: Builder(
+              builder: (context) {
+                return Center(
+                  child: FilledButton(
+                    onPressed: () async {
+                      result = await SessionSummarySheet.show(
+                        context,
+                        movement: 'Hand Stall',
+                        durationSeconds: 45,
+                        assessment: _standardSummaryAssessment(),
+                        onSave: (existingSessionId) async {
+                          return existingSessionId ?? 'session-finish-pop';
+                        },
+                      );
+                    },
+                    child: const Text('Open'),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 900));
+
+        await tester.tap(_primaryButtonLabeled('Finish'));
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        expect(result, SessionSummaryResult.saved);
+        expect(find.byType(GameActionButton), findsNothing);
+        expect(find.byKey(const Key('session-summary-dialog')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'dialog stays open with spinner while authoritative save is pending',
+      (tester) async {
+        final hang = Completer<String>();
+        addTearDown(() {
+          if (!hang.isCompleted) hang.complete('session-pending');
+        });
+        SessionSummaryResult? result;
+
+        tester.view.physicalSize = const Size(1200, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        await tester.pumpWidget(
+          FluentApp(
+            home: Builder(
+              builder: (context) {
+                return Center(
+                  child: FilledButton(
+                    onPressed: () async {
+                      result = await SessionSummarySheet.show(
+                        context,
+                        movement: 'Hand Stall',
+                        durationSeconds: 45,
+                        assessment: _standardSummaryAssessment(),
+                        onSave: (_) => hang.future,
+                      );
+                    },
+                    child: const Text('Open'),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 900));
+
+        await tester.tap(_primaryButtonLabeled('Finish'));
+        await tester.pump();
+
+        final primary = tester.widget<GameActionButton>(_primaryButton);
+        expect(primary.isLoading, isTrue);
+        expect(primary.onPressed, isNull);
+        expect(result, isNull);
+        expect(find.byKey(const Key('session-summary-dialog')), findsOneWidget);
+
+        hang.complete('session-pending');
+        await tester.pumpAndSettle();
+        expect(result, SessionSummaryResult.saved);
+        expect(find.byKey(const Key('session-summary-dialog')), findsNothing);
+      },
+    );
   });
 }
