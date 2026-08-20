@@ -6,10 +6,16 @@ import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/database/firestore_helper.dart';
+import '../data/models/assessment_mode.dart';
+import '../data/models/assignment_attempt.dart';
+import '../data/models/assignment_attempt_ids.dart';
+import '../data/models/classroom_exceptions.dart';
 import '../data/models/feedback.dart';
+import '../data/models/movement_origin.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/rubric_assessment.dart';
 import '../data/models/session.dart';
+import '../data/models/session_assignment_context.dart';
 import '../data/models/training_prop.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
@@ -37,6 +43,14 @@ typedef CompletedSessionAtomicSaver =
       required List<Feedback> feedbacks,
     });
 
+typedef AssignedSessionAtomicSaver =
+    Future<void> Function({
+      required String sessionId,
+      required Session session,
+      required List<Feedback> feedbacks,
+      required AssignmentAttempt officialAssignmentPointer,
+    });
+
 /// Thrown when a caller tries to persist an official session for a movement
 /// that is not one of the 12 catalog identities.
 class UnofficialMovementException implements Exception {
@@ -56,6 +70,7 @@ class SessionService extends ChangeNotifier {
     LeaderboardRepository? leaderboardRepository,
     PublicProfileRepository? publicProfileRepository,
     CompletedSessionAtomicSaver? saveCompletedSessionAtomicOverride,
+    AssignedSessionAtomicSaver? saveAssignedSessionAtomicOverride,
     String Function()? allocateSessionIdOverride,
     LeaderboardSessionRecorder? recordCompletedSessionOverride,
     PublicProfileSessionProjector? projectSessionOverride,
@@ -65,6 +80,7 @@ class SessionService extends ChangeNotifier {
        _leaderboardRepositoryOrNull = leaderboardRepository,
        _publicProfileRepositoryOrNull = publicProfileRepository,
        _saveCompletedSessionAtomicOverride = saveCompletedSessionAtomicOverride,
+       _saveAssignedSessionAtomicOverride = saveAssignedSessionAtomicOverride,
        _allocateSessionIdOverride = allocateSessionIdOverride,
        _recordCompletedSessionOverride = recordCompletedSessionOverride,
        _projectSessionOverride = projectSessionOverride,
@@ -75,6 +91,7 @@ class SessionService extends ChangeNotifier {
   LeaderboardRepository? _leaderboardRepositoryOrNull;
   final PublicProfileRepository? _publicProfileRepositoryOrNull;
   final CompletedSessionAtomicSaver? _saveCompletedSessionAtomicOverride;
+  final AssignedSessionAtomicSaver? _saveAssignedSessionAtomicOverride;
   final String Function()? _allocateSessionIdOverride;
   final LeaderboardSessionRecorder? _recordCompletedSessionOverride;
   final PublicProfileSessionProjector? _projectSessionOverride;
@@ -131,9 +148,21 @@ class SessionService extends ChangeNotifier {
     String? existingSessionId,
     Uint8List? evidenceJpegBytes,
     bool saveEvidence = false,
+    SessionAssignmentContext? assignmentContext,
   }) async {
     if (!isOfficialElixrMovementName(movementName)) {
       throw UnofficialMovementException(movementName);
+    }
+    if (assignmentContext != null) {
+      final identity = officialElixrIdentityForName(movementName);
+      if (identity == null ||
+          assignmentContext.movementId != identity.movementId ||
+          assignmentContext.revisionId != identity.revisionId) {
+        throw const ClassroomException(
+          ClassroomError.identityMismatch,
+          'Assignment context does not match this official movement.',
+        );
+      }
     }
     final allocateSessionId =
         _allocateSessionIdOverride ?? repository.allocateSessionId;
@@ -164,20 +193,72 @@ class SessionService extends ChangeNotifier {
       evidenceSizeBytes: evidencePath == null
           ? null
           : evidenceJpegBytes!.lengthInBytes,
+      assignmentContext: assignmentContext,
     );
     final feedbacks = _buildSessionImprovementFeedbacks(
       sessionId,
       sessionImprovements,
     );
 
-    final saveAtomic =
-        _saveCompletedSessionAtomicOverride ??
-        repository.saveSessionWithFeedbacks;
-    await saveAtomic(
-      sessionId: sessionId,
-      session: session,
-      feedbacks: feedbacks,
-    );
+    if (assignmentContext != null) {
+      final pointer = AssignmentAttempt(
+        id: assignmentAttemptIdForOfficialSession(sessionId),
+        traineeId: userId,
+        teacherId: assignmentContext.teacherId,
+        groupId: assignmentContext.groupId,
+        assignmentId: assignmentContext.assignmentId,
+        movementId: assignmentContext.movementId,
+        revisionId: assignmentContext.revisionId,
+        origin: MovementOrigin.officialElixr,
+        assessmentMode: AssessmentMode.officialGuided,
+        attemptKind: AssignmentAttemptKind.practicePointer,
+        status: AssignmentAttemptStatus.submitted,
+        sourceSessionId: sessionId,
+        rubric: rubric,
+        durationSeconds: durationSeconds,
+        propType: prop,
+      );
+      final saveAssigned =
+          _saveAssignedSessionAtomicOverride ??
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+            required AssignmentAttempt officialAssignmentPointer,
+          }) {
+            return repository.saveSessionWithFeedbacks(
+              sessionId: sessionId,
+              session: session,
+              feedbacks: feedbacks,
+              officialAssignmentPointer: officialAssignmentPointer,
+            );
+          };
+      await saveAssigned(
+        sessionId: sessionId,
+        session: session,
+        feedbacks: feedbacks,
+        officialAssignmentPointer: pointer,
+      );
+    } else {
+      final saveAtomic =
+          _saveCompletedSessionAtomicOverride ??
+          ({
+            required String sessionId,
+            required Session session,
+            required List<Feedback> feedbacks,
+          }) {
+            return repository.saveSessionWithFeedbacks(
+              sessionId: sessionId,
+              session: session,
+              feedbacks: feedbacks,
+            );
+          };
+      await saveAtomic(
+        sessionId: sessionId,
+        session: session,
+        feedbacks: feedbacks,
+      );
+    }
 
     if (kDebugMode) {
       debugPrint(

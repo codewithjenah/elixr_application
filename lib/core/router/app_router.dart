@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/training_prop.dart';
 import '../../features/achievements/achievements_screen.dart';
+import '../../features/assigned_movements/assigned_movements_screen.dart';
+import '../../features/assigned_movements/assigned_practice_screen.dart';
 import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
@@ -24,6 +26,7 @@ import '../../features/progress/progress_screen.dart';
 import '../../features/teacher/dashboard/teacher_dashboard_screen.dart';
 import '../../features/teacher/groups/teacher_groups_screen.dart';
 import '../../features/teacher/leaderboard/teacher_leaderboard_screen.dart';
+import '../../features/teacher/movements/teacher_movements_screen.dart';
 import '../../features/teacher/students/teacher_student_detail_screen.dart';
 import '../../features/teacher/students/teacher_students_screen.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
@@ -161,6 +164,16 @@ class AppRouter {
             child: const LivePracticeScreen(),
           ),
         ),
+        GoRoute(
+          path: '${AppRoutePaths.assignedPracticePrefix}/:assignmentId',
+          pageBuilder: (context, state) {
+            final assignmentId = state.pathParameters['assignmentId'] ?? '';
+            return fadeTransitionPage(
+              key: state.pageKey,
+              child: AssignedPracticeScreen(assignmentId: assignmentId),
+            );
+          },
+        ),
         ShellRoute(
           builder: (context, state, child) => AppShell(child: child),
           routes: [
@@ -186,6 +199,13 @@ class AppRouter {
               ),
             ),
             GoRoute(
+              path: AppRoutePaths.assignedMovements,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const AssignedMovementsScreen(),
+              ),
+            ),
+            GoRoute(
               path: AppRoutePaths.learn,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
@@ -201,12 +221,17 @@ class AppRouter {
                 final prop = TrainingProp.fromProtocolValue(
                   state.uri.queryParameters['prop'],
                 );
+                final assignmentId = state.uri.queryParameters['assignmentId']
+                    ?.trim();
                 return fadeTransitionPage(
                   key: state.pageKey,
                   child: MovementLessonScreen(
                     movement: movement,
                     difficulty: difficulty,
                     prop: prop,
+                    assignmentId: (assignmentId == null || assignmentId.isEmpty)
+                        ? null
+                        : assignmentId,
                   ),
                 );
               },
@@ -328,7 +353,7 @@ class AppRouter {
               path: AppRoutePaths.teacherMovements,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const TeacherPlaceholderScreen(title: 'Movements'),
+                child: const TeacherMovementsScreen(),
               ),
             ),
             GoRoute(

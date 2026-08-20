@@ -2,6 +2,10 @@ import 'package:elixr_application/core/router/app_router.dart';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/shell/teacher_shell.dart';
 import 'package:elixr_application/core/widgets/app_shell.dart';
+import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
+import 'package:elixr_application/data/repositories/teacher_movement_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/join_link_service.dart';
 import 'package:elixr_application/services/tutorial_progress_service.dart';
@@ -121,12 +125,18 @@ void main() {
 
     final groups = InMemoryGroupRepository();
     addTearDown(groups.dispose);
+    final movements = InMemoryTeacherMovementRepository();
+    addTearDown(movements.dispose);
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(assignments.dispose);
 
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           Provider<GroupRepository>.value(value: groups),
+          Provider<TeacherMovementRepository>.value(value: movements),
+          Provider<ClassroomAssignmentRepository>.value(value: assignments),
         ],
         child: FluentApp.router(routerConfig: router, theme: FluentThemeData()),
       ),
@@ -158,9 +168,10 @@ void main() {
     router.go(AppRoutePaths.teacherMovements);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Official ELIXR'), findsWidgets);
     expect(
       find.text('Available in a later ELIXR Teacher phase.'),
-      findsOneWidget,
+      findsNothing,
     );
   });
 }

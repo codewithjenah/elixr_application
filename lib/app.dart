@@ -17,6 +17,10 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
+import 'data/repositories/classroom_assignment_repository.dart';
+import 'data/repositories/firebase_classroom_assignment_repository.dart';
+import 'data/repositories/firebase_teacher_movement_repository.dart';
+import 'data/repositories/teacher_movement_repository.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
@@ -116,6 +120,12 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<GroupRepository>.value(value: _groupRepository),
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),
+        Provider<TeacherMovementRepository>(
+          create: (_) => FirebaseTeacherMovementRepository(),
+        ),
+        Provider<ClassroomAssignmentRepository>(
+          create: (_) => FirebaseClassroomAssignmentRepository(),
+        ),
         Provider<CoachingNoteRepository>(
           create: (_) => FirebaseCoachingNoteRepository(),
         ),

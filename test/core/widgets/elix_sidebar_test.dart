@@ -9,6 +9,8 @@ void main() {
       expect(labels.where((label) => label == 'Training'), ['Training']);
       expect(labels.contains('Calendar'), isFalse);
       expect(labels.contains('History'), isFalse);
+      expect(labels.contains('Assigned Movements'), isTrue);
+      expect(labels.contains('Movements'), isTrue);
 
       final training = elixSidebarItems.singleWhere(
         (item) => item.label == 'Training',

@@ -10,10 +10,12 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/rubric_assessment.dart';
+import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../services/auth_service.dart';
@@ -49,11 +51,16 @@ class PracticeScreen extends StatefulWidget {
     required this.movement,
     required this.difficulty,
     this.prop = TrainingProp.bottle,
+    this.assignmentContext,
   });
 
   final String movement;
   final String difficulty;
   final TrainingProp prop;
+
+  /// Trusted official assignment identity from `/assigned-practice/:id`.
+  /// Ordinary catalog practice leaves this null.
+  final SessionAssignmentContext? assignmentContext;
 
   static const cameraAspectWidth = 640.0;
   static const cameraAspectHeight = 480.0;
@@ -707,7 +714,7 @@ class _PracticeScreenState extends State<PracticeScreen>
         _run.isTrainingActive || _run.phase == PracticeRunPhase.completed;
     if (!wasTraining) {
       await _cancelPreActive();
-      if (mounted) context.go('/movements');
+      if (mounted) _goPracticeExit(catalog: true);
       return;
     }
 
@@ -735,7 +742,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           _feedback.feedbackHistory.isEmpty) {
         _run.cancelToIdle();
         _clearSessionState();
-        if (mounted) router.go('/movements');
+        if (mounted) router.go(_practiceExitLocation(catalog: true));
         return;
       }
     }
@@ -744,7 +751,7 @@ class _PracticeScreenState extends State<PracticeScreen>
       _run.cancelToIdle();
       _clearSessionState();
       if (mounted) setState(() {});
-      if (mounted) router.go('/movements');
+      if (mounted) router.go(_practiceExitLocation(catalog: true));
       return;
     }
 
@@ -780,7 +787,9 @@ class _PracticeScreenState extends State<PracticeScreen>
     try {
       unawaited(_playCongratsBestEffort(sfxVolume));
       if (!mounted) return;
-      final nextMovement = nextEnabledMovementAfter(_movement);
+      final nextMovement = widget.assignmentContext == null
+          ? nextEnabledMovementAfter(_movement)
+          : null;
       final result = await SessionSummarySheet.show(
         context,
         movement: _movement,
@@ -801,6 +810,7 @@ class _PracticeScreenState extends State<PracticeScreen>
           sessionImprovements: sessionAssessment.improvementFeedbacks,
           evidenceJpegBytes: evidence,
           saveEvidence: saveEvidence,
+          assignmentContext: widget.assignmentContext,
         ),
       );
 
@@ -848,7 +858,9 @@ class _PracticeScreenState extends State<PracticeScreen>
       setState(() {});
 
       router.go(
-        result == SessionSummaryResult.saved ? '/dashboard' : '/movements',
+        result == SessionSummaryResult.saved
+            ? _practiceExitLocation(catalog: false)
+            : _practiceExitLocation(catalog: true),
       );
     } finally {
       _isShowingSummary = false;
@@ -942,6 +954,17 @@ class _PracticeScreenState extends State<PracticeScreen>
     return 'Follow the on-screen guidance for this movement.';
   }
 
+  bool get _isAssignedPractice => widget.assignmentContext != null;
+
+  String _practiceExitLocation({required bool catalog}) {
+    if (_isAssignedPractice) return AppRoutePaths.assignedMovements;
+    return catalog ? AppRoutePaths.movements : AppRoutePaths.dashboard;
+  }
+
+  void _goPracticeExit({required bool catalog}) {
+    context.go(_practiceExitLocation(catalog: catalog));
+  }
+
   void _onBack() {
     if (_isShowingSummary) return;
     if (_run.isPreparingCamera || _run.isReadiness || _run.isCountdown) {
@@ -951,7 +974,7 @@ class _PracticeScreenState extends State<PracticeScreen>
     if (_hasSessionData || _run.isTrainingActive) {
       _stopSession();
     } else {
-      context.go('/movements');
+      _goPracticeExit(catalog: true);
     }
   }
 

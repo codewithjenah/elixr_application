@@ -18,4 +18,10 @@ abstract final class FirestoreCollections {
   static const groupInvites = 'group_invites';
   static const groupMemberships = 'group_memberships';
   static const trainingPlans = 'training_plans';
+  static const teacherMovements = 'teacher_movements';
+  static const groupAssignments = 'group_assignments';
+  static const assignmentAttempts = 'assignment_attempts';
+
+  /// Subcollection under [teacherMovements] for immutable published revisions.
+  static const teacherMovementRevisions = 'revisions';
 }

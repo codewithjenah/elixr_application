@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -20,10 +21,12 @@ class MovementLessonScreen extends StatelessWidget {
     required this.movement,
     required this.difficulty,
     required this.prop,
+    this.assignmentId,
   });
   final String movement;
   final String difficulty;
   final TrainingProp prop;
+  final String? assignmentId;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +63,12 @@ class MovementLessonScreen extends StatelessWidget {
                   children: [
                     _Header(movement: item.name, difficulty: item.difficulty),
                     const SizedBox(height: AppSpacing.md),
-                    _Actions(item: item, difficulty: difficulty, prop: prop),
+                    _Actions(
+                      item: item,
+                      difficulty: difficulty,
+                      prop: prop,
+                      assignmentId: assignmentId,
+                    ),
                     const SizedBox(height: AppSpacing.lg),
                     if (wide)
                       Row(
@@ -394,27 +402,34 @@ class _Actions extends StatelessWidget {
     required this.item,
     required this.difficulty,
     required this.prop,
+    this.assignmentId,
   });
   final Movement item;
   final String difficulty;
   final TrainingProp prop;
+  final String? assignmentId;
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, c) {
       final stacked = c.maxWidth < 520;
+      final assigned = assignmentId != null && assignmentId!.trim().isNotEmpty;
       final back = SizedBox(
         width: stacked ? double.infinity : 220,
         height: 52,
         child: Button(
-          onPressed: () => context.go('/learn'),
-          child: const FittedBox(
+          onPressed: () => context.go(
+            assigned ? AppRoutePaths.assignedMovements : AppRoutePaths.learn,
+          ),
+          child: FittedBox(
             fit: BoxFit.scaleDown,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(FluentIcons.back, size: 16),
-                SizedBox(width: AppSpacing.sm),
-                Text('Back to tutorials'),
+                const Icon(FluentIcons.back, size: 16),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  assigned ? 'Back to Assigned Movements' : 'Back to tutorials',
+                ),
               ],
             ),
           ),
@@ -434,7 +449,9 @@ class _Actions extends StatelessWidget {
             );
             if (context.mounted) {
               context.go(
-                '/practice?movement=${Uri.encodeComponent(item.name)}&difficulty=$difficulty&prop=${prop.protocolValue}',
+                assigned
+                    ? AppRoutePaths.assignedPractice(assignmentId!.trim())
+                    : '/practice?movement=${Uri.encodeComponent(item.name)}&difficulty=$difficulty&prop=${prop.protocolValue}',
               );
             }
           },

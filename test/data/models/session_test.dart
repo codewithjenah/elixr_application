@@ -1,5 +1,6 @@
 import 'package:elixr_application/data/models/rubric_assessment.dart';
 import 'package:elixr_application/data/models/session.dart';
+import 'package:elixr_application/data/models/session_assignment_context.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -81,4 +82,41 @@ void main() {
     expect(session.toMap()['prop_type'], 'shaker');
     expect(Session.fromMap(session.toMap()).propType, TrainingProp.shaker);
   });
+
+  test(
+    'assignment_context round-trips and stays absent for ordinary practice',
+    () {
+      const context = SessionAssignmentContext(
+        assignmentId: 'asg1',
+        groupId: 'g1',
+        teacherId: 't1',
+        movementId: 'official_hand_stall',
+        revisionId: 'official_hand_stall_v1',
+      );
+      const assigned = Session(
+        id: 'session-assigned',
+        userId: 'user-1',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: _rubric,
+        assessmentVersion: 2,
+        durationSeconds: 45,
+        assignmentContext: context,
+      );
+      final round = Session.fromMap(assigned.toMap());
+      expect(round.assignmentContext, context);
+
+      const ordinary = Session(
+        id: 'session-ordinary',
+        userId: 'user-1',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: _rubric,
+        assessmentVersion: 2,
+        durationSeconds: 45,
+      );
+      expect(ordinary.toMap().containsKey('assignment_context'), isFalse);
+      expect(Session.fromMap(ordinary.toMap()).assignmentContext, isNull);
+    },
+  );
 }

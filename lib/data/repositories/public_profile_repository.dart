@@ -613,14 +613,32 @@ class PublicProfileRepository {
     }
 
     final userId = session.userId;
+    final payload = sanitizedPracticeProjectionFields(
+      sessionId: sessionId,
+      session: session,
+      createdAt: session.createdAt ?? FieldValue.serverTimestamp(),
+    );
+    await _sessionRef(userId, sessionId).set(payload, SetOptions(merge: true));
+
+    await _updateSummaryAfterSession(userId: userId, session: session);
+  }
+
+  /// Sanitized official-practice fields only. Classroom assignment identity
+  /// never appears on public_profiles.
+  @visibleForTesting
+  static Map<String, dynamic> sanitizedPracticeProjectionFields({
+    required String sessionId,
+    required Session session,
+    required Object createdAt,
+  }) {
     final payload = <String, dynamic>{
       'session_id': sessionId,
-      'user_id': userId,
+      'user_id': session.userId,
       'movement_name': session.movementName,
       'difficulty': session.difficulty,
       'duration_seconds': session.durationSeconds,
       'prop_type': session.propType.protocolValue,
-      'created_at': session.createdAt ?? FieldValue.serverTimestamp(),
+      'created_at': createdAt,
       if (session.evidenceStoragePath != null &&
           session.evidenceKind == 'hold_confirmed')
         'evidence_available': true,
@@ -634,9 +652,7 @@ class PublicProfileRepository {
         'Session projection requires Assessment V2 rubric or legacy score',
       );
     }
-    await _sessionRef(userId, sessionId).set(payload, SetOptions(merge: true));
-
-    await _updateSummaryAfterSession(userId: userId, session: session);
+    return payload;
   }
 
   Future<void> _updateSummaryAfterSession({

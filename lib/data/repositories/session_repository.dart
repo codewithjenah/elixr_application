@@ -1,4 +1,5 @@
 import '../database/firestore_helper.dart';
+import '../models/assignment_attempt.dart';
 import '../models/feedback.dart';
 import '../models/session.dart';
 
@@ -14,11 +15,13 @@ class SessionRepository {
     required String sessionId,
     required Session session,
     required List<Feedback> feedbacks,
+    AssignmentAttempt? officialAssignmentPointer,
   }) {
     return _db.saveSessionWithFeedbacks(
       sessionId: sessionId,
       session: session,
       feedbacks: feedbacks,
+      officialAssignmentPointer: officialAssignmentPointer,
     );
   }
 

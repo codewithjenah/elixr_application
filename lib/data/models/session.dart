@@ -1,4 +1,5 @@
 import 'rubric_assessment.dart';
+import 'session_assignment_context.dart';
 import 'training_prop.dart';
 
 class Session {
@@ -16,6 +17,7 @@ class Session {
     this.evidenceStoragePath,
     this.evidenceKind,
     this.evidenceSizeBytes,
+    this.assignmentContext,
   });
 
   final String? id;
@@ -39,6 +41,9 @@ class Session {
   final String? evidenceKind;
   final int? evidenceSizeBytes;
 
+  /// Present only for official guided sessions launched from an assignment.
+  final SessionAssignmentContext? assignmentContext;
+
   bool get isRubricAssessed => assessmentVersion == 2 && rubric != null;
 
   /// Convenience: rubric total for V2, else null (never mix with legacyScore).
@@ -60,6 +65,8 @@ class Session {
         'evidence_storage_path': evidenceStoragePath,
       if (evidenceKind != null) 'evidence_kind': evidenceKind,
       if (evidenceSizeBytes != null) 'evidence_size_bytes': evidenceSizeBytes,
+      if (assignmentContext != null)
+        'assignment_context': assignmentContext!.toMap(),
     };
     if (isRubricAssessed && rubric != null) {
       map.addAll(rubric!.toFirestoreFields());
@@ -97,6 +104,9 @@ class Session {
         evidenceStoragePath: map['evidence_storage_path'] as String?,
         evidenceKind: map['evidence_kind'] as String?,
         evidenceSizeBytes: (map['evidence_size_bytes'] as num?)?.toInt(),
+        assignmentContext: SessionAssignmentContext.tryFrom(
+          map['assignment_context'],
+        ),
       );
     }
 
@@ -113,6 +123,9 @@ class Session {
       evidenceStoragePath: map['evidence_storage_path'] as String?,
       evidenceKind: map['evidence_kind'] as String?,
       evidenceSizeBytes: (map['evidence_size_bytes'] as num?)?.toInt(),
+      assignmentContext: SessionAssignmentContext.tryFrom(
+        map['assignment_context'],
+      ),
     );
   }
 }

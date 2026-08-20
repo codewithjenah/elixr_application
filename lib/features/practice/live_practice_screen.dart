@@ -10,12 +10,16 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/constants/music_tracks.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
+import '../../data/models/group_assignment.dart';
+import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../services/auth_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
 import '../../services/settings_service.dart';
@@ -33,10 +37,23 @@ import 'widgets/training_status_row.dart';
 /// Free-form live practice: camera streams with detection overlays but the
 /// user is not locked to a movement and no scoring/feedback is shown.
 class LivePracticeScreen extends StatefulWidget {
-  const LivePracticeScreen({super.key});
+  const LivePracticeScreen({super.key, this.teacherCreatedAssignment});
+
+  final TeacherCreatedAssignmentPractice? teacherCreatedAssignment;
 
   @override
   State<LivePracticeScreen> createState() => _LivePracticeScreenState();
+}
+
+class TeacherCreatedAssignmentPractice {
+  const TeacherCreatedAssignmentPractice({required this.assignment});
+
+  final GroupAssignment assignment;
+
+  String get title => assignment.displayTitle;
+  String get instructions => assignment.displayInstructions ?? '';
+  TrainingProp get prop => assignment.allowedProp ?? TrainingProp.bottle;
+  static const backendMovementName = 'Free Practice';
 }
 
 class _LivePracticeScreenState extends State<LivePracticeScreen> {
@@ -255,6 +272,32 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       return;
     }
 
+    final assignment = widget.teacherCreatedAssignment;
+    final settings = context.read<SettingsService>();
+    if (assignment != null) {
+      final traineeId = context.read<AuthService>().currentUser?.id;
+      if (traineeId == null) {
+        setState(() {
+          _sessionError = 'Sign in as a trainee to practice this assignment.';
+        });
+        return;
+      }
+      final assignmentRepo = context.read<ClassroomAssignmentRepository>();
+      try {
+        await assignmentRepo.startTeacherCreatedAttempt(
+          traineeId: traineeId,
+          assignment: assignment.assignment,
+        );
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _sessionError =
+              'Could not start this classroom assignment. Try again.';
+        });
+        return;
+      }
+    }
+
     _sessionError = null;
     _clearFrame();
     _latestFeedback = null;
@@ -263,20 +306,18 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.beginPreparing(onTimeout: _onPreparationTimeout);
     setState(() {});
 
-    final cameraDeviceId = await context
-        .read<SettingsService>()
-        .loadSelectedCameraDeviceId();
+    final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
     if (!mounted) return;
     if (!_run.isPreparingCamera) return;
 
-    final settings = context.read<SettingsService>();
     // Internal Free Practice vision mode: camera + prop detection only.
+    // Teacher-created titles must never be sent as prepare.movement.
     _commandInFlight = true;
     try {
       final ack = await _ws.sendPrepare(
-        movement: 'Free Practice',
+        movement: TeacherCreatedAssignmentPractice.backendMovementName,
         difficulty: 'Easy',
-        prop: TrainingProp.bottle,
+        prop: assignment?.prop ?? TrainingProp.bottle,
         cameraDeviceId: cameraDeviceId,
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
@@ -369,7 +410,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       final volume = settings.soundEnabled ? settings.musicVolume : 0.0;
       await _music.setVolume(volume);
       _music.start(track);
-      _rotation.start();
+      if (widget.teacherCreatedAssignment == null) {
+        _rotation.start();
+      }
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;
@@ -441,7 +484,11 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     await _music.stop();
     await _sfx.stop();
     _rotation.stop();
-    router.go('/dashboard');
+    router.go(
+      widget.teacherCreatedAssignment == null
+          ? AppRoutePaths.dashboard
+          : AppRoutePaths.assignedMovements,
+    );
   }
 
   String _formatDuration(int seconds) {
@@ -494,21 +541,29 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth >= _wideBreakpoint;
+              final assignment = widget.teacherCreatedAssignment;
               final header = TrainingSessionHeader(
                 onBack: _leave,
-                title: 'Free Practice',
-                statusPill: 'NO SCORING',
+                title: assignment?.title ?? 'Free Practice',
+                statusPill: assignment == null
+                    ? 'NO SCORING'
+                    : 'TEACHER REVIEWED',
                 statusPillColor: AppColors.primarySoft,
-                instruction:
-                    'Follow the set, or freestyle — nothing is scored or '
-                    'locked.',
+                instruction: assignment == null
+                    ? 'Follow the set, or freestyle — nothing is scored or '
+                          'locked.'
+                    : (assignment.instructions.isEmpty
+                          ? 'Practice this teacher-created movement. ELIXR does not score it automatically.'
+                          : assignment.instructions),
                 connectionState: _ws.connectionState,
                 connecting: _connecting,
                 wideLayout: wide,
-                trailing: Button(
-                  onPressed: _openSetlistDialog,
-                  child: const Text('Build Your Set'),
-                ),
+                trailing: assignment == null
+                    ? Button(
+                        onPressed: _openSetlistDialog,
+                        child: const Text('Build Your Set'),
+                      )
+                    : null,
               );
               final camera = TrainingCameraWorkspace(
                 frameListenable: _frameBytes,
@@ -526,7 +581,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                     ? null
                     : (isCameraLive ? _latestFeedback : null),
                 showFeedbackMessage: false,
-                overlays: isTrainingActive
+                overlays: isTrainingActive && assignment == null
                     ? MovementRotationOverlay(controller: _rotation)
                     : null,
                 statusItems: [
@@ -573,7 +628,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                   ),
                 ),
                 notice: Text(
-                  'No score or session history will be saved.',
+                  assignment == null
+                      ? 'No score or session history will be saved.'
+                      : 'Teacher-created practice is not scored and does not award XP.',
                   style: AppTheme.bodySecondary.copyWith(
                     color: context.elixTextSecondary,
                   ),
@@ -596,7 +653,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                           : null),
                 actionArea: TrainingActionArea(
                   kind: actionKind,
-                  startLabel: 'Start Free Practice',
+                  startLabel: assignment == null
+                      ? 'Start Free Practice'
+                      : 'Start assignment practice',
                   onPressed: switch (actionKind) {
                     TrainingActionKind.finish => _stopSession,
                     TrainingActionKind.cancel => _cancelPreActive,

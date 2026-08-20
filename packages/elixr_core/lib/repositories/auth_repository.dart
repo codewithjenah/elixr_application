@@ -291,6 +291,72 @@ Future<void> purgePhase2GroupDataForAccountErasure({
   await commitDeletes(refs.values.toList());
 }
 
+/// Purges Teacher-owned Phase 5 classroom definitions before the users
+/// document is removed. Ordinary Teachers keep delete permission on their
+/// own movement/assignment documents while verified; this path also works
+/// after the users document is gone.
+@visibleForTesting
+Future<void> purgePhase5ClassroomOwnedDataForAccountErasure({
+  required FirebaseFirestore firestore,
+  required Future<void> Function(List<DocumentReference>) commitDeletes,
+  required String uid,
+}) async {
+  final refs = <String, DocumentReference>{};
+
+  final ownedMovements = await firestore
+      .collection(FirestoreCollections.teacherMovements)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final movement in ownedMovements.docs) {
+    final revisions = await movement.reference
+        .collection(FirestoreCollections.teacherMovementRevisions)
+        .get();
+    for (final revision in revisions.docs) {
+      refs[revision.reference.path] = revision.reference;
+    }
+    refs[movement.reference.path] = movement.reference;
+  }
+
+  final ownedAssignments = await firestore
+      .collection(FirestoreCollections.groupAssignments)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final assignment in ownedAssignments.docs) {
+    refs[assignment.reference.path] = assignment.reference;
+  }
+
+  await commitDeletes(refs.values.toList());
+}
+
+/// Purges `assignment_attempts` after the caller's users document is gone.
+///
+/// Rules allow this only during account erasure (`!exists(users/{uid})`).
+/// Ordinary Teachers must not receive generic delete permission on trainee
+/// classroom attempts.
+@visibleForTesting
+Future<void> purgePhase5AssignmentAttemptsForAccountErasure({
+  required FirebaseFirestore firestore,
+  required Future<void> Function(List<DocumentReference>) commitDeletes,
+  required String uid,
+}) async {
+  final refs = <String, DocumentReference>{};
+  final asTrainee = await firestore
+      .collection(FirestoreCollections.assignmentAttempts)
+      .where('trainee_id', isEqualTo: uid)
+      .get();
+  final asTeacher = await firestore
+      .collection(FirestoreCollections.assignmentAttempts)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final doc in asTrainee.docs) {
+    refs[doc.reference.path] = doc.reference;
+  }
+  for (final doc in asTeacher.docs) {
+    refs[doc.reference.path] = doc.reference;
+  }
+  await commitDeletes(refs.values.toList());
+}
+
 /// Purges account data then deletes Auth. Auth deletion runs only after a
 /// successful purge.
 @visibleForTesting
@@ -1042,6 +1108,14 @@ class AuthRepository implements AuthRepositoryBase {
       );
     });
 
+    await _runPurgeStage('phase 5 classroom owned purge', () {
+      return purgePhase5ClassroomOwnedDataForAccountErasure(
+        firestore: _firestore,
+        commitDeletes: _commitDeletes,
+        uid: uid,
+      );
+    });
+
     await _runPurgeStage('users document purge', () {
       return _commitDeletes([
         _firestore.collection(FirestoreCollections.users).doc(uid),
@@ -1064,6 +1138,14 @@ class AuthRepository implements AuthRepositoryBase {
         for (final doc in asTrainee.docs) doc.reference.path: doc.reference,
       };
       await _commitDeletes(refs.values.toList());
+    });
+
+    await _runPurgeStage('phase 5 assignment attempts purge', () {
+      return purgePhase5AssignmentAttemptsForAccountErasure(
+        firestore: _firestore,
+        commitDeletes: _commitDeletes,
+        uid: uid,
+      );
     });
 
     await _runPurgeStage('profile Storage purge', () {

@@ -12,12 +12,17 @@ enum TrainingProp {
   final String displayLabel;
 
   static TrainingProp fromProtocolValue(Object? value) {
+    return tryParseStrict(value) ?? TrainingProp.bottle;
+  }
+
+  /// Returns null when [value] is not an exact protocol identity.
+  static TrainingProp? tryParseStrict(Object? value) {
     final normalized = value?.toString().trim().toLowerCase();
     return switch (normalized) {
       'bottle' => TrainingProp.bottle,
       'shaker' => TrainingProp.shaker,
       'bottle_and_shaker' => TrainingProp.bottleAndShaker,
-      _ => TrainingProp.bottle,
+      _ => null,
     };
   }
 

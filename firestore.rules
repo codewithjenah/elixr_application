@@ -438,7 +438,8 @@ service cloud.firestore {
         && sessionIdentityValueUnchanged('difficulty')
         && sessionIdentityValueUnchanged('prop_type')
         && sessionIdentityValueUnchanged('duration_seconds')
-        && sessionIdentityValueUnchanged('assessment_version');
+        && sessionIdentityValueUnchanged('assessment_version')
+        && sessionIdentityValueUnchanged('assignment_context');
     }
 
     function isNonNegNumber(value) {
@@ -1284,7 +1285,8 @@ service cloud.firestore {
         && isOfficialElixrMovementName(request.resource.data.movement_name)
         && validSessionEvidence(request.resource.data, sessionId)
         && request.resource.data.created_at is timestamp
-        && request.resource.data.created_at == request.time;
+        && request.resource.data.created_at == request.time
+        && validSessionAssignmentContext(request.resource.data, sessionId);
       allow update: if isSignedIn()
         && resource.data.user_id == request.auth.uid
         && request.resource.data.user_id == resource.data.user_id
@@ -2206,7 +2208,7 @@ service cloud.firestore {
     // ---- Teacher-owned groups (Phase 2) ------------------------------------
     // Classroom Authorization = approved group_memberships.
     // Progress Access / General Evidence Access remain on teacher_student_links.
-    // Assignment Submission Authorization is not implemented until Phase 5/6.
+    // Assignment Submission Authorization is not implemented until Phase 6.
 
     function groupPath(groupId) {
       return /databases/$(database)/documents/groups/$(groupId);
@@ -2397,7 +2399,7 @@ service cloud.firestore {
         && get(groupMembershipPath(groupId, traineeId)).data.status == 'approved';
     }
 
-    // Phase 5/6 placeholder — must fail closed until assignment_attempts exist.
+    // Assignment Submission Authorization is Phase 6 video access. Fail closed.
     function hasAssignmentSubmissionAuthorization(
       teacherId,
       groupId,
@@ -2535,6 +2537,485 @@ service cloud.firestore {
         && (resource == null || isMembershipParticipant());
     }
 
+    // ---- Phase 5 classroom movements, assignments, attempts ----------------
+    function assignmentPath(assignmentId) {
+      return /databases/$(database)/documents/group_assignments/$(assignmentId);
+    }
+    function assignmentAttemptPath(attemptId) {
+      return /databases/$(database)/documents/assignment_attempts/$(attemptId);
+    }
+    function teacherMovementPath(movementId) {
+      return /databases/$(database)/documents/teacher_movements/$(movementId);
+    }
+    function teacherMovementRevisionPath(movementId, revisionId) {
+      return /databases/$(database)/documents/teacher_movements/$(movementId)/revisions/$(revisionId);
+    }
+    function officialAssignmentAttemptId(sessionId) {
+      return 'official_ptr_' + sessionId;
+    }
+    function isClassroomDocId(value) {
+      return value is string && value.size() > 0 && value.size() <= 128
+        && value.matches('^[A-Za-z0-9_-]+$');
+    }
+    function isBoundedText(value, maxLen) {
+      return value is string && value.size() > 0 && value.size() <= maxLen
+        && value.matches('.*[^[:space:]].*');
+    }
+    function isTrainingProp(value) {
+      return value in ['bottle', 'shaker', 'bottle_and_shaker'];
+    }
+    function hasApprovedTraineeMembership(groupId, traineeId) {
+      let membership = get(groupMembershipPath(groupId, traineeId)).data;
+      return isSignedIn()
+        && isClassroomDocId(groupId)
+        && isClassroomDocId(traineeId)
+        && membership.group_id == groupId
+        && membership.trainee_id == traineeId
+        && membership.teacher_id is string
+        && membership.status == 'approved';
+    }
+    function assignmentContextKeys() {
+      return ['assignment_id', 'group_id', 'teacher_id', 'movement_id', 'revision_id'];
+    }
+    function validAssignmentContextMap(ctx) {
+      return ctx is map
+        && ctx.keys().hasOnly(assignmentContextKeys())
+        && ctx.keys().hasAll(assignmentContextKeys())
+        && isClassroomDocId(ctx.assignment_id)
+        && isClassroomDocId(ctx.group_id)
+        && isClassroomDocId(ctx.teacher_id)
+        && isClassroomDocId(ctx.movement_id)
+        && isClassroomDocId(ctx.revision_id);
+    }
+    function validOfficialAssignedSessionCreate(data, sessionId) {
+      let ctx = data.assignment_context;
+      let assignment = get(assignmentPath(ctx.assignment_id)).data;
+      let membership = get(groupMembershipPath(ctx.group_id, request.auth.uid)).data;
+      let pointer = getAfter(
+        assignmentAttemptPath(officialAssignmentAttemptId(sessionId))
+      ).data;
+      return isClassroomDocId(sessionId)
+        && validAssignmentContextMap(ctx)
+        && assignment.status == 'active'
+        && assignment.origin == 'official_elixr'
+        && assignment.assessment_mode == 'official_guided'
+        && assignment.teacher_id == ctx.teacher_id
+        && assignment.group_id == ctx.group_id
+        && assignment.movement_id == ctx.movement_id
+        && assignment.revision_id == ctx.revision_id
+        && assignment.official_movement_name == data.movement_name
+        && membership.group_id == ctx.group_id
+        && membership.trainee_id == request.auth.uid
+        && membership.teacher_id == ctx.teacher_id
+        && membership.status == 'approved'
+        && pointer.source_session_id == sessionId
+        && pointer.trainee_id == request.auth.uid
+        && pointer.teacher_id == ctx.teacher_id
+        && pointer.group_id == ctx.group_id
+        && pointer.assignment_id == ctx.assignment_id
+        && pointer.movement_id == ctx.movement_id
+        && pointer.revision_id == ctx.revision_id
+        && pointer.origin == 'official_elixr'
+        && pointer.attempt_kind == 'practice_pointer'
+        && pointer.status == 'submitted'
+        && pointer.awards_global_xp == false;
+    }
+    function validSessionAssignmentContext(data, sessionId) {
+      return !data.keys().hasAny(['assignment_context'])
+        || validOfficialAssignedSessionCreate(data, sessionId);
+    }
+
+    function teacherMovementRootKeys() {
+      return ['teacher_id', 'title', 'status', 'current_revision_id',
+        'schema_version', 'created_at', 'updated_at'];
+    }
+    function teacherMovementRevisionKeys() {
+      return ['movement_id', 'teacher_id', 'schema_version', 'assessment_mode',
+        'spec', 'created_at'];
+    }
+    function teacherReviewedSpecKeys() {
+      return ['instructions', 'required_prop', 'capability'];
+    }
+    function validTeacherReviewedSpec(spec) {
+      return spec is map
+        && spec.keys().hasAll(teacherReviewedSpecKeys())
+        && spec.keys().hasOnly(teacherReviewedSpecKeys().concat(['safety_guidance']))
+        && isBoundedText(spec.instructions, 2000)
+        && isTrainingProp(spec.required_prop)
+        && spec.capability == 'teacher_review_only'
+        && (
+          !spec.keys().hasAny(['safety_guidance'])
+          || isBoundedText(spec.safety_guidance, 1000)
+        );
+    }
+    function validTeacherMovementCreate(data, movementId) {
+      return isVerifiedTeacher()
+        && isClassroomDocId(movementId)
+        && data.keys().hasOnly(teacherMovementRootKeys())
+        && data.keys().hasAll(teacherMovementRootKeys())
+        && data.teacher_id == request.auth.uid
+        && isParticipantId(data.teacher_id)
+        && isBoundedText(data.title, 80)
+        && data.status == 'active'
+        && isClassroomDocId(data.current_revision_id)
+        && data.schema_version == 1
+        && data.created_at == request.time
+        && data.updated_at == request.time
+        && existsAfter(teacherMovementRevisionPath(movementId, data.current_revision_id))
+        && getAfter(teacherMovementRevisionPath(movementId, data.current_revision_id)).data.teacher_id
+          == request.auth.uid
+        && getAfter(teacherMovementRevisionPath(movementId, data.current_revision_id)).data.movement_id
+          == movementId;
+    }
+    function validTeacherMovementUpdate(movementId) {
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
+        && request.resource.data.keys().hasOnly(teacherMovementRootKeys())
+        && request.resource.data.keys().hasAll(teacherMovementRootKeys())
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.schema_version == resource.data.schema_version
+        && request.resource.data.updated_at == request.time
+        && isBoundedText(request.resource.data.title, 80)
+        && request.resource.data.status in ['active', 'archived']
+        && isClassroomDocId(request.resource.data.current_revision_id)
+        && (
+          (
+            request.resource.data.current_revision_id == resource.data.current_revision_id
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'updated_at', 'title'])
+          )
+          || (
+            request.resource.data.current_revision_id != resource.data.current_revision_id
+            && existsAfter(teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id))
+            && getAfter(teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id)).data.movement_id
+              == movementId
+            && getAfter(teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id)).data.teacher_id
+              == request.auth.uid
+          )
+        );
+    }
+    function validTeacherMovementRevisionCreate(data, movementId, revisionId) {
+      return isVerifiedTeacher()
+        && isClassroomDocId(movementId)
+        && isClassroomDocId(revisionId)
+        && data.keys().hasOnly(teacherMovementRevisionKeys())
+        && data.keys().hasAll(teacherMovementRevisionKeys())
+        && data.movement_id == movementId
+        && data.teacher_id == request.auth.uid
+        && data.schema_version == 1
+        && data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        && validTeacherReviewedSpec(data.spec)
+        && data.created_at == request.time
+        && (
+          (
+            existsAfter(teacherMovementPath(movementId))
+            && getAfter(teacherMovementPath(movementId)).data.teacher_id == request.auth.uid
+            && getAfter(teacherMovementPath(movementId)).data.current_revision_id == revisionId
+          )
+          || (
+            exists(teacherMovementPath(movementId))
+            && get(teacherMovementPath(movementId)).data.teacher_id == request.auth.uid
+            && getAfter(teacherMovementPath(movementId)).data.current_revision_id == revisionId
+          )
+        );
+    }
+
+    match /teacher_movements/{movementId} {
+      allow get, list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow create: if validTeacherMovementCreate(request.resource.data, movementId);
+      allow update: if validTeacherMovementUpdate(movementId);
+      allow delete: if isSignedIn()
+        && resource.data.teacher_id == request.auth.uid
+        && (
+          isVerifiedTeacher()
+          || !exists(userPath(request.auth.uid))
+        );
+
+      match /revisions/{revisionId} {
+        allow get, list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+        allow create: if validTeacherMovementRevisionCreate(
+          request.resource.data, movementId, revisionId
+        );
+        allow update: if false;
+        allow delete: if isSignedIn()
+          && resource.data.teacher_id == request.auth.uid
+          && (
+            isVerifiedTeacher()
+            || !exists(userPath(request.auth.uid))
+          );
+      }
+    }
+
+    function groupAssignmentRequiredKeys() {
+      return ['teacher_id', 'group_id', 'movement_id', 'revision_id', 'origin',
+        'assessment_mode', 'status', 'display_title', 'teacher_display_name',
+        'group_name', 'created_at', 'updated_at'];
+    }
+    function groupAssignmentAllowedKeys() {
+      return groupAssignmentRequiredKeys().concat([
+        'official_movement_name', 'display_instructions',
+        'display_safety_guidance', 'allowed_prop', 'due_at'
+      ]);
+    }
+    function validOfficialAssignmentCreate(data) {
+      return data.origin == 'official_elixr'
+        && data.assessment_mode == 'official_guided'
+        && data.keys().hasAny(['official_movement_name'])
+        && data.official_movement_name is string
+        && isOfficialElixrMovementName(data.official_movement_name)
+        && data.movement_id == officialMovementIdForName(data.official_movement_name)
+        && data.revision_id == officialRevisionIdForName(data.official_movement_name)
+        && data.display_title == data.official_movement_name
+        && !data.keys().hasAny(['allowed_prop'])
+        && (
+          !data.keys().hasAny(['display_instructions'])
+          || isBoundedText(data.display_instructions, 2000)
+        )
+        && !data.keys().hasAny(['display_safety_guidance']);
+    }
+    function validTeacherCreatedAssignmentCreate(data) {
+      return data.origin == 'teacher_created'
+        && data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        && !data.keys().hasAny(['official_movement_name'])
+        && exists(teacherMovementPath(data.movement_id))
+        && get(teacherMovementPath(data.movement_id)).data.teacher_id == request.auth.uid
+        && get(teacherMovementPath(data.movement_id)).data.status == 'active'
+        && exists(teacherMovementRevisionPath(data.movement_id, data.revision_id))
+        && get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.movement_id
+          == data.movement_id
+        && get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.teacher_id
+          == request.auth.uid
+        && get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.assessment_mode
+          == data.assessment_mode
+        && data.display_title == get(teacherMovementPath(data.movement_id)).data.title
+        && isBoundedText(data.display_instructions, 2000)
+        && data.keys().hasAny(['allowed_prop'])
+        && isTrainingProp(data.allowed_prop)
+        && data.allowed_prop
+          == get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.spec.required_prop
+        && (
+          !data.keys().hasAny(['display_safety_guidance'])
+          || isBoundedText(data.display_safety_guidance, 1000)
+        );
+    }
+    function validGroupAssignmentCreate(data) {
+      return isVerifiedTeacher()
+        && data.keys().hasAll(groupAssignmentRequiredKeys())
+        && data.keys().hasOnly(groupAssignmentAllowedKeys())
+        && data.teacher_id == request.auth.uid
+        && isParticipantId(data.teacher_id)
+        && isClassroomDocId(data.group_id)
+        && isClassroomDocId(data.movement_id)
+        && isClassroomDocId(data.revision_id)
+        && exists(groupPath(data.group_id))
+        && get(groupPath(data.group_id)).data.teacher_id == request.auth.uid
+        && get(groupPath(data.group_id)).data.status == 'active'
+        && data.group_name == get(groupPath(data.group_id)).data.name
+        && isDisplayName(data.teacher_display_name)
+        && data.teacher_display_name == userFullName(request.auth.uid)
+        && isBoundedText(data.display_title, 80)
+        && data.status == 'active'
+        && data.created_at == request.time
+        && data.updated_at == request.time
+        && (
+          !data.keys().hasAny(['due_at'])
+          || data.due_at is timestamp
+        )
+        && (
+          validOfficialAssignmentCreate(data)
+          || validTeacherCreatedAssignmentCreate(data)
+        );
+    }
+    function validGroupAssignmentUpdate() {
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
+        && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
+        && request.resource.data.keys().hasOnly(groupAssignmentAllowedKeys())
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.group_id == resource.data.group_id
+        && request.resource.data.movement_id == resource.data.movement_id
+        && request.resource.data.revision_id == resource.data.revision_id
+        && request.resource.data.origin == resource.data.origin
+        && request.resource.data.assessment_mode == resource.data.assessment_mode
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.display_title == resource.data.display_title
+        && request.resource.data.teacher_display_name == resource.data.teacher_display_name
+        && request.resource.data.group_name == resource.data.group_name
+        && request.resource.data.get('official_movement_name', '__elixr_absent__')
+          == resource.data.get('official_movement_name', '__elixr_absent__')
+        && request.resource.data.get('allowed_prop', '__elixr_absent__')
+          == resource.data.get('allowed_prop', '__elixr_absent__')
+        && request.resource.data.status in ['active', 'archived']
+        && request.resource.data.updated_at == request.time
+        && (
+          !request.resource.data.keys().hasAny(['due_at'])
+          || request.resource.data.due_at is timestamp
+        )
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'due_at', 'updated_at', 'display_instructions',
+            'display_safety_guidance']);
+    }
+
+    match /group_assignments/{assignmentId} {
+      allow get: if isSignedIn()
+        && (
+          resource.data.teacher_id == request.auth.uid
+          || hasApprovedTraineeMembership(resource.data.group_id, request.auth.uid)
+        );
+      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isSignedIn()
+        && hasApprovedTraineeMembership(resource.data.group_id, request.auth.uid);
+      allow create: if validGroupAssignmentCreate(request.resource.data);
+      allow update: if validGroupAssignmentUpdate();
+      allow delete: if isSignedIn()
+        && resource.data.teacher_id == request.auth.uid
+        && (
+          isVerifiedTeacher()
+          || !exists(userPath(request.auth.uid))
+        );
+    }
+
+    function assignmentAttemptIdentityKeys() {
+      return ['trainee_id', 'teacher_id', 'group_id', 'assignment_id',
+        'movement_id', 'revision_id', 'origin', 'assessment_mode',
+        'attempt_kind', 'status', 'awards_global_xp', 'created_at'];
+    }
+    function officialPointerAllowedKeys() {
+      return assignmentAttemptIdentityKeys().concat([
+        'source_session_id', 'assessment_version', 'rubric', 'rubric_total',
+        'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
+      ]);
+    }
+    function teacherDraftAllowedKeys() {
+      return assignmentAttemptIdentityKeys();
+    }
+    function attemptMatchesAssignment(data) {
+      let assignment = get(assignmentPath(data.assignment_id)).data;
+      return assignment.teacher_id == data.teacher_id
+        && assignment.group_id == data.group_id
+        && assignment.movement_id == data.movement_id
+        && assignment.revision_id == data.revision_id
+        && assignment.origin == data.origin
+        && assignment.assessment_mode == data.assessment_mode
+        && assignment.status == 'active';
+    }
+    function validOfficialPointerCreate(data, attemptId) {
+      let session = getAfter(sessionPath(data.source_session_id)).data;
+      let ctx = session.assignment_context;
+      return data.attempt_kind == 'practice_pointer'
+        && data.status == 'submitted'
+        && data.origin == 'official_elixr'
+        && data.assessment_mode == 'official_guided'
+        && data.keys().hasAll(officialPointerAllowedKeys())
+        && data.keys().hasOnly(officialPointerAllowedKeys())
+        && isClassroomDocId(data.source_session_id)
+        && attemptId == officialAssignmentAttemptId(data.source_session_id)
+        && session.user_id == request.auth.uid
+        && validAssignmentContextMap(ctx)
+        && ctx.assignment_id == data.assignment_id
+        && ctx.group_id == data.group_id
+        && ctx.teacher_id == data.teacher_id
+        && ctx.movement_id == data.movement_id
+        && ctx.revision_id == data.revision_id
+        && data.rubric_total == session.rubric_total
+        && data.performance_level == session.performance_level
+        && data.duration_seconds == session.duration_seconds
+        && data.prop_type == session.prop_type
+        && data.assessment_version == session.assessment_version
+        && data.rubric.technique == session.rubric.technique
+        && data.rubric.stability == session.rubric.stability
+        && data.rubric.completion == session.rubric.completion
+        && data.rubric.prop_positioning == session.rubric.prop_positioning
+        && data.completed_at == session.created_at
+        && data.completed_at == request.time;
+    }
+    function validTeacherDraftAttemptCreate(data, attemptId) {
+      return data.attempt_kind == 'teacher_review_draft'
+        && data.status in ['draft', 'in_progress']
+        && data.origin == 'teacher_created'
+        && data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        && data.keys().hasOnly(teacherDraftAllowedKeys())
+        && data.keys().hasAll(teacherDraftAllowedKeys())
+        && !data.keys().hasAny(['source_session_id', 'rubric', 'rubric_total',
+          'performance_level', 'review_verdict', 'review_feedback',
+          'reviewed_at', 'video_storage_path', 'video_duration_ms',
+          'video_size_bytes'])
+        && data.status != 'approved'
+        && data.status != 'needs_retry';
+    }
+    function validAssignmentAttemptCreate(data, attemptId) {
+      let membership = get(groupMembershipPath(data.group_id, request.auth.uid)).data;
+      return isSignedIn()
+        && data.trainee_id == request.auth.uid
+        && isClassroomDocId(attemptId)
+        && isClassroomDocId(data.trainee_id)
+        && isClassroomDocId(data.teacher_id)
+        && isClassroomDocId(data.group_id)
+        && isClassroomDocId(data.assignment_id)
+        && isClassroomDocId(data.movement_id)
+        && isClassroomDocId(data.revision_id)
+        && data.awards_global_xp == false
+        && data.created_at == request.time
+        && membership.group_id == data.group_id
+        && membership.trainee_id == request.auth.uid
+        && membership.teacher_id == data.teacher_id
+        && membership.status == 'approved'
+        && attemptMatchesAssignment(data)
+        && (
+          data.attempt_kind == 'practice_pointer'
+            ? validOfficialPointerCreate(data, attemptId)
+            : validTeacherDraftAttemptCreate(data, attemptId)
+        );
+    }
+    function assignmentAttemptIdentityUnchanged() {
+      return request.resource.data.trainee_id == resource.data.trainee_id
+        && request.resource.data.teacher_id == resource.data.teacher_id
+        && request.resource.data.group_id == resource.data.group_id
+        && request.resource.data.assignment_id == resource.data.assignment_id
+        && request.resource.data.movement_id == resource.data.movement_id
+        && request.resource.data.revision_id == resource.data.revision_id
+        && request.resource.data.origin == resource.data.origin
+        && request.resource.data.assessment_mode == resource.data.assessment_mode
+        && request.resource.data.attempt_kind == resource.data.attempt_kind
+        && request.resource.data.awards_global_xp == false
+        && resource.data.awards_global_xp == false
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.get('source_session_id', '__elixr_absent__')
+          == resource.data.get('source_session_id', '__elixr_absent__');
+    }
+    function validTeacherDraftAttemptUpdate() {
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_draft'
+        && resource.data.origin == 'teacher_created'
+        && assignmentAttemptIdentityUnchanged()
+        && request.resource.data.keys().hasOnly(teacherDraftAllowedKeys())
+        && resource.data.status == 'draft'
+        && request.resource.data.status == 'in_progress'
+        && !request.resource.data.keys().hasAny(['review_verdict',
+          'review_feedback', 'reviewed_at'])
+        && request.resource.data.status != 'approved'
+        && request.resource.data.status != 'needs_retry';
+    }
+
+    match /assignment_attempts/{attemptId} {
+      allow get: if isSignedIn()
+        && (
+          resource.data.trainee_id == request.auth.uid
+          || resource.data.teacher_id == request.auth.uid
+        );
+      allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
+      allow create: if validAssignmentAttemptCreate(request.resource.data, attemptId);
+      allow update: if isSignedIn() && validTeacherDraftAttemptUpdate();
+      allow delete: if isSignedIn()
+        && !exists(userPath(request.auth.uid))
+        && (
+          resource.data.trainee_id == request.auth.uid
+          || resource.data.teacher_id == request.auth.uid
+        );
+    }
+
     // Phase 3A asynchronous teacher recommendations. They intentionally carry
     // no session or assessment data, and progress sharing is not consulted.
     function coachingKeys() {
@@ -2579,6 +3060,25 @@ service cloud.firestore {
     }
     function isOfficialElixrMovementName(name) {
       return name is string && name in officialElixrMovementNames();
+    }
+    function officialMovementIdForName(name) {
+      return name == 'Normal Grip' ? 'official_normal_grip'
+        : name == "Bartender's Grip" ? 'official_bartenders_grip'
+        : name == 'Reverse Grip' ? 'official_reverse_grip'
+        : name == 'Claw Grip' ? 'official_claw_grip'
+        : name == 'Hand Stall' ? 'official_hand_stall'
+        : name == 'One Finger Stall' ? 'official_one_finger_stall'
+        : name == 'Forearm Stall' ? 'official_forearm_stall'
+        : name == 'Elbow Stall' ? 'official_elbow_stall'
+        : name == 'Reverse Forearm Stall' ? 'official_reverse_forearm_stall'
+        : name == 'Shoulder Stall' ? 'official_shoulder_stall'
+        : name == 'Double Hand Stall' ? 'official_double_hand_stall'
+        : name == 'Bottle in a tin' ? 'official_bottle_in_a_tin'
+        : '';
+    }
+    function officialRevisionIdForName(name) {
+      let movementId = officialMovementIdForName(name);
+      return movementId == '' ? '' : movementId + '_v1';
     }
     function approvedCoachingLink(teacherId, traineeId) {
       return exists(teacherStudentLinkPath(teacherId, traineeId))

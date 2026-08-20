@@ -3,6 +3,8 @@ import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/database/user_profile_store.dart';
 import 'package:elixr_core/models/user.dart';
 
+import '../models/assignment_attempt.dart';
+import '../models/assignment_attempt_ids.dart';
 import '../models/feedback.dart';
 import '../models/session.dart';
 
@@ -67,6 +69,7 @@ class FirestoreHelper implements UserProfileStore {
       'evidence_storage_path': data['evidence_storage_path'],
       'evidence_kind': data['evidence_kind'],
       'evidence_size_bytes': data['evidence_size_bytes'],
+      'assignment_context': data['assignment_context'],
     };
   }
 
@@ -134,10 +137,14 @@ class FirestoreHelper implements UserProfileStore {
   }
 
   /// Writes the session and all feedback documents in one atomic batch.
+  ///
+  /// When [officialAssignmentPointer] is provided, the classroom pointer is
+  /// included in the same batch and must succeed with the session write.
   Future<void> saveSessionWithFeedbacks({
     required String sessionId,
     required Session session,
     required List<Feedback> feedbacks,
+    AssignmentAttempt? officialAssignmentPointer,
   }) async {
     final batch = _firestore.batch();
     final sessionRef = _firestore
@@ -155,6 +162,8 @@ class FirestoreHelper implements UserProfileStore {
       if (session.evidenceKind != null) 'evidence_kind': session.evidenceKind,
       if (session.evidenceSizeBytes != null)
         'evidence_size_bytes': session.evidenceSizeBytes,
+      if (session.assignmentContext != null)
+        'assignment_context': session.assignmentContext!.toMap(),
     };
     if (session.isRubricAssessed && session.rubric != null) {
       sessionPayload.addAll(session.rubric!.toFirestoreFields());
@@ -180,6 +189,37 @@ class FirestoreHelper implements UserProfileStore {
         'feedback_type': feedback.feedbackType,
         'created_at': FieldValue.serverTimestamp(),
       });
+    }
+
+    if (officialAssignmentPointer != null) {
+      final expectedId = assignmentAttemptIdForOfficialSession(sessionId);
+      if (officialAssignmentPointer.id != expectedId) {
+        throw ArgumentError(
+          'Official assignment pointer id must be '
+          'assignmentAttemptIdForOfficialSession(sessionId)',
+        );
+      }
+      if (officialAssignmentPointer.sourceSessionId != sessionId) {
+        throw ArgumentError(
+          'Official assignment pointer source_session_id must match sessionId',
+        );
+      }
+      if (officialAssignmentPointer.awardsGlobalXp) {
+        throw ArgumentError('assignment_attempts cannot award global XP');
+      }
+      final pointerRef = _firestore
+          .collection(FirestoreCollections.assignmentAttempts)
+          .doc(officialAssignmentPointer.id);
+      final pointerPayload = officialAssignmentPointer.toCreateMap(
+        createdAt: FieldValue.serverTimestamp(),
+      );
+      pointerPayload['completed_at'] = FieldValue.serverTimestamp();
+      batch.set(pointerRef, pointerPayload);
+    } else if (session.assignmentContext != null) {
+      throw ArgumentError(
+        'Official assignment sessions require an assignment_attempts pointer '
+        'in the same atomic write',
+      );
     }
 
     await batch.commit();

@@ -186,8 +186,41 @@ void main() {
         ),
         AppRoutePaths.teacherDashboard,
       );
+      expect(
+        resolveAppRedirect(
+          _state(
+            user: _teacher(),
+            location: AppRoutePaths.assignedPractice('asg1'),
+          ),
+        ),
+        AppRoutePaths.teacherDashboard,
+      );
+      expect(
+        resolveAppRedirect(
+          _state(user: _teacher(), location: AppRoutePaths.assignedMovements),
+        ),
+        AppRoutePaths.teacherDashboard,
+      );
     },
   );
+
+  test('trainee assigned practice stays reachable', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.assignedPractice('asg1'),
+        ),
+      ),
+      isNull,
+    );
+    expect(
+      resolveAppRedirect(
+        _state(user: _trainee(), location: AppRoutePaths.assignedMovements),
+      ),
+      isNull,
+    );
+  });
 
   test('trainee on teacher routes redirects to trainee dashboard', () {
     expect(

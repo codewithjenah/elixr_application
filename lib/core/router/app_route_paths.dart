@@ -22,6 +22,8 @@ abstract final class AppRoutePaths {
   static const dashboard = '/dashboard';
   static const leaderboard = '/leaderboard';
   static const movements = '/movements';
+  static const assignedMovements = '/assigned-movements';
+  static const assignedPracticePrefix = '/assigned-practice';
   static const learn = '/learn';
   static const training = '/training';
   static const history = '/history';
@@ -56,6 +58,7 @@ abstract final class AppRoutePaths {
     dashboard,
     leaderboard,
     movements,
+    assignedMovements,
     learn,
     training,
     history,
@@ -66,6 +69,32 @@ abstract final class AppRoutePaths {
   };
 
   static const traineePracticeRoutes = {practice, livePractice};
+
+  static String assignedPractice(String assignmentId) {
+    return '$assignedPracticePrefix/${Uri.encodeComponent(assignmentId)}';
+  }
+
+  static String assignmentIdFromAssignedPractice(String location) {
+    final prefix = '$assignedPracticePrefix/';
+    if (!location.startsWith(prefix)) return '';
+    return Uri.decodeComponent(
+      location.substring(prefix.length).split('?').first,
+    );
+  }
+
+  static String movementLesson({
+    required String movement,
+    required String difficulty,
+    required String prop,
+    String? assignmentId,
+  }) {
+    final base =
+        '/learn/movement/${Uri.encodeComponent(movement)}'
+        '?difficulty=$difficulty&prop=$prop';
+    final id = assignmentId?.trim();
+    if (id == null || id.isEmpty) return base;
+    return '$base&assignmentId=${Uri.encodeComponent(id)}';
+  }
 
   static bool isTeacherShellRoute(String location) {
     return location.startsWith('/teacher/');
@@ -92,6 +121,8 @@ abstract final class AppRoutePaths {
     return location == practice ||
         location.startsWith('$practice?') ||
         location == livePractice ||
-        location.startsWith('$livePractice?');
+        location.startsWith('$livePractice?') ||
+        location == assignedPracticePrefix ||
+        location.startsWith('$assignedPracticePrefix/');
   }
 }

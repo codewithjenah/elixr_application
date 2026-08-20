@@ -1,0 +1,212 @@
+import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
+import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
+import 'package:elixr_core/models/elixr_group.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+ElixrGroup _group({
+  String id = 'g1',
+  String teacherId = 'teacher-1',
+  ElixrGroupStatus status = ElixrGroupStatus.active,
+}) => ElixrGroup(id: id, teacherId: teacherId, name: 'BSHM 4A', status: status);
+
+void main() {
+  late InMemoryClassroomAssignmentRepository assignments;
+  late InMemoryTeacherMovementRepository movements;
+
+  setUp(() {
+    var n = 0;
+    assignments = InMemoryClassroomAssignmentRepository(
+      now: () => DateTime.utc(2026, 8, 20),
+      generateId: () => 'asg${++n}',
+    );
+    movements = InMemoryTeacherMovementRepository(
+      now: () => DateTime.utc(2026, 8, 20),
+      generateId: () => 'tm${++n}',
+    );
+  });
+
+  tearDown(() {
+    assignments.dispose();
+    movements.dispose();
+  });
+
+  test('official assignment uses canonical identity mapping', () async {
+    final assignment = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      officialMovementName: 'Hand Stall',
+      dueAt: DateTime.utc(2026, 8, 21, 12),
+    );
+    final identity = officialElixrIdentityForName('Hand Stall')!;
+    expect(assignment.origin, MovementOrigin.officialElixr);
+    expect(assignment.officialMovementName, 'Hand Stall');
+    expect(assignment.movementId, identity.movementId);
+    expect(assignment.revisionId, identity.revisionId);
+    expect(assignment.groupName, 'BSHM 4A');
+    expect(assignment.dueAt, DateTime.utc(2026, 8, 21, 12));
+  });
+
+  test('Teacher cannot assign to another Teacher group', () async {
+    expect(
+      () => assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(teacherId: 'teacher-2'),
+        officialMovementName: 'Hand Stall',
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (error) => error.code,
+          'code',
+          ClassroomError.forbidden,
+        ),
+      ),
+    );
+  });
+
+  test('Teacher cannot assign to an archived group', () async {
+    expect(
+      () => assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(status: ElixrGroupStatus.archived),
+        officialMovementName: 'Hand Stall',
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (error) => error.code,
+          'code',
+          ClassroomError.inactive,
+        ),
+      ),
+    );
+  });
+
+  test('unofficial names fail closed', () async {
+    expect(
+      () => assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        officialMovementName: 'Arm Stall',
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (error) => error.code,
+          'code',
+          ClassroomError.unofficial,
+        ),
+      ),
+    );
+  });
+
+  test('Teacher-created assignment pins the current revision', () async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'First.',
+      requiredProp: TrainingProp.bottle,
+    );
+    final firstRevision = (await movements.getRevision(
+      movementId: movement.id,
+      revisionId: movement.currentRevisionId,
+    ))!;
+    final assignment = await assignments.createTeacherCreatedAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      movement: movement,
+      revision: firstRevision,
+    );
+    expect(assignment.origin, MovementOrigin.teacherCreated);
+    expect(assignment.revisionId, firstRevision.id);
+    expect(assignment.officialMovementName, isNull);
+
+    final edited = await movements.editMovement(
+      teacherId: 'teacher-1',
+      movementId: movement.id,
+      title: 'Tin Balance',
+      instructions: 'Second.',
+      requiredProp: TrainingProp.bottle,
+    );
+    expect(assignment.revisionId, isNot(edited.currentRevisionId));
+    expect(assignment.revisionId, firstRevision.id);
+  });
+
+  test('archived Teacher movement cannot be newly assigned', () async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'First.',
+      requiredProp: TrainingProp.bottle,
+    );
+    await movements.archiveMovement(
+      teacherId: 'teacher-1',
+      movementId: movement.id,
+    );
+    final archived = (await movements.getMovement(movementId: movement.id))!;
+    final revision = (await movements.getRevision(
+      movementId: archived.id,
+      revisionId: archived.currentRevisionId,
+    ))!;
+    expect(
+      () => assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: archived,
+        revision: revision,
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (error) => error.code,
+          'code',
+          ClassroomError.archived,
+        ),
+      ),
+    );
+  });
+
+  test(
+    'Teacher-created attempt never awards XP or points at a session',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'First.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      final attempt = await assignments.startTeacherCreatedAttempt(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      );
+      expect(attempt.awardsGlobalXp, isFalse);
+      expect(attempt.sourceSessionId, isNull);
+      expect(attempt.rubric, isNull);
+      expect(
+        attempt.id,
+        assignmentAttemptIdForTeacherCreatedDraft(
+          assignmentId: assignment.id,
+          traineeId: 'trainee-1',
+        ),
+      );
+    },
+  );
+}

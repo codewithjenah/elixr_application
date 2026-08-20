@@ -39,4 +39,39 @@ void main() {
       expect(isOfficialElixrMovementName(''), isFalse);
     },
   );
+
+  test('official identity map is explicit, complete, and not a slugger', () {
+    expect(officialElixrMovementIdentities, hasLength(12));
+    expect(
+      officialElixrMovementIdentities.map((identity) => identity.catalogName),
+      unorderedEquals(officialElixrMovementNames),
+    );
+    expect(
+      officialElixrIdentityForName('Hand Stall'),
+      isA<OfficialElixrMovementIdentity>()
+          .having((id) => id.movementId, 'movementId', 'official_hand_stall')
+          .having(
+            (id) => id.revisionId,
+            'revisionId',
+            'official_hand_stall_v1',
+          ),
+    );
+    expect(
+      officialElixrIdentityForName("Bartender's Grip")?.movementId,
+      'official_bartenders_grip',
+    );
+    expect(
+      officialElixrIdentityForName('Bottle in a tin')?.revisionId,
+      'official_bottle_in_a_tin_v1',
+    );
+    expect(officialElixrIdentityForName('Arm Stall'), isNull);
+    expect(officialElixrIdentityForName('Upper Forearm Stall'), isNull);
+    expect(officialElixrIdentityForName('Wrist Stall'), isNull);
+    expect(officialElixrIdentityForName('Free Practice'), isNull);
+    expect(officialElixrIdentityForName('hand stall'), isNull);
+    expect(
+      officialElixrIdentityForMovementId('official_normal_grip')?.catalogName,
+      'Normal Grip',
+    );
+  });
 }

@@ -1,6 +1,6 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
-**Status:** Planned  
+**Status:** Code complete on `main` (not production-closed). Automated Flutter/Python/emulator checks passed locally. Firestore rules/indexes are **not** deployed. Live Teacher/Trainee assignment flow is **not** verified. Phase 6 and Phase 7 were not started.  
 **Sequence:** `05` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 4 official XP gate is on `main`. If non-catalog sessions can still award global XP, **STOP**.
 
@@ -19,7 +19,7 @@
 
 ## 1. Status
 
-Planned
+Code complete on existing `main` (HEAD started at `af6885aa2c40c92ed957b4d4427686d8532fa441`). Not marked CLOSED: production rules/indexes undeployed, live classroom flow unverified.
 
 ## 2. Goal
 
@@ -278,17 +278,90 @@ Python tests required if preview mode / WS movement validation was touched; othe
 - Do not delete `teacher_app`.
 - Do not start Phase 6–7 beyond schema flags.
 
-## 22. Completion report template
+## 22. Completion report
 
-```
-Phase 5 completion
-- Collections added:
-- XP isolation tests:
-- Official assignment pointer required: yes
-- Double XP prevented: yes
-- Commands run:
-- Not verified:
-```
+Phase 5 is **code complete** on existing `main`. It is **not CLOSED**.
+
+### What shipped
+
+- Official ELIXR catalog (exactly 12 stable `movement_id` / `revision_id` pairs) is separate from Teacher-created movements.
+- Teacher Movements UI: Official ELIXR / My Movements / Assignments.
+- Teacher-created movements use immutable revisions; edits create a new revision and leave old assignments pinned.
+- Group assignments for official or Teacher-created revisions, with denormalized display snapshots for Trainee UI.
+- Trainee Assigned Movements (`/assigned-movements`) and dedicated `/assigned-practice/:assignmentId` loader (no identity in query params except the assignment id, which is revalidated from Firestore).
+- Official assigned practice reuses `PracticeScreen` + existing CV/rubric. Tutorial round-trip keeps `assignmentId` and returns to assigned-practice (no open redirect).
+- Official assignment completion is one atomic batch: `sessions/{sessionId}` + feedbacks + required `assignment_attempts/official_ptr_{sessionId}`. Phase 4 XP/public-profile projections run only after that commit, best-effort (Session Complete hang fix preserved).
+- Teacher-created assigned practice reuses Free Practice camera mode with `prepare.movement = "Free Practice"`. No `sessions`, no XP, no `recordCompletedSession`. Draft/in_progress attempt starts when practice actually begins.
+- Public profile projections omit `assignment_context` and classroom IDs.
+- Phase 6 video and Phase 7 template scoring remain unimplemented. `teacher_app/` is untouched.
+
+### Firestore schema added
+
+Collections (IDs in `packages/elixr_core/lib/database/firestore_collections.dart`):
+
+- `teacher_movements/{movementId}` — `teacher_id`, `title`, `status` (`active`|`archived`), `current_revision_id`, `schema_version`, `created_at`, `updated_at`
+- `teacher_movements/{movementId}/revisions/{revisionId}` — `movement_id`, `teacher_id`, `schema_version`, `assessment_mode`, `spec` (`instructions`, `required_prop`, `capability=teacher_review_only`, optional `safety_guidance`), `created_at`. Immutable after create.
+- `group_assignments/{assignmentId}` — frozen identity: `teacher_id`, `group_id`, `movement_id`, `revision_id`, `origin` (`official_elixr`|`teacher_created`), `assessment_mode`. Lifecycle: `status`, `updated_at`, optional `due_at`. Official requires `official_movement_name`. Teacher-created stores display snapshot + `allowed_prop`.
+- `assignment_attempts/{attemptId}` — frozen identity including `awards_global_xp: false`. Official pointer: `attempt_kind=practice_pointer`, `status=submitted`, `source_session_id`, copied V2 rubric fields. Teacher-created Phase 5: `attempt_kind=teacher_review_draft`, `status` `draft`|`in_progress`, no session/rubric/video/review fields.
+
+`sessions` gained optional `assignment_context: { assignment_id, group_id, teacher_id, movement_id, revision_id }` — present only for official assigned guided sessions; immutable after create.
+
+Official pointer ID helper: `assignmentAttemptIdForOfficialSession(sessionId)` → `official_ptr_{sessionId}`.
+
+### Official assignment atomic contract
+
+1. Client writes session + feedbacks + pointer in one batch (`FirestoreHelper.saveSessionWithFeedbacks`).
+2. Rules: session create with `assignment_context` requires `getAfter()` of that deterministic pointer; pointer create requires `getAfter()` of the matching session. Historical sessions without context cannot attach. Assignment A cannot satisfy assignment B. `awards_global_xp` must be false.
+3. After commit succeeds, existing Phase 4 `recordCompletedSession` + public-profile projection run in the background exactly once per session id (idempotent marker `leaderboard_processed_sessions/{sessionId}`).
+
+Canonical mapping is enforced at **assignment create**. Session create trusts the assignment document + membership + pointer identity (keeps the batch under Firestore’s 1000-expression budget). Pointer create copies rubric fields from the source session via `getAfter()`.
+
+### Indexes added
+
+Only one new composite index, for a query the implementation actually uses:
+
+- `assignment_attempts`: `teacher_id` ASC, `assignment_id` ASC — `watchAttemptsForAssignment`.
+
+Single-field equality queries (automatic indexes): `group_assignments.teacher_id`, `group_assignments.group_id`, `assignment_attempts.teacher_id`, `assignment_attempts.trainee_id`, `teacher_movements.teacher_id`. Local sort for due-date/recency.
+
+### Account erasure
+
+Safe Phase 5 extension implemented in `elixr_core` `auth_repository.dart`:
+
+- Before users-doc delete: purge owned `teacher_movements` (+ revisions) and `group_assignments`.
+- After users-doc delete: purge `assignment_attempts` where `trainee_id` or `teacher_id` == uid (erasure-only; ordinary Teachers still cannot delete trainee attempts).
+
+Remaining decision/risk: if a Teacher account is erased first, classroom attempts with that `teacher_id` are purged even if trainees still exist. Do not broaden ordinary Teacher delete on trainee records. Client-only erasure is not a server-side guarantee against a hostile leftover client.
+
+### Commands actually run (this implementation)
+
+| Command | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | Clean after format |
+| `flutter analyze` | **0 errors**. 15 infos/warnings, all pre-existing (none in Phase 5 files) |
+| `flutter test` | **1293 passed**, 0 failed (baseline 1265) |
+| `packages/elixr_core` `flutter test` | **85 passed**, 0 failed (baseline 82) |
+| `teacher_app` `flutter test` | **95 passed**, 0 failed (baseline 95; package untouched) |
+| `cd firestore-tests; npm test` with Temurin JRE 21 | **241 passed**, 0 failed (baseline 221; includes 20 new `assignments_v1` cases) |
+| `cd backend; .\.venv\Scripts\python.exe -m pytest -q tests` | **1094 passed** |
+| `flutter build windows` | **Succeeded** (`build\windows\x64\runner\Release\elixr_application.exe`) |
+| `firebase deploy` | **Not run** |
+
+### Not verified / remaining human checklist
+
+- [ ] Deploy Firestore rules and indexes (human-authorized only).
+- [ ] Assign official Hand Stall; complete **from the assignment**; global XP +25 once; Teacher sees pointer without Progress Access or Public Profile visibility.
+- [ ] Older non-assignment Hand Stall session does **not** complete a newly created assignment.
+- [ ] Create Teacher movement; assign; Trainee practice does **not** change global XP or write `sessions`.
+- [ ] Incomplete official lesson returns to `/assigned-practice/:id` after Start guided practice.
+- [ ] Session Complete Finish returns to Assigned Movements; Try Again retries the same assignment; no next-catalog CTA.
+- [ ] Trainee cannot set `review_verdict` or `status=approved`.
+- [ ] Second Teacher cannot open those attempts.
+- [ ] Locked public profile still shows the assignment on Assigned Movements and the pointer to the assigning Teacher.
+- [ ] Teacher Movements / Assigned Movements at existing desktop sizes and collapsed Trainee sidebar.
+- [ ] Camera + backend live path for both official assigned practice and Teacher-created Free Practice mode.
+
+Phase 6 NOT started. Phase 7 NOT started. `teacher_app/` intact. Firebase not deployed. No commit/push.
 
 ## 23. Handoff requirements for Phase 6
 
