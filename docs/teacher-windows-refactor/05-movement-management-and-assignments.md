@@ -1,6 +1,6 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
-**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. This final revision-publication correction follows it (working tree, not yet committed). Firestore rules/indexes are **not** production deployed. Live Teacher/Trainee assignment flow is **not** verified. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
+**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Final revision-publication correction: `abd00be13ac5d648995450848b67d40e49f53e64`. Firestore rules/indexes are **not** production deployed. Live Teacher/Trainee assignment flow is **not** verified. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
 **Sequence:** `05` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 4 official XP gate is on `main`. If non-catalog sessions can still award global XP, **STOP**.
 
@@ -19,7 +19,7 @@
 
 ## 1. Status
 
-Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0` hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. This follow-up requires a Teacher movement edit to publish a **new** immutable revision in the same atomic write (`!exists` + `existsAfter` of the target revision), so a client cannot repoint `current_revision_id` at a historical revision. Not marked CLOSED: production rules/indexes undeployed, live classroom flow unverified. Phase 6/7 not started.
+Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0` hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. Final revision-publication correction `abd00be13ac5d648995450848b67d40e49f53e64` requires a Teacher movement edit to publish a **new** immutable revision in the same atomic write (`!exists` + `existsAfter` of the target revision), so a client cannot repoint `current_revision_id` at a historical revision. Not marked CLOSED: production rules/indexes undeployed, live classroom flow unverified. Phase 6/7 not started.
 
 ## 2. Goal
 
@@ -320,7 +320,7 @@ Discovered after `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e` and committed on `ma
 
 Firebase remains **not deployed** after this correction.
 
-A later revision-publication hole remained after `94ddee1f`: `validTeacherMovementPublishRevisionUpdate` required `current_revision_id` to change and inspected `getAfter(targetRevision)`, but an already-existing historical revision satisfies `getAfter`. A modified client could therefore set `current_revision_id` back to `rev1` while `rev2` was current, without creating a new revision. The follow-up requires `!exists(revisionPath) && existsAfter(revisionPath)` so the target revision is newly created in that same atomic request; `validTeacherMovementRevisionCreate` still independently requires `teacher_reviewed` and `created_at == request.time`.
+A later revision-publication hole remained after `94ddee1f`: `validTeacherMovementPublishRevisionUpdate` required `current_revision_id` to change and inspected `getAfter(targetRevision)`, but an already-existing historical revision satisfies `getAfter`. A modified client could therefore set `current_revision_id` back to `rev1` while `rev2` was current, without creating a new revision. The final correction, committed on `main` as `abd00be13ac5d648995450848b67d40e49f53e64`, requires `!exists(revisionPath) && existsAfter(revisionPath)` so the target revision is newly created in that same atomic request; `validTeacherMovementRevisionCreate` still independently requires `teacher_reviewed` and `created_at == request.time`.
 
 Firebase remains **not deployed** after this follow-up.
 
@@ -408,7 +408,7 @@ Remaining decision/risk: if a Teacher account is erased first, classroom attempt
 
 Phase 6 NOT started. Phase 7 NOT started. `teacher_app/` intact. Firebase not deployed.
 
-The original Phase 5 implementation is on `main` as `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. The first integrity correction is `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. This final revision-publication correction follows it and is not committed. Do not deploy Firestore until a human authorizes it.
+The original Phase 5 implementation is on `main` as `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. The first integrity correction is `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. The final revision-publication correction is `abd00be13ac5d648995450848b67d40e49f53e64`. Do not deploy Firestore until a human authorizes it.
 
 ## 23. Handoff requirements for Phase 6
 
