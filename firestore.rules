@@ -2553,6 +2553,9 @@ service cloud.firestore {
     function officialAssignmentAttemptId(sessionId) {
       return 'official_ptr_' + sessionId;
     }
+    function teacherCreatedDraftAttemptId(assignmentId, traineeId) {
+      return 'tc_draft_' + assignmentId + '_' + traineeId;
+    }
     function isClassroomDocId(value) {
       return value is string && value.size() > 0 && value.size() <= 128
         && value.matches('^[A-Za-z0-9_-]+$');
@@ -2667,35 +2670,47 @@ service cloud.firestore {
         && getAfter(teacherMovementRevisionPath(movementId, data.current_revision_id)).data.movement_id
           == movementId;
     }
-    function validTeacherMovementUpdate(movementId) {
-      return isVerifiedTeacher()
-        && resource.data.teacher_id == request.auth.uid
-        && request.resource.data.keys().hasOnly(teacherMovementRootKeys())
+    function validTeacherMovementRootIdentity() {
+      return request.resource.data.keys().hasOnly(teacherMovementRootKeys())
         && request.resource.data.keys().hasAll(teacherMovementRootKeys())
         && request.resource.data.teacher_id == resource.data.teacher_id
         && request.resource.data.created_at == resource.data.created_at
         && request.resource.data.schema_version == resource.data.schema_version
         && request.resource.data.updated_at == request.time
         && isBoundedText(request.resource.data.title, 80)
-        && request.resource.data.status in ['active', 'archived']
-        && isClassroomDocId(request.resource.data.current_revision_id)
+        && isClassroomDocId(request.resource.data.current_revision_id);
+    }
+    function validTeacherMovementArchiveUpdate() {
+      return resource.data.status == 'active'
+        && request.resource.data.status == 'archived'
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.current_revision_id == resource.data.current_revision_id
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updated_at']);
+    }
+    function validTeacherMovementPublishRevisionUpdate(movementId) {
+      let newRevision = getAfter(
+        teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id)
+      ).data;
+      return resource.data.status == 'active'
+        && request.resource.data.status == 'active'
+        && request.resource.data.current_revision_id != resource.data.current_revision_id
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['title', 'current_revision_id', 'updated_at'])
+        && newRevision.movement_id == movementId
+        && newRevision.teacher_id == request.auth.uid;
+    }
+    function validTeacherMovementUpdate(movementId) {
+      return isVerifiedTeacher()
+        && resource.data.teacher_id == request.auth.uid
+        && validTeacherMovementRootIdentity()
         && (
-          (
-            request.resource.data.current_revision_id == resource.data.current_revision_id
-            && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['status', 'updated_at', 'title'])
-          )
-          || (
-            request.resource.data.current_revision_id != resource.data.current_revision_id
-            && existsAfter(teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id))
-            && getAfter(teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id)).data.movement_id
-              == movementId
-            && getAfter(teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id)).data.teacher_id
-              == request.auth.uid
-          )
+          validTeacherMovementArchiveUpdate()
+          || validTeacherMovementPublishRevisionUpdate(movementId)
         );
     }
     function validTeacherMovementRevisionCreate(data, movementId, revisionId) {
+      let afterRoot = getAfter(teacherMovementPath(movementId)).data;
       return isVerifiedTeacher()
         && isClassroomDocId(movementId)
         && isClassroomDocId(revisionId)
@@ -2704,21 +2719,11 @@ service cloud.firestore {
         && data.movement_id == movementId
         && data.teacher_id == request.auth.uid
         && data.schema_version == 1
-        && data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        && data.assessment_mode == 'teacher_reviewed'
         && validTeacherReviewedSpec(data.spec)
         && data.created_at == request.time
-        && (
-          (
-            existsAfter(teacherMovementPath(movementId))
-            && getAfter(teacherMovementPath(movementId)).data.teacher_id == request.auth.uid
-            && getAfter(teacherMovementPath(movementId)).data.current_revision_id == revisionId
-          )
-          || (
-            exists(teacherMovementPath(movementId))
-            && get(teacherMovementPath(movementId)).data.teacher_id == request.auth.uid
-            && getAfter(teacherMovementPath(movementId)).data.current_revision_id == revisionId
-          )
-        );
+        && afterRoot.teacher_id == request.auth.uid
+        && afterRoot.current_revision_id == revisionId;
     }
 
     match /teacher_movements/{movementId} {
@@ -2775,31 +2780,34 @@ service cloud.firestore {
         && !data.keys().hasAny(['display_safety_guidance']);
     }
     function validTeacherCreatedAssignmentCreate(data) {
+      let movement = get(teacherMovementPath(data.movement_id)).data;
+      let revision = get(
+        teacherMovementRevisionPath(data.movement_id, data.revision_id)
+      ).data;
       return data.origin == 'teacher_created'
-        && data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        && data.assessment_mode == 'teacher_reviewed'
         && !data.keys().hasAny(['official_movement_name'])
-        && exists(teacherMovementPath(data.movement_id))
-        && get(teacherMovementPath(data.movement_id)).data.teacher_id == request.auth.uid
-        && get(teacherMovementPath(data.movement_id)).data.status == 'active'
-        && exists(teacherMovementRevisionPath(data.movement_id, data.revision_id))
-        && get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.movement_id
-          == data.movement_id
-        && get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.teacher_id
-          == request.auth.uid
-        && get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.assessment_mode
-          == data.assessment_mode
-        && data.display_title == get(teacherMovementPath(data.movement_id)).data.title
+        && movement.teacher_id == request.auth.uid
+        && movement.status == 'active'
+        && movement.current_revision_id == data.revision_id
+        && revision.movement_id == data.movement_id
+        && revision.teacher_id == request.auth.uid
+        && revision.assessment_mode == 'teacher_reviewed'
+        && data.display_title == movement.title
         && isBoundedText(data.display_instructions, 2000)
+        && data.display_instructions == revision.spec.instructions
         && data.keys().hasAny(['allowed_prop'])
         && isTrainingProp(data.allowed_prop)
-        && data.allowed_prop
-          == get(teacherMovementRevisionPath(data.movement_id, data.revision_id)).data.spec.required_prop
+        && data.allowed_prop == revision.spec.required_prop
+        && data.get('display_safety_guidance', '__elixr_absent__')
+          == revision.spec.get('safety_guidance', '__elixr_absent__')
         && (
           !data.keys().hasAny(['display_safety_guidance'])
           || isBoundedText(data.display_safety_guidance, 1000)
         );
     }
     function validGroupAssignmentCreate(data) {
+      let group = get(groupPath(data.group_id)).data;
       return isVerifiedTeacher()
         && data.keys().hasAll(groupAssignmentRequiredKeys())
         && data.keys().hasOnly(groupAssignmentAllowedKeys())
@@ -2808,10 +2816,9 @@ service cloud.firestore {
         && isClassroomDocId(data.group_id)
         && isClassroomDocId(data.movement_id)
         && isClassroomDocId(data.revision_id)
-        && exists(groupPath(data.group_id))
-        && get(groupPath(data.group_id)).data.teacher_id == request.auth.uid
-        && get(groupPath(data.group_id)).data.status == 'active'
-        && data.group_name == get(groupPath(data.group_id)).data.name
+        && group.teacher_id == request.auth.uid
+        && group.status == 'active'
+        && data.group_name == group.name
         && isDisplayName(data.teacher_display_name)
         && data.teacher_display_name == userFullName(request.auth.uid)
         && isBoundedText(data.display_title, 80)
@@ -2846,6 +2853,10 @@ service cloud.firestore {
           == resource.data.get('official_movement_name', '__elixr_absent__')
         && request.resource.data.get('allowed_prop', '__elixr_absent__')
           == resource.data.get('allowed_prop', '__elixr_absent__')
+        && request.resource.data.get('display_instructions', '__elixr_absent__')
+          == resource.data.get('display_instructions', '__elixr_absent__')
+        && request.resource.data.get('display_safety_guidance', '__elixr_absent__')
+          == resource.data.get('display_safety_guidance', '__elixr_absent__')
         && request.resource.data.status in ['active', 'archived']
         && request.resource.data.updated_at == request.time
         && (
@@ -2853,8 +2864,7 @@ service cloud.firestore {
           || request.resource.data.due_at is timestamp
         )
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'due_at', 'updated_at', 'display_instructions',
-            'display_safety_guidance']);
+          .hasOnly(['status', 'due_at', 'updated_at']);
     }
 
     match /group_assignments/{assignmentId} {
@@ -2932,9 +2942,10 @@ service cloud.firestore {
     }
     function validTeacherDraftAttemptCreate(data, attemptId) {
       return data.attempt_kind == 'teacher_review_draft'
+        && attemptId == teacherCreatedDraftAttemptId(data.assignment_id, data.trainee_id)
         && data.status in ['draft', 'in_progress']
         && data.origin == 'teacher_created'
-        && data.assessment_mode in ['teacher_reviewed', 'template_scored']
+        && data.assessment_mode == 'teacher_reviewed'
         && data.keys().hasOnly(teacherDraftAllowedKeys())
         && data.keys().hasAll(teacherDraftAllowedKeys())
         && !data.keys().hasAny(['source_session_id', 'rubric', 'rubric_total',
