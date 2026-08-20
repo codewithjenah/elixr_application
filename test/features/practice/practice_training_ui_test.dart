@@ -398,6 +398,7 @@ void main() {
         );
         await tester.pump();
         expect(tester.takeException(), isNull);
+        expect(find.text('Backend Connected'), findsWidgets);
 
         final title = tester.widget<Text>(find.text('Hand Stall'));
         final instruction = tester.widget<Text>(find.text('Hold steady.'));

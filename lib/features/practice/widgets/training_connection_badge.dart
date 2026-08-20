@@ -22,7 +22,7 @@ class TrainingConnectionBadge extends StatelessWidget {
 
     final (label, color, bgAlpha, borderAlpha) = switch (state) {
       WebSocketConnectionState.connected => (
-        'Camera Connected',
+        'Backend Connected',
         AppColors.success,
         0.12,
         0.28,

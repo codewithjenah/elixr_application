@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -37,12 +37,20 @@ import 'widgets/training_status_row.dart';
 /// Free-form live practice: camera streams with detection overlays but the
 /// user is not locked to a movement and no scoring/feedback is shown.
 class LivePracticeScreen extends StatefulWidget {
-  const LivePracticeScreen({super.key, this.teacherCreatedAssignment});
+  const LivePracticeScreen({
+    super.key,
+    this.teacherCreatedAssignment,
+    @visibleForTesting this.websocketService,
+  });
 
   final TeacherCreatedAssignmentPractice? teacherCreatedAssignment;
 
+  /// Test injection. Production constructs [WebSocketService] in [createState].
+  @visibleForTesting
+  final WebSocketService? websocketService;
+
   @override
-  State<LivePracticeScreen> createState() => _LivePracticeScreenState();
+  State<LivePracticeScreen> createState() => LivePracticeScreenState();
 }
 
 class TeacherCreatedAssignmentPractice {
@@ -56,8 +64,27 @@ class TeacherCreatedAssignmentPractice {
   static const backendMovementName = 'Free Practice';
 }
 
-class _LivePracticeScreenState extends State<LivePracticeScreen> {
-  final _ws = WebSocketService();
+@visibleForTesting
+String livePracticePrepareFailureMessage(Object error) {
+  if (error is CommandTimeoutException) {
+    return 'Camera preparation timed out. Check the backend and try again.';
+  }
+  if (error is CommandDisconnectedException) {
+    return 'Lost connection to the backend during camera preparation. Check the backend and try again.';
+  }
+  if (error is CommandAckMismatchException) {
+    return 'Camera preparation was out of sync with the backend. Try starting again.';
+  }
+  if (error is StateError &&
+      error.message.contains('command is already pending')) {
+    return 'Camera preparation failed. Check the backend and try again.';
+  }
+  return 'Camera preparation failed. Check the backend and try again.';
+}
+
+class LivePracticeScreenState extends State<LivePracticeScreen> {
+  late final WebSocketService _ws;
+  late final bool _ownsWebSocket;
   final _music = PracticeMusicService();
   final _sfx = PracticeSfxService();
   final _run = PracticeRunController();
@@ -71,6 +98,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   bool _connecting = false;
   String? _sessionError;
   bool _leaving = false;
+  bool _startInFlight = false;
+
+  /// True while a WebSocket prepare/activate command is awaiting ack.
   bool _commandInFlight = false;
 
   static const _wideBreakpoint = 1100.0;
@@ -79,6 +109,8 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
   @override
   void initState() {
     super.initState();
+    _ownsWebSocket = widget.websocketService == null;
+    _ws = widget.websocketService ?? WebSocketService();
     final settings = context.read<SettingsService>();
     _rotation = MovementRotationController(
       movements: _resolveMovements(settings.justDanceMovementNames),
@@ -88,7 +120,9 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _run.addListener(_onRunChanged);
     _feedbackSub = _ws.feedbackStream.listen(_onFeedback);
     _previewSub = _ws.previewStream.listen(_onPreviewFrame);
-    _connect();
+    if (widget.websocketService == null || !_ws.isConnected) {
+      _connect();
+    }
     _sfx.preload();
   }
 
@@ -103,9 +137,17 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     _ws.removeListener(_onWsStateChanged);
     _run.removeListener(_onRunChanged);
     _run.dispose();
-    _ws.dispose();
+    if (_ownsWebSocket) {
+      _ws.dispose();
+    }
     super.dispose();
   }
+
+  @visibleForTesting
+  Future<void> debugStartSession() => _startSession();
+
+  @visibleForTesting
+  WebSocketService get debugWebSocket => _ws;
 
   /// Maps persisted setlist names to catalog [Movement]s, preserving the
   /// chosen rotation order and silently dropping any unknown names.
@@ -266,6 +308,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       _connect();
       return;
     }
+    if (_startInFlight || _leaving) return;
     if (_commandInFlight) return;
     if (_run.phase != PracticeRunPhase.idle &&
         _run.phase != PracticeRunPhase.error) {
@@ -273,7 +316,6 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     }
 
     final assignment = widget.teacherCreatedAssignment;
-    final settings = context.read<SettingsService>();
     if (assignment != null) {
       final traineeId = context.read<AuthService>().currentUser?.id;
       if (traineeId == null) {
@@ -282,6 +324,26 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
         });
         return;
       }
+    }
+
+    _startInFlight = true;
+    if (mounted) setState(() {});
+
+    try {
+      await _runStartSessionBody(assignment);
+    } finally {
+      _startInFlight = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _runStartSessionBody(
+    TeacherCreatedAssignmentPractice? assignment,
+  ) async {
+    final settings = context.read<SettingsService>();
+    if (assignment != null) {
+      final traineeId = context.read<AuthService>().currentUser?.id;
+      if (traineeId == null || _leaving || !mounted) return;
       final assignmentRepo = context.read<ClassroomAssignmentRepository>();
       try {
         await assignmentRepo.startTeacherCreatedAttempt(
@@ -298,6 +360,12 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
       }
     }
 
+    if (!mounted || _leaving) return;
+    if (_run.phase != PracticeRunPhase.idle &&
+        _run.phase != PracticeRunPhase.error) {
+      return;
+    }
+
     _sessionError = null;
     _clearFrame();
     _latestFeedback = null;
@@ -307,7 +375,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
     setState(() {});
 
     final cameraDeviceId = await settings.loadSelectedCameraDeviceId();
-    if (!mounted) return;
+    if (!mounted || _leaving) return;
     if (!_run.isPreparingCamera) return;
 
     // Internal Free Practice vision mode: camera + prop detection only.
@@ -323,7 +391,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
             ? settings.pendingLegacyCameraIndex
             : null,
       );
-      if (!mounted) return;
+      if (!mounted || _leaving) return;
       if (!_run.isPreparingCamera) return;
 
       if (!ack.accepted) {
@@ -340,11 +408,15 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
           _clearFrame();
         });
       }
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!mounted) return;
-      final message = error is CommandTimeoutException
-          ? 'Camera preparation timed out. Check the backend and try again.'
-          : 'Camera preparation failed. Check the backend and try again.';
+      debugPrint(
+        'LivePractice prepare failed: $error\n'
+        'lastProtocolError=${_ws.lastProtocolError?.errorCode} '
+        '${_ws.lastProtocolError?.message}',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      final message = livePracticePrepareFailureMessage(error);
       _run.onPreviewFeedback(
         hasJpegFrame: false,
         isFatal: true,
@@ -662,7 +734,7 @@ class _LivePracticeScreenState extends State<LivePracticeScreen> {
                     TrainingActionKind.retry || TrainingActionKind.start =>
                       _ws.isConnected ? _startSession : _connect,
                   },
-                  isLoading: _connecting || _commandInFlight,
+                  isLoading: _connecting || _startInFlight || _commandInFlight,
                 ),
               );
 

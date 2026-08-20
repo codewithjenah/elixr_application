@@ -1,6 +1,6 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
-**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Final revision-publication correction: `abd00be13ac5d648995450848b67d40e49f53e64`. Live-fix (not yet production-closed): Teacher-created start uses create-first (no missing-document `get`), and public-profile summary writes replace the document with the current allowed schema. Production Firestore rules/indexes must not be redeployed until this client fix is reviewed. Live Teacher-created start and public-profile canonicalization are **not** re-verified in production after this fix. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
+**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Final revision-publication correction: `abd00be13ac5d648995450848b67d40e49f53e64`. Live-fix 1: Teacher-created start uses create-first (no missing-document `get`); public-profile summary writes replace the document with the current allowed schema. Live-fix 2 (this change, not committed): Teacher-created Start is single-flight through WebSocket prepare; connection badge is WebSocket connectivity, not camera readiness. Production Firestore rules/indexes must not be redeployed unless a later diagnosis requires it. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
 **Sequence:** `05` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 4 official XP gate is on `main`. If non-catalog sessions can still award global XP, **STOP**.
 
@@ -19,7 +19,7 @@
 
 ## 1. Status
 
-Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0` hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. Final revision-publication correction `abd00be13ac5d648995450848b67d40e49f53e64` requires a Teacher movement edit to publish a **new** immutable revision in the same atomic write (`!exists` + `existsAfter` of the target revision), so a client cannot repoint `current_revision_id` at a historical revision. Production live verification then found two client-side Firestore interaction bugs (Teacher-created start pre-read of a missing attempt; public-profile summary merge of unknown legacy keys). Those are fixed in this working tree and **must be retested live** before Phase 5 can close. Phase 6/7 not started.
+Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Final revision-publication correction `abd00be13ac5d648995450848b67d40e49f53e64`. Production live verification then found: (1) Teacher-created start pre-read of a missing attempt, (2) public-profile summary merge of unknown legacy keys, (3) after those Firestore fixes, Start still failed during WebSocket prepare with a generic camera-preparation error, overlapping Start, and a badge that said "Camera Connected" for a connected socket. Those client issues are fixed in this working tree and **must be retested live** before Phase 5 can close. Phase 6/7 not started.
 
 ## 2. Goal
 
@@ -413,33 +413,37 @@ PASSED:
 - Official Hand Stall assignment appears in Teacher Assignments
 - Teacher sees "1 completed"
 - official result visible as 12/12 Mastered
+- first Teacher-created Firestore start bug (pre-read of a missing `assignment_attempts` document) was fixed; production retest progressed beyond assignment-attempt persistence
 
-FAILED / discovered:
+FAILED / discovered after that retest:
 
-- first Teacher-created assignment start was blocked by a pre-read of a nonexistent deterministic `assignment_attempts` document (`get` uses `resource.data` ownership, so missing docs are permission-denied before create)
-- public-profile summary rebuild hit permission-denied on the canonicalization path because `SetOptions(merge: true)` preserved unknown legacy keys, and `validPublicProfileSummary` requires `keys().hasOnly(...)`
+- Trainee reached Teacher-created `LivePracticeScreen` for **Basic Bottle Balances**
+- Start ended with **"Camera preparation failed. Check the backend and try again."**
+- The UI could show a camera-like image / connected badge at the same time
+- `TrainingConnectionBadge`'s old **"Camera Connected"** label meant `WebSocketConnectionState.connected` only, **not** a successful camera `prepare`
+- `_startSession()` checked `_commandInFlight` before Teacher-created attempt persistence and camera-settings load, but did not set that flag until after those awaits, so a second Start could enter the same flow and hit `WebSocketService`'s overlapping-prepare `StateError`, which the screen mapped to the generic prepare-failure copy
 
-Client fix (this change, not committed): Teacher-created start is create-first with a strict identity-checked fallback read; public-profile summary writes replace the document with only current supported keys. Assignment-attempt read rules and `validPublicProfileSummary` were **not** loosened.
+Client fix (this change, not committed): the entire Start/Retry operation is single-flight from the first click (`_startInFlight`); prepare failures are mapped without hiding timeout/disconnect/ack-mismatch/backend rejection messages; the badge now reads **Backend Connected**. Automated tests reproduce the duplicate-Start race and assert Teacher-created prepare uses `movement=Free Practice` with the assignment prop only. Backend tests confirm `Free Practice` + Easy + bottle/shaker/bottle_and_shaker prepare is accepted when camera startup is mocked, and `"Basic Bottle Balances"` is still `invalid_movement`.
 
-Phase 5 remains **not CLOSED** until Teacher-created start and public-profile `ensurePublicProfile` are retested against production after this client ships. Automated tests are not a substitute for that live retest.
+Phase 5 remains **not CLOSED**. Camera/backend live success is **not** claimed until a human retests Teacher-created Start after this client ships. Automated tests are not a substitute for that live retest.
 
-Separate technical debt (not this fix): the `audioplayers` Windows native-thread warning is a plugin/platform-channel issue. It is not the cause of the assignment permission denial. Do not mix a player upgrade into this correction.
+Separate technical debt (not this fix): the `audioplayers` Windows native-thread warning is a plugin/platform-channel issue. It is not the cause of the assignment permission denial or this prepare-start race. Do not mix a player upgrade into this correction.
 
-### Commands actually run (Teacher-created start + public-profile canonical summary live fix)
+### Commands actually run (Teacher-created Start WebSocket prepare race live fix)
 
 | Command | Result |
 |---|---|
 | `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | Clean (0 files changed) after format |
 | `flutter analyze` | **0 errors**. 15 infos/warnings, all pre-existing |
-| `flutter test` | **1309 passed**, 0 failed (was 1293; +16 Dart regressions) |
+| `flutter test` | **1313 passed**, 0 failed (was 1309; +2 Start single-flight widget tests, +1 Teacher-created prepare payload, +1 prepare-failure mapping) |
 | `packages/elixr_core` `flutter test` | **85 passed**, 0 failed |
 | `teacher_app` `flutter test` | **95 passed**, 0 failed (package untouched) |
-| `cd firestore-tests; npm test` with Temurin JRE 21 | **271 passed**, 0 failed (was 266; +4 assignment create-first cases, +1 legacy summary replacement) |
-| `cd backend; .\.venv\Scripts\python.exe -m pytest -q tests` | **1094 passed** |
+| `cd firestore-tests; npm test` with Temurin JRE 21 | **271 passed**, 0 failed (rules unchanged) |
+| `cd backend; .\.venv\Scripts\python.exe -m pytest -q tests` | **1098 passed** (was 1094; +3 Free Practice prepare props, +1 Teacher title rejection) |
 | `flutter build windows` | **Succeeded** (`build\windows\x64\runner\Release\elixr_application.exe`) |
 | `firebase deploy` | **Not run** |
 
-Phase 6 NOT started. Phase 7 NOT started. `teacher_app/` intact. Firebase not deployed.
+Phase 6 NOT started. Phase 7 NOT started. `teacher_app/` intact. Firebase not deployed. Firestore rules/indexes were not modified.
 
 The original Phase 5 implementation is on `main` as `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. The first integrity correction is `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. The final revision-publication correction is `abd00be13ac5d648995450848b67d40e49f53e64`. Do not deploy Firestore until a human authorizes it.
 

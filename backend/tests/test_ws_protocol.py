@@ -509,6 +509,55 @@ def test_unknown_action_structured_rejection(monkeypatch):
     asyncio.run(_run())
 
 
+@pytest.mark.parametrize("prop_type", ["bottle", "shaker", "bottle_and_shaker"])
+def test_free_practice_prepare_accepts_any_supported_prop(monkeypatch, prop_type):
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            _prepare_payload(
+                movement="Free Practice",
+                difficulty="Easy",
+                prop_type=prop_type,
+            )
+        )
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is True
+        assert StubCamera.open_calls == 1
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
+def test_teacher_created_title_is_not_a_valid_prepare_movement(monkeypatch):
+    assert validate_movement_name("Basic Bottle Balances") == "invalid_movement"
+    _patch_vision(monkeypatch)
+    monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
+
+    async def _run():
+        ws = FakeWebSocket()
+        task = asyncio.create_task(websocket_api.websocket_endpoint(ws))
+        await ws.push(
+            _prepare_payload(
+                movement="Basic Bottle Balances",
+                difficulty="Easy",
+                prop_type="bottle",
+            )
+        )
+        ack = await _wait_for_ack(ws, "req-1")()
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "invalid_movement"
+        assert StubCamera.open_calls == 0
+        await ws.close_client()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+
+
 def test_unknown_movement_rejected(monkeypatch):
     _patch_vision(monkeypatch)
     monkeypatch.setattr(websocket_api, "release_shared_camera", lambda: None)
