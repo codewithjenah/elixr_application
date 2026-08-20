@@ -6,7 +6,7 @@
 
 ## Implementing agent instructions
 
-Phase 4 is **CLOSED**. Do not reopen implementation from this file. Do not start Phase 5 from this document’s historical implementation list; use [05-custom-movements-and-assignment-creation.md](05-custom-movements-and-assignment-creation.md) when Phase 5 begins.
+Phase 4 is **CLOSED**. Do not reopen implementation from this file. Do not start Phase 5 from this document’s historical implementation list; use [05-movement-management-and-assignments.md](05-movement-management-and-assignments.md) when Phase 5 begins.
 
 Historical constraints that remain true:
 
