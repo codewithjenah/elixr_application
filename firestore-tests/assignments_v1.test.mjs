@@ -819,6 +819,74 @@ describe('Phase 5 integrity: Teacher movement edits require new revisions', () =
     await assertSucceeds(batch.commit());
   });
 
+  test('repointing current_revision_id to a historical revision is denied', async () => {
+    await seedClassroom();
+    await seedTeacherMovement({
+      currentRevisionId: 'rev2',
+      extraRevisions: [
+        { id: 'rev2', spec: teacherReviewedSpec({ instructions: 'Current spec.' }) },
+      ],
+    });
+    const db = context('teacher').firestore();
+    await assertFails(
+      updateDoc(doc(db, 'teacher_movements', 'tm1'), {
+        current_revision_id: 'rev1',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'teacher_movements', 'tm1'), {
+        title: 'Rolled Back Title',
+        current_revision_id: 'rev1',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('repointing current_revision_id to another pre-existing non-current revision is denied', async () => {
+    await seedClassroom();
+    await seedTeacherMovement({
+      currentRevisionId: 'rev3',
+      extraRevisions: [
+        { id: 'rev2', spec: teacherReviewedSpec({ instructions: 'Middle spec.' }) },
+        { id: 'rev3', spec: teacherReviewedSpec({ instructions: 'Latest spec.' }) },
+      ],
+    });
+    const db = context('teacher').firestore();
+    await assertFails(
+      updateDoc(doc(db, 'teacher_movements', 'tm1'), {
+        current_revision_id: 'rev2',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('publishing a fresh revision from current rev2 to rev3 is allowed', async () => {
+    await seedClassroom();
+    await seedTeacherMovement({
+      currentRevisionId: 'rev2',
+      extraRevisions: [
+        { id: 'rev2', spec: teacherReviewedSpec({ instructions: 'Current spec.' }) },
+      ],
+    });
+    const db = context('teacher').firestore();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'teacher_movements', 'tm1', 'revisions', 'rev3'), {
+      movement_id: 'tm1',
+      teacher_id: 'teacher',
+      schema_version: 1,
+      assessment_mode: 'teacher_reviewed',
+      spec: teacherReviewedSpec({ instructions: 'Keep the tin still.' }),
+      created_at: serverTimestamp(),
+    });
+    batch.update(doc(db, 'teacher_movements', 'tm1'), {
+      title: 'Still Tin Balance',
+      current_revision_id: 'rev3',
+      updated_at: serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+  });
+
   test('archived movement cannot silently reactivate by changing revision', async () => {
     await seedClassroom();
     await seedTeacherMovement({ status: 'archived' });

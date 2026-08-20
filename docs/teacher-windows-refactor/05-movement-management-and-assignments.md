@@ -1,6 +1,6 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
-**Status:** Code complete on `main` (not production-closed). Post-commit Firestore integrity correction is in the working tree (not yet committed). Automated Flutter/Python/emulator checks for this correction passed locally. Firestore rules/indexes are **not** deployed. Live Teacher/Trainee assignment flow is **not** verified. Phase 6 and Phase 7 were not started.  
+**Status:** Phase 5 code complete on `main` (not production-closed). Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First Firestore integrity correction: `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. This final revision-publication correction follows it (working tree, not yet committed). Firestore rules/indexes are **not** production deployed. Live Teacher/Trainee assignment flow is **not** verified. Phase 5 is **not CLOSED**. Phase 6 and Phase 7 were not started.  
 **Sequence:** `05` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 4 official XP gate is on `main`. If non-catalog sessions can still award global XP, **STOP**.
 
@@ -19,7 +19,7 @@
 
 ## 1. Status
 
-Code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. A post-commit Firestore integrity correction hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. Not marked CLOSED: production rules/indexes undeployed, live classroom flow unverified.
+Phase 5 code complete on existing `main`. Implementation commit `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. First integrity correction `94ddee1ff6a5598eb756ad38722d2522e18f88b0` hardens movement-edit, assignment-snapshot, `template_scored`, and draft-attempt ID rules. This follow-up requires a Teacher movement edit to publish a **new** immutable revision in the same atomic write (`!exists` + `existsAfter` of the target revision), so a client cannot repoint `current_revision_id` at a historical revision. Not marked CLOSED: production rules/indexes undeployed, live classroom flow unverified. Phase 6/7 not started.
 
 ## 2. Goal
 
@@ -33,7 +33,7 @@ Let Teachers manage Official vs Teacher-created movements, version definitions, 
 - Official assignment launch uses existing guided practice: a successful run **creates `sessions/{sessionId}`**, remains eligible for official global XP **exactly once**, and **must also** create an `assignment_attempts` pointer with `source_session_id` and `awards_global_xp: false` (never a second XP award). Historical/non-assignment sessions must **not** auto-complete a newly created assignment.
 - Teacher-created assignments write `assignment_attempts` only (never `sessions`, never global XP).
 - Results ownership: authenticated trainee UID + `group_id` + `assignment_id` + pinned movement revision.
-- Assessment mode is stored: `teacher_reviewed` | `template_scored`. Unsupported templates are created as `teacher_reviewed` (scoring engine not live yet).
+- Assessment mode: Dart/parser may recognize `template_scored` for forward compatibility. Phase 5 writes Teacher-created movement, revision, assignment, and attempt state as `teacher_reviewed` only. Writable `template_scored` classroom state belongs to Phase 7.
 
 ## 4. Verified current repo behavior
 
@@ -111,7 +111,7 @@ Do **not** auto-complete a newly created assignment by scanning unrelated histor
 
 Prefer **subcollection** for locality: `teacher_movements/{movementId}/revisions/{revisionId}`.
 
-Fields: `movement_id`, `teacher_id`, `schema_version`, `assessment_mode` (`teacher_reviewed` \| `template_scored`), `spec` (JSON map; Phase 5 may store a stub / unsupported flag), `immutable` once published, `created_at`.
+Fields: `movement_id`, `teacher_id`, `schema_version`, `assessment_mode` (Dart may parse `teacher_reviewed` \| `template_scored`; Phase 5 Firestore writes are `teacher_reviewed` only), `spec` (JSON map; Phase 5 stores a teacher-review stub), `immutable` once published, `created_at`.
 
 Published revisions are immutable. Edits create a new revision; assignments pin `revision_id`.
 
@@ -214,7 +214,7 @@ Phase 5 should already reject those writes even if the review UI ships in Phase 
 5. Group assignment UI.
 6. Trainee Assigned Movements list.
 7. Official assignment launch carries assignment context into PracticeScreen; on success **required** pointer + single XP award. Tests: no historical-session attach; no double XP.
-8. Unsupported `template_scored` definitions stored but run as `teacher_reviewed` fallback **flag** (`capability: unsupported`) — no AI.
+8. Dart may parse `template_scored` for forward compatibility, but Phase 5 does **not** write `template_scored` movement/revision/assignment/attempt state. Classroom writes stay `teacher_reviewed`. Writable `template_scored` belongs to Phase 7.
 9. Update this file.
 
 ## 16. Acceptance criteria
@@ -308,9 +308,9 @@ Collections (IDs in `packages/elixr_core/lib/database/firestore_collections.dart
 
 Official pointer ID helper: `assignmentAttemptIdForOfficialSession(sessionId)` → `official_ptr_{sessionId}`. Teacher-created first draft helper: `assignmentAttemptIdForTeacherCreatedDraft` → `tc_draft_{assignmentId}_{traineeId}` (also enforced in Firestore rules).
 
-### Post-commit Firestore integrity correction
+### Post-commit Firestore integrity corrections
 
-Discovered after `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. Rules now enforce what the Flutter repositories already intended:
+Discovered after `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e` and committed on `main` as `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. Rules now enforce what the Flutter repositories already intended:
 
 - Teacher movement **edits** must publish a new immutable revision in the same atomic write. Same-revision title changes are denied. Archive is one-way `active` → `archived` and may change only `status` + `updated_at`.
 - New Teacher-created assignments must reference the movement’s **current** revision and copy that revision’s spec exactly (`display_instructions`, `allowed_prop`, optional `display_safety_guidance`). Archived movements remain unassignable.
@@ -319,6 +319,10 @@ Discovered after `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. Rules now enforce w
 - Canonical Phase 5 Teacher draft attempt IDs are required. Phase 6 replacement attempts / `supersedes_attempt_id` are **not** implemented.
 
 Firebase remains **not deployed** after this correction.
+
+A later revision-publication hole remained after `94ddee1f`: `validTeacherMovementPublishRevisionUpdate` required `current_revision_id` to change and inspected `getAfter(targetRevision)`, but an already-existing historical revision satisfies `getAfter`. A modified client could therefore set `current_revision_id` back to `rev1` while `rev2` was current, without creating a new revision. The follow-up requires `!exists(revisionPath) && existsAfter(revisionPath)` so the target revision is newly created in that same atomic request; `validTeacherMovementRevisionCreate` still independently requires `teacher_reviewed` and `created_at == request.time`.
+
+Firebase remains **not deployed** after this follow-up.
 
 ### Official assignment atomic contract
 
@@ -373,6 +377,21 @@ Remaining decision/risk: if a Teacher account is erased first, classroom attempt
 | `flutter build windows` | **Not run** (Dart production files unchanged) |
 | `firebase deploy` | **Not run** |
 
+### Commands actually run (final revision-publication correction)
+
+| Command | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | Clean (0 files changed) |
+| `flutter analyze` | **0 errors**. 15 infos/warnings, all pre-existing |
+| `flutter test` | **1293 passed**, 0 failed |
+| `packages/elixr_core` `flutter test` | **85 passed**, 0 failed |
+| `teacher_app` `flutter test` | **95 passed**, 0 failed (package untouched) |
+| `cd firestore-tests; npm test` with Temurin JRE 21 | **266 passed**, 0 failed (was 263; +3 historical-repoint cases) |
+| `backend\.venv\Scripts\python.exe -m pytest -q backend\tests` from repo root | Collection **failed** (`ModuleNotFoundError`); known module-path issue |
+| `cd backend; .\.venv\Scripts\python.exe -m pytest -q tests` | **1094 passed** |
+| `flutter build windows` | **Not run** (Dart production files unchanged) |
+| `firebase deploy` | **Not run** |
+
 ### Not verified / remaining human checklist
 
 - [ ] Deploy Firestore rules and indexes (human-authorized only).
@@ -389,7 +408,7 @@ Remaining decision/risk: if a Teacher account is erased first, classroom attempt
 
 Phase 6 NOT started. Phase 7 NOT started. `teacher_app/` intact. Firebase not deployed.
 
-The original Phase 5 implementation is on `main` as `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. This integrity correction is a follow-up on `main` and must not be described as “no commit/push” for that implementation commit. Do not deploy Firestore until a human authorizes it.
+The original Phase 5 implementation is on `main` as `280cbfff3e7b9f9ef6748583bb1923aad7a5e84e`. The first integrity correction is `94ddee1ff6a5598eb756ad38722d2522e18f88b0`. This final revision-publication correction follows it and is not committed. Do not deploy Firestore until a human authorizes it.
 
 ## 23. Handoff requirements for Phase 6
 

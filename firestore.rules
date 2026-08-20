@@ -2689,16 +2689,26 @@ service cloud.firestore {
           .hasOnly(['status', 'updated_at']);
     }
     function validTeacherMovementPublishRevisionUpdate(movementId) {
-      let newRevision = getAfter(
-        teacherMovementRevisionPath(movementId, request.resource.data.current_revision_id)
-      ).data;
+      // Target revision must be newly created in this same atomic request.
+      // getAfter() alone is insufficient: it also succeeds for a historical
+      // revision that already existed. Do not bind getAfter(...).data in a
+      // `let` — that evaluates eagerly before existsAfter() can short-circuit.
+      // The revision's own create rule independently requires
+      // validTeacherMovementRevisionCreate (teacher_reviewed, created_at ==
+      // request.time, current root pointer == this revision id).
+      let revisionPath = teacherMovementRevisionPath(
+        movementId,
+        request.resource.data.current_revision_id
+      );
       return resource.data.status == 'active'
         && request.resource.data.status == 'active'
         && request.resource.data.current_revision_id != resource.data.current_revision_id
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'current_revision_id', 'updated_at'])
-        && newRevision.movement_id == movementId
-        && newRevision.teacher_id == request.auth.uid;
+        && !exists(revisionPath)
+        && existsAfter(revisionPath)
+        && getAfter(revisionPath).data.movement_id == movementId
+        && getAfter(revisionPath).data.teacher_id == request.auth.uid;
     }
     function validTeacherMovementUpdate(movementId) {
       return isVerifiedTeacher()
