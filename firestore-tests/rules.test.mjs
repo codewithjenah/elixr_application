@@ -911,9 +911,292 @@ describe('assessment v2 rubric sessions', () => {
     await assertFails(
       setDoc(doc(db, 'sessions', 'legacy-create'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 82,
         created_at: serverTimestamp(),
       }),
+    );
+  });
+});
+
+describe('official ELIXR movement XP gate', () => {
+  function v2SessionDoc(movementName, createdAt = serverTimestamp()) {
+    return {
+      user_id: 'alice',
+      movement_name: movementName,
+      difficulty: 'Medium',
+      duration_seconds: 90,
+      prop_type: 'bottle',
+      ...rubricSessionFields(),
+      created_at: createdAt,
+    };
+  }
+
+  function v2Marker(sessionId) {
+    return {
+      session_id: sessionId,
+      user_id: 'alice',
+      rubric_total: 10,
+      xp_awarded: 25,
+      processed_at: Timestamp.now(),
+    };
+  }
+
+  function v2LeaderboardCreate(sessionId, createdAt) {
+    return {
+      user_id: 'alice',
+      display_name: 'Alice',
+      total_xp: 25,
+      sessions_completed: 1,
+      score_sum: 0,
+      average_score: 0,
+      best_score: 0,
+      last_session_at: createdAt,
+      updated_at: Timestamp.now(),
+      last_awarded_session_id: sessionId,
+      daily_key: manilaDayKeyFor(createdAt.toDate()),
+      daily_xp: 25,
+      daily_sessions_completed: 1,
+      daily_score_sum: 0,
+      daily_average_score: 0,
+      daily_best_score: 0,
+      monthly_key: manilaMonthKeyFor(createdAt.toDate()),
+      monthly_xp: 25,
+      monthly_sessions_completed: 1,
+      monthly_score_sum: 0,
+      monthly_average_score: 0,
+      monthly_best_score: 0,
+    };
+  }
+
+  test('official V2 movement create succeeds', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'official-create'), v2SessionDoc('Hand Stall')),
+    );
+  });
+
+  test('unknown movement create fails', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'unknown-create'), v2SessionDoc('Not A Real Move')),
+    );
+  });
+
+  test('Wrist Stall create fails', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'wrist-create'), v2SessionDoc('Wrist Stall')),
+    );
+  });
+
+  test('Arm Stall create fails', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'sessions', 'arm-create'), v2SessionDoc('Arm Stall')),
+    );
+  });
+
+  test('Upper Forearm Stall create fails', async () => {
+    const db = aliceDb();
+    await assertFails(
+      setDoc(
+        doc(db, 'sessions', 'upper-forearm-create'),
+        v2SessionDoc('Upper Forearm Stall'),
+      ),
+    );
+  });
+
+  test('historical non-official session cannot create a processed marker', async () => {
+    const createdAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'legacy-arm'),
+        v2SessionDoc('Arm Stall', createdAt),
+      );
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      setDoc(doc(db, 'leaderboard_processed_sessions', 'legacy-arm'), v2Marker('legacy-arm')),
+    );
+  });
+
+  test('historical non-official session cannot create a leaderboard award', async () => {
+    const createdAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'legacy-wrist'),
+        v2SessionDoc('Wrist Stall', createdAt),
+      );
+    });
+
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'leaderboard_processed_sessions', 'legacy-wrist'), v2Marker('legacy-wrist'));
+    batch.set(doc(db, 'leaderboard', 'alice'), v2LeaderboardCreate('legacy-wrist', createdAt));
+    await assertFails(batch.commit());
+  });
+
+  test('historical non-official session cannot increment an existing leaderboard', async () => {
+    const firstAt = Timestamp.fromMillis(Date.now() - 60_000);
+    const secondAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'official-first'),
+        v2SessionDoc('Hand Stall', firstAt),
+      );
+      await setDoc(
+        doc(adminDb, 'sessions', 'legacy-upper'),
+        v2SessionDoc('Upper Forearm Stall', secondAt),
+      );
+      await setDoc(
+        doc(adminDb, 'leaderboard_processed_sessions', 'official-first'),
+        v2Marker('official-first'),
+      );
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        {
+          ...v2LeaderboardCreate('official-first', firstAt),
+          updated_at: firstAt,
+        },
+      );
+    });
+
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(
+      doc(db, 'leaderboard_processed_sessions', 'legacy-upper'),
+      v2Marker('legacy-upper'),
+    );
+    batch.set(
+      doc(db, 'leaderboard', 'alice'),
+      {
+        user_id: 'alice',
+        display_name: 'Alice',
+        total_xp: 50,
+        sessions_completed: 2,
+        score_sum: 0,
+        average_score: 0,
+        best_score: 0,
+        last_session_at: secondAt,
+        updated_at: Timestamp.now(),
+        last_awarded_session_id: 'legacy-upper',
+        daily_key: manilaDayKeyFor(secondAt.toDate()),
+        daily_xp: 50,
+        daily_sessions_completed: 2,
+        daily_score_sum: 0,
+        daily_average_score: 0,
+        daily_best_score: 0,
+        monthly_key: manilaMonthKeyFor(secondAt.toDate()),
+        monthly_xp: 50,
+        monthly_sessions_completed: 2,
+        monthly_score_sum: 0,
+        monthly_average_score: 0,
+        monthly_best_score: 0,
+      },
+      { merge: true },
+    );
+    await assertFails(batch.commit());
+  });
+
+  test('official session still awards exactly once', async () => {
+    const awardedAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'official-once'),
+        v2SessionDoc('Hand Stall', awardedAt),
+      );
+    });
+
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(
+      doc(db, 'leaderboard_processed_sessions', 'official-once'),
+      v2Marker('official-once'),
+    );
+    batch.set(doc(db, 'leaderboard', 'alice'), v2LeaderboardCreate('official-once', awardedAt));
+    await assertSucceeds(batch.commit());
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().total_xp, 25);
+    assert.equal(after.data().sessions_completed, 1);
+    assert.equal(after.data().quest_xp ?? 0, 0);
+    assert.equal(
+      after.data().total_xp,
+      after.data().sessions_completed * 25 + (after.data().quest_xp ?? 0),
+    );
+
+    await assertFails(
+      setDoc(doc(db, 'leaderboard_processed_sessions', 'official-once'), v2Marker('official-once')),
+    );
+  });
+
+  test('quest XP and total_xp identity remain valid after an official session award', async () => {
+    const awardedAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'official-quest'),
+        v2SessionDoc('Normal Grip', awardedAt),
+      );
+      await setDoc(
+        doc(adminDb, 'leaderboard', 'alice'),
+        leaderboardSeed('alice', {
+          total_xp: 15,
+          sessions_completed: 0,
+          score_sum: 0,
+          average_score: 0,
+          best_score: 0,
+          last_awarded_session_id: 'seed',
+          quest_xp: 15,
+        }),
+      );
+    });
+
+    const db = aliceDb();
+    const batch = writeBatch(db);
+    batch.set(
+      doc(db, 'leaderboard_processed_sessions', 'official-quest'),
+      v2Marker('official-quest'),
+    );
+    batch.set(
+      doc(db, 'leaderboard', 'alice'),
+      {
+        user_id: 'alice',
+        display_name: 'Alice',
+        total_xp: 40,
+        sessions_completed: 1,
+        score_sum: 0,
+        average_score: 0,
+        best_score: 0,
+        last_session_at: awardedAt,
+        updated_at: Timestamp.now(),
+        last_awarded_session_id: 'official-quest',
+        quest_xp: 15,
+        daily_key: manilaDayKeyFor(awardedAt.toDate()),
+        daily_xp: 25,
+        daily_sessions_completed: 1,
+        daily_score_sum: 0,
+        daily_average_score: 0,
+        daily_best_score: 0,
+        monthly_key: manilaMonthKeyFor(awardedAt.toDate()),
+        monthly_xp: 25,
+        monthly_sessions_completed: 1,
+        monthly_score_sum: 0,
+        monthly_average_score: 0,
+        monthly_best_score: 0,
+      },
+      { merge: true },
+    );
+    await assertSucceeds(batch.commit());
+
+    const after = await getDoc(doc(db, 'leaderboard', 'alice'));
+    assert.equal(after.data().quest_xp, 15);
+    assert.equal(after.data().sessions_completed, 1);
+    assert.equal(after.data().total_xp, 40);
+    assert.equal(
+      after.data().total_xp,
+      after.data().sessions_completed * 25 + after.data().quest_xp,
     );
   });
 });
@@ -1261,11 +1544,13 @@ describe('leaderboard quest_xp preservation', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 's1'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 80,
         created_at: Timestamp.now(),
       });
       await setDoc(doc(adminDb, 'sessions', 's2'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 100,
         created_at: awardedAt,
       });
@@ -1348,11 +1633,13 @@ describe('leaderboard quest_xp preservation', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 's3'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 70,
         created_at: Timestamp.now(),
       });
       await setDoc(doc(adminDb, 'sessions', 's4'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 90,
         created_at: awardedAt,
       });
@@ -1407,6 +1694,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'boundary-session'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 88,
         created_at: createdAt,
       });
@@ -1441,6 +1729,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'same-period-2'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 90,
         created_at: secondAt,
       });
@@ -1509,6 +1798,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'new-day-session'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 90,
         created_at: newAt,
       });
@@ -1568,6 +1858,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'new-month-session'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 90,
         created_at: newAt,
       });
@@ -1625,6 +1916,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'backfilled-session'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 100,
         created_at: backfillAt,
       });
@@ -1681,6 +1973,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
       for (const candidate of replayCandidates) {
         await setDoc(doc(adminDb, 'sessions', candidate.sessionId), {
           user_id: 'alice',
+          movement_name: 'Hand Stall',
           score: candidate.score,
           created_at: createdAt,
         });
@@ -1743,6 +2036,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'missing-period-session'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 90,
         created_at: createdAt,
       });
@@ -1784,6 +2078,7 @@ describe('leaderboard daily/monthly period aggregates', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 'forged-period-session'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 90,
         created_at: createdAt,
       });
@@ -2265,11 +2560,13 @@ describe('achievement claims + user cosmetics + equipped borders', () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'sessions', 's1'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 80,
         created_at: Timestamp.now(),
       });
       await setDoc(doc(adminDb, 'sessions', 's2'), {
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 100,
         created_at: awardedAt,
       });
@@ -2920,6 +3217,7 @@ describe('account self-erasure deletes', () => {
       await setDoc(doc(adminDb, 'leaderboard_processed_sessions', 's1'), {
         session_id: 's1',
         user_id: 'alice',
+        movement_name: 'Hand Stall',
         score: 80,
         xp_awarded: 25,
         processed_at: Timestamp.now(),

@@ -1,6 +1,6 @@
 # Phase 4 — Leaderboard refactor (Global / My Students / Group) and official XP gate
 
-**Status:** Planned  
+**Status:** Complete (code) after Phase 4 implementation on 2026-08-20; Flutter/Python checks and Firestore emulator tests are recorded in the completion report. Manual live verification and Firebase deployment remain **Not verified**.  
 **Sequence:** `04` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 3 complete. If membership + student-detail gates are missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-Planned
+**Complete (code) after Phase 4 implementation (2026-08-20).** Official-only global XP is enforced in Dart session persistence, Dart award/sync, and Firestore rules (session create, processed-session marker create, and leaderboard session awards). The Windows Teacher Leaderboard destination is a real Fluent screen with Global / My Students / Group scopes. Production rules/indexes were **not** deployed. Manual live checklist remains **Not verified**. Phase 5 was not started.
 
 ## 2. Goal
 
@@ -35,14 +35,16 @@ Provide Global, My Students, and Group leaderboard views for Teachers (and keep 
 
 ## 4. Verified current repo behavior
 
-- [lib/data/repositories/leaderboard_repository.dart](../../lib/data/repositories/leaderboard_repository.dart) `recordCompletedSession` awards +25 XP for **any** owned `sessions` doc with valid V1/V2 assessment. **No movement whitelist.**
-- [firestore.rules](../../firestore.rules) `sessions` create: `movement_name` is a string, **not** limited to `coachingMovementNames()`. Training plans and coaching notes **are** limited to the official 12.
-- Rules invariant: `total_xp == sessions_completed * 25 + quest_xp`.
-- `leaderboard/{userId}` **read: any signed-in user**.
-- Marker: `leaderboard_processed_sessions/{sessionId}`, `xp_awarded == 25`, update false.
-- teacher_app [RosterRankingScreen](../../teacher_app/lib/features/ranking/roster_ranking_screen.dart) ranks **approved links** only; not the platform board. Old rankings plan is unimplemented.
-- Public Profile Privacy does not hide `leaderboard` reads.
-- Identity: document ID + `user_id` = Firebase UID.
+After Phase 4:
+
+- Dart predicate: `isOfficialElixrMovementName` / `officialElixrMovementNames` in [packages/elixr_core/lib/constants/coaching_movement_names.dart](../../packages/elixr_core/lib/constants/coaching_movement_names.dart), aliased to the existing `coachingMovementNames` set. Flutter `movementCatalog` remains the product catalog authority via parity tests.
+- [lib/services/session_service.dart](../../lib/services/session_service.dart) rejects non-official names before evidence upload, session persist, feedback writes, and award.
+- [lib/data/repositories/leaderboard_repository.dart](../../lib/data/repositories/leaderboard_repository.dart) `recordCompletedSession` requires an official `movement_name` before creating a processed marker or awarding +25 XP.
+- `LeaderboardSyncPlanner.sessionsEligibleForGlobalXp` skips historical non-official sessions without creating fake markers and without counting them as `newlyProcessed`.
+- [firestore.rules](../../firestore.rules) reuses `coachingMovementNames()` as `officialElixrMovementNames()` / `isOfficialElixrMovementName()` for new V2 session creates, processed-session marker creates, and session-award create/update.
+- Teacher Windows Leaderboard: [lib/features/teacher/leaderboard/](../../lib/features/teacher/leaderboard/) Global / My Students / Group, using official `leaderboard/{uid}` XP. Approved members without a leaderboard doc appear as 0 XP. Unrelated Global rows are inert; approved members navigate to `/teacher/students/:traineeId`.
+- Trainee `/leaderboard` is unchanged. `teacher_app` roster ranking is unchanged.
+- Identity: document ID + `user_id` = Firebase UID. Marker immutability and `total_xp == sessions_completed * 25 + quest_xp` are preserved.
 
 ## 5. Dependencies / prerequisites
 
@@ -196,8 +198,10 @@ Rules: human review of `firestore.rules`. Emulator if available; else `Not verif
 - [ ] Complete Hand Stall → +25 XP.
 - [ ] Teacher Global shows that Trainee; lock toggle does not remove the row.
 - [ ] Teacher cannot open a stranger’s student page from the board.
-- [ ] My Students shows only members.
+- [ ] My Students shows only members, including 0-XP approved trainees.
+- [ ] Group picker shows classroom names and recovers if a group is archived.
 - [ ] teacher_app roster ranking still loads.
+- [ ] Deployed production rules/indexes for the official XP gate (not done in this phase).
 
 ## 20. Performance / storage / privacy risks
 
@@ -215,16 +219,28 @@ Rules: human review of `firestore.rules`. Emulator if available; else `Not verif
 - Do not copy the Android rankings plan into teacher_app.
 - Do not claim tamper-proof ranking.
 
-## 22. Completion report template
+## 22. Completion report
 
 ```
 Phase 4 completion
+- Current HEAD before changes: 3323080f8099ee8a97d9b115255b7480be4ec69e
 - XP gate location (rules + Dart):
-- Allowlist source of truth:
-- Teacher views shipped:
-- Commands run:
-- Rules deployed? (should be no unless human asked):
-- Not verified:
+  - Dart: isOfficialElixrMovementName (elixr_core coaching/official identity set)
+  - SessionService.saveCompletedSession (before evidence/persist/award)
+  - LeaderboardRepository.recordCompletedSession
+  - LeaderboardSyncPlanner.sessionsEligibleForGlobalXp
+  - firestore.rules: session create, leaderboard_processed_sessions create,
+    validSessionAwardCreate, validSessionAwardUpdate
+- Allowlist source of truth: enabled movementCatalog, mirrored by
+  coachingMovementNames / officialElixrMovementNames and
+  test/fixtures/enabled_scored_movements.json. Rules reuse coachingMovementNames().
+- Teacher views shipped: Global, My Students, Group (Windows Fluent)
+- Commands run: see section 24
+- Rules deployed? no
+- Indexes changed? no
+- Not verified: live camera/session XP, live Teacher UI against production,
+  production rules deployment
+- Phase 5 not started; assignment_attempts not created; teacher_app intact
 ```
 
 ## 23. Handoff requirements for Phase 5
@@ -233,3 +249,21 @@ Phase 4 completion
 2. Teacher can list members for scoping assignments later.
 3. Implementers understand classroom work must use `assignment_attempts`, not `sessions`.
 4. `teacher_app/` still present.
+
+## 24. Verification commands (executed)
+
+Recorded 2026-08-20 from repository root unless noted. Production Firebase was not deployed and production data was not mutated.
+
+| Command | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | Passed (0 files needed formatting) |
+| `flutter analyze` | Exit 1; **0 errors**. 15 pre-existing infos/warnings outside Phase 4 (same class as Phase 3). Phase 4 unused-import / `@visibleForTesting` warnings were fixed. |
+| `flutter test` | Passed **1243** tests |
+| `cd packages\elixr_core; flutter test` | Passed **82** tests |
+| `cd teacher_app; flutter test` | Passed **95** tests |
+| `cd firestore-tests; npm test` with Temurin JRE 21 (`JAVA_HOME=C:\Program Files\Eclipse Adoptium\jre-21.0.12.8-hotspot`) | Passed **216** tests, **0** failed. Default PATH Java 17 is insufficient for current firebase-tools. |
+| Backend pytest from `backend/` with `PYTHONPATH` set to that directory | Passed **1094** tests in 22.22s |
+| `flutter build windows` | Passed; built `build\windows\x64\runner\Release\elixr_application.exe` |
+| `firebase deploy` | **Not run** |
+
+Manual live Teacher UI, live camera/session XP, and production rules deployment remain **Not verified**.

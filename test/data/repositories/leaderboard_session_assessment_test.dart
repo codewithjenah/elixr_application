@@ -103,4 +103,42 @@ void main() {
       expect(assessment.legacyScore, isNull);
     });
   });
+
+  group('LeaderboardRepository.ensureOfficialMovementForGlobalXp', () {
+    test('official catalog names remain awardable', () {
+      expect(
+        () => LeaderboardRepository.ensureOfficialMovementForGlobalXp({
+          'movement_name': 'Hand Stall',
+        }),
+        returnsNormally,
+      );
+    });
+
+    test('non-official names cannot award global XP', () {
+      for (final name in [
+        'Wrist Stall',
+        'Arm Stall',
+        'Upper Forearm Stall',
+        'Free Practice',
+        'Not A Real Move',
+      ]) {
+        expect(
+          () => LeaderboardRepository.ensureOfficialMovementForGlobalXp({
+            'movement_name': name,
+          }),
+          throwsA(isA<LeaderboardAwardException>()),
+          reason: name,
+        );
+      }
+    });
+
+    test('missing movement names cannot award global XP', () {
+      expect(
+        () => LeaderboardRepository.ensureOfficialMovementForGlobalXp({
+          'user_id': 'u1',
+        }),
+        throwsA(isA<LeaderboardAwardException>()),
+      );
+    });
+  });
 }

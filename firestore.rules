@@ -939,6 +939,7 @@ service cloud.firestore {
       let createdAt = session.data.created_at;
       return session != null
         && session.data.user_id == request.auth.uid
+        && isOfficialElixrMovementName(session.data.movement_name)
         && validAwardSessionTimestamp(createdAt)
         && request.resource.data.sessions_completed == 1
         && questXpOf(request.resource.data) == 0
@@ -998,6 +999,7 @@ service cloud.firestore {
         && request.resource.data.last_awarded_session_id
           != resource.data.last_awarded_session_id
         && session.data.user_id == request.auth.uid
+        && isOfficialElixrMovementName(session.data.movement_name)
         && validAwardSessionTimestamp(createdAt)
         && (
           isRubric
@@ -1263,6 +1265,7 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.user_id == request.auth.uid
         && validRubricSession(request.resource.data)
+        && isOfficialElixrMovementName(request.resource.data.movement_name)
         && validSessionEvidence(request.resource.data, sessionId)
         && request.resource.data.created_at is timestamp
         && request.resource.data.created_at == request.time;
@@ -1411,7 +1414,8 @@ service cloud.firestore {
             && request.resource.data.rubric_total
               == sourceSession(sessionId).rubric_total
           )
-        );
+        )
+        && isOfficialElixrMovementName(sourceSession(sessionId).movement_name);
 
       allow update: if false;
       // Self-erasure only (RA 10173 account deletion).
@@ -2550,6 +2554,14 @@ service cloud.firestore {
         'Hand Stall', 'One Finger Stall', 'Forearm Stall', 'Elbow Stall',
         'Reverse Forearm Stall', 'Shoulder Stall', 'Double Hand Stall',
         'Bottle in a tin'];
+    }
+    // Official catalog identities for new sessions and global XP. Reuses the
+    // coaching/training-plan allowlist so the 12 names are not duplicated.
+    function officialElixrMovementNames() {
+      return coachingMovementNames();
+    }
+    function isOfficialElixrMovementName(name) {
+      return name is string && name in officialElixrMovementNames();
     }
     function approvedCoachingLink(teacherId, traineeId) {
       return exists(teacherStudentLinkPath(teacherId, traineeId))

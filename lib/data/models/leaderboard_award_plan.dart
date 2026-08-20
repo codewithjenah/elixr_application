@@ -1,3 +1,5 @@
+import 'package:elixr_core/constants/coaching_movement_names.dart';
+
 import '../../core/constants/gamification_rules.dart';
 import 'leaderboard_period.dart';
 import 'leaderboard_period_aggregate.dart';
@@ -193,13 +195,31 @@ abstract final class LeaderboardSyncPlanner {
     });
     return missing;
   }
+
+  /// Official-catalog sessions that may enter the global XP award path.
+  ///
+  /// Historical non-official sessions are omitted rather than marked processed.
+  static List<SessionRef> sessionsEligibleForGlobalXp(
+    Iterable<SessionRef> sessions,
+  ) {
+    return [
+      for (final session in sessions)
+        if (isOfficialElixrMovementName(session.movementName ?? '')) session,
+    ];
+  }
 }
 
 /// Lightweight session identity used by sync planning (no private payloads).
 class SessionRef {
-  const SessionRef({required this.id, required this.userId, this.createdAtMs});
+  const SessionRef({
+    required this.id,
+    required this.userId,
+    this.createdAtMs,
+    this.movementName,
+  });
 
   final String id;
   final String userId;
   final int? createdAtMs;
+  final String? movementName;
 }

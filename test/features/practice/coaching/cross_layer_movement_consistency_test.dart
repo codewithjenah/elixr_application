@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
-import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/coaching/session_recommendation.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
+import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 PracticeFeedback _frame({
@@ -63,6 +63,37 @@ void main() {
     expect(manifest['authority'], isA<String>());
     expect((manifest['authority'] as String).isNotEmpty, isTrue);
   });
+
+  test(
+    'official XP identities stay in exact parity with catalog and coaching names',
+    () {
+      expect(enabledCatalogNames, hasLength(12));
+      expect(coachingMovementNames, unorderedEquals(enabledCatalogNames));
+      expect(officialElixrMovementNames, unorderedEquals(enabledCatalogNames));
+      expect(
+        manifestNames,
+        unorderedEquals(officialElixrMovementNames.toList()),
+      );
+      for (final name in enabledCatalogNames) {
+        expect(isOfficialElixrMovementName(name), isTrue, reason: name);
+        expect(isRecognizedCoachingMovement(name), isTrue, reason: name);
+      }
+      const rejected = [
+        'Free Practice',
+        'Arm Stall',
+        'Upper Forearm Stall',
+        'Wrist Stall',
+        'Basic Flip',
+        'Not A Real Move',
+      ];
+      for (final name in rejected) {
+        expect(isOfficialElixrMovementName(name), isFalse, reason: name);
+        expect(enabledCatalogNames, isNot(contains(name)));
+        expect(coachingMovementNames, isNot(contains(name)));
+        expect(manifestNames, isNot(contains(name)));
+      }
+    },
+  );
 
   test('every enabled movement has exactly one coaching config entry', () {
     for (final name in enabledCatalogNames) {

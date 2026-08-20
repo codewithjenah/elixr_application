@@ -298,5 +298,71 @@ void main() {
       );
       expect(missing.map((s) => s.id), ['new']);
     });
+
+    test('official sessions missing markers remain awardable', () {
+      final eligible =
+          LeaderboardSyncPlanner.sessionsEligibleForGlobalXp(const [
+            SessionRef(
+              id: 'official',
+              userId: 'u1',
+              createdAtMs: 1,
+              movementName: 'Hand Stall',
+            ),
+            SessionRef(
+              id: 'alias',
+              userId: 'u1',
+              createdAtMs: 2,
+              movementName: 'Arm Stall',
+            ),
+          ]);
+      expect(eligible.map((s) => s.id), ['official']);
+    });
+
+    test(
+      'historical non-official sessions are skipped without counting as missing awards',
+      () {
+        final sessions = const [
+          SessionRef(
+            id: 'legacy-alias',
+            userId: 'u1',
+            createdAtMs: 1,
+            movementName: 'Arm Stall',
+          ),
+          SessionRef(
+            id: 'custom',
+            userId: 'u1',
+            createdAtMs: 2,
+            movementName: 'Basic Flip',
+          ),
+          SessionRef(
+            id: 'official',
+            userId: 'u1',
+            createdAtMs: 3,
+            movementName: 'Hand Stall',
+          ),
+        ];
+        final missing = LeaderboardSyncPlanner.sessionsMissingAwards(
+          sessions: sessions,
+          processedSessionIds: const {},
+        );
+        final awardable = LeaderboardSyncPlanner.sessionsEligibleForGlobalXp(
+          missing,
+        );
+
+        expect(missing.map((s) => s.id), [
+          'legacy-alias',
+          'custom',
+          'official',
+        ]);
+        expect(awardable.map((s) => s.id), ['official']);
+      },
+    );
+
+    test('sessions without a movement name are not eligible for global XP', () {
+      final awardable = LeaderboardSyncPlanner.sessionsEligibleForGlobalXp(
+        const [SessionRef(id: 'unknown', userId: 'u1', createdAtMs: 1)],
+      );
+      expect(awardable, isEmpty);
+    });
   });
 }

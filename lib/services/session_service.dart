@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
@@ -27,6 +28,19 @@ typedef CompletedSessionAtomicSaver =
       required Session session,
       required List<Feedback> feedbacks,
     });
+
+/// Thrown when a caller tries to persist an official session for a movement
+/// that is not one of the 12 catalog identities.
+class UnofficialMovementException implements Exception {
+  const UnofficialMovementException(this.movementName);
+
+  final String movementName;
+
+  @override
+  String toString() =>
+      'Cannot save an official session for non-catalog movement '
+      '"$movementName"';
+}
 
 class SessionService extends ChangeNotifier {
   SessionService({
@@ -107,6 +121,9 @@ class SessionService extends ChangeNotifier {
     Uint8List? evidenceJpegBytes,
     bool saveEvidence = false,
   }) async {
+    if (!isOfficialElixrMovementName(movementName)) {
+      throw UnofficialMovementException(movementName);
+    }
     final allocateSessionId =
         _allocateSessionIdOverride ?? repository.allocateSessionId;
     final sessionId = existingSessionId ?? allocateSessionId();

@@ -23,6 +23,7 @@ import '../../features/profile/user_profile_screen.dart';
 import '../../features/progress/progress_screen.dart';
 import '../../features/teacher/dashboard/teacher_dashboard_screen.dart';
 import '../../features/teacher/groups/teacher_groups_screen.dart';
+import '../../features/teacher/leaderboard/teacher_leaderboard_screen.dart';
 import '../../features/teacher/students/teacher_student_detail_screen.dart';
 import '../../features/teacher/students/teacher_students_screen.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
@@ -320,7 +321,7 @@ class AppRouter {
               path: AppRoutePaths.teacherLeaderboard,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const TeacherPlaceholderScreen(title: 'Leaderboard'),
+                child: const TeacherLeaderboardScreen(),
               ),
             ),
             GoRoute(

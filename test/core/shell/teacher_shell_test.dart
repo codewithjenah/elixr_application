@@ -148,6 +148,16 @@ void main() {
     router.go(AppRoutePaths.teacherLeaderboard);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Global'), findsWidgets);
+    expect(find.text('My Students'), findsOneWidget);
+    expect(
+      find.text('Available in a later ELIXR Teacher phase.'),
+      findsNothing,
+    );
+
+    router.go(AppRoutePaths.teacherMovements);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(
       find.text('Available in a later ELIXR Teacher phase.'),
       findsOneWidget,

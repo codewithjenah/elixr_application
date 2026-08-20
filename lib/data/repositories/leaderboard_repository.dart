@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/constants/gamification_rules.dart';
@@ -260,6 +261,12 @@ class LeaderboardRepository {
           );
         }
 
+        ensureOfficialMovementForGlobalXp(
+          sessionData,
+          sessionId: sessionId,
+          userId: userId,
+        );
+
         final assessment = readSessionAssessment(
           sessionData,
           sessionId: sessionId,
@@ -380,16 +387,21 @@ class LeaderboardRepository {
       final processedIds = markersSnap.docs.map((doc) => doc.id).toSet();
       final refs = sessionsSnap.docs.map((doc) {
         final data = doc.data();
+        final movementName = data['movement_name'];
         return SessionRef(
           id: doc.id,
           userId: userId,
           createdAtMs: _createdAtMs(data['created_at']),
+          movementName: movementName is String ? movementName : null,
         );
       }).toList();
 
       final missing = LeaderboardSyncPlanner.sessionsMissingAwards(
         sessions: refs,
         processedSessionIds: processedIds,
+      );
+      final awardable = LeaderboardSyncPlanner.sessionsEligibleForGlobalXp(
+        missing,
       );
 
       final alreadyProcessed = refs
@@ -399,7 +411,7 @@ class LeaderboardRepository {
       var newlyProcessed = 0;
       var failures = 0;
 
-      for (final session in missing) {
+      for (final session in awardable) {
         try {
           await recordCompletedSession(
             sessionId: session.id,
@@ -544,6 +556,35 @@ class LeaderboardRepository {
         (aheadByDocumentId.count ?? 0);
   }
 
+  /// Firestore `whereIn` chunk size used when loading known member UIDs.
+  static const int userIdQueryChunkSize = 30;
+
+  /// Loads leaderboard documents for [userIds] in bounded identity chunks.
+  ///
+  /// Missing documents are omitted; callers that need 0-XP roster rows must
+  /// merge their own membership fallbacks.
+  Future<Map<String, LeaderboardEntry>> fetchEntriesByUserIds(
+    Iterable<String> userIds,
+  ) async {
+    final ids = userIds.where((id) => id.isNotEmpty).toSet().toList();
+    final result = <String, LeaderboardEntry>{};
+    for (var offset = 0; offset < ids.length; offset += userIdQueryChunkSize) {
+      final chunk = ids.skip(offset).take(userIdQueryChunkSize).toList();
+      if (chunk.isEmpty) continue;
+      final snapshot = await _firestore
+          .collection(FirestoreCollections.leaderboard)
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      for (final doc in snapshot.docs) {
+        final entry = LeaderboardEntry.tryFromMap(doc.data(), id: doc.id);
+        if (entry != null) {
+          result[entry.userId] = entry;
+        }
+      }
+    }
+    return result;
+  }
+
   /// Stable ordering for leaderboard rows when XP and best score tie.
   @visibleForTesting
   static int compareLeaderboardEntries(
@@ -558,7 +599,7 @@ class LeaderboardRepository {
     return a.userId.compareTo(b.userId);
   }
 
-  @visibleForTesting
+  /// Shared Trainee and Teacher ranking order: period XP, then best score, then UID.
   static void sortLeaderboardEntries(
     List<LeaderboardEntry> entries, {
     LeaderboardPeriod period = LeaderboardPeriod.allTime,
@@ -630,6 +671,23 @@ class LeaderboardRepository {
       if (current != entry.value) return true;
     }
     return false;
+  }
+
+  /// Whether a stored session may create a processed marker and session XP.
+  @visibleForTesting
+  static void ensureOfficialMovementForGlobalXp(
+    Map<String, dynamic> sessionData, {
+    String? sessionId,
+    String? userId,
+  }) {
+    final name = sessionData['movement_name'];
+    if (name is! String || !isOfficialElixrMovementName(name)) {
+      throw LeaderboardAwardException(
+        'Session movement is not an official ELIXR movement',
+        sessionId: sessionId,
+        userId: userId,
+      );
+    }
   }
 
   /// Resolves which assessment a stored session carries, so the award path can

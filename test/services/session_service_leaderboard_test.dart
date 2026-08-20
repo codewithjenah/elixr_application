@@ -17,7 +17,7 @@ const _testRubric = RubricAssessment(
 PracticeFeedback _feedback(String message, {String feedbackType = 'warning'}) {
   return PracticeFeedback(
     bottleDetected: true,
-    movement: 'Basic Flip',
+    movement: 'Hand Stall',
     assessment: _testRubric,
     feedback: message,
     feedbackType: feedbackType,
@@ -59,8 +59,8 @@ void main() {
       final id = await service.saveCompletedSession(
         userId: 'u1',
         displayName: 'Ada',
-        movementName: 'Basic Flip',
-        difficulty: 'Easy',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
         rubric: _testRubric,
         durationSeconds: 30,
         sessionImprovements: [
@@ -108,8 +108,8 @@ void main() {
       service.saveCompletedSession(
         userId: 'u1',
         displayName: 'Ada',
-        movementName: 'Basic Flip',
-        difficulty: 'Easy',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
         rubric: _testRubric,
         durationSeconds: 30,
         sessionImprovements: [_feedback('Nice')],
@@ -149,8 +149,8 @@ void main() {
       service.saveCompletedSession(
         userId: 'u1',
         displayName: 'Ada',
-        movementName: 'Basic Flip',
-        difficulty: 'Easy',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
         rubric: _testRubric,
         durationSeconds: 30,
         sessionImprovements: const [],
@@ -163,8 +163,8 @@ void main() {
     final id = await service.saveCompletedSession(
       userId: 'u1',
       displayName: 'Ada',
-      movementName: 'Basic Flip',
-      difficulty: 'Easy',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
       rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: const [],
@@ -205,8 +205,8 @@ void main() {
     final id = await service.saveCompletedSession(
       userId: 'u1',
       displayName: 'Ada',
-      movementName: 'Basic Flip',
-      difficulty: 'Easy',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
       rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: [_feedback('Nice')],
@@ -244,8 +244,8 @@ void main() {
     final id = await service.saveCompletedSession(
       userId: 'u1',
       displayName: 'Ada',
-      movementName: 'Basic Flip',
-      difficulty: 'Easy',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
       rubric: _testRubric,
       durationSeconds: 40,
       sessionImprovements: const [],
@@ -315,8 +315,8 @@ void main() {
     await service.saveCompletedSession(
       userId: 'u1',
       displayName: 'Ada',
-      movementName: 'Basic Flip',
-      difficulty: 'Easy',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
       rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: const [],
@@ -350,8 +350,8 @@ void main() {
     await service.saveCompletedSession(
       userId: 'u1',
       displayName: 'Ada',
-      movementName: 'Basic Flip',
-      difficulty: 'Easy',
+      movementName: 'Hand Stall',
+      difficulty: 'Medium',
       rubric: _testRubric,
       durationSeconds: 30,
       sessionImprovements: [
@@ -366,4 +366,95 @@ void main() {
     );
     expect(capturedFeedbacks!.single.feedbackType, 'warning');
   });
+
+  test(
+    'non-official movement does not upload evidence, persist, or award XP',
+    () async {
+      var atomicCalls = 0;
+      var leaderboardCalls = 0;
+      final service = SessionService(
+        allocateSessionIdOverride: () => 'session-atomic',
+        saveCompletedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+            }) async {
+              atomicCalls++;
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {
+              leaderboardCalls++;
+            },
+      );
+
+      await expectLater(
+        service.saveCompletedSession(
+          userId: 'u1',
+          displayName: 'Ada',
+          movementName: 'Basic Flip',
+          difficulty: 'Easy',
+          rubric: _testRubric,
+          durationSeconds: 30,
+          sessionImprovements: [_feedback('Nice')],
+          saveEvidence: true,
+        ),
+        throwsA(
+          isA<UnofficialMovementException>().having(
+            (error) => error.movementName,
+            'movementName',
+            'Basic Flip',
+          ),
+        ),
+      );
+
+      expect(atomicCalls, 0);
+      expect(leaderboardCalls, 0);
+    },
+  );
+
+  test(
+    'legacy alias names cannot enter the official saved-session path',
+    () async {
+      var atomicCalls = 0;
+      final service = SessionService(
+        saveCompletedSessionAtomicOverride:
+            ({
+              required String sessionId,
+              required Session session,
+              required List<Feedback> feedbacks,
+            }) async {
+              atomicCalls++;
+            },
+        recordCompletedSessionOverride:
+            ({
+              required String sessionId,
+              required String userId,
+              required String displayName,
+              String? profilePictureUrl,
+            }) async {},
+      );
+
+      for (final name in ['Arm Stall', 'Upper Forearm Stall', 'Wrist Stall']) {
+        await expectLater(
+          service.saveCompletedSession(
+            userId: 'u1',
+            displayName: 'Ada',
+            movementName: name,
+            difficulty: 'Medium',
+            rubric: _testRubric,
+            durationSeconds: 30,
+            sessionImprovements: const [],
+          ),
+          throwsA(isA<UnofficialMovementException>()),
+        );
+      }
+      expect(atomicCalls, 0);
+    },
+  );
 }
