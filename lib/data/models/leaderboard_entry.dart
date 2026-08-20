@@ -87,6 +87,50 @@ class LeaderboardEntry {
     bestScore: bestScoreFor(period),
   );
 
+  /// Returns a copy whose Today / This month metrics match the current
+  /// Asia/Manila period keys. All-time identity and lifetime totals are
+  /// unchanged. Stale `daily_*` / `monthly_*` blocks become zeros so UID-based
+  /// scoped boards cannot rank leftover period XP.
+  LeaderboardEntry resolvedForPeriod(
+    LeaderboardPeriod period, {
+    required DateTime nowUtc,
+  }) {
+    final resolvedNow = nowUtc.toUtc();
+    final keepDaily =
+        period != LeaderboardPeriod.today ||
+        dailyKey == LeaderboardPeriod.today.keyFor(resolvedNow);
+    final keepMonthly =
+        period != LeaderboardPeriod.thisMonth ||
+        monthlyKey == LeaderboardPeriod.thisMonth.keyFor(resolvedNow);
+    if (keepDaily && keepMonthly) return this;
+    return LeaderboardEntry(
+      userId: userId,
+      displayName: displayName,
+      totalXp: totalXp,
+      sessionsCompleted: sessionsCompleted,
+      scoreSum: scoreSum,
+      averageScore: averageScore,
+      bestScore: bestScore,
+      questXp: questXp,
+      dailyKey: dailyKey,
+      dailyXp: keepDaily ? dailyXp : 0,
+      dailySessionsCompleted: keepDaily ? dailySessionsCompleted : 0,
+      dailyScoreSum: keepDaily ? dailyScoreSum : 0,
+      dailyAverageScore: keepDaily ? dailyAverageScore : 0,
+      dailyBestScore: keepDaily ? dailyBestScore : 0,
+      monthlyKey: monthlyKey,
+      monthlyXp: keepMonthly ? monthlyXp : 0,
+      monthlySessionsCompleted: keepMonthly ? monthlySessionsCompleted : 0,
+      monthlyScoreSum: keepMonthly ? monthlyScoreSum : 0,
+      monthlyAverageScore: keepMonthly ? monthlyAverageScore : 0,
+      monthlyBestScore: keepMonthly ? monthlyBestScore : 0,
+      profilePictureUrl: profilePictureUrl,
+      equippedBorderId: equippedBorderId,
+      lastSessionAt: lastSessionAt,
+      updatedAt: updatedAt,
+    );
+  }
+
   int xpFor(LeaderboardPeriod period) => switch (period) {
     LeaderboardPeriod.today => dailyXp,
     LeaderboardPeriod.thisMonth => monthlyXp,

@@ -191,4 +191,62 @@ void main() {
 
     expect(find.text('Zero XP'), findsWidgets);
   });
+
+  testWidgets(
+    'scoped fetch error does not keep Global blocked after switching back',
+    (tester) async {
+      var scopedShouldFail = true;
+      controller.dispose();
+      controller = TeacherLeaderboardController(
+        groupRepository: groups,
+        teacherId: 'teacher',
+        fetchEntriesByUserIds: (ids) async {
+          if (scopedShouldFail) {
+            throw StateError('scoped fetch failed');
+          }
+          return {
+            for (final id in ids)
+              if (id == 't1') id: _entry('t1', name: 'Ada Lovelace', xp: 50),
+          };
+        },
+        fetchGlobalPage: ({required period, startAfter}) async {
+          return LeaderboardPage(
+            entries: [_entry('stranger', name: 'Global Stranger', xp: 75)],
+            nextCursor: null,
+            hasMore: false,
+          );
+        },
+      );
+      groups.seedGroup(activeGroup());
+      groups.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 't1',
+          traineeName: 'Ada Lovelace',
+        ),
+      );
+      await pumpBoard(tester);
+
+      await tester.tap(find.text('My Students'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Could not load the Teacher leaderboard.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Global'));
+      await tester.pumpAndSettle();
+      expect(find.text('Global Stranger'), findsWidgets);
+      expect(
+        find.text('Could not load the Teacher leaderboard.'),
+        findsNothing,
+      );
+
+      scopedShouldFail = false;
+      await tester.tap(find.text('My Students'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ada Lovelace'), findsWidgets);
+    },
+  );
 }

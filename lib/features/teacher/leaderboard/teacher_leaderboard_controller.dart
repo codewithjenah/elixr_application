@@ -20,7 +20,9 @@ class TeacherLeaderboardController extends ChangeNotifier {
     required TeacherScopedLeaderboardFetcher fetchEntriesByUserIds,
     required LeaderboardPeriodPageFetcher fetchGlobalPage,
     LeaderboardListController? globalListController,
+    DateTime Function()? nowUtc,
   }) : _fetchEntriesByUserIds = fetchEntriesByUserIds,
+       _nowUtc = nowUtc ?? DateTime.now,
        globalList =
            globalListController ??
            LeaderboardListController(fetchPageForPeriod: fetchGlobalPage);
@@ -28,6 +30,7 @@ class TeacherLeaderboardController extends ChangeNotifier {
   final GroupRepository groupRepository;
   final String teacherId;
   final TeacherScopedLeaderboardFetcher _fetchEntriesByUserIds;
+  final DateTime Function() _nowUtc;
   final LeaderboardListController globalList;
 
   TeacherLeaderboardScope scope = TeacherLeaderboardScope.global;
@@ -35,11 +38,13 @@ class TeacherLeaderboardController extends ChangeNotifier {
   bool loading = true;
   bool scopedLoading = false;
   String? errorMessage;
+  String? scopedErrorMessage;
   String? selectedGroupId;
 
   List<ElixrGroup> groups = const [];
   List<GroupMembership> memberships = const [];
   List<LeaderboardEntry> scopedEntries = const [];
+  Map<String, LeaderboardEntry> _scopedFetched = const {};
 
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
@@ -60,6 +65,7 @@ class TeacherLeaderboardController extends ChangeNotifier {
   Future<void> start() async {
     loading = true;
     errorMessage = null;
+    scopedErrorMessage = null;
     _globalStarted = false;
     _emit();
     await _groupsSub?.cancel();
@@ -114,9 +120,11 @@ class TeacherLeaderboardController extends ChangeNotifier {
   Future<void> retry() => start();
 
   Future<void> refresh() async {
-    errorMessage = null;
     if (isGlobal) {
+      errorMessage = null;
       await globalList.refresh();
+    } else {
+      scopedErrorMessage = null;
     }
     await _reloadScopedEntries();
     _emit();
@@ -141,8 +149,9 @@ class TeacherLeaderboardController extends ChangeNotifier {
     if (!isGlobal) {
       scopedEntries = TeacherLeaderboardModels.rankScoped(
         trainees: _currentTrainees(),
-        fetched: {for (final entry in scopedEntries) entry.userId: entry},
+        fetched: _scopedFetched,
         period: period,
+        nowUtc: _nowUtc().toUtc(),
       );
     }
     await globalUpdate;
@@ -217,14 +226,17 @@ class TeacherLeaderboardController extends ChangeNotifier {
           ? const <String, LeaderboardEntry>{}
           : await _fetchEntriesByUserIds(trainees.keys.toList());
       if (_disposed || generation != _scopedGeneration) return;
+      _scopedFetched = fetched;
+      scopedErrorMessage = null;
       scopedEntries = TeacherLeaderboardModels.rankScoped(
         trainees: trainees,
         fetched: fetched,
         period: period,
+        nowUtc: _nowUtc().toUtc(),
       );
     } catch (_) {
       if (_disposed || generation != _scopedGeneration) return;
-      errorMessage = 'Could not load the Teacher leaderboard.';
+      scopedErrorMessage = 'Could not load the Teacher leaderboard.';
     } finally {
       if (!_disposed && generation == _scopedGeneration) {
         scopedLoading = false;

@@ -75,11 +75,14 @@ abstract final class TeacherLeaderboardModels {
     required Map<String, String> trainees,
     required Map<String, LeaderboardEntry> fetched,
     required LeaderboardPeriod period,
+    DateTime? nowUtc,
   }) {
+    final resolvedNow = (nowUtc ?? DateTime.now()).toUtc();
     final entries = [
       for (final trainee in trainees.entries)
-        fetched[trainee.key] ??
-            fallbackEntry(userId: trainee.key, displayName: trainee.value),
+        (fetched[trainee.key] ??
+                fallbackEntry(userId: trainee.key, displayName: trainee.value))
+            .resolvedForPeriod(period, nowUtc: resolvedNow),
     ];
     LeaderboardRepository.sortLeaderboardEntries(entries, period: period);
     return List<LeaderboardEntry>.unmodifiable(entries);

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/leaderboard_period.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/features/teacher/leaderboard/teacher_leaderboard_controller.dart';
 import 'package:elixr_application/features/teacher/leaderboard/teacher_leaderboard_models.dart';
@@ -9,7 +10,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../teacher_phase3_test_support.dart';
 
-LeaderboardEntry _entry(String id, {int xp = 0, String? name}) {
+LeaderboardEntry _entry(
+  String id, {
+  int xp = 0,
+  String? name,
+  String? dailyKey,
+  int dailyXp = 0,
+  int dailyBest = 0,
+  String? monthlyKey,
+  int monthlyXp = 0,
+}) {
   return LeaderboardEntry(
     userId: id,
     displayName: name ?? id,
@@ -18,25 +28,38 @@ LeaderboardEntry _entry(String id, {int xp = 0, String? name}) {
     scoreSum: 0,
     averageScore: 0,
     bestScore: 0,
+    dailyKey: dailyKey,
+    dailyXp: dailyXp,
+    dailyBestScore: dailyBest,
+    monthlyKey: monthlyKey,
+    monthlyXp: monthlyXp,
   );
 }
 
 void main() {
   late InMemoryGroupRepository repository;
   late TeacherLeaderboardController controller;
+  late DateTime nowUtc;
   late Map<String, LeaderboardEntry> fetched;
   late List<List<String>> fetchCalls;
   var disposeController = true;
+  var scopedFetchShouldThrow = false;
 
   setUp(() {
     repository = InMemoryGroupRepository(now: () => DateTime.utc(2026, 8, 20));
+    nowUtc = DateTime.utc(2026, 8, 19, 16);
     fetched = {};
     fetchCalls = [];
     disposeController = true;
+    scopedFetchShouldThrow = false;
     controller = TeacherLeaderboardController(
       groupRepository: repository,
       teacherId: 'teacher',
+      nowUtc: () => nowUtc,
       fetchEntriesByUserIds: (ids) async {
+        if (scopedFetchShouldThrow) {
+          throw StateError('scoped fetch failed');
+        }
         fetchCalls.add(List<String>.from(ids));
         return {
           for (final id in ids)
@@ -261,4 +284,165 @@ void main() {
       expect(fetchCalls, isEmpty);
     },
   );
+
+  test(
+    'Today ranks current Manila-day XP and zeros stale daily_key rows',
+    () async {
+      repository.seedGroup(activeGroup());
+      repository.seedMembership(
+        membership(groupId: 'group-1', teacherId: 'teacher', traineeId: 'a'),
+      );
+      repository.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 'b',
+          traineeName: 'B',
+        ),
+      );
+      fetched['a'] = _entry(
+        'a',
+        name: 'A',
+        xp: 200,
+        dailyKey: '20260819',
+        dailyXp: 100,
+        dailyBest: 12,
+      );
+      fetched['b'] = _entry(
+        'b',
+        name: 'B',
+        xp: 25,
+        dailyKey: '20260820',
+        dailyXp: 25,
+        dailyBest: 4,
+      );
+      await boot();
+      await controller.setScope(TeacherLeaderboardScope.myStudents);
+      await controller.setPeriod(LeaderboardPeriod.today);
+
+      expect(controller.scopedEntries.map((e) => e.userId), ['b', 'a']);
+      expect(controller.scopedEntries.first.xpFor(LeaderboardPeriod.today), 25);
+      expect(controller.scopedEntries.last.xpFor(LeaderboardPeriod.today), 0);
+      expect(controller.scopedEntries.last.totalXp, 200);
+    },
+  );
+
+  test('period change re-resolves Manila keys without a refetch', () async {
+    repository.seedGroup(activeGroup());
+    repository.seedMembership(
+      membership(groupId: 'group-1', teacherId: 'teacher', traineeId: 'a'),
+    );
+    repository.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'b',
+        traineeName: 'B',
+      ),
+    );
+    fetched['a'] = _entry(
+      'a',
+      name: 'A',
+      xp: 500,
+      monthlyKey: '202607',
+      monthlyXp: 500,
+    );
+    fetched['b'] = _entry(
+      'b',
+      name: 'B',
+      xp: 25,
+      monthlyKey: '202608',
+      monthlyXp: 25,
+    );
+    await boot();
+    await controller.setScope(TeacherLeaderboardScope.myStudents);
+    final fetchesAfterScope = fetchCalls.length;
+    await controller.setPeriod(LeaderboardPeriod.thisMonth);
+
+    expect(fetchCalls, hasLength(fetchesAfterScope));
+    expect(controller.scopedEntries.map((e) => e.userId), ['b', 'a']);
+    expect(
+      controller.scopedEntries.first.xpFor(LeaderboardPeriod.thisMonth),
+      25,
+    );
+    expect(controller.scopedEntries.last.xpFor(LeaderboardPeriod.thisMonth), 0);
+  });
+
+  test('All Time is unaffected by stale daily and monthly keys', () async {
+    repository.seedGroup(activeGroup());
+    repository.seedMembership(
+      membership(groupId: 'group-1', teacherId: 'teacher', traineeId: 'a'),
+    );
+    repository.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'b',
+        traineeName: 'B',
+      ),
+    );
+    fetched['a'] = _entry(
+      'a',
+      name: 'A',
+      xp: 200,
+      dailyKey: '20260819',
+      dailyXp: 100,
+      monthlyKey: '202607',
+      monthlyXp: 500,
+    );
+    fetched['b'] = _entry(
+      'b',
+      name: 'B',
+      xp: 25,
+      dailyKey: '20260820',
+      dailyXp: 25,
+    );
+    await boot();
+    await controller.setScope(TeacherLeaderboardScope.myStudents);
+
+    expect(controller.period, LeaderboardPeriod.allTime);
+    expect(controller.scopedEntries.map((e) => e.userId), ['a', 'b']);
+    expect(controller.scopedEntries.first.totalXp, 200);
+  });
+
+  test('scoped fetch error does not block a healthy Global board', () async {
+    repository.seedGroup(activeGroup());
+    repository.seedMembership(
+      membership(groupId: 'group-1', teacherId: 'teacher', traineeId: 't1'),
+    );
+    scopedFetchShouldThrow = true;
+    await boot();
+    await controller.setScope(TeacherLeaderboardScope.myStudents);
+
+    expect(controller.errorMessage, isNull);
+    expect(controller.scopedErrorMessage, isNotNull);
+    expect(controller.globalList.entries, isNotEmpty);
+
+    await controller.setScope(TeacherLeaderboardScope.global);
+
+    expect(controller.errorMessage, isNull);
+    expect(controller.globalList.entries.map((e) => e.userId), [
+      'stranger',
+      't1',
+    ]);
+  });
+
+  test('scoped retry reloads the failing scoped board', () async {
+    repository.seedGroup(activeGroup());
+    repository.seedMembership(
+      membership(groupId: 'group-1', teacherId: 'teacher', traineeId: 't1'),
+    );
+    fetched['t1'] = _entry('t1', xp: 50, name: 'Ada Lovelace');
+    scopedFetchShouldThrow = true;
+    await boot();
+    await controller.setScope(TeacherLeaderboardScope.myStudents);
+    expect(controller.scopedErrorMessage, isNotNull);
+
+    scopedFetchShouldThrow = false;
+    await controller.refresh();
+
+    expect(controller.scopedErrorMessage, isNull);
+    expect(controller.scopedEntries.single.userId, 't1');
+    expect(controller.errorMessage, isNull);
+  });
 }

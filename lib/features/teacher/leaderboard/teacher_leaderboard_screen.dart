@@ -190,10 +190,6 @@ class _Board extends StatelessWidget {
         controller.isGlobal &&
         controller.globalList.isInitialLoading &&
         entries.isEmpty;
-    final error = controller.isGlobal
-        ? controller.globalList.initialError
-        : null;
-
     if (loading) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,14 +200,20 @@ class _Board extends StatelessWidget {
       );
     }
 
-    if (error != null && entries.isEmpty) {
+    final showBoardError = controller.isGlobal
+        ? controller.globalList.initialError != null && entries.isEmpty
+        : controller.scopedErrorMessage != null;
+
+    if (showBoardError) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _PeriodHeader(controller: controller),
           Expanded(
             child: _MessageState(
-              message: 'Leaderboard is temporarily unavailable.',
+              message: controller.isGlobal
+                  ? 'Leaderboard is temporarily unavailable.'
+                  : controller.scopedErrorMessage!,
               actionLabel: 'Retry',
               onAction: controller.refresh,
             ),

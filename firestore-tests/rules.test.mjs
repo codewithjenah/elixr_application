@@ -27,6 +27,7 @@ import {
   writeBatch,
   Timestamp,
   serverTimestamp,
+  deleteField,
 } from 'firebase/firestore';
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -1098,6 +1099,98 @@ describe('official ELIXR movement XP gate', () => {
       { merge: true },
     );
     await assertFails(batch.commit());
+  });
+
+  test('historical Arm Stall cannot be renamed to Hand Stall', async () => {
+    const createdAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'arm-rename'),
+        v2SessionDoc('Arm Stall', createdAt),
+      );
+    });
+
+    const db = aliceDb();
+    await assertFails(
+      updateDoc(doc(db, 'sessions', 'arm-rename'), { movement_name: 'Hand Stall' }),
+    );
+
+    const after = await getDoc(doc(db, 'sessions', 'arm-rename'));
+    assert.equal(after.data().movement_name, 'Arm Stall');
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'leaderboard_processed_sessions', 'arm-rename'), v2Marker('arm-rename'));
+    batch.set(doc(db, 'leaderboard', 'alice'), v2LeaderboardCreate('arm-rename', createdAt));
+    await assertFails(batch.commit());
+  });
+
+  test('historical Upper Forearm Stall cannot be renamed to an official movement', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'upper-rename'),
+        v2SessionDoc('Upper Forearm Stall'),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'sessions', 'upper-rename'), {
+        movement_name: 'Reverse Forearm Stall',
+      }),
+    );
+  });
+
+  test('historical custom movement cannot be renamed to an official movement', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(
+        doc(adminDb, 'sessions', 'custom-rename'),
+        v2SessionDoc('Classroom Custom Flip'),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'sessions', 'custom-rename'), {
+        movement_name: 'Hand Stall',
+      }),
+    );
+  });
+
+  test('official Hand Stall cannot be renamed to another official movement', async () => {
+    const db = aliceDb();
+    await assertSucceeds(
+      setDoc(doc(db, 'sessions', 'official-rename'), v2SessionDoc('Hand Stall')),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'sessions', 'official-rename'), {
+        movement_name: 'Normal Grip',
+      }),
+    );
+  });
+
+  test('owner can still remove session evidence without changing movement_name', async () => {
+    const createdAt = Timestamp.now();
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'sessions', 'evidence-remove'), {
+        ...v2SessionDoc('Hand Stall', createdAt),
+        evidence_storage_path: 'users/alice/session_evidence/evidence-remove.jpg',
+        evidence_kind: 'hold_confirmed',
+        evidence_size_bytes: 2048,
+      });
+    });
+
+    const db = aliceDb();
+    await assertSucceeds(
+      updateDoc(doc(db, 'sessions', 'evidence-remove'), {
+        evidence_storage_path: deleteField(),
+        evidence_kind: deleteField(),
+        evidence_size_bytes: deleteField(),
+      }),
+    );
+
+    const after = await getDoc(doc(db, 'sessions', 'evidence-remove'));
+    assert.equal(after.data().movement_name, 'Hand Stall');
+    assert.equal(after.data().evidence_storage_path, undefined);
+    assert.equal(after.data().evidence_kind, undefined);
+    assert.equal(after.data().evidence_size_bytes, undefined);
   });
 
   test('official session still awards exactly once', async () => {

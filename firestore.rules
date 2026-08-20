@@ -425,6 +425,22 @@ service cloud.firestore {
           && resource.data.evidence_size_bytes == request.resource.data.evidence_size_bytes);
     }
 
+    // Completed-session identity is frozen after create. Historical
+    // non-official movement_name values (Arm Stall, custom names, etc.) must
+    // never be rewritten to an official catalog identity to gain XP.
+    function sessionIdentityValueUnchanged(key) {
+      return resource.data.get(key, '__elixr_absent__')
+        == request.resource.data.get(key, '__elixr_absent__');
+    }
+
+    function sessionIdentityUnchanged() {
+      return sessionIdentityValueUnchanged('movement_name')
+        && sessionIdentityValueUnchanged('difficulty')
+        && sessionIdentityValueUnchanged('prop_type')
+        && sessionIdentityValueUnchanged('duration_seconds')
+        && sessionIdentityValueUnchanged('assessment_version');
+    }
+
     function isNonNegNumber(value) {
       return value is number && value >= 0;
     }
@@ -1273,6 +1289,7 @@ service cloud.firestore {
         && resource.data.user_id == request.auth.uid
         && request.resource.data.user_id == resource.data.user_id
         && request.resource.data.created_at == resource.data.created_at
+        && sessionIdentityUnchanged()
         && sessionEvidenceUnchangedOrRemoved()
         && (
           (

@@ -1,6 +1,6 @@
 # Phase 4 — Leaderboard refactor (Global / My Students / Group) and official XP gate
 
-**Status:** Complete (code) after Phase 4 implementation on 2026-08-20; Flutter/Python checks and Firestore emulator tests are recorded in the completion report. Manual live verification and Firebase deployment remain **Not verified**.  
+**Status:** Complete (code) after Phase 4 implementation on 2026-08-20, plus a Phase 4 closure correction pass on 2026-08-20. Flutter checks and Firestore emulator tests for the correction pass are recorded below. Phase 4 is **not** live verified. Production rules/indexes were **not** deployed. Manual live checklist remains **Not verified**. Phase 5 was not started.  
 **Sequence:** `04` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 3 complete. If membership + student-detail gates are missing, **STOP**.
 
@@ -18,7 +18,7 @@
 
 ## 1. Status
 
-**Complete (code) after Phase 4 implementation (2026-08-20).** Official-only global XP is enforced in Dart session persistence, Dart award/sync, and Firestore rules (session create, processed-session marker create, and leaderboard session awards). The Windows Teacher Leaderboard destination is a real Fluent screen with Global / My Students / Group scopes. Production rules/indexes were **not** deployed. Manual live checklist remains **Not verified**. Phase 5 was not started.
+**Complete (code) after Phase 4 implementation (2026-08-20), with a closure correction pass the same day.** Official-only global XP is enforced in Dart session persistence, Dart award/sync, and Firestore rules (session create, session identity immutability on update, processed-session marker create, and leaderboard session awards). Teacher My Students / Group period rankings now resolve Asia/Manila `daily_key` / `monthly_key` the same way the global board does. Scoped fetch errors no longer block a healthy Global board. Production rules/indexes were **not** deployed. Manual live checklist remains **Not verified**. Phase 4 is **not** fully closed or live verified. Phase 5 was not started.
 
 ## 2. Goal
 
@@ -41,8 +41,8 @@ After Phase 4:
 - [lib/services/session_service.dart](../../lib/services/session_service.dart) rejects non-official names before evidence upload, session persist, feedback writes, and award.
 - [lib/data/repositories/leaderboard_repository.dart](../../lib/data/repositories/leaderboard_repository.dart) `recordCompletedSession` requires an official `movement_name` before creating a processed marker or awarding +25 XP.
 - `LeaderboardSyncPlanner.sessionsEligibleForGlobalXp` skips historical non-official sessions without creating fake markers and without counting them as `newlyProcessed`.
-- [firestore.rules](../../firestore.rules) reuses `coachingMovementNames()` as `officialElixrMovementNames()` / `isOfficialElixrMovementName()` for new V2 session creates, processed-session marker creates, and session-award create/update.
-- Teacher Windows Leaderboard: [lib/features/teacher/leaderboard/](../../lib/features/teacher/leaderboard/) Global / My Students / Group, using official `leaderboard/{uid}` XP. Approved members without a leaderboard doc appear as 0 XP. Unrelated Global rows are inert; approved members navigate to `/teacher/students/:traineeId`.
+- [firestore.rules](../../firestore.rules) reuses `coachingMovementNames()` as `officialElixrMovementNames()` / `isOfficialElixrMovementName()` for new V2 session creates, processed-session marker creates, and session-award create/update. Session **update** also freezes `movement_name` (and the other completed-session identity fields `difficulty`, `prop_type`, `duration_seconds`, `assessment_version`) so a historical non-official session cannot be renamed into an official identity and then awarded.
+- Teacher Windows Leaderboard: [lib/features/teacher/leaderboard/](../../lib/features/teacher/leaderboard/) Global / My Students / Group, using official `leaderboard/{uid}` XP. Approved members without a leaderboard doc appear as 0 XP. Unrelated Global rows are inert; approved members navigate to `/teacher/students/:traineeId`. My Students / Group Today and This month rankings resolve the current Asia/Manila `daily_key` / `monthly_key` client-side; stale period blocks are treated as 0 XP without a new composite index. Global queries are unchanged. Scoped My Students / Group fetch errors stay on the scoped board and do not block a healthy Global list.
 - Trainee `/leaderboard` is unchanged. `teacher_app` roster ranking is unchanged.
 - Identity: document ID + `user_id` = Firebase UID. Marker immutability and `total_xp == sessions_completed * 25 + quest_xp` are preserved.
 
@@ -229,7 +229,8 @@ Phase 4 completion
   - SessionService.saveCompletedSession (before evidence/persist/award)
   - LeaderboardRepository.recordCompletedSession
   - LeaderboardSyncPlanner.sessionsEligibleForGlobalXp
-  - firestore.rules: session create, leaderboard_processed_sessions create,
+  - firestore.rules: session create, session update identity freeze
+    (`sessionIdentityUnchanged`), leaderboard_processed_sessions create,
     validSessionAwardCreate, validSessionAwardUpdate
 - Allowlist source of truth: enabled movementCatalog, mirrored by
   coachingMovementNames / officialElixrMovementNames and
@@ -245,7 +246,7 @@ Phase 4 completion
 
 ## 23. Handoff requirements for Phase 5
 
-1. Official-only global XP is enforced on `sessions` create + award.
+1. Official-only global XP is enforced on `sessions` create + award. Historical non-official sessions cannot be renamed on update to become newly XP eligible.
 2. Teacher can list members for scoping assignments later.
 3. Implementers understand classroom work must use `assignment_attempts`, not `sessions`.
 4. `teacher_app/` still present.
@@ -267,3 +268,36 @@ Recorded 2026-08-20 from repository root unless noted. Production Firebase was n
 | `firebase deploy` | **Not run** |
 
 Manual live Teacher UI, live camera/session XP, and production rules deployment remain **Not verified**.
+
+## 25. Closure correction pass (2026-08-20)
+
+Worked on `main` at HEAD `9a2663b3f7086079270758ef3a7f89c0528921dd`. Did **not** start Phase 5, deploy Firebase, or claim Phase 4 live-closed.
+
+### Rename-bypass (Blocker 1)
+
+`sessions/{sessionId}` update now requires `sessionIdentityUnchanged()`. `movement_name` cannot change after create, closing the historical Arm Stall → Hand Stall → +25 XP attack. Evidence-removal updates still succeed. Historical documents were not rewritten. Python legacy aliases were not removed. Arm Stall / Upper Forearm Stall remain non-official.
+
+### Scoped period keys (Blocker 2)
+
+Teacher My Students / Group no longer trust leftover `daily_xp` / `monthly_xp` when `daily_key` / `monthly_key` is not the currently resolved Asia/Manila period. Normalization is client-side on already-fetched UID rows. Global `fetchPlayersPage` queries are unchanged. No new aggregate fields or indexes.
+
+### Error-state isolation (Medium)
+
+Scoped fetch failures now set `scopedErrorMessage` instead of the bootstrap `errorMessage`. Switching back to Global still renders a healthy `globalList`. Retry on the scoped board calls `refresh()` (scoped reload); bootstrap failures still use `retry()` → `start()`.
+
+### Verification (this pass)
+
+Recorded 2026-08-20 from repository root unless noted. Production Firebase was **not** deployed.
+
+| Command | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | Passed (0 files needed formatting) |
+| `flutter analyze` | Exit 1; **0 errors**. 15 pre-existing infos/warnings outside this pass (same class as Phase 4). None in the files changed here. |
+| `flutter test` | Passed **1258** tests (was 1243) |
+| `cd packages\elixr_core; flutter test` | Passed **82** tests |
+| `cd teacher_app; flutter test` | Passed **95** tests |
+| `cd firestore-tests; npm test` with Temurin JRE 21 (`JAVA_HOME=C:\Program Files\Eclipse Adoptium\jre-21.0.12.8-hotspot`) | Passed **221** tests, **0** failed (was 216). Default PATH Java 17 is insufficient for current firebase-tools. |
+| Backend pytest | Not run — official movement allowlist / Python aliases unchanged |
+| `firebase deploy` | **Not run** |
+
+Phase 4 remains **not** fully closed or live verified. Remaining: deploy production rules after human review; run the section 19 live checklist.
