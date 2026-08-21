@@ -71,9 +71,13 @@ abstract class ClassroomAssignmentRepository {
     String? attemptId,
   });
 
-  Future<void> deleteAbandonedTeacherReviewSubmissionDraft({
+  Future<void> markTeacherReviewSubmissionAbandoned({
     required String traineeId,
     required AssignmentAttempt attempt,
+    DateTime? abandonedAt,
+    DateTime? videoDeletedAt,
+    bool deletionFailed = false,
+    DateTime? deletionFailedAt,
   });
 
   Future<AssignmentAttempt> markTeacherReviewSubmitted({
@@ -356,13 +360,14 @@ void ensureCanSupersedeNeedsRetry({
   }
 }
 
-bool isAbandonedTeacherReviewSubmissionDraft({
+bool canMarkTeacherReviewSubmissionAbandoned({
   required AssignmentAttempt attempt,
   required String traineeId,
 }) {
   return attempt.traineeId == traineeId &&
       attempt.attemptKind == AssignmentAttemptKind.teacherReviewSubmission &&
       attempt.status == AssignmentAttemptStatus.draft &&
+      attempt.abandonedAt == null &&
       attempt.awardsGlobalXp == false &&
       attempt.sourceSessionId == null &&
       attempt.submittedAt == null &&

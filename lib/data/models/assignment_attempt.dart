@@ -99,6 +99,7 @@ class AssignmentAttempt {
     this.reviewFeedback,
     this.reviewedAt,
     this.supersedesAttemptId,
+    this.abandonedAt,
   });
 
   final String id;
@@ -132,6 +133,7 @@ class AssignmentAttempt {
   final String? reviewFeedback;
   final DateTime? reviewedAt;
   final String? supersedesAttemptId;
+  final DateTime? abandonedAt;
 
   int? get rubricTotal => rubric?.total;
   PerformanceLevel? get performanceLevel => rubric?.performanceLevel;
@@ -139,8 +141,14 @@ class AssignmentAttempt {
   bool get isTeacherReviewSubmission =>
       attemptKind == AssignmentAttemptKind.teacherReviewSubmission;
 
+  bool get isAbandonedTeacherReviewDraft {
+    if (!isTeacherReviewSubmission) return false;
+    return status == AssignmentAttemptStatus.draft && abandonedAt != null;
+  }
+
   bool get isReviewFacingSubmission {
     if (!isTeacherReviewSubmission) return false;
+    if (isAbandonedTeacherReviewDraft) return false;
     return status == AssignmentAttemptStatus.submitted ||
         status == AssignmentAttemptStatus.approved ||
         status == AssignmentAttemptStatus.needsRetry;
@@ -208,6 +216,7 @@ class AssignmentAttempt {
     String? reviewFeedback,
     DateTime? reviewedAt,
     String? supersedesAttemptId,
+    DateTime? abandonedAt,
     bool clearVideoStoragePath = false,
     bool clearReviewFeedback = false,
     bool clearDeletionFailedAt = false,
@@ -250,6 +259,7 @@ class AssignmentAttempt {
           : (reviewFeedback ?? this.reviewFeedback),
       reviewedAt: reviewedAt ?? this.reviewedAt,
       supersedesAttemptId: supersedesAttemptId ?? this.supersedesAttemptId,
+      abandonedAt: abandonedAt ?? this.abandonedAt,
     );
   }
 
@@ -324,6 +334,7 @@ class AssignmentAttempt {
     final deletionFailedAt = TeacherRosterInvite.readDateTime(
       map['deletion_failed_at'],
     );
+    final abandonedAt = TeacherRosterInvite.readDateTime(map['abandoned_at']);
     final deletionFailed = map['deletion_failed'] == true;
     final videoSizeBytes = _readInt(map['video_size_bytes']);
     final videoDurationMs = _readInt(map['video_duration_ms']);
@@ -342,7 +353,8 @@ class AssignmentAttempt {
           reviewVerdict != null ||
           reviewFeedback != null ||
           reviewedAt != null ||
-          supersedesAttemptId != null) {
+          supersedesAttemptId != null ||
+          abandonedAt != null) {
         return null;
       }
     } else if (attemptKind == AssignmentAttemptKind.teacherReviewDraft) {
@@ -362,6 +374,7 @@ class AssignmentAttempt {
           reviewFeedback != null ||
           reviewedAt != null ||
           supersedesAttemptId != null ||
+          abandonedAt != null ||
           deletionFailed) {
         return null;
       }
@@ -382,6 +395,7 @@ class AssignmentAttempt {
         videoExpiresAt: videoExpiresAt,
         videoDeletedAt: videoDeletedAt,
         deletionFailed: deletionFailed,
+        abandonedAt: abandonedAt,
       )) {
         return null;
       }
@@ -423,6 +437,7 @@ class AssignmentAttempt {
       reviewFeedback: reviewFeedback,
       reviewedAt: reviewedAt,
       supersedesAttemptId: supersedesAttemptId,
+      abandonedAt: abandonedAt,
     );
   }
 
@@ -439,10 +454,23 @@ class AssignmentAttempt {
     required DateTime? videoExpiresAt,
     required DateTime? videoDeletedAt,
     required bool deletionFailed,
+    required DateTime? abandonedAt,
   }) {
     switch (status) {
       case AssignmentAttemptStatus.draft:
       case AssignmentAttemptStatus.inProgress:
+        if (abandonedAt != null) {
+          if (status != AssignmentAttemptStatus.draft) return false;
+          return reviewVerdict == null &&
+              reviewFeedback == null &&
+              reviewedAt == null &&
+              videoStoragePath == null &&
+              videoContentType == null &&
+              videoSizeBytes == null &&
+              videoDurationMs == null &&
+              submittedAt == null &&
+              videoExpiresAt == null;
+        }
         return reviewVerdict == null &&
             reviewFeedback == null &&
             reviewedAt == null &&
@@ -455,7 +483,8 @@ class AssignmentAttempt {
             videoDeletedAt == null &&
             !deletionFailed;
       case AssignmentAttemptStatus.submitted:
-        return reviewVerdict == null &&
+        return abandonedAt == null &&
+            reviewVerdict == null &&
             reviewFeedback == null &&
             reviewedAt == null &&
             _validSubmittedVideoMetadata(
@@ -469,7 +498,8 @@ class AssignmentAttempt {
               deletionFailed: deletionFailed,
             );
       case AssignmentAttemptStatus.approved:
-        return reviewVerdict == AssignmentReviewVerdict.approved &&
+        return abandonedAt == null &&
+            reviewVerdict == AssignmentReviewVerdict.approved &&
             reviewedAt != null &&
             _validSubmittedVideoMetadata(
               videoStoragePath: videoStoragePath,
@@ -482,7 +512,8 @@ class AssignmentAttempt {
               deletionFailed: deletionFailed,
             );
       case AssignmentAttemptStatus.needsRetry:
-        return reviewVerdict == AssignmentReviewVerdict.needsRetry &&
+        return abandonedAt == null &&
+            reviewVerdict == AssignmentReviewVerdict.needsRetry &&
             reviewedAt != null &&
             _validSubmittedVideoMetadata(
               videoStoragePath: videoStoragePath,

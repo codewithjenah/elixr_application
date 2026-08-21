@@ -415,58 +415,82 @@ void main() {
     },
   );
 
-  test('abandoned draft delete is owner-only and status-draft only', () async {
-    final movement = await movements.createMovement(
-      teacherId: 'teacher-1',
-      title: 'Tin Balance',
-      instructions: 'First.',
-      requiredProp: TrainingProp.bottle,
-    );
-    final revision = (await movements.getRevision(
-      movementId: movement.id,
-      revisionId: movement.currentRevisionId,
-    ))!;
-    final assignment = await assignments.createTeacherCreatedAssignment(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-      group: _group(),
-      movement: movement,
-      revision: revision,
-    );
-    final draft = await assignments.createTeacherReviewSubmissionDraft(
-      traineeId: 'trainee-1',
-      assignment: assignment,
-      attemptId: 'review_sub_abandoned',
-    );
-    await assignments.deleteAbandonedTeacherReviewSubmissionDraft(
-      traineeId: 'trainee-1',
-      attempt: draft,
-    );
-    expect(assignments.attempts[draft.id], isNull);
-
-    final submittedDraft = await assignments.createTeacherReviewSubmissionDraft(
-      traineeId: 'trainee-1',
-      assignment: assignment,
-      attemptId: 'review_sub_keep',
-    );
-    final submitted = await assignments.markTeacherReviewSubmitted(
-      traineeId: 'trainee-1',
-      attempt: submittedDraft,
-      videoStoragePath:
-          'assignment_submissions/teacher-1/g1/${assignment.id}/trainee-1/review_sub_keep.mp4',
-      videoContentType: 'video/mp4',
-      videoSizeBytes: 1200,
-      videoDurationMs: 4000,
-      submittedAt: DateTime.utc(2026, 8, 20),
-      videoExpiresAt: DateTime.utc(2026, 9, 19),
-    );
-    expect(
-      () => assignments.deleteAbandonedTeacherReviewSubmissionDraft(
+  test(
+    'abandoned draft delete is owner-only and cannot remove the document',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'First.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      final draft = await assignments.createTeacherReviewSubmissionDraft(
         traineeId: 'trainee-1',
-        attempt: submitted,
-      ),
-      throwsA(isA<ClassroomException>()),
-    );
-    expect(assignments.attempts[submitted.id], isNotNull);
-  });
+        assignment: assignment,
+        attemptId: 'review_sub_abandoned',
+      );
+      await assignments.markTeacherReviewSubmissionAbandoned(
+        traineeId: 'trainee-1',
+        attempt: draft,
+      );
+      final leftover = assignments.attempts[draft.id]!;
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.abandonedAt, isNotNull);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.isReviewFacingSubmission, isFalse);
+      expect(leftover.awardsGlobalXp, isFalse);
+
+      expect(
+        () => assignments.markTeacherReviewSubmitted(
+          traineeId: 'trainee-1',
+          attempt: leftover,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/${assignment.id}/trainee-1/review_sub_abandoned.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 1200,
+          videoDurationMs: 4000,
+          submittedAt: DateTime.utc(2026, 8, 20),
+          videoExpiresAt: DateTime.utc(2026, 9, 19),
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+
+      final submittedDraft = await assignments
+          .createTeacherReviewSubmissionDraft(
+            traineeId: 'trainee-1',
+            assignment: assignment,
+            attemptId: 'review_sub_keep',
+          );
+      final submitted = await assignments.markTeacherReviewSubmitted(
+        traineeId: 'trainee-1',
+        attempt: submittedDraft,
+        videoStoragePath:
+            'assignment_submissions/teacher-1/g1/${assignment.id}/trainee-1/review_sub_keep.mp4',
+        videoContentType: 'video/mp4',
+        videoSizeBytes: 1200,
+        videoDurationMs: 4000,
+        submittedAt: DateTime.utc(2026, 8, 20),
+        videoExpiresAt: DateTime.utc(2026, 9, 19),
+      );
+      expect(
+        () => assignments.markTeacherReviewSubmissionAbandoned(
+          traineeId: 'trainee-1',
+          attempt: submitted,
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+      expect(assignments.attempts[submitted.id], isNotNull);
+    },
+  );
 }

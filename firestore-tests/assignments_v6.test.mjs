@@ -551,11 +551,132 @@ describe('Phase 6 teacher_review_submission', () => {
     await assertFails(getDoc(doc(context('other').firestore(), 'assignment_attempts', ATTEMPT)));
   });
 
-  test('trainee may delete own abandoned teacher_review_submission draft', async () => {
+  test('trainee cannot directly delete own teacher_review_submission draft', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertFails(
+      deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('trainee may mark own teacher_review_submission draft abandoned', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    const snap = await getDoc(doc(db, 'assignment_attempts', ATTEMPT));
+    assert.equal(snap.exists(), true);
+    assert.equal(snap.data().status, 'draft');
+    assert.ok(snap.data().abandoned_at);
+    assert.equal(snap.data().awards_global_xp, false);
+  });
+
+  test('trainee may abandon a draft and mark leftover object gone', async () => {
     await seedClassroom();
     await seedDraft();
     await assertSucceeds(
-      deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
+      updateDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+        video_deleted_at: serverTimestamp(),
+        deletion_failed: false,
+      }),
+    );
+  });
+
+  test('trainee may abandon a draft as cleanup-pending', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertSucceeds(
+      updateDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+        deletion_failed: true,
+        deletion_failed_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('abandon cannot rewrite frozen identity', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertFails(
+      updateDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+        assignment_id: 'asgOther',
+      }),
+    );
+  });
+
+  test('assigning Teacher cannot mark a trainee draft abandoned', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertFails(
+      updateDoc(doc(context('teacher').firestore(), 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('abandoned draft cannot transition to submitted', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        status: 'submitted',
+        video_storage_path: PATH,
+        video_content_type: 'video/mp4',
+        video_size_bytes: 2048,
+        video_duration_ms: 4000,
+        submitted_at: serverTimestamp(),
+        video_expires_at: expiryUnreviewed(),
+      }),
+    );
+  });
+
+  test('abandoned draft cannot be rewritten into an active draft', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: deleteField(),
+      }),
+    );
+  });
+
+  test('abandoned draft cannot self-approve or gain XP', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        status: 'approved',
+        review_verdict: 'approved',
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        awards_global_xp: true,
+      }),
     );
   });
 
@@ -574,12 +695,17 @@ describe('Phase 6 teacher_review_submission', () => {
     );
   });
 
-  test('abandoned draft delete fails when video metadata is present', async () => {
+  test('abandon fails when video metadata is present', async () => {
     await seedClassroom();
     await seedDraft({
       video_storage_path: PATH,
       video_content_type: 'video/mp4',
     });
+    await assertFails(
+      updateDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
     await assertFails(
       deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
     );
@@ -590,6 +716,39 @@ describe('Phase 6 teacher_review_submission', () => {
     await seedDraft();
     await assertFails(
       deleteDoc(doc(context('otherTrainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('account erasure can still delete an abandoned teacher_review_submission', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertSucceeds(
+      updateDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    await seedBypassingRules(async (admin) => {
+      await deleteDoc(doc(admin, 'users', 'trainee'));
+    });
+    await assertSucceeds(
+      deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('owner can mark an abandoned leftover object deleted', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        video_deleted_at: serverTimestamp(),
+        deletion_failed: false,
+      }),
     );
   });
 });

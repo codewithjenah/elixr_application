@@ -44,9 +44,18 @@ class SubmissionRecorderError(Exception):
 class VideoWriterLike(Protocol):
     def isOpened(self) -> bool: ...
 
-    def write(self, frame: np.ndarray) -> None: ...
+    def write(self, frame: np.ndarray) -> bool | None: ...
 
     def release(self) -> None: ...
+
+
+def is_explicit_write_failure(result: object) -> bool:
+    """True only for an explicit boolean False from OpenCV 5-style bindings.
+
+    Historical Python OpenCV bindings return None on success. OpenCV 5
+    returns True. Never treat None as failure.
+    """
+    return result is False
 
 
 WriterFactory = Callable[[Path, float, tuple[int, int]], VideoWriterLike]
@@ -238,9 +247,13 @@ class SubmissionRecorder:
                 if writer is None or not writer.isOpened():
                     self._fail_unlocked("record_failed", "Video writer is not open.")
                     return False
-                # OpenCV 4/5 may return bool; older Python bindings returned
-                # None on success. Never treat a falsey return as failure.
-                writer.write(owned)
+                write_result = writer.write(owned)
+                if is_explicit_write_failure(write_result):
+                    self._fail_unlocked(
+                        "record_failed",
+                        "Video writer rejected the frame.",
+                    )
+                    return False
                 self._frames_written += 1
                 self._last_frame_at = captured_at
                 self._last_sequence = sequence

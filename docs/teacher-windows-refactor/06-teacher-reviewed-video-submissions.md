@@ -1,6 +1,6 @@
 # Phase 6 — Teacher-reviewed video submissions
 
-**Status:** Post-commit audit correction applied in the working tree — **not production-closed**, **not committed**. Firestore rules, Storage rules, and Storage lifecycle are **not** production deployed/applied. Live camera/record/upload/review has **not** been human-verified. Phase 7 was **not** started.  
+**Status:** Code complete after Phase 6 audit corrections — **not production-closed**. Firestore rules, Storage rules, and Storage lifecycle are **not** production deployed/applied. Live camera/record/upload/review has **not** been human-verified. Phase 7 was **not** started.  
 **Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.
 
@@ -19,11 +19,11 @@
 
 ## 1. Status
 
-Post-commit audit correction applied in the working tree. **Not production-closed. Not committed.**
+Code complete after Phase 6 audit corrections. **Not production-closed.**
 
 | Gate | State |
 |---|---|
-| Code complete | Audit correction applied locally after `88b7af1`. **Not** a production close. |
+| Code complete | Audit corrections applied after `f1cf6fa`. **Not** a production close. |
 | Automated verification | See Completion report after this correction. **Not** production-closed. |
 | Firestore rules production deployed | **No** — do not `firebase deploy` |
 | Storage rules production deployed | **No** |
@@ -31,16 +31,22 @@ Post-commit audit correction applied in the working tree. **Not production-close
 | Live camera / record / upload / review | **Not human-verified** |
 | Phase 7 | **Not started** |
 
+### Authorization-anchor / orphan-object correction
+
+A `teacher_review_submission` draft is the Storage authorization anchor for `assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4`. Ordinary signed-in Trainees **must not** DELETE that Firestore document. Doing so after an MP4 upload would leave an object whose matching attempt is gone, so Storage read/delete could no longer be authorized until bucket lifecycle (which is **not** applied).
+
+Failed trainee uploads now mark the draft with `abandoned_at` (status stays `draft`). The document remains until account erasure. Storage CREATE requires the matching draft is not abandoned. Teacher reads remain `submitted` / `approved` / `needs_retry` only. Trainee owner and the frozen assigning Teacher may DELETE an abandoned leftover object. Reconciliation on Teacher Reviews / Assigned Movements load derives the canonical path even when `video_storage_path` was never written. Account erasure does the same before deleting attempt documents.
+
 ### Post-commit audit correction (this change)
 
-Findings after `88b7af1 feat: implement teacher-reviewed video submission functionality`:
+Findings after `88b7af1 feat: implement teacher-reviewed video submission functionality`, plus the later authorization-anchor correction:
 
-1. **OpenCV `VideoWriter.write` return value.** Production treated a falsey `write()` result as failure. Real Python OpenCV may return `None` (older bindings) or `bool` (OpenCV 5). `if not writer.write(frame)` treats `None` as failure. The recorder now calls `write()` without interpreting the return. Failures are exceptions/`cv2.error`, a writer that is not opened, or a missing/empty/oversized file after `release()`. FakeWriter returns `None`. Final size is checked again after `release()`.
+1. **OpenCV `VideoWriter.write` return value.** Historical Python OpenCV bindings return `None` on success. OpenCV 5 returns `bool` (`True` on success). The recorder treats **only an explicit boolean `False`** as `record_failed`. `None` and `True` are success. Do **not** use `if not writer.write(...)` because `None` is a valid success result. Failures also include exceptions, a writer that is not opened, or a missing/empty/oversized file after `release()`. Final size is checked again after `release()`.
 2. **Authenticated private playback.** Teacher review no longer uses `getDownloadURL()`. Playback downloads through the authenticated Firebase Storage SDK (`getData(maxSize)`), writes an ELIXR review cache file, and plays `Uri.file`. Cache is deleted when the selected review changes, the detail closes, the controller disposes, or download fails after a partial write.
-3. **Draft-attempt failure cleanup.** A failed upload deletes the Firestore draft. If Storage upload succeeded but submit metadata failed, the object is deleted first (object-not-found counts as gone); only then is the draft deleted. If object delete fails, the draft is kept as the authorization anchor. Do not report submitted.
-4. **Review queue draft filtering.** Teacher Reviews list only `submitted` / `approved` / `needs_retry`. Draft upload attempts are not reviews.
+3. **Draft-attempt failure cleanup.** A failed upload **does not delete** the Firestore draft. The trainee owner marks it abandoned (`abandoned_at`). If Storage upload succeeded but submit metadata failed, the object is deleted first (object-not-found counts as gone); then the draft is marked abandoned. If object delete fails, the draft is still marked abandoned / cleanup-pending and remains the authorization anchor. Do not report submitted. A later submission uses a new `review_sub_*` ID.
+4. **Review queue draft filtering.** Teacher Reviews list only `submitted` / `approved` / `needs_retry`. Draft and abandoned upload attempts are not reviews.
 5. **Record command single-flight.** `SubmissionRecordingController` acquires a record-command guard before the first await of start/stop/retake/submit. Duplicate Start or Stop issues one WebSocket command. Auto-stop racing manual Stop yields one clip. Retake cannot race Stop finalization.
-6. **Stricter `AssignmentAttempt` parser.** `teacher_review_submission` fails closed for draft vs submitted vs reviewed video/review metadata and deletion consistency. `practice_pointer` and `teacher_review_draft` are unchanged.
+6. **Stricter `AssignmentAttempt` parser.** `teacher_review_submission` fails closed for draft vs abandoned vs submitted vs reviewed video/review metadata and deletion consistency. `practice_pointer` and `teacher_review_draft` are unchanged.
 
 ## 2. Goal
 
@@ -148,8 +154,10 @@ Canonical field: `status`. Teacher decision is also stored on Teacher-only `revi
 Trainee transitions only:
 
 - `draft` / `in_progress` → `submitted`
+- `draft` → abandoned (`abandoned_at == request.time`; status stays `draft`)
 
 Trainee **cannot** set `status` to `approved` or `needs_retry`.
+Trainee **cannot** DELETE a `teacher_review_submission` draft. Abandoned drafts cannot be submitted, rewritten into an active draft, reused for another assignment, or shown in Teacher Reviews.
 
 Teacher transitions only (assigning Teacher = frozen `teacher_id`):
 
@@ -370,9 +378,7 @@ Storage/Firestore emulator: `Not verified` if not used.
 
 ## 22. Completion report
 
-Phase 6 is **not production-closed**. A post-commit audit correction is applied in the working tree and is **not committed**.
-
-Do not describe the implementation as fully code-complete without that audit correction.
+Phase 6 is **not production-closed**. Code is complete after Phase 6 audit corrections. Do not encode transient git working-tree state into this document.
 
 ### Protocol commands
 
@@ -391,13 +397,13 @@ Do not describe the implementation as fully code-complete without that audit cor
 - Size bound `MAX_SUBMISSION_SIZE_BYTES = 15 MiB`
 - Temp dir `{temp}/elixr_submissions/clip_{uuid}.mp4`
 - One recorder per WebSocket session; cancel/stop/disconnect/session replace/cleanup are deterministic
-- `VideoWriter.write()` return is **not** treated as a boolean. OpenCV 5 on this machine returned `True`; older Python bindings return `None`. Failures are exceptions, a writer that is not opened, or a missing/empty/oversized file **after** `release()`.
+- `VideoWriter.write()`: `None` and `True` are success; explicit boolean `False` is `record_failed`. Older Python bindings return `None`; OpenCV 5 returns `bool`. Do not use `if not writer.write(...)`.
 
 ### Exact `assignment_attempts` schema / state machine
 
-Kind `teacher_review_submission`. Status: `draft` → `submitted` (trainee) → `approved` | `needs_retry` (frozen assigning Teacher). Optional `supersedes_attempt_id` only when previous is the same identity, kind submission, status and verdict `needs_retry`. Historical review fields are immutable. `awards_global_xp` is always false. No `source_session_id`. No `sessions` / leaderboard writes.
+Kind `teacher_review_submission`. Status: `draft` → `submitted` (trainee) → `approved` | `needs_retry` (frozen assigning Teacher). Failed drafts stay `draft` with `abandoned_at` and cannot be submitted. Optional `supersedes_attempt_id` only when previous is the same identity, kind submission, status and verdict `needs_retry`. Historical review fields are immutable. `awards_global_xp` is always false. No `source_session_id`. No `sessions` / leaderboard writes.
 
-Video fields: `video_storage_path`, `video_content_type`, `video_size_bytes`, `video_duration_ms`, `submitted_at`, `video_expires_at`, `video_deleted_at`, `deletion_failed`, optional `deletion_failed_at`, `review_verdict`, `review_feedback`, `reviewed_at`.
+Video fields: `video_storage_path`, `video_content_type`, `video_size_bytes`, `video_duration_ms`, `submitted_at`, `video_expires_at`, `video_deleted_at`, `deletion_failed`, optional `deletion_failed_at`, `review_verdict`, `review_feedback`, `reviewed_at`, `abandoned_at`.
 
 ### Exact Storage path / custom metadata
 
@@ -409,8 +415,8 @@ Custom metadata: `teacher_id`, `group_id`, `assignment_id`, `trainee_id`, `attem
 
 | Actor | Create | Read | Delete |
 |---|---|---|---|
-| Owner Trainee | Yes if current approved membership + matching draft attempt | Yes | Yes |
-| Frozen assigning Teacher | No | Yes if attempt status is `submitted` / `approved` / `needs_retry`; without current membership, Progress, Evidence, or public profile | Yes (retention; same reviewable statuses) |
+| Owner Trainee | Yes if current approved membership + matching **non-abandoned** draft attempt | Yes | Yes |
+| Frozen assigning Teacher | No | Yes if attempt status is `submitted` / `approved` / `needs_retry`; without current membership, Progress, Evidence, or public profile. **Not** draft or abandoned. | Yes for reviewable statuses **and** abandoned leftover objects |
 | Unrelated Teacher / other Trainee | No | No | No |
 | General Evidence Access alone | No | No | No |
 | Object update | Denied | | Replacement is a new attempt/object |
@@ -419,11 +425,12 @@ JPEG `session_evidence` rules are unchanged.
 
 ### Firestore transitions
 
-- Create draft: trainee, current approved membership, active teacher-created / teacher-reviewed assignment, no video/review fields
-- Trainee submit: draft/in_progress → submitted with canonical path, size 1..15MiB, duration 1..20000ms, `submitted_at == request.time`, `video_expires_at` ~30 days (29–31 day window)
+- Create draft: trainee, current approved membership, active teacher-created / teacher-reviewed assignment, no video/review/`abandoned_at` fields
+- Trainee submit: draft/in_progress **without** `abandoned_at` → submitted with canonical path, size 1..15MiB, duration 1..20000ms, `submitted_at == request.time`, `video_expires_at` ~30 days (29–31 day window)
+- Trainee abandon: draft without video/review/`source_session_id` → `abandoned_at == request.time`; frozen identity unchanged; `awards_global_xp` stays false. Optional `video_deleted_at` if the leftover object is already gone, or `deletion_failed` if object cleanup is pending. Cannot later submit, self-approve, rewrite identity, or clear `abandoned_at`.
 - Teacher review: submitted → approved|needs_retry, verdict matches status, `reviewed_at == request.time`, expires ~14 days (13–15 day window)
-- Cleanup: owner or frozen Teacher may only touch path / deleted_at / deletion_failed; cannot rewrite review/status/identity
-- Abandoned draft delete: owner Trainee may delete their own `teacher_review_submission` only while `status=draft`, `awards_global_xp=false`, and video/review/`source_session_id` fields are absent. Not generic attempt delete. Upload failure cleans the draft. If the object uploaded but submit metadata failed, delete the object first (object-not-found counts as gone) and only then delete the draft. If object delete fails, keep the draft.
+- Cleanup: owner or frozen Teacher may only touch path / deleted_at / deletion_failed; cannot rewrite review/status/identity. Abandoned drafts allow the same cleanup keys so leftover objects can be reconciled from the canonical path.
+- Ordinary draft DELETE is denied. Account-erasure delete remains: `!exists(users/{uid})` and the caller is frozen `trainee_id` or `teacher_id`.
 
 ### Retention / lifecycle
 
@@ -436,7 +443,7 @@ JPEG `session_evidence` rules are unchanged.
 
 ### Account-erasure order
 
-Session evidence Storage → Firestore domain (sessions, groups, owned classroom defs) → **assignment submission Storage (while attempts still exist)** → users doc → coaching notes → assignment_attempts → profile Storage.
+Session evidence Storage → Firestore domain (sessions, groups, owned classroom defs) → **assignment submission Storage (while attempts still exist; canonical `assignment_submissions/` path is derived for every `teacher_review_submission`, including abandoned drafts with no `video_storage_path`)** → users doc → coaching notes → assignment_attempts → profile Storage.
 
 ### Legal / policy
 
@@ -455,12 +462,12 @@ No new composite index. Review queue uses existing `assignment_attempts.teacher_
 | Suite | Result |
 |---|---|
 | `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | 442 files, 0 changed |
-| `flutter analyze` | 0 errors, 15 pre-existing infos/warnings |
-| `flutter test` (root) | **1341** passed |
-| `packages/elixr_core` `flutter test` | **87** passed |
+| `flutter analyze` | 0 errors, 15 pre-existing infos/warnings (exit 1 due to existing warning) |
+| `flutter test` (root) | **1343** passed |
+| `packages/elixr_core` `flutter test` | **91** passed |
 | `teacher_app` `flutter test` | **95** passed |
-| `firestore-tests` `npm test` (JDK 21) | **317** passed |
-| `backend` pytest | **1120** passed |
+| `firestore-tests` `npm test` (JDK 21) | **329** passed |
+| `backend` pytest | **1122** passed |
 | `backend` compileall | succeeded |
 | `flutter build windows` | succeeded (`build\windows\x64\runner\Release\elixr_application.exe`) |
 | `firebase deploy` | **not run** |
@@ -478,7 +485,7 @@ Phase 6 completion
 - Deletion mechanism: client reconciler + documented assignment_submissions lifecycle (not applied)
 - Trainee self-approve blocked: yes
 - Planning defaults used (unvalidated): 20s / 15MiB / 30d unreviewed / 14d reviewed / 30d object age
-- Automated local suites: root 1341 / elixr_core 87 / teacher_app 95 / firestore-tests 317 / backend 1120 / Windows build succeeded
+- Automated local suites: root 1343 / elixr_core 91 / teacher_app 95 / firestore-tests 329 / backend 1122 / Windows build succeeded
 - Not verified: production deploy, lifecycle apply, live camera/record/upload/review
 ```
 

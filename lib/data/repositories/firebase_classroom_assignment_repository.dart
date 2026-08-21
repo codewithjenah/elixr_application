@@ -266,17 +266,35 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
-  Future<void> deleteAbandonedTeacherReviewSubmissionDraft({
+  Future<void> markTeacherReviewSubmissionAbandoned({
     required String traineeId,
     required AssignmentAttempt attempt,
+    DateTime? abandonedAt,
+    DateTime? videoDeletedAt,
+    bool deletionFailed = false,
+    DateTime? deletionFailedAt,
   }) async {
-    if (!isAbandonedTeacherReviewSubmissionDraft(
+    if (!canMarkTeacherReviewSubmissionAbandoned(
       attempt: attempt,
       traineeId: traineeId,
     )) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
-    await _attempts.doc(attempt.id).delete();
+    if (deletionFailed && videoDeletedAt != null) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final payload = <String, dynamic>{
+      'abandoned_at': FieldValue.serverTimestamp(),
+    };
+    if (videoDeletedAt != null) {
+      payload['video_deleted_at'] = FieldValue.serverTimestamp();
+      payload['deletion_failed'] = false;
+    }
+    if (deletionFailed) {
+      payload['deletion_failed'] = true;
+      payload['deletion_failed_at'] = FieldValue.serverTimestamp();
+    }
+    await _attempts.doc(attempt.id).update(payload);
   }
 
   @override

@@ -129,6 +129,7 @@ class AssignedMovementsController extends ChangeNotifier {
     final latestByAssignment = <String, AssignmentAttempt>{};
     final submissionsByAssignment = <String, AssignmentAttempt>{};
     for (final attempt in _attempts) {
+      if (attempt.isAbandonedTeacherReviewDraft) continue;
       final existing = latestByAssignment[attempt.assignmentId];
       if (existing == null ||
           (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(

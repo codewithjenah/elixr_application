@@ -12,14 +12,22 @@ from vision.submission_recorder import (
     SubmissionRecorder,
     SubmissionRecorderError,
     cleanup_orphan_submission_temp_files,
+    is_explicit_write_failure,
     submission_temp_dir,
 )
 
 
 class FakeWriter:
-    def __init__(self, path: Path, *, fail_open: bool = False):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        fail_open: bool = False,
+        write_result: object = None,
+    ):
         self.path = path
         self.fail_open = fail_open
+        self.write_result = write_result
         self.frames: list[np.ndarray] = []
         self.released = False
         if not fail_open:
@@ -28,11 +36,11 @@ class FakeWriter:
     def isOpened(self) -> bool:
         return not self.fail_open
 
-    def write(self, frame: np.ndarray) -> None:
+    def write(self, frame: np.ndarray) -> object:
         self.frames.append(np.copy(frame))
         with self.path.open("ab") as handle:
             handle.write(b"frame")
-        return None
+        return self.write_result
 
     def release(self) -> None:
         self.released = True
@@ -52,7 +60,13 @@ def _frame(value: int = 40) -> np.ndarray:
     return np.full((16, 20, 3), value, dtype=np.uint8)
 
 
-def _recorder(tmp_path: Path, *, now: list[float] | None = None, **kwargs):
+def _recorder(
+    tmp_path: Path,
+    *,
+    now: list[float] | None = None,
+    write_result: object = None,
+    **kwargs,
+):
     clock = now if now is not None else [0.0]
 
     def monotonic() -> float:
@@ -61,7 +75,7 @@ def _recorder(tmp_path: Path, *, now: list[float] | None = None, **kwargs):
     writers: list[FakeWriter] = []
 
     def factory(path: Path, fps: float, size: tuple[int, int]) -> FakeWriter:
-        writer = FakeWriter(path)
+        writer = FakeWriter(path, write_result=write_result)
         writers.append(writer)
         return writer
 
@@ -202,9 +216,10 @@ def test_orphan_cleanup_removes_old_clips_only(tmp_path: Path):
 
 
 def test_writer_write_returning_none_finalizes_metadata(tmp_path: Path):
-    probe = FakeWriter(tmp_path / "none_probe.mp4")
+    assert is_explicit_write_failure(None) is False
+    probe = FakeWriter(tmp_path / "none_probe.mp4", write_result=None)
     assert probe.write(_frame()) is None
-    recorder, clock, writers = _recorder(tmp_path)
+    recorder, clock, writers = _recorder(tmp_path, write_result=None)
     recorder.start()
     still = recorder.write_frame(_frame(), captured_at_monotonic=0.0, sequence=1)
     assert still is True
@@ -216,6 +231,39 @@ def test_writer_write_returning_none_finalizes_metadata(tmp_path: Path):
     assert metadata.video_duration_ms == 500
     assert Path(metadata.local_path).exists()
     assert metadata.content_type == "video/mp4"
+
+
+def test_writer_write_returning_true_finalizes_metadata(tmp_path: Path):
+    assert is_explicit_write_failure(True) is False
+    probe = FakeWriter(tmp_path / "true_probe.mp4", write_result=True)
+    assert probe.write(_frame()) is True
+    recorder, clock, writers = _recorder(tmp_path, write_result=True)
+    recorder.start()
+    still = recorder.write_frame(_frame(), captured_at_monotonic=0.0, sequence=1)
+    assert still is True
+    clock[0] = 0.5
+    recorder.write_frame(_frame(90), captured_at_monotonic=0.5, sequence=2)
+    metadata = recorder.stop()
+    assert writers[0].released is True
+    assert metadata.video_size_bytes > 0
+    assert metadata.video_duration_ms == 500
+    assert Path(metadata.local_path).exists()
+
+
+def test_writer_write_returning_false_is_record_failed(tmp_path: Path):
+    assert is_explicit_write_failure(False) is True
+    probe = FakeWriter(tmp_path / "false_probe.mp4", write_result=False)
+    assert probe.write(_frame()) is False
+    recorder, _clock, writers = _recorder(tmp_path, write_result=False)
+    recorder.start()
+    still = recorder.write_frame(_frame(), captured_at_monotonic=0.0, sequence=1)
+    assert still is False
+    with pytest.raises(SubmissionRecorderError) as exc:
+        recorder.stop()
+    assert exc.value.code == "record_failed"
+    assert writers[0].released is True
+    directory = submission_temp_dir(tmp_path)
+    assert list(directory.glob("clip_*.mp4")) == []
 
 
 def test_oversized_file_after_release_is_rejected_and_deleted(tmp_path: Path):
@@ -279,9 +327,9 @@ def test_real_opencv_write_return_is_ignored_and_synthetic_clip_finalizes(
     frame = np.zeros((16, 16, 3), dtype=np.uint8)
     write_return = writer.write(frame)
     writer.release()
-    # OpenCV 5 returns bool; older Python bindings returned None. Either is
-    # success for this recorder as long as the value is not interpreted.
-    assert write_return is None or write_return is True or write_return is False
+    # Historical Python OpenCV returns None; OpenCV 5 returns bool True.
+    # Explicit False is a recorder failure and is covered by FakeWriter tests.
+    assert write_return is None or write_return is True
 
     recorder = SubmissionRecorder(
         fps=10,

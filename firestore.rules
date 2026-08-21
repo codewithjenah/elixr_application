@@ -3034,7 +3034,8 @@ service cloud.firestore {
           'performance_level', 'review_verdict', 'review_feedback',
           'reviewed_at', 'video_storage_path', 'video_content_type',
           'video_size_bytes', 'video_duration_ms', 'submitted_at',
-          'video_expires_at', 'video_deleted_at', 'deletion_failed'])
+          'video_expires_at', 'video_deleted_at', 'deletion_failed',
+          'abandoned_at'])
         && (
           !data.keys().hasAny(['supersedes_attempt_id'])
           || validSubmissionSupersedes(data)
@@ -3123,7 +3124,9 @@ service cloud.firestore {
       return resource.data.trainee_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
         && resource.data.status in ['draft', 'in_progress']
+        && !resource.data.keys().hasAny(['abandoned_at'])
         && after.status == 'submitted'
+        && !after.keys().hasAny(['abandoned_at'])
         && assignmentAttemptIdentityUnchanged()
         && after.keys().hasAll(assignmentAttemptIdentityKeys())
         && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys())
@@ -3194,17 +3197,84 @@ service cloud.firestore {
         );
     }
 
-    function validAbandonedTeacherReviewDraftDelete() {
+    function teacherReviewSubmissionHasNoSubmitOrReviewPayload(data) {
+      return !data.keys().hasAny([
+        'source_session_id', 'submitted_at', 'video_expires_at',
+        'video_storage_path', 'video_content_type', 'video_size_bytes',
+        'video_duration_ms', 'review_verdict', 'review_feedback',
+        'reviewed_at'
+      ]);
+    }
+    function validTeacherReviewSubmissionAbandon() {
+      let after = request.resource.data;
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
       return resource.data.trainee_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
         && resource.data.status == 'draft'
         && resource.data.awards_global_xp == false
+        && !resource.data.keys().hasAny(['abandoned_at'])
+        && teacherReviewSubmissionHasNoSubmitOrReviewPayload(resource.data)
         && !resource.data.keys().hasAny([
-          'source_session_id', 'submitted_at', 'video_expires_at',
-          'video_storage_path', 'video_content_type', 'video_size_bytes',
-          'video_duration_ms', 'video_deleted_at', 'deletion_failed',
-          'review_verdict', 'review_feedback', 'reviewed_at'
-        ]);
+          'video_deleted_at', 'deletion_failed', 'deletion_failed_at'
+        ])
+        && after.status == 'draft'
+        && after.awards_global_xp == false
+        && assignmentAttemptIdentityUnchanged()
+        && after.abandoned_at == request.time
+        && teacherReviewSubmissionHasNoSubmitOrReviewPayload(after)
+        && changed.hasOnly(['abandoned_at', 'video_deleted_at',
+          'deletion_failed', 'deletion_failed_at'])
+        && (
+          (
+            !after.keys().hasAny(['video_deleted_at', 'deletion_failed',
+              'deletion_failed_at'])
+          )
+          || (
+            after.video_deleted_at == request.time
+            && (
+              !after.keys().hasAny(['deletion_failed'])
+              || after.deletion_failed == false
+            )
+            && !after.keys().hasAny(['deletion_failed_at'])
+          )
+          || (
+            !after.keys().hasAny(['video_deleted_at'])
+            && after.deletion_failed == true
+            && after.deletion_failed_at == request.time
+          )
+        );
+    }
+    function validAbandonedTeacherReviewCleanup() {
+      let after = request.resource.data;
+      return (
+          resource.data.trainee_id == request.auth.uid
+          || resource.data.teacher_id == request.auth.uid
+        )
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status == 'draft'
+        && resource.data.abandoned_at is timestamp
+        && after.status == 'draft'
+        && after.abandoned_at == resource.data.abandoned_at
+        && assignmentAttemptIdentityUnchanged()
+        && teacherReviewSubmissionHasNoSubmitOrReviewPayload(after)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['video_storage_path', 'video_deleted_at',
+            'deletion_failed', 'deletion_failed_at'])
+        && (
+          (
+            !after.keys().hasAny(['video_storage_path'])
+            && after.video_deleted_at == request.time
+            && after.deletion_failed == false
+          )
+          || (
+            after.deletion_failed == true
+            && after.deletion_failed_at == request.time
+            && after.get('video_deleted_at', '__elixr_absent__')
+              == resource.data.get('video_deleted_at', '__elixr_absent__')
+            && after.get('video_storage_path', '__elixr_absent__')
+              == resource.data.get('video_storage_path', '__elixr_absent__')
+          )
+        );
     }
 
     match /assignment_attempts/{attemptId} {
@@ -3222,17 +3292,14 @@ service cloud.firestore {
           || validTeacherReviewSubmissionTraineeSubmit(attemptId)
           || validTeacherReviewSubmissionTeacherReview()
           || validTeacherReviewSubmissionCleanup()
+          || validTeacherReviewSubmissionAbandon()
+          || validAbandonedTeacherReviewCleanup()
         );
       allow delete: if isSignedIn()
+        && !exists(userPath(request.auth.uid))
         && (
-          validAbandonedTeacherReviewDraftDelete()
-          || (
-            !exists(userPath(request.auth.uid))
-            && (
-              resource.data.trainee_id == request.auth.uid
-              || resource.data.teacher_id == request.auth.uid
-            )
-          )
+          resource.data.trainee_id == request.auth.uid
+          || resource.data.teacher_id == request.auth.uid
         );
     }
 

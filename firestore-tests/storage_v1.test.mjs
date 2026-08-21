@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   assertFails,
 } from '@firebase/rules-unit-testing';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, setDoc, Timestamp, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { deleteObject, getBytes, ref, updateMetadata, uploadBytes } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-elixr';
@@ -407,5 +407,45 @@ describe('assignment_submissions Storage', () => {
     await uploadDraftObject();
     await setAttemptStatus('needs_retry');
     await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
+  });
+
+  test('assigning Teacher cannot delete an active draft object', async () => {
+    await uploadDraftObject();
+    await assertFails(deleteObject(ref(context('teacher').storage(), PATH)));
+  });
+
+  test('abandoned draft keeps the Firestore authorization anchor across Storage cleanup', async () => {
+    await uploadDraftObject();
+    const traineeDb = context('trainee').firestore();
+    await assertFails(
+      deleteDoc(doc(traineeDb, 'assignment_attempts', ATTEMPT)),
+    );
+    await assertSucceeds(
+      updateDoc(doc(traineeDb, 'assignment_attempts', ATTEMPT), {
+        abandoned_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      uploadBytes(
+        ref(context('trainee').storage(), PATH),
+        new Uint8Array(32),
+        metadata(),
+      ),
+    );
+    await assertFails(getBytes(ref(context('teacher').storage(), PATH)));
+    await assertFails(getBytes(ref(context('other').storage(), PATH)));
+    await assertFails(deleteObject(ref(context('other').storage(), PATH)));
+    await assertSucceeds(deleteObject(ref(context('trainee').storage(), PATH)));
+
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await uploadBytes(ref(admin.storage(), PATH), new Uint8Array(64), metadata());
+    });
+    await assertFails(getBytes(ref(context('teacher').storage(), PATH)));
+    await assertSucceeds(deleteObject(ref(context('teacher').storage(), PATH)));
+
+    const remaining = await getDoc(doc(traineeDb, 'assignment_attempts', ATTEMPT));
+    if (!remaining.exists()) {
+      throw new Error('authorization anchor was deleted after Storage cleanup');
+    }
   });
 });

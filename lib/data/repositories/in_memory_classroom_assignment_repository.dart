@@ -297,18 +297,32 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
-  Future<void> deleteAbandonedTeacherReviewSubmissionDraft({
+  Future<void> markTeacherReviewSubmissionAbandoned({
     required String traineeId,
     required AssignmentAttempt attempt,
+    DateTime? abandonedAt,
+    DateTime? videoDeletedAt,
+    bool deletionFailed = false,
+    DateTime? deletionFailedAt,
   }) async {
-    if (!isAbandonedTeacherReviewSubmissionDraft(
+    if (!canMarkTeacherReviewSubmissionAbandoned(
       attempt: attempt,
       traineeId: traineeId,
     )) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
-    final existing = attempts.remove(attempt.id);
+    if (deletionFailed && videoDeletedAt != null) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final existing = attempts[attempt.id];
     if (existing == null) return;
+    final marked = existing.copyWith(
+      abandonedAt: abandonedAt ?? now,
+      videoDeletedAt: videoDeletedAt,
+      deletionFailed: deletionFailed,
+      deletionFailedAt: deletionFailedAt,
+    );
+    attempts[existing.id] = marked;
     _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
     _emitTraineeAttempts(existing.traineeId);
     _emitTeacherAttempts(existing.teacherId);
@@ -332,6 +346,9 @@ class InMemoryClassroomAssignmentRepository
     if (existing.traineeId != traineeId ||
         existing.attemptKind != AssignmentAttemptKind.teacherReviewSubmission) {
       throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (existing.abandonedAt != null) {
+      throw const ClassroomException(ClassroomError.invalidState);
     }
     if (existing.status != AssignmentAttemptStatus.draft &&
         existing.status != AssignmentAttemptStatus.inProgress) {

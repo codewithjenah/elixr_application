@@ -119,81 +119,89 @@ void main() {
     );
   }
 
-  test('upload failure before an object exists deletes the draft', () async {
-    final assignments = InMemoryClassroomAssignmentRepository(
-      now: () => DateTime.utc(2026, 8, 20),
-      generateId: () => 'asg1',
-    );
-    addTearDown(assignments.dispose);
-    final assignment = await teacherAssignment(assignments);
-    final submissions = InMemoryAssignmentSubmissionRepository(
-      classroom: assignments,
-      now: () => DateTime.utc(2026, 8, 20),
-      failNextUpload: true,
-    );
-    await expectLater(
-      submissions.submitLocalClip(
-        traineeId: 'trainee-1',
-        assignment: assignment,
-        clip: const SubmissionRecordResult(
-          localPath: r'C:\Temp\elixr_submissions\clip.mp4',
-          durationMs: 3500,
-          sizeBytes: 2048,
-          contentType: 'video/mp4',
+  test(
+    'upload failure before an object exists marks the draft abandoned',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final submissions = InMemoryAssignmentSubmissionRepository(
+        classroom: assignments,
+        now: () => DateTime.utc(2026, 8, 20),
+        failNextUpload: true,
+      );
+      await expectLater(
+        submissions.submitLocalClip(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: const SubmissionRecordResult(
+            localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+            durationMs: 3500,
+            sizeBytes: 2048,
+            contentType: 'video/mp4',
+          ),
         ),
-      ),
-      throwsA(isA<AssignmentSubmissionException>()),
-    );
-    expect(
-      assignments.attempts.values.where(
+        throwsA(isA<AssignmentSubmissionException>()),
+      );
+      final leftover = assignments.attempts.values.singleWhere(
         (attempt) =>
             attempt.attemptKind ==
             AssignmentAttemptKind.teacherReviewSubmission,
-      ),
-      isEmpty,
-    );
-  });
-
-  test('submit metadata failure deletes the object then the draft', () async {
-    final assignments = InMemoryClassroomAssignmentRepository(
-      now: () => DateTime.utc(2026, 8, 20),
-      generateId: () => 'asg1',
-    );
-    addTearDown(assignments.dispose);
-    assignments.failNextSubmitTransition = true;
-    final assignment = await teacherAssignment(assignments);
-    final deleted = <String>{};
-    final submissions = InMemoryAssignmentSubmissionRepository(
-      classroom: assignments,
-      now: () => DateTime.utc(2026, 8, 20),
-      deletedPaths: deleted,
-    );
-    await expectLater(
-      submissions.submitLocalClip(
-        traineeId: 'trainee-1',
-        assignment: assignment,
-        clip: const SubmissionRecordResult(
-          localPath: r'C:\Temp\elixr_submissions\clip.mp4',
-          durationMs: 3500,
-          sizeBytes: 2048,
-          contentType: 'video/mp4',
-        ),
-      ),
-      throwsA(isA<Exception>()),
-    );
-    expect(deleted, isNotEmpty);
-    expect(
-      assignments.attempts.values.where(
-        (attempt) =>
-            attempt.attemptKind ==
-            AssignmentAttemptKind.teacherReviewSubmission,
-      ),
-      isEmpty,
-    );
-  });
+      );
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.isReviewFacingSubmission, isFalse);
+      expect(leftover.videoStoragePath, isNull);
+      expect(leftover.awardsGlobalXp, isFalse);
+    },
+  );
 
   test(
-    'object delete failure keeps the draft and does not report submitted',
+    'submit metadata failure deletes the object then marks the draft abandoned',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      assignments.failNextSubmitTransition = true;
+      final assignment = await teacherAssignment(assignments);
+      final deleted = <String>{};
+      final submissions = InMemoryAssignmentSubmissionRepository(
+        classroom: assignments,
+        now: () => DateTime.utc(2026, 8, 20),
+        deletedPaths: deleted,
+      );
+      await expectLater(
+        submissions.submitLocalClip(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: const SubmissionRecordResult(
+            localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+            durationMs: 3500,
+            sizeBytes: 2048,
+            contentType: 'video/mp4',
+          ),
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(deleted, isNotEmpty);
+      final leftover = assignments.attempts.values.singleWhere(
+        (attempt) =>
+            attempt.attemptKind ==
+            AssignmentAttemptKind.teacherReviewSubmission,
+      );
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.videoDeletedAt, isNotNull);
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+    },
+  );
+
+  test(
+    'object delete failure keeps the abandoned authorization anchor',
     () async {
       final assignments = InMemoryClassroomAssignmentRepository(
         now: () => DateTime.utc(2026, 8, 20),
@@ -226,6 +234,9 @@ void main() {
             AssignmentAttemptKind.teacherReviewSubmission,
       );
       expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.deletionFailed, isTrue);
+      expect(leftover.isReviewFacingSubmission, isFalse);
     },
   );
 
@@ -358,4 +369,50 @@ void main() {
     expect(updated.status, AssignmentAttemptStatus.approved);
     expect(updated.deletionFailed, isFalse);
   });
+
+  test(
+    'abandoned draft cleanup derives the canonical path without video_storage_path',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 21),
+      );
+      addTearDown(assignments.dispose);
+      const path =
+          'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_abandoned.mp4';
+      assignments.seedAttempt(
+        AssignmentAttempt(
+          id: 'review_sub_abandoned',
+          traineeId: 'trainee-1',
+          teacherId: 'teacher-1',
+          groupId: 'g1',
+          assignmentId: 'asg1',
+          movementId: 'tm1',
+          revisionId: 'rev1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.draft,
+          abandonedAt: DateTime.utc(2026, 8, 20),
+          deletionFailed: true,
+          deletionFailedAt: DateTime.utc(2026, 8, 20),
+        ),
+      );
+      final deleted = <String>{};
+      final submissions = InMemoryAssignmentSubmissionRepository(
+        classroom: assignments,
+        now: () => DateTime.utc(2026, 8, 21),
+        deletedPaths: deleted,
+      );
+      await submissions.reconcileExpiredVideos(
+        actorId: 'trainee-1',
+        attempts: assignments.attempts.values.toList(),
+      );
+      expect(deleted, {path});
+      final updated = assignments.attempts['review_sub_abandoned']!;
+      expect(updated.isAbandonedTeacherReviewDraft, isTrue);
+      expect(updated.videoDeletedAt, isNotNull);
+      expect(updated.deletionFailed, isFalse);
+      expect(updated.isReviewFacingSubmission, isFalse);
+    },
+  );
 }

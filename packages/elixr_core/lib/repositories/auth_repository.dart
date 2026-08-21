@@ -328,6 +328,49 @@ Future<void> purgePhase5ClassroomOwnedDataForAccountErasure({
   await commitDeletes(refs.values.toList());
 }
 
+/// Canonical assignment-submission object path from frozen attempt identity.
+///
+/// Used during account erasure when `video_storage_path` was never written
+/// (abandoned drafts) and when the stored path is present. Throws if a
+/// `teacher_review_submission` is missing frozen identity fields so erasure
+/// fails closed instead of skipping an object that may still exist.
+@visibleForTesting
+String canonicalAssignmentSubmissionStoragePath({
+  required String attemptId,
+  required Map<String, dynamic> data,
+}) {
+  if (data['attempt_kind'] != 'teacher_review_submission') {
+    throw StateError(
+      'canonical assignment submission path requires teacher_review_submission',
+    );
+  }
+  String readId(String key) {
+    final value = data[key];
+    if (value is! String) {
+      throw StateError(
+        'teacher_review_submission $attemptId is missing $key for Storage cleanup',
+      );
+    }
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      throw StateError(
+        'teacher_review_submission $attemptId is missing $key for Storage cleanup',
+      );
+    }
+    return trimmed;
+  }
+
+  final id = attemptId.trim();
+  if (id.isEmpty) {
+    throw StateError(
+      'teacher_review_submission is missing attempt id for Storage cleanup',
+    );
+  }
+  return 'assignment_submissions/${readId('teacher_id')}/'
+      '${readId('group_id')}/${readId('assignment_id')}/'
+      '${readId('trainee_id')}/$id.mp4';
+}
+
 /// Purges assignment-submission MP4s while the matching attempt documents
 /// still exist. Storage rules authorize delete from the frozen Trainee or
 /// assigning Teacher identity on those documents.
@@ -347,7 +390,13 @@ Future<void> purgeAssignmentSubmissionVideosForAccountErasure({
       .where('teacher_id', isEqualTo: uid)
       .get();
   for (final doc in [...asTrainee.docs, ...asTeacher.docs]) {
-    final path = doc.data()['video_storage_path'];
+    final data = doc.data();
+    if (data['attempt_kind'] == 'teacher_review_submission') {
+      paths.add(
+        canonicalAssignmentSubmissionStoragePath(attemptId: doc.id, data: data),
+      );
+    }
+    final path = data['video_storage_path'];
     if (path is String && path.trim().isNotEmpty) {
       paths.add(path.trim());
     }

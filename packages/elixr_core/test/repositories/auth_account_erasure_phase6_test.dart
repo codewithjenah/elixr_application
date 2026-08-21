@@ -90,4 +90,145 @@ void main() {
       },
     );
   });
+
+  test(
+    'submitted teacher_review_submission derives the canonical Storage path',
+    () async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore
+          .collection(FirestoreCollections.assignmentAttempts)
+          .doc('review_sub_submitted')
+          .set({
+            'attempt_kind': 'teacher_review_submission',
+            'trainee_id': 'trainee-1',
+            'teacher_id': 'teacher-1',
+            'group_id': 'g1',
+            'assignment_id': 'asg1',
+            'status': 'submitted',
+            'video_storage_path':
+                'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_submitted.mp4',
+          });
+
+      final deleted = <String>[];
+      await purgeAssignmentSubmissionVideosForAccountErasure(
+        firestore: firestore,
+        uid: 'trainee-1',
+        deleteObject: (path) async {
+          deleted.add(path);
+        },
+      );
+
+      expect(deleted, [
+        'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_submitted.mp4',
+      ]);
+      expect(
+        (await firestore
+                .collection(FirestoreCollections.assignmentAttempts)
+                .doc('review_sub_submitted')
+                .get())
+            .exists,
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'abandoned draft without video_storage_path still purges the canonical object',
+    () async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore
+          .collection(FirestoreCollections.assignmentAttempts)
+          .doc('review_sub_abandoned')
+          .set({
+            'attempt_kind': 'teacher_review_submission',
+            'trainee_id': 'trainee-1',
+            'teacher_id': 'teacher-1',
+            'group_id': 'g1',
+            'assignment_id': 'asg1',
+            'status': 'draft',
+            'abandoned_at': DateTime.utc(2026, 8, 21),
+          });
+
+      final deleted = <String>[];
+      await purgeAssignmentSubmissionVideosForAccountErasure(
+        firestore: firestore,
+        uid: 'trainee-1',
+        deleteObject: (path) async {
+          deleted.add(path);
+        },
+      );
+
+      expect(deleted, [
+        'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_abandoned.mp4',
+      ]);
+    },
+  );
+
+  test(
+    'abandoned draft object-not-found is treated as clean during erasure',
+    () async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore
+          .collection(FirestoreCollections.assignmentAttempts)
+          .doc('review_sub_gone')
+          .set({
+            'attempt_kind': 'teacher_review_submission',
+            'trainee_id': 'trainee-1',
+            'teacher_id': 'teacher-1',
+            'group_id': 'g1',
+            'assignment_id': 'asg1',
+            'status': 'draft',
+          });
+
+      await purgeAssignmentSubmissionVideosForAccountErasure(
+        firestore: firestore,
+        uid: 'trainee-1',
+        deleteObject: (path) async {
+          expect(
+            path,
+            'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_gone.mp4',
+          );
+          throw FirebaseException(
+            plugin: 'firebase_storage',
+            code: 'object-not-found',
+          );
+        },
+      );
+    },
+  );
+
+  test('non-not-found Storage failure fails account erasure closed', () async {
+    final firestore = FakeFirebaseFirestore();
+    await firestore
+        .collection(FirestoreCollections.assignmentAttempts)
+        .doc('review_sub_stuck')
+        .set({
+          'attempt_kind': 'teacher_review_submission',
+          'trainee_id': 'trainee-1',
+          'teacher_id': 'teacher-1',
+          'group_id': 'g1',
+          'assignment_id': 'asg1',
+          'status': 'draft',
+        });
+
+    await expectLater(
+      purgeAssignmentSubmissionVideosForAccountErasure(
+        firestore: firestore,
+        uid: 'trainee-1',
+        deleteObject: (path) async {
+          throw FirebaseException(
+            plugin: 'firebase_storage',
+            code: 'retry-limit-exceeded',
+          );
+        },
+      ),
+      throwsA(
+        isA<FirebaseException>().having(
+          (error) => error.code,
+          'code',
+          'retry-limit-exceeded',
+        ),
+      ),
+    );
+  });
 }

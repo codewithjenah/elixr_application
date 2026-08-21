@@ -86,7 +86,7 @@ void main() {
   });
 
   test(
-    'review queue excludes draft teacher_review_submission attempts',
+    'review queue excludes draft and abandoned teacher_review_submission attempts',
     () async {
       final groups = InMemoryGroupRepository();
       addTearDown(groups.dispose);
@@ -131,6 +131,24 @@ void main() {
           videoSizeBytes: 2048,
           videoDurationMs: 4000,
           videoExpiresAt: DateTime.utc(2026, 9, 20),
+        ),
+      );
+
+      assignments.seedAttempt(
+        AssignmentAttempt(
+          id: 'review_sub_abandoned',
+          traineeId: 'trainee-1',
+          teacherId: 'teacher-1',
+          groupId: 'g1',
+          assignmentId: 'asg1',
+          movementId: 'tm1',
+          revisionId: 'rev1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.draft,
+          createdAt: DateTime.utc(2026, 8, 22),
+          abandonedAt: DateTime.utc(2026, 8, 22),
         ),
       );
 

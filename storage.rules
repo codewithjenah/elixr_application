@@ -70,6 +70,17 @@ service firebase.storage {
       return status in ['submitted', 'approved', 'needs_retry'];
     }
 
+    function isAbandonedTeacherReviewAnchor(attempt) {
+      return attempt.attempt_kind == 'teacher_review_submission'
+        && attempt.keys().hasAny(['abandoned_at'])
+        && attempt.abandoned_at is timestamp;
+    }
+
+    function isActiveSubmissionUploadAnchor(attempt) {
+      return attempt.status in ['draft', 'in_progress']
+        && !isAbandonedTeacherReviewAnchor(attempt);
+    }
+
     function hasApprovedSubmissionMembership(groupId, teacherId, traineeId) {
       let membership = groupMembershipDoc(groupId, traineeId).data;
       return membership.group_id == groupId
@@ -121,8 +132,9 @@ service firebase.storage {
           == request.resource.metadata.movement_id
         && assignmentAttemptDoc(request.resource.metadata.attempt_id).data.revision_id
           == request.resource.metadata.revision_id
-        && assignmentAttemptDoc(request.resource.metadata.attempt_id).data.status
-          in ['draft', 'in_progress']
+        && isActiveSubmissionUploadAnchor(
+          assignmentAttemptDoc(request.resource.metadata.attempt_id).data
+        )
         && hasApprovedSubmissionMembership(groupId, teacherId, traineeId);
 
       allow update: if false;
@@ -139,8 +151,13 @@ service firebase.storage {
           request.auth.uid == traineeId
           || (
             request.auth.uid == teacherId
-            && isReviewableSubmissionStatus(
-              assignmentAttemptDoc(resource.metadata.attempt_id).data.status
+            && (
+              isReviewableSubmissionStatus(
+                assignmentAttemptDoc(resource.metadata.attempt_id).data.status
+              )
+              || isAbandonedTeacherReviewAnchor(
+                assignmentAttemptDoc(resource.metadata.attempt_id).data
+              )
             )
           )
         );

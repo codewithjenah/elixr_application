@@ -77,7 +77,49 @@ void main() {
     expect(attempt!.awardsGlobalXp, isFalse);
     expect(attempt.sourceSessionId, isNull);
     expect(attempt.isReviewFacingSubmission, isFalse);
+    expect(attempt.isAbandonedTeacherReviewDraft, isFalse);
   });
+
+  test(
+    'abandoned teacher_review_submission draft remains an authorization anchor',
+    () {
+      final attempt = AssignmentAttempt.tryFromMap(
+        _draft(extra: {'abandoned_at': DateTime.utc(2026, 8, 21)}),
+        id: 'review_sub_a',
+      );
+      expect(attempt, isNotNull);
+      expect(attempt!.isAbandonedTeacherReviewDraft, isTrue);
+      expect(attempt.isReviewFacingSubmission, isFalse);
+      expect(attempt.status, AssignmentAttemptStatus.draft);
+      expect(attempt.awardsGlobalXp, isFalse);
+      expect(attempt.sourceSessionId, isNull);
+
+      expect(
+        AssignmentAttempt.tryFromMap(
+          _draft(
+            extra: {
+              'abandoned_at': DateTime.utc(2026, 8, 21),
+              'submitted_at': DateTime.utc(2026, 8, 21),
+            },
+          ),
+          id: 'review_sub_a',
+        ),
+        isNull,
+      );
+      expect(
+        AssignmentAttempt.tryFromMap(
+          _draft(
+            extra: {
+              'abandoned_at': DateTime.utc(2026, 8, 21),
+              'review_verdict': 'approved',
+            },
+          ),
+          id: 'review_sub_a',
+        ),
+        isNull,
+      );
+    },
+  );
 
   test('malformed review submissions fail closed', () {
     expect(

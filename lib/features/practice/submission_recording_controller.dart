@@ -118,6 +118,7 @@ class SubmissionRecordingController extends ChangeNotifier {
     for (final attempt in attempts) {
       if (attempt.assignmentId != assignment.id) continue;
       if (!attempt.isTeacherReviewSubmission) continue;
+      if (attempt.isAbandonedTeacherReviewDraft) continue;
       if (latest == null ||
           (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(
             latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),

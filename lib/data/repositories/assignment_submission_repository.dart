@@ -202,7 +202,7 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
     return submitted;
   } catch (error) {
     if (!uploaded) {
-      await _deleteAbandonedDraftQuietly(
+      await _markAbandonedDraftQuietly(
         classroom: classroom,
         traineeId: traineeId,
         draft: draft,
@@ -218,10 +218,19 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
         }
       }
       if (objectGone) {
-        await _deleteAbandonedDraftQuietly(
+        await _markAbandonedDraftQuietly(
           classroom: classroom,
           traineeId: traineeId,
           draft: draft,
+          videoDeletedAt: now,
+        );
+      } else {
+        await _markAbandonedDraftQuietly(
+          classroom: classroom,
+          traineeId: traineeId,
+          draft: draft,
+          deletionFailed: true,
+          deletionFailedAt: now,
         );
       }
     }
@@ -235,19 +244,40 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
   }
 }
 
-Future<void> _deleteAbandonedDraftQuietly({
+Future<void> _markAbandonedDraftQuietly({
   required ClassroomAssignmentRepository classroom,
   required String traineeId,
   required AssignmentAttempt draft,
+  DateTime? videoDeletedAt,
+  bool deletionFailed = false,
+  DateTime? deletionFailedAt,
 }) async {
   try {
-    await classroom.deleteAbandonedTeacherReviewSubmissionDraft(
+    await classroom.markTeacherReviewSubmissionAbandoned(
       traineeId: traineeId,
       attempt: draft,
+      videoDeletedAt: videoDeletedAt,
+      deletionFailed: deletionFailed,
+      deletionFailedAt: deletionFailedAt,
     );
   } catch (_) {
-    // Leftover draft is retryable. Never report submitted.
+    // Leftover draft remains an authorization anchor. Never report submitted.
   }
+}
+
+bool abandonedSubmissionNeedsObjectCleanup({
+  required AssignmentAttempt attempt,
+  required DateTime now,
+}) {
+  if (!attempt.isAbandonedTeacherReviewDraft) return false;
+  if (attempt.videoDeletedAt != null && !attempt.deletionFailed) return false;
+  if (attempt.deletionFailed && attempt.deletionFailedAt != null) {
+    final elapsed = now.toUtc().difference(attempt.deletionFailedAt!.toUtc());
+    if (elapsed < AssignmentSubmissionLimits.deletionRetryCooldown) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool submissionVideoIsDueForDeletion({
@@ -279,6 +309,42 @@ Future<void> reconcileExpiredSubmissionVideos({
 }) async {
   final clock = (now ?? DateTime.now()).toUtc();
   for (final attempt in attempts) {
+    if (abandonedSubmissionNeedsObjectCleanup(attempt: attempt, now: clock)) {
+      final path = assignmentSubmissionStoragePath(
+        teacherId: attempt.teacherId,
+        groupId: attempt.groupId,
+        assignmentId: attempt.assignmentId,
+        traineeId: attempt.traineeId,
+        attemptId: attempt.id,
+      );
+      try {
+        await deleteObject(path);
+        await classroom.markSubmissionVideoDeleted(
+          actorId: actorId,
+          attempt: attempt,
+          deletedAt: clock,
+        );
+      } catch (error) {
+        if (isObjectNotFound(error)) {
+          await classroom.markSubmissionVideoDeleted(
+            actorId: actorId,
+            attempt: attempt,
+            deletedAt: clock,
+          );
+          continue;
+        }
+        try {
+          await classroom.markSubmissionDeletionFailed(
+            actorId: actorId,
+            attempt: attempt,
+            failedAt: clock,
+          );
+        } catch (_) {
+          // Keep Assigned Movements / Teacher Reviews usable.
+        }
+      }
+      continue;
+    }
     if (!submissionVideoIsDueForDeletion(attempt: attempt, now: clock)) {
       continue;
     }
