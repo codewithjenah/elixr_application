@@ -21,6 +21,12 @@ const bool kAssignmentPutDataProbeDartDefine =
     bool.fromEnvironment('ELIXR_ASSIGNMENT_PUTDATA_PROBE') ||
     String.fromEnvironment('ELIXR_ASSIGNMENT_PUTDATA_PROBE') == '1';
 
+const bool kAssignmentDelayedProbeDartDefine =
+    bool.fromEnvironment('ELIXR_ASSIGNMENT_DELAYED_PROBE') ||
+    String.fromEnvironment('ELIXR_ASSIGNMENT_DELAYED_PROBE') == '1';
+
+const Duration kAssignmentDelayedProbeWait = Duration(seconds: 30);
+
 /// Production assignment used by the one-shot diagnostic.
 const AssignmentPutDataProbeTarget kLiveAssignmentPutDataProbeTarget =
     AssignmentPutDataProbeTarget(
@@ -66,6 +72,9 @@ class AssignmentPutDataProbeResult {
     this.storagePath,
     this.sizeBytes,
     this.anchorValidBeforeUpload = false,
+    this.firstDirectReadValid = false,
+    this.secondDirectReadValid = false,
+    this.ageBeforeStorageMs,
     this.pathCorrect = false,
     this.metadataCorrect = false,
     this.errorType,
@@ -84,6 +93,9 @@ class AssignmentPutDataProbeResult {
   final String? storagePath;
   final int? sizeBytes;
   final bool anchorValidBeforeUpload;
+  final bool firstDirectReadValid;
+  final bool secondDirectReadValid;
+  final int? ageBeforeStorageMs;
   final bool pathCorrect;
   final bool metadataCorrect;
   final String? errorType;
@@ -101,6 +113,13 @@ typedef AssignmentPutDataUpload =
     });
 
 typedef AssignmentPutDataDelete = Future<void> Function(String storagePath);
+
+typedef AssignmentPutDataDelay = Future<void> Function(Duration duration);
+
+String formatAssignmentPutDataProbeTimestamp(DateTime? value) {
+  if (value == null) return 'null';
+  return value.toUtc().toIso8601String();
+}
 
 void assignmentPutDataProbeDefaultLog(String line) {
   if (kDebugMode) {
@@ -145,6 +164,23 @@ bool isValidAssignmentPutDataProbeAnchor({
       attempt.sourceSessionId == null;
 }
 
+bool assignmentPutDataProbeIdentityUnchanged({
+  required AssignmentAttempt first,
+  required AssignmentAttempt second,
+}) {
+  return first.id == second.id &&
+      first.teacherId == second.teacherId &&
+      first.groupId == second.groupId &&
+      first.assignmentId == second.assignmentId &&
+      first.traineeId == second.traineeId &&
+      first.movementId == second.movementId &&
+      first.revisionId == second.revisionId &&
+      first.attemptKind == second.attemptKind &&
+      first.origin == second.origin &&
+      first.assessmentMode == second.assessmentMode &&
+      first.awardsGlobalXp == second.awardsGlobalXp;
+}
+
 Future<AssignmentPutDataProbeResult?> maybeRunLiveAssignmentPutDataProbe({
   bool? debugMode,
   bool? dartDefineEnabled,
@@ -156,6 +192,20 @@ Future<AssignmentPutDataProbeResult?> maybeRunLiveAssignmentPutDataProbe({
     return null;
   }
   final runner = runLive ?? runLiveAssignmentPutDataProbe;
+  return runner();
+}
+
+Future<AssignmentPutDataProbeResult?> maybeRunLiveAssignmentDelayedProbe({
+  bool? debugMode,
+  bool? dartDefineEnabled,
+  Future<AssignmentPutDataProbeResult> Function()? runLive,
+}) async {
+  final enabledDebug = debugMode ?? kDebugMode;
+  final enabledDefine = dartDefineEnabled ?? kAssignmentDelayedProbeDartDefine;
+  if (!enabledDebug || !enabledDefine) {
+    return null;
+  }
+  final runner = runLive ?? runLiveAssignmentDelayedProbe;
   return runner();
 }
 
@@ -203,6 +253,56 @@ Future<AssignmentPutDataProbeResult> runLiveAssignmentPutDataProbe({
   );
 }
 
+/// Live delayed assignment putData probe. No-op in Release.
+Future<AssignmentPutDataProbeResult> runLiveAssignmentDelayedProbe({
+  bool debugMode = kDebugMode,
+  String? Function()? readUid,
+  String? Function()? readBucket,
+  ClassroomAssignmentRepository? classroom,
+  FirebaseStorage? storage,
+  AssignmentPutDataProbeTarget target = kLiveAssignmentPutDataProbeTarget,
+  Uint8List? payload,
+  void Function(String line)? log,
+  DateTime Function()? clock,
+  AssignmentPutDataDelay? delay,
+}) {
+  final resolvedStorage = storage ?? FirebaseStorage.instance;
+  final resolvedClassroom =
+      classroom ?? FirebaseClassroomAssignmentRepository();
+  return runAssignmentPutDataProbe(
+    debugMode: debugMode,
+    uid: (readUid ?? () => FirebaseAuth.instance.currentUser?.uid)(),
+    bucket: (readBucket ?? () => resolvedStorage.bucket)(),
+    target: target,
+    payload: payload ?? assignmentPutDataProbeBytes,
+    classroom: resolvedClassroom,
+    now: DateTime.now().toUtc(),
+    delayedAuthorization: true,
+    wait: kAssignmentDelayedProbeWait,
+    clock: clock,
+    delay: delay,
+    log: log ?? assignmentPutDataProbeDefaultLog,
+    putData:
+        ({
+          required bytes,
+          required storagePath,
+          required contentType,
+          required customMetadata,
+        }) async {
+          await resolvedStorage
+              .ref(storagePath)
+              .putData(
+                bytes,
+                SettableMetadata(
+                  contentType: contentType,
+                  customMetadata: customMetadata,
+                ),
+              );
+        },
+    deleteRemote: (storagePath) => resolvedStorage.ref(storagePath).delete(),
+  );
+}
+
 Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
   required bool debugMode,
   required String? uid,
@@ -214,6 +314,10 @@ Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
   required void Function(String line) log,
   required AssignmentPutDataUpload putData,
   required AssignmentPutDataDelete deleteRemote,
+  bool delayedAuthorization = false,
+  Duration wait = kAssignmentDelayedProbeWait,
+  DateTime Function()? clock,
+  AssignmentPutDataDelay? delay,
 }) async {
   if (!debugMode) {
     return const AssignmentPutDataProbeResult(
@@ -230,6 +334,9 @@ Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
   var remoteCleanup = AssignmentPutDataProbeRemoteCleanup.notCreated;
   var anchorCleanup = AssignmentPutDataProbeAnchorCleanup.notCreated;
   var anchorValidBeforeUpload = false;
+  var firstDirectReadValid = false;
+  var secondDirectReadValid = false;
+  int? ageBeforeStorageMs;
   var pathCorrect = false;
   var metadataCorrect = false;
   String? attemptId;
@@ -406,7 +513,109 @@ Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
         bucket: bucket,
         attemptId: attemptId,
         sizeBytes: sizeBytes,
+        firstDirectReadValid: false,
         errorType: 'InvalidAnchor',
+      );
+    }
+
+    firstDirectReadValid = true;
+    final firstAnchor = durable;
+
+    if (delayedAuthorization) {
+      log(
+        '[AssignmentDelayedProbe]\n'
+        'attempt_id=${durable.id}\n'
+        'created_at=${formatAssignmentPutDataProbeTimestamp(durable.createdAt)}',
+      );
+      final nowFn = clock ?? () => DateTime.now().toUtc();
+      final waitFn = delay ?? Future<void>.delayed;
+      final firstReadAt = nowFn();
+      log(
+        '[AssignmentDelayedProbe]\n'
+        'first_read=valid\n'
+        'first_read_at=${formatAssignmentPutDataProbeTimestamp(firstReadAt)}',
+      );
+      final waitStartedAt = nowFn();
+      log(
+        '[AssignmentDelayedProbe]\n'
+        'wait_started_at=${formatAssignmentPutDataProbeTimestamp(waitStartedAt)}\n'
+        'wait_seconds=${wait.inSeconds}',
+      );
+      await waitFn(wait);
+
+      AssignmentAttempt? second;
+      try {
+        second = await classroom.getAttempt(attemptId: createdDraft.id);
+      } catch (error) {
+        if (error is FirebaseException) {
+          logFirebaseFailure(error);
+        } else {
+          logGenericFailure(error);
+        }
+        log('[AssignmentPutDataProbe] remote_cleanup=not_created');
+        await abandonDraft(attempt: createdDraft);
+        return AssignmentPutDataProbeResult(
+          invoked: true,
+          uploadSucceeded: false,
+          remoteCleanup: remoteCleanup,
+          anchorCleanup: anchorCleanup,
+          uid: uid,
+          bucket: bucket,
+          attemptId: attemptId,
+          sizeBytes: sizeBytes,
+          firstDirectReadValid: true,
+          secondDirectReadValid: false,
+          errorType: errorType,
+          plugin: plugin,
+          code: code,
+          safeMessage: safeMessage,
+        );
+      }
+
+      final identityMatches =
+          second != null &&
+          assignmentPutDataProbeIdentityUnchanged(
+            first: firstAnchor,
+            second: second,
+          );
+      if (second == null ||
+          !isValidAssignmentPutDataProbeAnchor(
+            attempt: second,
+            target: target,
+            authenticatedUid: uid,
+          ) ||
+          !identityMatches) {
+        log(
+          '[AssignmentPutDataProbe]\n'
+          'result=failure\n'
+          'error_type=InvalidAnchor',
+        );
+        log('[AssignmentPutDataProbe] remote_cleanup=not_created');
+        await abandonDraft(attempt: createdDraft);
+        return AssignmentPutDataProbeResult(
+          invoked: true,
+          uploadSucceeded: false,
+          remoteCleanup: AssignmentPutDataProbeRemoteCleanup.notCreated,
+          anchorCleanup: anchorCleanup,
+          uid: uid,
+          bucket: bucket,
+          attemptId: attemptId,
+          sizeBytes: sizeBytes,
+          firstDirectReadValid: true,
+          secondDirectReadValid: false,
+          errorType: 'InvalidAnchor',
+        );
+      }
+
+      durable = second;
+      secondDirectReadValid = true;
+      final secondReadAt = nowFn();
+      ageBeforeStorageMs = secondReadAt.difference(firstReadAt).inMilliseconds;
+      log(
+        '[AssignmentDelayedProbe]\n'
+        'second_read=valid\n'
+        'second_read_at=${formatAssignmentPutDataProbeTimestamp(secondReadAt)}\n'
+        'age_before_storage_ms=$ageBeforeStorageMs',
       );
     }
 
@@ -449,19 +658,28 @@ Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
         mapEquals(customMetadata, expectedMetadata) &&
         customMetadata.length == 7;
 
-    log(
-      '[AssignmentPutDataProbe]\n'
-      'uid=$uid\n'
-      'bucket=$bucket\n'
-      'attempt_id=${durable.id}\n'
-      'storage_path=$storagePath\n'
-      'content_type=${AssignmentSubmissionLimits.contentType}\n'
-      'size_bytes=$sizeBytes\n'
-      'metadata_keys=${(customMetadata.keys.toList()..sort()).join(',')}\n'
-      'anchor_status=${durable.status.wireValue}\n'
-      'anchor_abandoned=false\n'
-      'anchor_identity_matches=true',
-    );
+    if (delayedAuthorization) {
+      log(
+        '[AssignmentDelayedProbe]\n'
+        'anchor_status=${durable.status.wireValue}\n'
+        'anchor_abandoned=${durable.abandonedAt != null}\n'
+        'anchor_identity_matches=true',
+      );
+    } else {
+      log(
+        '[AssignmentPutDataProbe]\n'
+        'uid=$uid\n'
+        'bucket=$bucket\n'
+        'attempt_id=${durable.id}\n'
+        'storage_path=$storagePath\n'
+        'content_type=${AssignmentSubmissionLimits.contentType}\n'
+        'size_bytes=$sizeBytes\n'
+        'metadata_keys=${(customMetadata.keys.toList()..sort()).join(',')}\n'
+        'anchor_status=${durable.status.wireValue}\n'
+        'anchor_abandoned=false\n'
+        'anchor_identity_matches=true',
+      );
+    }
 
     try {
       await putData(
@@ -472,11 +690,45 @@ Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
       );
       uploaded = true;
       uploadSucceeded = true;
-      log('[AssignmentPutDataProbe] result=success bytes=$sizeBytes');
+      if (delayedAuthorization) {
+        log(
+          '[AssignmentDelayedProbe]\n'
+          'storage_result=success',
+        );
+      } else {
+        log('[AssignmentPutDataProbe] result=success bytes=$sizeBytes');
+      }
     } on FirebaseException catch (error) {
-      logFirebaseFailure(error);
+      if (delayedAuthorization) {
+        errorType = 'FirebaseException';
+        plugin = sanitizePhase6DiagnosticText(error.plugin);
+        code = sanitizePhase6DiagnosticText(error.code);
+        final message = error.message;
+        safeMessage = message == null || message.isEmpty
+            ? null
+            : sanitizePhase6DiagnosticText(message);
+        log(
+          '[AssignmentDelayedProbe]\n'
+          'storage_result=failure\n'
+          'plugin=$plugin\n'
+          'code=$code'
+          '${safeMessage == null ? '' : '\nmessage=$safeMessage'}',
+        );
+      } else {
+        logFirebaseFailure(error);
+      }
     } catch (error) {
-      logGenericFailure(error);
+      if (delayedAuthorization) {
+        errorType = error.runtimeType.toString();
+        safeMessage = sanitizePhase6DiagnosticText(error.toString());
+        log(
+          '[AssignmentDelayedProbe]\n'
+          'storage_result=failure\n'
+          'message=$safeMessage',
+        );
+      } else {
+        logGenericFailure(error);
+      }
     }
 
     if (uploaded) {
@@ -523,6 +775,9 @@ Future<AssignmentPutDataProbeResult> runAssignmentPutDataProbe({
     storagePath: storagePath,
     sizeBytes: sizeBytes,
     anchorValidBeforeUpload: anchorValidBeforeUpload,
+    firstDirectReadValid: firstDirectReadValid,
+    secondDirectReadValid: secondDirectReadValid,
+    ageBeforeStorageMs: ageBeforeStorageMs,
     pathCorrect: pathCorrect,
     metadataCorrect: metadataCorrect,
     errorType: errorType,

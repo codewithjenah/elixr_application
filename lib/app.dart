@@ -87,6 +87,7 @@ class _ElixrAppState extends State<ElixrApp> {
     await _authService.initialize();
     await maybeRunLiveStoragePutFileProbe();
     await maybeRunLiveAssignmentPutDataProbe();
+    await maybeRunLiveAssignmentDelayedProbe();
   }
 
   @override

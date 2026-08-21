@@ -40,7 +40,10 @@ class _SpyClassroom extends InMemoryClassroomAssignmentRepository {
   int sessionCalls = 0;
   int xpCalls = 0;
   int profileCalls = 0;
+  int getAttemptCalls = 0;
   bool corruptNextRead = false;
+  bool corruptSecondRead = false;
+  bool abandonSecondRead = false;
 
   @override
   Future<AssignmentAttempt> markTeacherReviewSubmitted({
@@ -68,9 +71,19 @@ class _SpyClassroom extends InMemoryClassroomAssignmentRepository {
 
   @override
   Future<AssignmentAttempt?> getAttempt({required String attemptId}) async {
+    getAttemptCalls += 1;
     final attempt = await super.getAttempt(attemptId: attemptId);
-    if (!corruptNextRead || attempt == null) return attempt;
-    return attempt.copyWith(status: AssignmentAttemptStatus.submitted);
+    if (attempt == null) return attempt;
+    if (corruptNextRead) {
+      return attempt.copyWith(status: AssignmentAttemptStatus.submitted);
+    }
+    if (getAttemptCalls >= 2 && corruptSecondRead) {
+      return attempt.copyWith(status: AssignmentAttemptStatus.submitted);
+    }
+    if (getAttemptCalls >= 2 && abandonSecondRead) {
+      return attempt.copyWith(abandonedAt: DateTime.utc(2026, 8, 21, 8, 1));
+    }
+    return attempt;
   }
 }
 
@@ -480,4 +493,335 @@ void main() {
     expect(assignmentPutDataProbeBytes.length, inInclusiveRange(64, 256));
     expect(assignmentPutDataProbeBytes, isNotEmpty);
   });
+
+  test(
+    'delayed dart-define seam is a no-op when debug or define is off',
+    () async {
+      var liveRuns = 0;
+      expect(
+        await maybeRunLiveAssignmentDelayedProbe(
+          debugMode: false,
+          dartDefineEnabled: true,
+          runLive: () async {
+            liveRuns += 1;
+            throw StateError('must not run');
+          },
+        ),
+        isNull,
+      );
+      expect(
+        await maybeRunLiveAssignmentDelayedProbe(
+          debugMode: true,
+          dartDefineEnabled: false,
+          runLive: () async {
+            liveRuns += 1;
+            throw StateError('must not run');
+          },
+        ),
+        isNull,
+      );
+      expect(liveRuns, 0);
+    },
+  );
+
+  test(
+    'delayed probe cannot upload before the first valid direct read',
+    () async {
+      classroom.corruptNextRead = true;
+      var putDataCalls = 0;
+      var delayCalls = 0;
+
+      final result = await runAssignmentPutDataProbe(
+        debugMode: true,
+        uid: _target.traineeId,
+        bucket: 'elixr-app-2026.firebasestorage.app',
+        target: _target,
+        payload: assignmentPutDataProbeBytes,
+        classroom: classroom,
+        now: DateTime.utc(2026, 8, 21, 8),
+        delayedAuthorization: true,
+        wait: const Duration(seconds: 30),
+        delay: (_) async {
+          delayCalls += 1;
+        },
+        log: (_) {},
+        putData:
+            ({
+              required bytes,
+              required storagePath,
+              required contentType,
+              required customMetadata,
+            }) async {
+              putDataCalls += 1;
+            },
+        deleteRemote: (_) async {},
+      );
+
+      expect(result.errorType, 'InvalidAnchor');
+      expect(result.firstDirectReadValid, isFalse);
+      expect(result.secondDirectReadValid, isFalse);
+      expect(result.anchorValidBeforeUpload, isFalse);
+      expect(putDataCalls, 0);
+      expect(delayCalls, 0);
+      expect(classroom.getAttemptCalls, 1);
+      expect(classroom.submittedCalls, 0);
+      expect(
+        result.anchorCleanup,
+        AssignmentPutDataProbeAnchorCleanup.abandoned,
+      );
+    },
+  );
+
+  test(
+    'valid delayed anchors wait once, second-read after delay, then putData once',
+    () async {
+      final events = <String>[];
+      var putDataCalls = 0;
+      var delayCalls = 0;
+      var t = DateTime.utc(2026, 8, 21, 9, 0, 0);
+      Map<String, String>? capturedMetadata;
+      String? capturedPath;
+      String? capturedContentType;
+
+      final result = await runAssignmentPutDataProbe(
+        debugMode: true,
+        uid: _target.traineeId,
+        bucket: 'elixr-app-2026.firebasestorage.app',
+        target: _target,
+        payload: assignmentPutDataProbeBytes,
+        classroom: classroom,
+        now: DateTime.utc(2026, 8, 21, 8),
+        delayedAuthorization: true,
+        wait: const Duration(seconds: 30),
+        clock: () => t,
+        delay: (duration) async {
+          delayCalls += 1;
+          expect(duration, const Duration(seconds: 30));
+          events.add('delay:$duration');
+          t = t.add(duration);
+        },
+        log: events.add,
+        putData:
+            ({
+              required bytes,
+              required storagePath,
+              required contentType,
+              required customMetadata,
+            }) async {
+              putDataCalls += 1;
+              capturedPath = storagePath;
+              capturedContentType = contentType;
+              capturedMetadata = Map<String, String>.from(customMetadata);
+              events.add('putData:$storagePath');
+            },
+        deleteRemote: (storagePath) async {
+          events.add('deleteRemote:$storagePath');
+        },
+      );
+
+      final attempt = classroom.attempts.values.single;
+      expect(result.invoked, isTrue);
+      expect(result.uploadSucceeded, isTrue);
+      expect(result.firstDirectReadValid, isTrue);
+      expect(result.secondDirectReadValid, isTrue);
+      expect(result.anchorValidBeforeUpload, isTrue);
+      expect(result.ageBeforeStorageMs, 30000);
+      expect(delayCalls, 1);
+      expect(putDataCalls, 1);
+      expect(classroom.getAttemptCalls, 2);
+      expect(capturedContentType, 'video/mp4');
+      expect(capturedMetadata!.length, 7);
+      expect(
+        capturedPath,
+        assignmentSubmissionStoragePath(
+          teacherId: _target.teacherId,
+          groupId: _target.groupId,
+          assignmentId: _target.assignmentId,
+          traineeId: _target.traineeId,
+          attemptId: attempt.id,
+        ),
+      );
+      expect(
+        events.indexOf('delay:${const Duration(seconds: 30)}'),
+        greaterThan(
+          events.indexWhere((line) => line.contains('first_read=valid')),
+        ),
+      );
+      expect(
+        events.indexWhere((line) => line.contains('second_read=valid')),
+        greaterThan(events.indexOf('delay:${const Duration(seconds: 30)}')),
+      );
+      expect(
+        events.indexWhere((line) => line.startsWith('putData:')),
+        greaterThan(
+          events.indexWhere((line) => line.contains('second_read=valid')),
+        ),
+      );
+      expect(events.join('\n'), contains('wait_seconds=30'));
+      expect(events.join('\n'), contains('age_before_storage_ms=30000'));
+      expect(events.join('\n'), contains('anchor_status=draft'));
+      expect(events.join('\n'), contains('anchor_abandoned=false'));
+      expect(events.join('\n'), contains('anchor_identity_matches=true'));
+      expect(events.join('\n'), contains('storage_result=success'));
+      expect(result.remoteCleanup, AssignmentPutDataProbeRemoteCleanup.success);
+      expect(
+        result.anchorCleanup,
+        AssignmentPutDataProbeAnchorCleanup.abandoned,
+      );
+      expect(attempt.status, AssignmentAttemptStatus.draft);
+      expect(attempt.abandonedAt, isNotNull);
+      expect(classroom.submittedCalls, 0);
+    },
+  );
+
+  test(
+    'changed second delayed anchor prevents upload after the wait',
+    () async {
+      classroom.corruptSecondRead = true;
+      var putDataCalls = 0;
+      var delayCalls = 0;
+
+      final result = await runAssignmentPutDataProbe(
+        debugMode: true,
+        uid: _target.traineeId,
+        bucket: 'elixr-app-2026.firebasestorage.app',
+        target: _target,
+        payload: assignmentPutDataProbeBytes,
+        classroom: classroom,
+        now: DateTime.utc(2026, 8, 21, 8),
+        delayedAuthorization: true,
+        wait: const Duration(seconds: 30),
+        delay: (_) async {
+          delayCalls += 1;
+        },
+        log: (_) {},
+        putData:
+            ({
+              required bytes,
+              required storagePath,
+              required contentType,
+              required customMetadata,
+            }) async {
+              putDataCalls += 1;
+            },
+        deleteRemote: (_) async {},
+      );
+
+      expect(result.firstDirectReadValid, isTrue);
+      expect(result.secondDirectReadValid, isFalse);
+      expect(result.anchorValidBeforeUpload, isFalse);
+      expect(result.errorType, 'InvalidAnchor');
+      expect(delayCalls, 1);
+      expect(putDataCalls, 0);
+      expect(classroom.getAttemptCalls, 2);
+      expect(classroom.submittedCalls, 0);
+      expect(
+        result.anchorCleanup,
+        AssignmentPutDataProbeAnchorCleanup.abandoned,
+      );
+    },
+  );
+
+  test(
+    'abandoned second delayed anchor prevents upload after the wait',
+    () async {
+      classroom.abandonSecondRead = true;
+      var putDataCalls = 0;
+      var delayCalls = 0;
+
+      final result = await runAssignmentPutDataProbe(
+        debugMode: true,
+        uid: _target.traineeId,
+        bucket: 'elixr-app-2026.firebasestorage.app',
+        target: _target,
+        payload: assignmentPutDataProbeBytes,
+        classroom: classroom,
+        now: DateTime.utc(2026, 8, 21, 8),
+        delayedAuthorization: true,
+        wait: const Duration(seconds: 30),
+        delay: (_) async {
+          delayCalls += 1;
+        },
+        log: (_) {},
+        putData:
+            ({
+              required bytes,
+              required storagePath,
+              required contentType,
+              required customMetadata,
+            }) async {
+              putDataCalls += 1;
+            },
+        deleteRemote: (_) async {},
+      );
+
+      expect(result.firstDirectReadValid, isTrue);
+      expect(result.secondDirectReadValid, isFalse);
+      expect(putDataCalls, 0);
+      expect(delayCalls, 1);
+      expect(classroom.submittedCalls, 0);
+    },
+  );
+
+  test(
+    'failed delayed upload still abandons the draft and never submits',
+    () async {
+      var deleteCalls = 0;
+      var delayCalls = 0;
+      final logs = <String>[];
+
+      final result = await runAssignmentPutDataProbe(
+        debugMode: true,
+        uid: _target.traineeId,
+        bucket: 'elixr-app-2026.firebasestorage.app',
+        target: _target,
+        payload: assignmentPutDataProbeBytes,
+        classroom: classroom,
+        now: DateTime.utc(2026, 8, 21, 8),
+        delayedAuthorization: true,
+        wait: const Duration(seconds: 30),
+        delay: (_) async {
+          delayCalls += 1;
+        },
+        log: logs.add,
+        putData:
+            ({
+              required bytes,
+              required storagePath,
+              required contentType,
+              required customMetadata,
+            }) async {
+              throw FirebaseException(
+                plugin: 'firebase_storage',
+                code: 'unauthorized',
+                message:
+                    'User does not have permission. id_token=abc.secret '
+                    'trainee@example.com https://firebasestorage.googleapis.com/v0/b/x',
+              );
+            },
+        deleteRemote: (_) async {
+          deleteCalls += 1;
+        },
+      );
+
+      expect(delayCalls, 1);
+      expect(result.uploadSucceeded, isFalse);
+      expect(result.plugin, 'firebase_storage');
+      expect(result.code, 'unauthorized');
+      expect(deleteCalls, 0);
+      expect(
+        result.anchorCleanup,
+        AssignmentPutDataProbeAnchorCleanup.abandoned,
+      );
+      expect(classroom.attempts.values.single.abandonedAt, isNotNull);
+      expect(classroom.submittedCalls, 0);
+      final joined = logs.join('\n');
+      expect(joined, contains('storage_result=failure'));
+      expect(joined, contains('plugin=firebase_storage'));
+      expect(joined, contains('code=unauthorized'));
+      expect(joined, isNot(contains('abc.secret')));
+      expect(joined, isNot(contains('trainee@example.com')));
+      expect(joined, isNot(contains('https://firebasestorage')));
+    },
+  );
 }
