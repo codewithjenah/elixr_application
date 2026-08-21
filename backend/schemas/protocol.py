@@ -23,6 +23,11 @@ class CommandAck(BaseModel):
     message: Optional[str] = None
     calibration_scale: Optional[float] = None
     calibration_source: Optional[Literal["shoulders", "palm_fallback", "default"]] = None
+    local_file_path: Optional[str] = None
+    video_duration_ms: Optional[int] = None
+    video_size_bytes: Optional[int] = None
+    content_type: Optional[str] = None
+    video_sha256: Optional[str] = None
 
 
 class ProtocolError(BaseModel):

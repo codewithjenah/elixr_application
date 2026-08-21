@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:elixr_core/models/elixr_group.dart';
 
 import '../models/assignment_attempt.dart';
+import '../models/assignment_attempt_ids.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/teacher_movement.dart';
@@ -256,6 +257,164 @@ class InMemoryClassroomAssignmentRepository
       isPermissionDenied: (error) =>
           error is ClassroomException && error.code == ClassroomError.forbidden,
     );
+  }
+
+  @override
+  Future<AssignmentAttempt> createTeacherReviewSubmissionDraft({
+    required String traineeId,
+    required GroupAssignment assignment,
+    String? supersedesAttemptId,
+    String? attemptId,
+  }) async {
+    if (supersedesAttemptId != null) {
+      final previous = attempts[supersedesAttemptId];
+      if (previous == null) {
+        throw const ClassroomException(ClassroomError.notFound);
+      }
+      ensureCanSupersedeNeedsRetry(
+        previous: previous,
+        traineeId: traineeId,
+        assignment: assignment,
+      );
+    }
+    final id = attemptId ?? newTeacherReviewSubmissionAttemptId();
+    final draft = teacherReviewSubmissionDraftAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      attemptId: id,
+      supersedesAttemptId: supersedesAttemptId,
+      createdAt: now,
+    );
+    if (attempts.containsKey(draft.id)) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    attempts[draft.id] = draft;
+    _emitAssignmentAttempts(assignment.teacherId, assignment.id);
+    _emitTraineeAttempts(traineeId);
+    _emitTeacherAttempts(assignment.teacherId);
+    return draft;
+  }
+
+  @override
+  Future<AssignmentAttempt> markTeacherReviewSubmitted({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required String videoStoragePath,
+    required String videoContentType,
+    required int videoSizeBytes,
+    required int videoDurationMs,
+    required DateTime submittedAt,
+    required DateTime videoExpiresAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.traineeId != traineeId ||
+        existing.attemptKind != AssignmentAttemptKind.teacherReviewSubmission) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (existing.status != AssignmentAttemptStatus.draft &&
+        existing.status != AssignmentAttemptStatus.inProgress) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final submitted = existing.copyWith(
+      status: AssignmentAttemptStatus.submitted,
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+      submittedAt: submittedAt,
+      videoExpiresAt: videoExpiresAt,
+    );
+    attempts[existing.id] = submitted;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return submitted;
+  }
+
+  @override
+  Future<AssignmentAttempt> reviewTeacherSubmission({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required AssignmentReviewVerdict verdict,
+    String? feedback,
+    required DateTime reviewedAt,
+    required DateTime videoExpiresAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (existing.attemptKind != AssignmentAttemptKind.teacherReviewSubmission ||
+        existing.status != AssignmentAttemptStatus.submitted) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final status = verdict == AssignmentReviewVerdict.approved
+        ? AssignmentAttemptStatus.approved
+        : AssignmentAttemptStatus.needsRetry;
+    final reviewed = existing.copyWith(
+      status: status,
+      reviewVerdict: verdict,
+      reviewFeedback: feedback,
+      reviewedAt: reviewedAt,
+      videoExpiresAt: videoExpiresAt,
+    );
+    attempts[existing.id] = reviewed;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return reviewed;
+  }
+
+  @override
+  Future<void> markSubmissionVideoDeleted({
+    required String actorId,
+    required AssignmentAttempt attempt,
+    required DateTime deletedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.traineeId != actorId && existing.teacherId != actorId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    attempts[existing.id] = existing.copyWith(
+      clearVideoStoragePath: true,
+      videoDeletedAt: deletedAt,
+      deletionFailed: false,
+      clearDeletionFailedAt: true,
+    );
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+  }
+
+  @override
+  Future<void> markSubmissionDeletionFailed({
+    required String actorId,
+    required AssignmentAttempt attempt,
+    required DateTime failedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.traineeId != actorId && existing.teacherId != actorId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    attempts[existing.id] = existing.copyWith(
+      deletionFailed: true,
+      deletionFailedAt: failedAt,
+    );
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
   }
 
   void seedAssignment(GroupAssignment assignment) {

@@ -54,9 +54,16 @@ abstract final class ElixrLegalDocuments {
     'The Windows training application also processes webcam video locally on '
         'your device for pose/hand landmark detection and records session '
         'performance data from practice sessions.',
-    'Video Storage: raw camera video is never uploaded to or stored on '
-        'our servers. It is processed locally on your device during practice '
-        'sessions only.',
+    'Ordinary training and practice webcam video stays on your device and is '
+        'not uploaded. The only exception is when you explicitly choose Record '
+        'Submission for a Teacher-created assignment and then confirm Submit to '
+        'Teacher. In that case ELIXR uploads one short assignment clip '
+        '(about 20 seconds or less) so the assigning Teacher can review it. '
+        'That clip is not public-profile content, is not leaderboard content, '
+        'and is not granted through General Evidence Access. Clips are kept '
+        'only for bounded classroom review under the current retention policy, '
+        'and account deletion removes them. Windows Teachers using this same '
+        'application can review clips they assigned.',
     'Profile photos are stored in Cloud Storage for display across the app.',
     'Confirmed movement images: if you opt in, ELIXR stores one private, '
         'annotated still image from the camera frame that confirmed a Guided '
@@ -82,8 +89,11 @@ abstract final class ElixrLegalDocuments {
         'for each linked Teacher. Linked Teachers may send stored instructional '
         'notes without progress sharing; stop sharing affects progress only, while '
         'revoke stops future Teacher access and preserves received note history. '
-        'Notes exclude raw video and protected assessment internals. You can stop sharing or revoke that Teacher at '
-        'any time. Raw video, credentials, private settings, feedback internals, '
+        'Notes exclude raw video and protected assessment internals. Assignment '
+        'submission clips are a separate classroom authorization for the assigning '
+        'Teacher only; they are not shared through Public Profile, Progress Access, '
+        'or General Evidence Access. You can stop sharing or revoke that Teacher at '
+        'any time. Credentials, private settings, feedback internals, '
         'achievements, and unrestricted account data are never shared. Each '
         'per-relationship Share Progress and Share Saved Images confirmations '
         'are independent consent events.',

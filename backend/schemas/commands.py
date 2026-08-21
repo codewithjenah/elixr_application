@@ -48,6 +48,7 @@ class PrepareCommand(_CommandBase):
     prop_type: PropType = "bottle"
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
+    allow_submission_recording: StrictBool = False
 
     @field_validator("movement", "difficulty", mode="before")
     @classmethod
@@ -106,6 +107,18 @@ class StopCommand(_CommandBase):
     action: Literal["stop"]
 
 
+class StartSubmissionRecordCommand(_CommandBase):
+    action: Literal["start_submission_record"]
+
+
+class StopSubmissionRecordCommand(_CommandBase):
+    action: Literal["stop_submission_record"]
+
+
+class CancelSubmissionRecordCommand(_CommandBase):
+    action: Literal["cancel_submission_record"]
+
+
 class StartCommand(_CommandBase):
     """Version-1 form of legacy start (prepare + activate)."""
 
@@ -116,6 +129,7 @@ class StartCommand(_CommandBase):
     prop_type: PropType = "bottle"
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
+    allow_submission_recording: StrictBool = False
 
     @field_validator("movement", "difficulty", mode="before")
     @classmethod
@@ -148,6 +162,9 @@ InboundCommand = Union[
     ConfirmReadinessCommand,
     StopCommand,
     StartCommand,
+    StartSubmissionRecordCommand,
+    StopSubmissionRecordCommand,
+    CancelSubmissionRecordCommand,
 ]
 
 
@@ -166,4 +183,10 @@ def parse_v1_command(data: dict) -> InboundCommand:
         return StopCommand.model_validate(data)
     if action == "start":
         return StartCommand.model_validate(data)
+    if action == "start_submission_record":
+        return StartSubmissionRecordCommand.model_validate(data)
+    if action == "stop_submission_record":
+        return StopSubmissionRecordCommand.model_validate(data)
+    if action == "cancel_submission_record":
+        return CancelSubmissionRecordCommand.model_validate(data)
     raise ValueError("unknown_action")

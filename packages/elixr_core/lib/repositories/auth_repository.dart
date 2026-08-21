@@ -328,6 +328,39 @@ Future<void> purgePhase5ClassroomOwnedDataForAccountErasure({
   await commitDeletes(refs.values.toList());
 }
 
+/// Purges assignment-submission MP4s while the matching attempt documents
+/// still exist. Storage rules authorize delete from the frozen Trainee or
+/// assigning Teacher identity on those documents.
+@visibleForTesting
+Future<void> purgeAssignmentSubmissionVideosForAccountErasure({
+  required FirebaseFirestore firestore,
+  required Future<void> Function(String storagePath) deleteObject,
+  required String uid,
+}) async {
+  final paths = <String>{};
+  final asTrainee = await firestore
+      .collection(FirestoreCollections.assignmentAttempts)
+      .where('trainee_id', isEqualTo: uid)
+      .get();
+  final asTeacher = await firestore
+      .collection(FirestoreCollections.assignmentAttempts)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final doc in [...asTrainee.docs, ...asTeacher.docs]) {
+    final path = doc.data()['video_storage_path'];
+    if (path is String && path.trim().isNotEmpty) {
+      paths.add(path.trim());
+    }
+  }
+  for (final path in paths) {
+    try {
+      await deleteObject(path);
+    } on FirebaseException catch (error) {
+      if (error.code != 'object-not-found') rethrow;
+    }
+  }
+}
+
 /// Purges `assignment_attempts` after the caller's users document is gone.
 ///
 /// Rules allow this only during account erasure (`!exists(users/{uid})`).
@@ -1113,6 +1146,22 @@ class AuthRepository implements AuthRepositoryBase {
         firestore: _firestore,
         commitDeletes: _commitDeletes,
         uid: uid,
+      );
+    });
+
+    // Submission MP4s must be deleted while assignment_attempts still exist
+    // and the user is still authenticated. Storage rules match those docs.
+    await _runPurgeStage('assignment submission Storage purge', () {
+      return purgeAssignmentSubmissionVideosForAccountErasure(
+        firestore: _firestore,
+        uid: uid,
+        deleteObject: (path) async {
+          try {
+            await _storage.ref(path).delete();
+          } on FirebaseException catch (error) {
+            if (error.code != 'object-not-found') rethrow;
+          }
+        },
       );
     });
 

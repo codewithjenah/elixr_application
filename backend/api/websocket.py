@@ -44,6 +44,7 @@ from config import (
     EVIDENCE_MAX_HEIGHT,
     EVIDENCE_MAX_WIDTH,
     JPEG_QUALITY,
+    MAX_SUBMISSION_DURATION_SECONDS,
     OVERLAY_MAX_AGE_S,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
@@ -55,11 +56,14 @@ from schemas.commands import (
     PROTOCOL_VERSION,
     ActivateCommand,
     BeginReadinessCommand,
+    CancelSubmissionRecordCommand,
     ConfirmReadinessCommand,
     PrepareCommand,
     PropType,
     StartCommand,
+    StartSubmissionRecordCommand,
     StopCommand,
+    StopSubmissionRecordCommand,
     parse_v1_command,
 )
 from schemas.feedback import AssessmentPayload, CriterionScorePayload, FeedbackMessage, PreviewFrameMessage
@@ -77,6 +81,11 @@ from vision.camera import (
     latest_frame_publish_count,
     snapshot_capture_producer_telemetry,
     release_shared_camera,
+)
+from vision.submission_recorder import (
+    SubmissionRecorder,
+    SubmissionRecorderError,
+    cleanup_orphan_submission_temp_files,
 )
 from vision.pipeline_telemetry import (
     PipelineTimings as _PipelineTimings,
@@ -387,6 +396,18 @@ def _human_error_message(error_code: str) -> str:
         ),
         "model_load_failed": "Model load failed.",
         "pipeline_error": "Vision pipeline error.",
+        "submission_already_recording": (
+            "A submission clip is already being recorded."
+        ),
+        "submission_not_recording": "No submission clip is being recorded.",
+        "submission_too_long": (
+            "The submission clip reached the maximum duration."
+        ),
+        "submission_recording_not_allowed": (
+            "Submission recording is only available during Teacher-created "
+            "assignment practice."
+        ),
+        "record_failed": "Submission recording failed. Try again.",
     }.get(error_code, "The WebSocket command was rejected.")
 
 
@@ -511,6 +532,23 @@ class VisionSession:
         self._ai_inflight_max = 0
         self._ai_inflight = 0
         self._ai_lifecycle_skips = 0
+        self._submission_recorder: SubmissionRecorder | None = None
+        self._submission_recorder_lock = threading.Lock()
+
+    def set_submission_recorder(self, recorder: SubmissionRecorder | None) -> None:
+        with self._submission_recorder_lock:
+            self._submission_recorder = recorder
+
+    def _feed_submission_recorder(self, captured: CapturedFrame) -> None:
+        with self._submission_recorder_lock:
+            recorder = self._submission_recorder
+        if recorder is None or not recorder.is_recording:
+            return
+        recorder.write_frame(
+            captured.frame,
+            captured_at_monotonic=captured.captured_at_monotonic,
+            sequence=captured.sequence,
+        )
 
     def _acquire_ai_state(self, *, blocking: bool) -> bool:
         """Exclusive access to AI/lifecycle mutation. Preview must not call this.
@@ -944,6 +982,8 @@ class VisionSession:
             and captured.sequence == self._last_preview_sequence
         ):
             return None
+
+        self._feed_submission_recorder(captured)
 
         self.preview_timings.add_frame_age(
             time.monotonic() - captured.captured_at_monotonic
@@ -2138,6 +2178,10 @@ async def websocket_endpoint(websocket: WebSocket):
     movement = "Hand Stall"
     difficulty = "Easy"
     send_lock = asyncio.Lock()
+    submission_recorder: SubmissionRecorder | None = None
+    submission_cap_task: asyncio.Task | None = None
+    submission_recording_allowed = False
+    cleanup_orphan_submission_temp_files()
 
     async def safe_send(text: str) -> None:
         async with send_lock:
@@ -2154,6 +2198,11 @@ async def websocket_endpoint(websocket: WebSocket):
         message: str | None = None,
         calibration_scale: float | None = None,
         calibration_source: str | None = None,
+        local_file_path: str | None = None,
+        video_duration_ms: int | None = None,
+        video_size_bytes: int | None = None,
+        content_type: str | None = None,
+        video_sha256: str | None = None,
     ) -> None:
         ack = CommandAck(
             protocol_version=PROTOCOL_VERSION,
@@ -2166,6 +2215,11 @@ async def websocket_endpoint(websocket: WebSocket):
             message=message,
             calibration_scale=calibration_scale,
             calibration_source=calibration_source,
+            local_file_path=local_file_path,
+            video_duration_ms=video_duration_ms,
+            video_size_bytes=video_size_bytes,
+            content_type=content_type,
+            video_sha256=video_sha256,
         )
         await safe_send(ack.model_dump_json())
 
@@ -2185,6 +2239,39 @@ async def websocket_endpoint(websocket: WebSocket):
         )
         await safe_send(payload.model_dump_json())
 
+    async def _cancel_submission_cap_task() -> None:
+        nonlocal submission_cap_task
+        task = submission_cap_task
+        submission_cap_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    def _detach_submission_recorder() -> None:
+        session = session_ref.get("session")
+        if session is not None:
+            session.set_submission_recorder(None)
+
+    async def _discard_submission_recorder(recorder: SubmissionRecorder | None) -> None:
+        if recorder is None:
+            return
+        _detach_submission_recorder()
+        try:
+            await asyncio.to_thread(recorder.cleanup)
+        except Exception:
+            logger.exception("Submission recorder cleanup failed")
+
+    async def _cleanup_submission_recorder() -> None:
+        nonlocal submission_recorder
+        await _cancel_submission_cap_task()
+        recorder = submission_recorder
+        submission_recorder = None
+        await _discard_submission_recorder(recorder)
+
     async def start_session_loop(
         *,
         movement_name: str,
@@ -2196,7 +2283,10 @@ async def websocket_endpoint(websocket: WebSocket):
         session_id: str | None,
         wait_for_prepare: bool,
     ) -> tuple[bool, str | None, str | None]:
-        nonlocal session_task, current_session_id
+        nonlocal session_task, current_session_id, submission_recording_allowed
+
+        await _cleanup_submission_recorder()
+        submission_recording_allowed = False
 
         await _stop_session_task(session_task)
         session_task = None
@@ -2268,7 +2358,7 @@ async def websocket_endpoint(websocket: WebSocket):
         return False, prepare_gate.get("error_code"), prepare_gate.get("message")
 
     async def handle_v1_prepare_or_start(command: PrepareCommand | StartCommand) -> None:
-        nonlocal movement, difficulty, current_session_id
+        nonlocal movement, difficulty, current_session_id, submission_recording_allowed
 
         auth_difficulty, movement_error = validate_movement_difficulty(
             command.movement,
@@ -2323,6 +2413,10 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         if ok:
+            submission_recording_allowed = (
+                bool(command.allow_submission_recording)
+                and command.movement == "Free Practice"
+            )
             await send_ack(
                 request_id=command.request_id,
                 session_id=command.session_id,
@@ -2331,6 +2425,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_state="active" if start_active else "preparing",
             )
         else:
+            submission_recording_allowed = False
             code = error_code or "pipeline_init_failed"
             await send_ack(
                 request_id=command.request_id,
@@ -2545,7 +2640,7 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
     async def handle_v1_stop(command: StopCommand) -> None:
-        nonlocal session_task, current_session_id
+        nonlocal session_task, current_session_id, submission_recording_allowed
 
         active_id = session_ref.get("session_id") or current_session_id
         if active_id is not None and command.session_id != active_id:
@@ -2564,6 +2659,8 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             return
 
+        await _cleanup_submission_recorder()
+        submission_recording_allowed = False
         await _stop_session_task(session_task)
         session_task = None
         session_ref["session"] = None
@@ -2577,6 +2674,204 @@ async def websocket_endpoint(websocket: WebSocket):
             action="stop",
             accepted=True,
             session_state="idle",
+        )
+
+    def _camera_session_ready(session) -> bool:
+        if session is None:
+            return False
+        return bool(session.is_prepared or session.is_readying or session.is_active)
+
+    async def handle_v1_start_submission_record(
+        command: StartSubmissionRecordCommand,
+    ) -> None:
+        nonlocal submission_recorder, submission_cap_task
+
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+        public_state = _public_session_state(
+            session, current_session_id=current_session_id
+        )
+
+        async def _reject(code: str) -> None:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="start_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code=code,
+                message=_human_error_message(code),
+            )
+
+        if active_id is None or command.session_id != active_id:
+            await _reject("session_id_mismatch")
+            return
+        if not submission_recording_allowed:
+            await _reject("submission_recording_not_allowed")
+            return
+        if not _camera_session_ready(session):
+            await _reject("session_not_prepared")
+            return
+        if submission_recorder is not None and (
+            submission_recorder.is_recording or submission_recorder.has_clip
+        ):
+            await _reject("submission_already_recording")
+            return
+
+        recorder = SubmissionRecorder()
+        try:
+            await asyncio.to_thread(recorder.start)
+        except SubmissionRecorderError as exc:
+            await _discard_submission_recorder(recorder)
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="start_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code=exc.code,
+                message=exc.message,
+            )
+            return
+        except Exception:
+            logger.exception("Submission recorder start failed")
+            await _discard_submission_recorder(recorder)
+            await _reject("record_failed")
+            return
+
+        submission_recorder = recorder
+        session.set_submission_recorder(recorder)
+        await _cancel_submission_cap_task()
+
+        async def _cap() -> None:
+            try:
+                await asyncio.sleep(MAX_SUBMISSION_DURATION_SECONDS)
+                current = submission_recorder
+                if current is not None:
+                    await asyncio.to_thread(current.finalize_due_to_cap)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Submission duration cap failed")
+
+        submission_cap_task = asyncio.create_task(_cap(), name="elixr-submission-cap")
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action="start_submission_record",
+            accepted=True,
+            session_state=public_state,
+        )
+
+    async def handle_v1_stop_submission_record(
+        command: StopSubmissionRecordCommand,
+    ) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+        public_state = _public_session_state(
+            session, current_session_id=current_session_id
+        )
+        recorder = submission_recorder
+
+        if active_id is not None and command.session_id != active_id:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="stop_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code="session_id_mismatch",
+                message=_human_error_message("session_id_mismatch"),
+            )
+            return
+        if recorder is None:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="stop_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code="submission_not_recording",
+                message=_human_error_message("submission_not_recording"),
+            )
+            return
+
+        await _cancel_submission_cap_task()
+        _detach_submission_recorder()
+        try:
+            metadata = await asyncio.to_thread(recorder.stop)
+        except SubmissionRecorderError as exc:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="stop_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code=exc.code,
+                message=exc.message,
+            )
+            return
+        except Exception:
+            logger.exception("Submission recorder stop failed")
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="stop_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code="record_failed",
+                message=_human_error_message("record_failed"),
+            )
+            return
+
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action="stop_submission_record",
+            accepted=True,
+            session_state=public_state,
+            local_file_path=metadata.local_path,
+            video_duration_ms=metadata.video_duration_ms,
+            video_size_bytes=metadata.video_size_bytes,
+            content_type=metadata.content_type,
+            video_sha256=metadata.sha256,
+        )
+
+    async def handle_v1_cancel_submission_record(
+        command: CancelSubmissionRecordCommand,
+    ) -> None:
+        session = session_ref.get("session")
+        active_id = session_ref.get("session_id") or current_session_id
+        public_state = _public_session_state(
+            session, current_session_id=current_session_id
+        )
+        if (
+            active_id is not None
+            and command.session_id != active_id
+            and submission_recorder is not None
+            and submission_recorder.is_recording
+        ):
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action="cancel_submission_record",
+                accepted=False,
+                session_state=public_state,
+                error_code="session_id_mismatch",
+                message=_human_error_message("session_id_mismatch"),
+            )
+            return
+
+        await _cleanup_submission_recorder()
+        await send_ack(
+            request_id=command.request_id,
+            session_id=command.session_id,
+            action="cancel_submission_record",
+            accepted=True,
+            session_state=_public_session_state(
+                session_ref.get("session"),
+                current_session_id=current_session_id,
+            ),
         )
 
     async def handle_v1(data: dict) -> None:
@@ -2682,6 +2977,12 @@ async def websocket_endpoint(websocket: WebSocket):
             await handle_v1_confirm_readiness(command)
         elif isinstance(command, StopCommand):
             await handle_v1_stop(command)
+        elif isinstance(command, StartSubmissionRecordCommand):
+            await handle_v1_start_submission_record(command)
+        elif isinstance(command, StopSubmissionRecordCommand):
+            await handle_v1_stop_submission_record(command)
+        elif isinstance(command, CancelSubmissionRecordCommand):
+            await handle_v1_cancel_submission_record(command)
 
     async def handle_legacy(data: dict) -> None:
         nonlocal movement, difficulty, session_task, current_session_id
@@ -2823,6 +3124,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Client disconnected")
 
     finally:
+        await _cleanup_submission_recorder()
         await _stop_session_task(session_task)
         session_ref["session"] = None
         session_ref["session_id"] = None

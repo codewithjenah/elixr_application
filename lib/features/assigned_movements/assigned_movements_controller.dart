@@ -6,13 +6,19 @@ import 'package:flutter/foundation.dart';
 
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 
 class AssignedMovementItem {
-  const AssignedMovementItem({required this.assignment, required this.attempt});
+  const AssignedMovementItem({
+    required this.assignment,
+    required this.attempt,
+    this.latestSubmission,
+  });
 
   final GroupAssignment assignment;
   final AssignmentAttempt? attempt;
+  final AssignmentAttempt? latestSubmission;
 }
 
 class AssignedMovementsController extends ChangeNotifier {
@@ -20,11 +26,13 @@ class AssignedMovementsController extends ChangeNotifier {
     required this.traineeId,
     required this.groupRepository,
     required this.assignmentRepository,
+    this.submissionRepository,
   });
 
   final String traineeId;
   final GroupRepository groupRepository;
   final ClassroomAssignmentRepository assignmentRepository;
+  final AssignmentSubmissionRepository? submissionRepository;
 
   bool loading = false;
   String? errorMessage;
@@ -81,6 +89,7 @@ class AssignedMovementsController extends ChangeNotifier {
           );
       await attemptsFirst.future;
       await _reloadAssignments();
+      await _reconcileExpired();
     } catch (_) {
       errorMessage = 'Could not load assigned movements.';
     } finally {
@@ -117,25 +126,52 @@ class AssignedMovementsController extends ChangeNotifier {
   List<GroupAssignment> _assignments = const [];
 
   void _rebuildItems() {
-    final attemptByAssignment = <String, AssignmentAttempt>{};
+    final latestByAssignment = <String, AssignmentAttempt>{};
+    final submissionsByAssignment = <String, AssignmentAttempt>{};
     for (final attempt in _attempts) {
-      final existing = attemptByAssignment[attempt.assignmentId];
+      final existing = latestByAssignment[attempt.assignmentId];
       if (existing == null ||
           (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(
             existing.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
           )) {
-        attemptByAssignment[attempt.assignmentId] = attempt;
+        latestByAssignment[attempt.assignmentId] = attempt;
+      }
+      if (attempt.isTeacherReviewSubmission) {
+        final current = submissionsByAssignment[attempt.assignmentId];
+        if (current == null ||
+            (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                .isAfter(
+                  current.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                )) {
+          submissionsByAssignment[attempt.assignmentId] = attempt;
+        }
       }
     }
     final next = [
       for (final assignment in _assignments)
         AssignedMovementItem(
           assignment: assignment,
-          attempt: attemptByAssignment[assignment.id],
+          attempt:
+              submissionsByAssignment[assignment.id] ??
+              latestByAssignment[assignment.id],
+          latestSubmission: submissionsByAssignment[assignment.id],
         ),
     ];
     next.sort(_compareItems);
     items = next;
+  }
+
+  Future<void> _reconcileExpired() async {
+    final repo = submissionRepository;
+    if (repo == null) return;
+    try {
+      await repo.reconcileExpiredVideos(
+        actorId: traineeId,
+        attempts: _attempts,
+      );
+    } catch (_) {
+      // Retention is best-effort and must not crash Assigned Movements.
+    }
   }
 
   static int _compareItems(AssignedMovementItem a, AssignedMovementItem b) {

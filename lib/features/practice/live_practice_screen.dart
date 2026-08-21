@@ -19,6 +19,7 @@ import '../../data/models/training_prop.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/assignment_submission_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/practice_music_service.dart';
 import '../../services/practice_sfx_service.dart';
@@ -27,7 +28,9 @@ import '../../services/websocket_service.dart';
 import 'just_dance/movement_rotation_controller.dart';
 import 'just_dance/movement_setlist_dialog.dart';
 import 'practice_run_phase.dart';
+import 'submission_recording_controller.dart';
 import 'widgets/movement_rotation_overlay.dart';
+import 'widgets/submission_recording_panel.dart';
 import 'widgets/training_action_area.dart';
 import 'widgets/training_camera_workspace.dart';
 import 'widgets/training_session_header.dart';
@@ -99,6 +102,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   String? _sessionError;
   bool _leaving = false;
   bool _startInFlight = false;
+  SubmissionRecordingController? _recording;
 
   /// True while a WebSocket prepare/activate command is awaiting ack.
   bool _commandInFlight = false;
@@ -127,7 +131,30 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final assignment = widget.teacherCreatedAssignment;
+    if (_recording != null || assignment == null) return;
+    final traineeId = context.read<AuthService>().currentUser?.id;
+    if (traineeId == null) return;
+    _recording = SubmissionRecordingController(
+      websocket: _ws,
+      classroom: context.read<ClassroomAssignmentRepository>(),
+      submissions: context.read<AssignmentSubmissionRepository>(),
+      assignment: assignment.assignment,
+      traineeId: traineeId,
+    )..addListener(_onRecordingChanged);
+    unawaited(_recording!.refreshLatestSubmission());
+  }
+
+  void _onRecordingChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _recording?.removeListener(_onRecordingChanged);
+    _recording?.dispose();
     _feedbackSub?.cancel();
     _previewSub?.cancel();
     _frameBytes.dispose();
@@ -190,6 +217,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _stopWebSocketSession() async {
+    await _recording?.abandonLocalClip();
     try {
       await _ws.stopPracticeSession();
     } on CommandTimeoutException {
@@ -390,6 +418,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         legacyCameraIndex: cameraDeviceId == null
             ? settings.pendingLegacyCameraIndex
             : null,
+        allowSubmissionRecording: assignment != null,
       );
       if (!mounted || _leaving) return;
       if (!_run.isPreparingCamera) return;
@@ -707,6 +736,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                     color: context.elixTextSecondary,
                   ),
                 ),
+                supportingContent: assignment != null && _recording != null
+                    ? SubmissionRecordingPanel(
+                        controller: _recording!,
+                        cameraReady: isTrainingActive,
+                      )
+                    : null,
                 compactStatusNote: (_sessionError ?? _run.errorMessage) != null
                     ? Text(
                         _sessionError ?? _run.errorMessage!,

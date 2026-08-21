@@ -13,8 +13,8 @@ String assignmentAttemptIdForOfficialSession(String sessionId) {
 
 /// First Teacher-created attempt for one trainee on one assignment.
 ///
-/// Phase 6 may create later replacement attempts with new IDs and
-/// `supersedes_attempt_id` without rewriting this document's identity.
+/// Video submissions use [assignmentAttemptIdForTeacherReviewSubmission]
+/// and may set `supersedes_attempt_id` without rewriting this document.
 String assignmentAttemptIdForTeacherCreatedDraft({
   required String assignmentId,
   required String traineeId,
@@ -25,4 +25,35 @@ String assignmentAttemptIdForTeacherCreatedDraft({
     throw ArgumentError('assignmentId and traineeId are required');
   }
   return 'tc_draft_${assignment}_$trainee';
+}
+
+final _reviewSubmissionIdPattern = RegExp(r'^[A-Za-z0-9]+$');
+
+/// Canonical ID for one Teacher-reviewed video submission attempt.
+///
+/// Do not put email or display names in [uniquePart].
+String assignmentAttemptIdForTeacherReviewSubmission(String uniquePart) {
+  final token = uniquePart.trim();
+  if (token.isEmpty || token.length > 64) {
+    throw ArgumentError('uniquePart is required');
+  }
+  if (!_reviewSubmissionIdPattern.hasMatch(token)) {
+    throw ArgumentError('uniquePart must be alphanumeric');
+  }
+  return 'review_sub_$token';
+}
+
+String newTeacherReviewSubmissionAttemptId({String Function()? entropy}) {
+  final raw = entropy?.call() ?? _defaultEntropy();
+  return assignmentAttemptIdForTeacherReviewSubmission(raw);
+}
+
+String _defaultEntropy() {
+  final mix =
+      '${DateTime.now().toUtc().microsecondsSinceEpoch}'
+      '${identityHashCode(Object())}';
+  return mix
+      .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+      .padRight(16, '0')
+      .substring(0, 16);
 }

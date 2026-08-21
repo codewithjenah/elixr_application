@@ -56,6 +56,7 @@ void main() {
     expect(containing('Settings > Privacy'), findsNothing);
     expect(containing('claimed achievements'), findsNothing);
     expect(containing('raw camera video is never uploaded'), findsNothing);
+    expect(containing('Record Submission'), findsNothing);
   });
 
   testWidgets('Teacher terms do not claim an active leaderboard', (

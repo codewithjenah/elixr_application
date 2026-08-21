@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/auth_service.dart';
 import 'assigned_movements_controller.dart';
@@ -44,6 +45,7 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
       traineeId: traineeId,
       groupRepository: context.read<GroupRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
+      submissionRepository: context.read<AssignmentSubmissionRepository>(),
     )..start();
   }
 
@@ -149,7 +151,11 @@ class _Body extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _statusLine(assignment, item.attempt),
+                        _statusLine(
+                          assignment,
+                          item.attempt,
+                          item.latestSubmission,
+                        ),
                         style: AppTheme.body,
                       ),
                     ],
@@ -174,6 +180,9 @@ class _Body extends StatelessWidget {
 
   static String _actionLabel(AssignmentAttempt? attempt) {
     if (attempt == null) return 'Start practice';
+    if (attempt.status == AssignmentAttemptStatus.needsRetry) {
+      return 'Record again';
+    }
     if (attempt.status == AssignmentAttemptStatus.inProgress ||
         attempt.status == AssignmentAttemptStatus.draft) {
       return 'Continue practice';
@@ -184,6 +193,7 @@ class _Body extends StatelessWidget {
   static String _statusLine(
     GroupAssignment assignment,
     AssignmentAttempt? attempt,
+    AssignmentAttempt? submission,
   ) {
     final due = assignment.dueAt;
     final dueText = due == null
@@ -191,13 +201,40 @@ class _Body extends StatelessWidget {
         : assignment.isOverdue
         ? 'Overdue'
         : 'Due ${due.toLocal().toIso8601String().split('T').first}';
-    final attemptText = switch (attempt?.status) {
+    final attemptText = _attemptText(assignment, attempt, submission);
+    if (!assignment.isActive) return 'Archived · $attemptText';
+    return '$dueText · $attemptText';
+  }
+
+  static String _attemptText(
+    GroupAssignment assignment,
+    AssignmentAttempt? attempt,
+    AssignmentAttempt? submission,
+  ) {
+    if (assignment.isTeacherCreated) {
+      final current = submission ?? attempt;
+      if (current == null ||
+          current.attemptKind == AssignmentAttemptKind.teacherReviewDraft) {
+        return 'Practice available · Not submitted';
+      }
+      final expired = current.videoExpired ? ' · Video expired' : '';
+      return switch (current.status) {
+        AssignmentAttemptStatus.draft ||
+        AssignmentAttemptStatus.inProgress => 'Not submitted',
+        AssignmentAttemptStatus.submitted =>
+          'Submitted / awaiting review$expired',
+        AssignmentAttemptStatus.approved => 'Approved$expired',
+        AssignmentAttemptStatus.needsRetry =>
+          'Needs retry${current.reviewFeedback == null || current.reviewFeedback!.isEmpty ? '' : ' · ${current.reviewFeedback}'}$expired',
+      };
+    }
+    return switch (attempt?.status) {
       null => 'Not started',
       AssignmentAttemptStatus.draft => 'Draft',
       AssignmentAttemptStatus.inProgress => 'In progress',
       AssignmentAttemptStatus.submitted => 'Submitted',
+      AssignmentAttemptStatus.approved => 'Approved',
+      AssignmentAttemptStatus.needsRetry => 'Needs retry',
     };
-    if (!assignment.isActive) return 'Archived · $attemptText';
-    return '$dueText · $attemptText';
   }
 }

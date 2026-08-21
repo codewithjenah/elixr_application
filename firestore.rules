@@ -2910,6 +2910,50 @@ service cloud.firestore {
     function teacherDraftAllowedKeys() {
       return assignmentAttemptIdentityKeys();
     }
+    function teacherReviewSubmissionCreateKeys() {
+      return assignmentAttemptIdentityKeys().concat(['supersedes_attempt_id']);
+    }
+    function teacherReviewSubmissionSubmittedKeys() {
+      return assignmentAttemptIdentityKeys().concat([
+        'video_storage_path', 'video_content_type', 'video_size_bytes',
+        'video_duration_ms', 'submitted_at', 'video_expires_at',
+        'supersedes_attempt_id'
+      ]);
+    }
+    function teacherReviewSubmissionReviewedKeys() {
+      return teacherReviewSubmissionSubmittedKeys().concat([
+        'review_verdict', 'review_feedback', 'reviewed_at'
+      ]);
+    }
+    function canonicalAssignmentSubmissionPath(data, attemptId) {
+      return 'assignment_submissions/' + data.teacher_id + '/' + data.group_id
+        + '/' + data.assignment_id + '/' + data.trainee_id + '/' + attemptId
+        + '.mp4';
+    }
+    function isReviewSubmissionAttemptId(attemptId) {
+      return attemptId.matches('^review_sub_[A-Za-z0-9]+$')
+        && attemptId.size() <= 128;
+    }
+    function isUnreviewedVideoExpiry(value) {
+      return value is timestamp
+        && value >= request.time + duration.value(29, 'd')
+        && value <= request.time + duration.value(31, 'd');
+    }
+    function isReviewedVideoExpiry(value) {
+      return value is timestamp
+        && value >= request.time + duration.value(13, 'd')
+        && value <= request.time + duration.value(15, 'd');
+    }
+    function validSubmittedVideoMetadata(data, attemptId) {
+      return data.video_storage_path == canonicalAssignmentSubmissionPath(data, attemptId)
+        && data.video_content_type == 'video/mp4'
+        && data.video_size_bytes is int
+        && data.video_size_bytes > 0
+        && data.video_size_bytes <= 15728640
+        && data.video_duration_ms is int
+        && data.video_duration_ms > 0
+        && data.video_duration_ms <= 20000;
+    }
     function attemptMatchesAssignment(data) {
       let assignment = get(assignmentPath(data.assignment_id)).data;
       return assignment.teacher_id == data.teacher_id
@@ -2965,6 +3009,37 @@ service cloud.firestore {
         && data.status != 'approved'
         && data.status != 'needs_retry';
     }
+    function validSubmissionSupersedes(data) {
+      let previous = get(assignmentAttemptPath(data.supersedes_attempt_id)).data;
+      return isClassroomDocId(data.supersedes_attempt_id)
+        && previous.attempt_kind == 'teacher_review_submission'
+        && previous.status == 'needs_retry'
+        && previous.review_verdict == 'needs_retry'
+        && previous.trainee_id == data.trainee_id
+        && previous.teacher_id == data.teacher_id
+        && previous.group_id == data.group_id
+        && previous.assignment_id == data.assignment_id
+        && previous.movement_id == data.movement_id
+        && previous.revision_id == data.revision_id;
+    }
+    function validTeacherReviewSubmissionCreate(data, attemptId) {
+      return data.attempt_kind == 'teacher_review_submission'
+        && isReviewSubmissionAttemptId(attemptId)
+        && data.status == 'draft'
+        && data.origin == 'teacher_created'
+        && data.assessment_mode == 'teacher_reviewed'
+        && data.keys().hasAll(assignmentAttemptIdentityKeys())
+        && data.keys().hasOnly(teacherReviewSubmissionCreateKeys())
+        && !data.keys().hasAny(['source_session_id', 'rubric', 'rubric_total',
+          'performance_level', 'review_verdict', 'review_feedback',
+          'reviewed_at', 'video_storage_path', 'video_content_type',
+          'video_size_bytes', 'video_duration_ms', 'submitted_at',
+          'video_expires_at', 'video_deleted_at', 'deletion_failed'])
+        && (
+          !data.keys().hasAny(['supersedes_attempt_id'])
+          || validSubmissionSupersedes(data)
+        );
+    }
     function validAssignmentAttemptCreate(data, attemptId) {
       let membership = get(groupMembershipPath(data.group_id, request.auth.uid)).data;
       return isSignedIn()
@@ -2986,7 +3061,9 @@ service cloud.firestore {
         && (
           data.attempt_kind == 'practice_pointer'
             ? validOfficialPointerCreate(data, attemptId)
-            : validTeacherDraftAttemptCreate(data, attemptId)
+            : data.attempt_kind == 'teacher_review_draft'
+              ? validTeacherDraftAttemptCreate(data, attemptId)
+              : validTeacherReviewSubmissionCreate(data, attemptId)
         );
     }
     function assignmentAttemptIdentityUnchanged() {
@@ -3003,7 +3080,30 @@ service cloud.firestore {
         && resource.data.awards_global_xp == false
         && request.resource.data.created_at == resource.data.created_at
         && request.resource.data.get('source_session_id', '__elixr_absent__')
-          == resource.data.get('source_session_id', '__elixr_absent__');
+          == resource.data.get('source_session_id', '__elixr_absent__')
+        && request.resource.data.get('supersedes_attempt_id', '__elixr_absent__')
+          == resource.data.get('supersedes_attempt_id', '__elixr_absent__');
+    }
+    function assignmentAttemptVideoIdentityUnchanged() {
+      return request.resource.data.get('video_storage_path', '__elixr_absent__')
+          == resource.data.get('video_storage_path', '__elixr_absent__')
+        && request.resource.data.get('video_content_type', '__elixr_absent__')
+          == resource.data.get('video_content_type', '__elixr_absent__')
+        && request.resource.data.get('video_size_bytes', '__elixr_absent__')
+          == resource.data.get('video_size_bytes', '__elixr_absent__')
+        && request.resource.data.get('video_duration_ms', '__elixr_absent__')
+          == resource.data.get('video_duration_ms', '__elixr_absent__')
+        && request.resource.data.get('submitted_at', '__elixr_absent__')
+          == resource.data.get('submitted_at', '__elixr_absent__');
+    }
+    function assignmentAttemptReviewUnchanged() {
+      return request.resource.data.status == resource.data.status
+        && request.resource.data.get('review_verdict', '__elixr_absent__')
+          == resource.data.get('review_verdict', '__elixr_absent__')
+        && request.resource.data.get('review_feedback', '__elixr_absent__')
+          == resource.data.get('review_feedback', '__elixr_absent__')
+        && request.resource.data.get('reviewed_at', '__elixr_absent__')
+          == resource.data.get('reviewed_at', '__elixr_absent__');
     }
     function validTeacherDraftAttemptUpdate() {
       return resource.data.trainee_id == request.auth.uid
@@ -3018,6 +3118,81 @@ service cloud.firestore {
         && request.resource.data.status != 'approved'
         && request.resource.data.status != 'needs_retry';
     }
+    function validTeacherReviewSubmissionTraineeSubmit(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status in ['draft', 'in_progress']
+        && after.status == 'submitted'
+        && assignmentAttemptIdentityUnchanged()
+        && after.keys().hasAll(assignmentAttemptIdentityKeys())
+        && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys())
+        && validSubmittedVideoMetadata(after, attemptId)
+        && after.submitted_at == request.time
+        && isUnreviewedVideoExpiry(after.video_expires_at)
+        && !after.keys().hasAny(['review_verdict', 'review_feedback',
+          'reviewed_at']);
+    }
+    function validTeacherReviewSubmissionTeacherReview() {
+      let after = request.resource.data;
+      return resource.data.teacher_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status == 'submitted'
+        && after.status in ['approved', 'needs_retry']
+        && after.review_verdict == after.status
+        && assignmentAttemptIdentityUnchanged()
+        && assignmentAttemptVideoIdentityUnchanged()
+        && after.keys().hasAll(assignmentAttemptIdentityKeys())
+        && after.keys().hasAll(['review_verdict', 'reviewed_at',
+          'video_expires_at'])
+        && after.keys().hasOnly(teacherReviewSubmissionReviewedKeys())
+        && after.reviewed_at == request.time
+        && isReviewedVideoExpiry(after.video_expires_at)
+        && (
+          !after.keys().hasAny(['review_feedback'])
+          || isBoundedText(after.review_feedback, 1000)
+        );
+    }
+    function validTeacherReviewSubmissionCleanup() {
+      let after = request.resource.data;
+      return (
+          resource.data.trainee_id == request.auth.uid
+          || resource.data.teacher_id == request.auth.uid
+        )
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status in ['submitted', 'approved', 'needs_retry']
+        && assignmentAttemptIdentityUnchanged()
+        && assignmentAttemptReviewUnchanged()
+        && after.get('video_content_type', '__elixr_absent__')
+          == resource.data.get('video_content_type', '__elixr_absent__')
+        && after.get('video_size_bytes', '__elixr_absent__')
+          == resource.data.get('video_size_bytes', '__elixr_absent__')
+        && after.get('video_duration_ms', '__elixr_absent__')
+          == resource.data.get('video_duration_ms', '__elixr_absent__')
+        && after.get('submitted_at', '__elixr_absent__')
+          == resource.data.get('submitted_at', '__elixr_absent__')
+        && after.get('video_expires_at', '__elixr_absent__')
+          == resource.data.get('video_expires_at', '__elixr_absent__')
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['video_storage_path', 'video_deleted_at',
+            'deletion_failed', 'deletion_failed_at'])
+        && (
+          (
+            !after.keys().hasAny(['video_storage_path'])
+            && after.video_deleted_at == request.time
+            && after.deletion_failed == false
+          )
+          || (
+            after.get('video_storage_path', '__elixr_absent__')
+              == resource.data.get('video_storage_path', '__elixr_absent__')
+            && after.deletion_failed == true
+            && (
+              !after.keys().hasAny(['deletion_failed_at'])
+              || after.deletion_failed_at == request.time
+            )
+          )
+        );
+    }
 
     match /assignment_attempts/{attemptId} {
       allow get: if isSignedIn()
@@ -3028,7 +3203,13 @@ service cloud.firestore {
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
       allow create: if validAssignmentAttemptCreate(request.resource.data, attemptId);
-      allow update: if isSignedIn() && validTeacherDraftAttemptUpdate();
+      allow update: if isSignedIn()
+        && (
+          validTeacherDraftAttemptUpdate()
+          || validTeacherReviewSubmissionTraineeSubmit(attemptId)
+          || validTeacherReviewSubmissionTeacherReview()
+          || validTeacherReviewSubmissionCleanup()
+        );
       allow delete: if isSignedIn()
         && !exists(userPath(request.auth.uid))
         && (

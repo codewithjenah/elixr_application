@@ -51,7 +51,7 @@ Let Teachers manage Official vs Teacher-created movements, version definitions, 
 ## 4. Verified current repo behavior
 
 - Official 12: [lib/core/constants/movements.dart](../../lib/core/constants/movements.dart), [backend/config.py](../../backend/config.py) `MOVEMENT_CONFIG`, [backend/assessment/rule_engine.py](../../backend/assessment/rule_engine.py), [test/fixtures/enabled_scored_movements.json](../../test/fixtures/enabled_scored_movements.json).
-- No custom movement collections. No Wrist Stall. No `assessment_family`.
+- Phase 5 classroom collections now exist: `teacher_movements` (with immutable published revisions), `group_assignments`, and `assignment_attempts`. No Wrist Stall. No `assessment_family`.
 - Guided practice saves `sessions` via `SessionService` then awards XP.
 - WS `validate_movement_name` rejects unknown names for the **official** protocol catalog. Teacher-created names must **not** be smuggled through as official `prepare.movement` until Phase 7 registers a validated spec — Phase 5 classroom practice for Teacher-created `teacher_reviewed` movements is **practice without automatic assessment** (preview allowed; no rubric award to `sessions`).
 - Python owns camera; Flutter shows JPEGs.

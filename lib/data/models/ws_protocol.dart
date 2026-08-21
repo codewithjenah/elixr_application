@@ -19,6 +19,11 @@ class CommandAck {
     this.message,
     this.calibrationScale,
     this.calibrationSource,
+    this.localFilePath,
+    this.videoDurationMs,
+    this.videoSizeBytes,
+    this.contentType,
+    this.videoSha256,
   });
 
   final int protocolVersion;
@@ -31,6 +36,11 @@ class CommandAck {
   final String? message;
   final double? calibrationScale;
   final String? calibrationSource;
+  final String? localFilePath;
+  final int? videoDurationMs;
+  final int? videoSizeBytes;
+  final String? contentType;
+  final String? videoSha256;
 
   factory CommandAck.fromJson(Map<String, dynamic> json) {
     return CommandAck(
@@ -46,10 +56,51 @@ class CommandAck {
           ? (json['calibration_scale'] as num).toDouble()
           : null,
       calibrationSource: json['calibration_source'] as String?,
+      localFilePath: json['local_file_path'] as String?,
+      videoDurationMs: (json['video_duration_ms'] as num?)?.toInt(),
+      videoSizeBytes: (json['video_size_bytes'] as num?)?.toInt(),
+      contentType: json['content_type'] as String?,
+      videoSha256: json['video_sha256'] as String?,
     );
   }
 
   bool get isAccepted => accepted;
+}
+
+/// Local recording result. Never contains video bytes.
+class SubmissionRecordResult {
+  const SubmissionRecordResult({
+    required this.localPath,
+    required this.durationMs,
+    required this.sizeBytes,
+    required this.contentType,
+    this.sha256,
+  });
+
+  final String localPath;
+  final int durationMs;
+  final int sizeBytes;
+  final String contentType;
+  final String? sha256;
+
+  factory SubmissionRecordResult.fromAck(CommandAck ack) {
+    final path = ack.localFilePath?.trim() ?? '';
+    if (path.isEmpty ||
+        ack.videoDurationMs == null ||
+        ack.videoSizeBytes == null ||
+        (ack.contentType ?? '').isEmpty) {
+      throw const FormatException(
+        'Incomplete submission record acknowledgment',
+      );
+    }
+    return SubmissionRecordResult(
+      localPath: path,
+      durationMs: ack.videoDurationMs!,
+      sizeBytes: ack.videoSizeBytes!,
+      contentType: ack.contentType!,
+      sha256: ack.videoSha256,
+    );
+  }
 }
 
 /// Uncorrelated or partially correlated protocol failure.

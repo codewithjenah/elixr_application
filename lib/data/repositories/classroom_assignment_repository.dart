@@ -63,6 +63,45 @@ abstract class ClassroomAssignmentRepository {
     required String traineeId,
     required GroupAssignment assignment,
   });
+
+  Future<AssignmentAttempt> createTeacherReviewSubmissionDraft({
+    required String traineeId,
+    required GroupAssignment assignment,
+    String? supersedesAttemptId,
+    String? attemptId,
+  });
+
+  Future<AssignmentAttempt> markTeacherReviewSubmitted({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required String videoStoragePath,
+    required String videoContentType,
+    required int videoSizeBytes,
+    required int videoDurationMs,
+    required DateTime submittedAt,
+    required DateTime videoExpiresAt,
+  });
+
+  Future<AssignmentAttempt> reviewTeacherSubmission({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required AssignmentReviewVerdict verdict,
+    String? feedback,
+    required DateTime reviewedAt,
+    required DateTime videoExpiresAt,
+  });
+
+  Future<void> markSubmissionVideoDeleted({
+    required String actorId,
+    required AssignmentAttempt attempt,
+    required DateTime deletedAt,
+  });
+
+  Future<void> markSubmissionDeletionFailed({
+    required String actorId,
+    required AssignmentAttempt attempt,
+    required DateTime failedAt,
+  });
 }
 
 void ensureTeacherOwnsActiveGroup({
@@ -214,26 +253,7 @@ AssignmentAttempt teacherCreatedAttemptWithStatus({
   required AssignmentAttempt attempt,
   required AssignmentAttemptStatus status,
 }) {
-  return AssignmentAttempt(
-    id: attempt.id,
-    traineeId: attempt.traineeId,
-    teacherId: attempt.teacherId,
-    groupId: attempt.groupId,
-    assignmentId: attempt.assignmentId,
-    movementId: attempt.movementId,
-    revisionId: attempt.revisionId,
-    origin: attempt.origin,
-    assessmentMode: attempt.assessmentMode,
-    attemptKind: attempt.attemptKind,
-    status: status,
-    awardsGlobalXp: attempt.awardsGlobalXp,
-    sourceSessionId: attempt.sourceSessionId,
-    rubric: attempt.rubric,
-    durationSeconds: attempt.durationSeconds,
-    propType: attempt.propType,
-    completedAt: attempt.completedAt,
-    createdAt: attempt.createdAt,
-  );
+  return attempt.copyWith(status: status);
 }
 
 /// Create the canonical draft first. Only read an existing document after a
@@ -278,4 +298,55 @@ Future<AssignmentAttempt> startTeacherCreatedAttemptWorkflow({
 
 TrainingProp? assignmentAllowedProp(GroupAssignment assignment) {
   return assignment.allowedProp;
+}
+
+AssignmentAttempt teacherReviewSubmissionDraftAttempt({
+  required String traineeId,
+  required GroupAssignment assignment,
+  required String attemptId,
+  String? supersedesAttemptId,
+  DateTime? createdAt,
+}) {
+  if (!assignment.isTeacherCreated) {
+    throw const ClassroomException(ClassroomError.identityMismatch);
+  }
+  if (!assignment.isActive) {
+    throw const ClassroomException(ClassroomError.inactive);
+  }
+  if (assignment.assessmentMode != AssessmentMode.teacherReviewed) {
+    throw const ClassroomException(ClassroomError.identityMismatch);
+  }
+  return AssignmentAttempt(
+    id: attemptId,
+    traineeId: traineeId,
+    teacherId: assignment.teacherId,
+    groupId: assignment.groupId,
+    assignmentId: assignment.id,
+    movementId: assignment.movementId,
+    revisionId: assignment.revisionId,
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: AssignmentAttemptStatus.draft,
+    createdAt: createdAt,
+    supersedesAttemptId: supersedesAttemptId,
+  );
+}
+
+void ensureCanSupersedeNeedsRetry({
+  required AssignmentAttempt previous,
+  required String traineeId,
+  required GroupAssignment assignment,
+}) {
+  if (previous.attemptKind != AssignmentAttemptKind.teacherReviewSubmission ||
+      previous.status != AssignmentAttemptStatus.needsRetry ||
+      previous.reviewVerdict != AssignmentReviewVerdict.needsRetry ||
+      previous.traineeId != traineeId ||
+      previous.teacherId != assignment.teacherId ||
+      previous.groupId != assignment.groupId ||
+      previous.assignmentId != assignment.id ||
+      previous.movementId != assignment.movementId ||
+      previous.revisionId != assignment.revisionId) {
+    throw const ClassroomException(ClassroomError.invalidState);
+  }
 }

@@ -18,6 +18,8 @@ import 'core/theme/app_theme.dart';
 import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
 import 'data/repositories/classroom_assignment_repository.dart';
+import 'data/repositories/assignment_submission_repository.dart';
+import 'data/repositories/firebase_assignment_submission_repository.dart';
 import 'data/repositories/firebase_classroom_assignment_repository.dart';
 import 'data/repositories/firebase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
@@ -125,6 +127,14 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<ClassroomAssignmentRepository>(
           create: (_) => FirebaseClassroomAssignmentRepository(),
+        ),
+        ProxyProvider<
+          ClassroomAssignmentRepository,
+          AssignmentSubmissionRepository
+        >(
+          update: (_, classroom, previous) =>
+              previous ??
+              FirebaseAssignmentSubmissionRepository(classroom: classroom),
         ),
         Provider<CoachingNoteRepository>(
           create: (_) => FirebaseCoachingNoteRepository(),

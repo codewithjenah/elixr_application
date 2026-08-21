@@ -13,10 +13,12 @@ import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_movements_controller.dart';
+import 'teacher_reviews_pane.dart';
 
 class TeacherMovementsScreen extends StatefulWidget {
   const TeacherMovementsScreen({super.key, this.controller});
@@ -52,6 +54,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       groupRepository: context.read<GroupRepository>(),
       movementRepository: context.read<TeacherMovementRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
+      submissionRepository: context.read<AssignmentSubmissionRepository>(),
     )..start();
   }
 
@@ -134,6 +137,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       TeacherMovementsTab.official => 'Official ELIXR',
       TeacherMovementsTab.mine => 'My Movements',
       TeacherMovementsTab.assignments => 'Assignments',
+      TeacherMovementsTab.reviews => 'Reviews',
     };
   }
 }
@@ -164,6 +168,7 @@ class _TabBody extends StatelessWidget {
       TeacherMovementsTab.assignments => _AssignmentsList(
         controller: controller,
       ),
+      TeacherMovementsTab.reviews => TeacherReviewsPane(controller: controller),
     };
   }
 }

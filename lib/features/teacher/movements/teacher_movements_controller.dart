@@ -1,20 +1,23 @@
 import 'dart:async';
 
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/movements.dart';
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/training_prop.dart';
+import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 
-enum TeacherMovementsTab { official, mine, assignments }
+enum TeacherMovementsTab { official, mine, assignments, reviews }
 
 class TeacherMovementsController extends ChangeNotifier {
   TeacherMovementsController({
@@ -23,6 +26,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required this.groupRepository,
     required this.movementRepository,
     required this.assignmentRepository,
+    this.submissionRepository,
   });
 
   final String teacherId;
@@ -30,12 +34,16 @@ class TeacherMovementsController extends ChangeNotifier {
   final GroupRepository groupRepository;
   final TeacherMovementRepository movementRepository;
   final ClassroomAssignmentRepository assignmentRepository;
+  final AssignmentSubmissionRepository? submissionRepository;
 
   TeacherMovementsTab tab = TeacherMovementsTab.official;
   List<ElixrGroup> groups = const [];
   List<TeacherMovement> myMovements = const [];
   List<GroupAssignment> assignments = const [];
   List<AssignmentAttempt> attempts = const [];
+  List<GroupMembership> memberships = const [];
+  AssignmentAttempt? selectedReview;
+  String? reviewFeedbackDraft;
   bool loading = false;
   bool busy = false;
   String? errorMessage;
@@ -44,6 +52,7 @@ class TeacherMovementsController extends ChangeNotifier {
   StreamSubscription<List<TeacherMovement>>? _movementsSub;
   StreamSubscription<List<GroupAssignment>>? _assignmentsSub;
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
+  StreamSubscription<List<GroupMembership>>? _membershipsSub;
 
   List<Movement> get officialCatalog =>
       movementCatalog.where((movement) => movement.enabled).toList();
@@ -58,6 +67,41 @@ class TeacherMovementsController extends ChangeNotifier {
     return attempts
         .where((attempt) => attempt.assignmentId == assignmentId)
         .toList();
+  }
+
+  List<AssignmentAttempt> get reviewQueue {
+    final queued = attempts
+        .where((attempt) => attempt.isTeacherReviewSubmission)
+        .toList();
+    queued.sort((a, b) {
+      final aAt =
+          a.submittedAt ??
+          a.createdAt ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bAt =
+          b.submittedAt ??
+          b.createdAt ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bAt.compareTo(aAt);
+    });
+    return queued;
+  }
+
+  String traineeName(String traineeId) {
+    for (final membership in memberships) {
+      if (membership.traineeId == traineeId &&
+          membership.traineeDisplayName.trim().isNotEmpty) {
+        return membership.traineeDisplayName;
+      }
+    }
+    return 'Trainee';
+  }
+
+  GroupAssignment? assignmentFor(AssignmentAttempt attempt) {
+    for (final assignment in assignments) {
+      if (assignment.id == attempt.assignmentId) return assignment;
+    }
+    return null;
   }
 
   String groupName(String groupId) {
@@ -100,13 +144,59 @@ class TeacherMovementsController extends ChangeNotifier {
           assignmentRepository.watchAttemptsForTeacher(teacherId: teacherId),
           (value) => attempts = value,
         ),
+        _listenOnce(
+          () => _membershipsSub,
+          (sub) => _membershipsSub = sub,
+          groupRepository.watchTeacherMemberships(teacherId: teacherId),
+          (value) => memberships = value,
+        ),
       ]);
+      await _reconcileExpired();
     } catch (_) {
       errorMessage = 'Could not load movements and assignments.';
     } finally {
       loading = false;
       notifyListeners();
     }
+  }
+
+  void selectReview(AssignmentAttempt? attempt) {
+    selectedReview = attempt;
+    reviewFeedbackDraft = attempt?.reviewFeedback;
+    notifyListeners();
+  }
+
+  Future<Uri?> playableUri(AssignmentAttempt attempt) async {
+    return submissionRepository?.playableUri(attempt);
+  }
+
+  Future<void> reviewSelected({
+    required AssignmentReviewVerdict verdict,
+    String? feedback,
+  }) {
+    final attempt = selectedReview;
+    if (attempt == null) {
+      return Future.value();
+    }
+    return _runWrite(() async {
+      final reviewedAt = DateTime.now().toUtc();
+      selectedReview = await assignmentRepository.reviewTeacherSubmission(
+        teacherId: teacherId,
+        attempt: attempt,
+        verdict: verdict,
+        feedback: feedback,
+        reviewedAt: reviewedAt,
+        videoExpiresAt: reviewedVideoExpiresAt(reviewedAt),
+      );
+    });
+  }
+
+  Future<void> _reconcileExpired() async {
+    final repo = submissionRepository;
+    if (repo == null) return;
+    try {
+      await repo.reconcileExpiredVideos(actorId: teacherId, attempts: attempts);
+    } catch (_) {}
   }
 
   Future<void> retry() => start();
@@ -259,6 +349,7 @@ class TeacherMovementsController extends ChangeNotifier {
     _movementsSub?.cancel();
     _assignmentsSub?.cancel();
     _attemptsSub?.cancel();
+    _membershipsSub?.cancel();
     super.dispose();
   }
 }

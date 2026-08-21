@@ -2,7 +2,9 @@ import 'package:elixr_application/core/router/app_router.dart';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/shell/teacher_shell.dart';
 import 'package:elixr_application/core/widgets/app_shell.dart';
+import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
 import 'package:elixr_application/data/repositories/teacher_movement_repository.dart';
@@ -129,6 +131,9 @@ void main() {
     addTearDown(movements.dispose);
     final assignments = InMemoryClassroomAssignmentRepository();
     addTearDown(assignments.dispose);
+    final submissions = InMemoryAssignmentSubmissionRepository(
+      classroom: assignments,
+    );
 
     await tester.pumpWidget(
       MultiProvider(
@@ -137,6 +142,7 @@ void main() {
           Provider<GroupRepository>.value(value: groups),
           Provider<TeacherMovementRepository>.value(value: movements),
           Provider<ClassroomAssignmentRepository>.value(value: assignments),
+          Provider<AssignmentSubmissionRepository>.value(value: submissions),
         ],
         child: FluentApp.router(routerConfig: router, theme: FluentThemeData()),
       ),

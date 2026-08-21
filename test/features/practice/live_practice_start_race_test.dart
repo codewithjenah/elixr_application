@@ -8,6 +8,8 @@ import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
@@ -99,6 +101,7 @@ class _RecordingWebSocketService extends WebSocketService {
     String? cameraDeviceId,
     int? legacyCameraIndex,
     String? sessionId,
+    bool allowSubmissionRecording = false,
   }) {
     final resolvedSessionId =
         sessionId ?? currentSessionId ?? beginPracticeAttempt();
@@ -112,6 +115,7 @@ class _RecordingWebSocketService extends WebSocketService {
       'request_id': 'req-test',
       'camera_device_id': cameraDeviceId,
       'camera_index': ?legacyCameraIndex,
+      if (allowSubmissionRecording) 'allow_submission_recording': true,
     });
     return prepareAck.future;
   }
@@ -209,6 +213,10 @@ void main() {
           ChangeNotifierProvider<AuthService>.value(value: auth),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           Provider<ClassroomAssignmentRepository>.value(value: assignments),
+          Provider<AssignmentSubmissionRepository>(
+            create: (_) =>
+                InMemoryAssignmentSubmissionRepository(classroom: assignments),
+          ),
         ],
         child: FluentApp(
           theme: AppTheme.dark,

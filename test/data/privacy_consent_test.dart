@@ -4,14 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('RegistrationPrivacyConsent', () {
-    test('documentFields writes consent timestamp and policy version v3', () {
+    test('documentFields writes consent timestamp and policy version v4', () {
       const marker = 'server-timestamp-marker';
 
       expect(
         RegistrationPrivacyConsent.documentFields(consentTimestamp: marker),
-        {'privacy_consent_at': marker, 'privacy_policy_version': 'v3'},
+        {'privacy_consent_at': marker, 'privacy_policy_version': 'v4'},
       );
-      expect(RegistrationPrivacyConsent.policyVersion, 'v3');
+      expect(RegistrationPrivacyConsent.policyVersion, 'v4');
     });
   });
 

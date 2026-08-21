@@ -3,6 +3,7 @@ import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 
 import '../models/assignment_attempt.dart';
+import '../models/assignment_attempt_ids.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/teacher_movement.dart';
@@ -231,6 +232,137 @@ class FirebaseClassroomAssignmentRepository
       },
       isPermissionDenied: _isFirestorePermissionDenied,
     );
+  }
+
+  @override
+  Future<AssignmentAttempt> createTeacherReviewSubmissionDraft({
+    required String traineeId,
+    required GroupAssignment assignment,
+    String? supersedesAttemptId,
+    String? attemptId,
+  }) async {
+    if (supersedesAttemptId != null) {
+      final previous = await getAttempt(attemptId: supersedesAttemptId);
+      if (previous == null) {
+        throw const ClassroomException(ClassroomError.notFound);
+      }
+      ensureCanSupersedeNeedsRetry(
+        previous: previous,
+        traineeId: traineeId,
+        assignment: assignment,
+      );
+    }
+    final id = attemptId ?? newTeacherReviewSubmissionAttemptId();
+    final draft = teacherReviewSubmissionDraftAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      attemptId: id,
+      supersedesAttemptId: supersedesAttemptId,
+    );
+    await _attempts
+        .doc(draft.id)
+        .set(draft.toCreateMap(createdAt: FieldValue.serverTimestamp()));
+    return draft.copyWith();
+  }
+
+  @override
+  Future<AssignmentAttempt> markTeacherReviewSubmitted({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required String videoStoragePath,
+    required String videoContentType,
+    required int videoSizeBytes,
+    required int videoDurationMs,
+    required DateTime submittedAt,
+    required DateTime videoExpiresAt,
+  }) async {
+    if (attempt.traineeId != traineeId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _attempts.doc(attempt.id).update({
+      'status': AssignmentAttemptStatus.submitted.wireValue,
+      'video_storage_path': videoStoragePath,
+      'video_content_type': videoContentType,
+      'video_size_bytes': videoSizeBytes,
+      'video_duration_ms': videoDurationMs,
+      'submitted_at': FieldValue.serverTimestamp(),
+      'video_expires_at': Timestamp.fromDate(videoExpiresAt.toUtc()),
+    });
+    return attempt.copyWith(
+      status: AssignmentAttemptStatus.submitted,
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+      submittedAt: submittedAt,
+      videoExpiresAt: videoExpiresAt,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> reviewTeacherSubmission({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required AssignmentReviewVerdict verdict,
+    String? feedback,
+    required DateTime reviewedAt,
+    required DateTime videoExpiresAt,
+  }) async {
+    if (attempt.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final status = verdict == AssignmentReviewVerdict.approved
+        ? AssignmentAttemptStatus.approved
+        : AssignmentAttemptStatus.needsRetry;
+    final payload = <String, dynamic>{
+      'status': status.wireValue,
+      'review_verdict': verdict.wireValue,
+      'reviewed_at': FieldValue.serverTimestamp(),
+      'video_expires_at': Timestamp.fromDate(videoExpiresAt.toUtc()),
+    };
+    if (feedback != null && feedback.trim().isNotEmpty) {
+      payload['review_feedback'] = feedback.trim();
+    }
+    await _attempts.doc(attempt.id).update(payload);
+    return attempt.copyWith(
+      status: status,
+      reviewVerdict: verdict,
+      reviewFeedback: feedback?.trim(),
+      reviewedAt: reviewedAt,
+      videoExpiresAt: videoExpiresAt,
+    );
+  }
+
+  @override
+  Future<void> markSubmissionVideoDeleted({
+    required String actorId,
+    required AssignmentAttempt attempt,
+    required DateTime deletedAt,
+  }) async {
+    if (attempt.traineeId != actorId && attempt.teacherId != actorId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _attempts.doc(attempt.id).update({
+      'video_storage_path': FieldValue.delete(),
+      'video_deleted_at': FieldValue.serverTimestamp(),
+      'deletion_failed': false,
+      'deletion_failed_at': FieldValue.delete(),
+    });
+  }
+
+  @override
+  Future<void> markSubmissionDeletionFailed({
+    required String actorId,
+    required AssignmentAttempt attempt,
+    required DateTime failedAt,
+  }) async {
+    if (attempt.traineeId != actorId && attempt.teacherId != actorId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _attempts.doc(attempt.id).update({
+      'deletion_failed': true,
+      'deletion_failed_at': FieldValue.serverTimestamp(),
+    });
   }
 
   static bool _isFirestorePermissionDenied(Object error) {

@@ -144,6 +144,7 @@ class WebSocketService extends ChangeNotifier {
     String? cameraDeviceId,
     int? legacyCameraIndex,
     String? sessionId,
+    bool allowSubmissionRecording = false,
   }) {
     final resolvedSessionId =
         sessionId ?? _currentSessionId ?? beginPracticeAttempt();
@@ -161,6 +162,7 @@ class WebSocketService extends ChangeNotifier {
         legacyCameraIndex: legacyCameraIndex,
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
+        allowSubmissionRecording: allowSubmissionRecording,
       ),
     );
   }
@@ -225,6 +227,71 @@ class WebSocketService extends ChangeNotifier {
       timeout: commandTimeout,
       sessionId: resolvedSessionId,
       payload: buildConfirmReadinessPayload(
+        sessionId: resolvedSessionId,
+        requestId: _nextId('req'),
+      ),
+    );
+  }
+
+  Future<CommandAck> sendStartSubmissionRecord({String? sessionId}) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
+      return Future.error(
+        StateError('Cannot record a submission without a current session_id'),
+      );
+    }
+
+    return _sendTrackedCommand(
+      action: 'start_submission_record',
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: buildStartSubmissionRecordPayload(
+        sessionId: resolvedSessionId,
+        requestId: _nextId('req'),
+      ),
+    );
+  }
+
+  Future<CommandAck> sendStopSubmissionRecord({String? sessionId}) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
+      return Future.error(
+        StateError('Cannot stop a submission recording without a session_id'),
+      );
+    }
+
+    return _sendTrackedCommand(
+      action: 'stop_submission_record',
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: buildStopSubmissionRecordPayload(
+        sessionId: resolvedSessionId,
+        requestId: _nextId('req'),
+      ),
+    );
+  }
+
+  /// Idempotent. Safe after retake, upload, abandoned submit, and dispose.
+  Future<CommandAck> sendCancelSubmissionRecord({String? sessionId}) {
+    final resolvedSessionId = sessionId ?? _currentSessionId;
+    if (!isConnected ||
+        resolvedSessionId == null ||
+        resolvedSessionId.isEmpty) {
+      return Future.value(
+        const CommandAck(
+          protocolVersion: wsProtocolVersion,
+          requestId: '',
+          action: 'cancel_submission_record',
+          accepted: true,
+        ),
+      );
+    }
+
+    return _sendTrackedCommand(
+      action: 'cancel_submission_record',
+      timeout: commandTimeout,
+      sessionId: resolvedSessionId,
+      payload: buildCancelSubmissionRecordPayload(
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
       ),
@@ -453,6 +520,7 @@ class WebSocketService extends ChangeNotifier {
     int? legacyCameraIndex,
     required String sessionId,
     required String requestId,
+    bool allowSubmissionRecording = false,
   }) {
     return _buildSessionPayload(
       action: 'prepare',
@@ -463,6 +531,7 @@ class WebSocketService extends ChangeNotifier {
       legacyCameraIndex: legacyCameraIndex,
       sessionId: sessionId,
       requestId: requestId,
+      allowSubmissionRecording: allowSubmissionRecording,
     );
   }
 
@@ -545,6 +614,55 @@ class WebSocketService extends ChangeNotifier {
     };
   }
 
+  @visibleForTesting
+  static Map<String, dynamic> buildStartSubmissionRecordPayload({
+    required String sessionId,
+    required String requestId,
+  }) {
+    return _buildSubmissionRecordPayload(
+      action: 'start_submission_record',
+      sessionId: sessionId,
+      requestId: requestId,
+    );
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic> buildStopSubmissionRecordPayload({
+    required String sessionId,
+    required String requestId,
+  }) {
+    return _buildSubmissionRecordPayload(
+      action: 'stop_submission_record',
+      sessionId: sessionId,
+      requestId: requestId,
+    );
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic> buildCancelSubmissionRecordPayload({
+    required String sessionId,
+    required String requestId,
+  }) {
+    return _buildSubmissionRecordPayload(
+      action: 'cancel_submission_record',
+      sessionId: sessionId,
+      requestId: requestId,
+    );
+  }
+
+  static Map<String, dynamic> _buildSubmissionRecordPayload({
+    required String action,
+    required String sessionId,
+    required String requestId,
+  }) {
+    return <String, dynamic>{
+      'protocol_version': wsProtocolVersion,
+      'request_id': requestId,
+      'session_id': sessionId,
+      'action': action,
+    };
+  }
+
   static Map<String, dynamic> _buildSessionPayload({
     required String action,
     required String movement,
@@ -554,6 +672,7 @@ class WebSocketService extends ChangeNotifier {
     int? legacyCameraIndex,
     required String sessionId,
     required String requestId,
+    bool allowSubmissionRecording = false,
   }) {
     final payload = <String, dynamic>{
       'protocol_version': wsProtocolVersion,
@@ -572,6 +691,10 @@ class WebSocketService extends ChangeNotifier {
       payload['camera_device_id'] = cameraDeviceId;
     } else {
       payload['camera_index'] = legacyCameraIndex;
+    }
+    // Omit unless true so existing prepare payloads stay unchanged.
+    if (allowSubmissionRecording) {
+      payload['allow_submission_recording'] = true;
     }
     return payload;
   }
@@ -853,6 +976,11 @@ class WebSocketService extends ChangeNotifier {
             _currentSessionId = null;
           }
         }
+      case 'start_submission_record':
+      case 'stop_submission_record':
+      case 'cancel_submission_record':
+        // Recording must not mutate prepare/activate/stop session flags.
+        break;
       default:
         if (ack.sessionState != null) {
           _reconcileFromSessionState(ack.sessionState!);

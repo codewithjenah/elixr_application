@@ -22,7 +22,10 @@ void main() {
     test('retains Trainee-specific webcam, session, and profile copy', () {
       expect(text, contains('webcam video'));
       expect(text, contains('pose/hand landmark detection'));
-      expect(text, contains('raw camera video is never uploaded'));
+      expect(text, contains('Record Submission'));
+      expect(text, contains('Submit to Teacher'));
+      expect(text, contains('assigning Teacher'));
+      expect(text, contains('General Evidence Access'));
       expect(text, contains('practice sessions'));
       expect(text, contains('claimed achievements'));
       expect(text, contains('completed movements'));
@@ -66,6 +69,7 @@ void main() {
     test('does not present Trainee-only processing as Teacher behavior', () {
       expect(text, isNot(contains('pose/hand landmark')));
       expect(text, isNot(contains('raw camera video is never uploaded')));
+      expect(text, isNot(contains('Record Submission')));
       expect(text, isNot(contains('Settings > Privacy')));
       expect(text, isNot(contains('Settings > Security')));
       expect(text, isNot(contains('claimed achievements')));
@@ -99,7 +103,7 @@ void main() {
     );
   });
 
-  test('registration privacy consent version is v3', () {
-    expect(RegistrationPrivacyConsent.policyVersion, 'v3');
+  test('registration privacy consent version is v4', () {
+    expect(RegistrationPrivacyConsent.policyVersion, 'v4');
   });
 }

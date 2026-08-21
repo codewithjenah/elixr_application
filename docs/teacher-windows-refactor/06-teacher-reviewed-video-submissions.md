@@ -1,6 +1,6 @@
 # Phase 6 — Teacher-reviewed video submissions
 
-**Status:** Planned  
+**Status:** Code complete on `main` — **not production-closed**. Firestore rules, Storage rules, and Storage lifecycle are **not** production deployed/applied. Live camera/record/upload/review has **not** been human-verified. Phase 7 was **not** started.  
 **Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.
 
@@ -19,7 +19,17 @@
 
 ## 1. Status
 
-Planned
+Code complete on `main`. **Not production-closed.**
+
+| Gate | State |
+|---|---|
+| Code complete | Yes (this change) |
+| Automated verification | Local suites passed (see Completion report). **Not** production-closed. |
+| Firestore rules production deployed | **No** — do not `firebase deploy` |
+| Storage rules production deployed | **No** |
+| Storage lifecycle production applied | **No** — `storage.lifecycle.json` is documentation only |
+| Live camera / record / upload / review | **Not human-verified** |
+| Phase 7 | **Not started** |
 
 ## 2. Goal
 
@@ -38,12 +48,13 @@ Let Trainees explicitly record and submit one short review clip for a Teacher-re
 - Unrelated Teachers cannot open the clip.
 - Global XP unchanged.
 
-## 4. Verified current repo behavior
+## 4. Verified current repo behavior (after this change)
 
-- No video recording in Python. Preview is JPEG (`preview_frame`). Optional **still** `evidence_jpeg_base64` on first `hold_confirmed` → Storage `users/{uid}/session_evidence/{sessionId}.jpg` (1–256 KiB).
-- [storage.rules](../../storage.rules): profile images; session evidence JPEGs; **default deny**. Teacher still read uses `hasTeacherEvidenceGrant` (Progress + General Evidence Access).
-- Legal copy: raw camera video is never uploaded ([packages/elixr_core/lib/legal/legal_documents.dart](../../packages/elixr_core/lib/legal/legal_documents.dart)) — **must be updated** for this explicit classroom clip.
-- Firestore stores no video payloads today.
+- Ordinary practice preview remains JPEG (`preview_frame`). Optional **still** `evidence_jpeg_base64` on first `hold_confirmed` → Storage `users/{uid}/session_evidence/{sessionId}.jpg` (1–256 KiB). JPEG authorization is unchanged.
+- Bounded Teacher-reviewed clips are recorded by `SubmissionRecorder` from the **existing** Python camera/session frames (no second `VideoCapture`). WS ack carries local path/metadata only.
+- [storage.rules](../../storage.rules): profile images; session evidence JPEGs; dedicated `assignment_submissions/` match; **default deny**. Submission reads use Assignment Submission Authorization, not `hasTeacherEvidenceGrant`.
+- Windows legal copy distinguishes ordinary local practice from explicit Record Submission + Submit. `RegistrationPrivacyConsent.policyVersion` is `v4`.
+- Video bytes are not stored in Firestore; `assignment_attempts` holds metadata only.
 
 ## 5. Dependencies / prerequisites
 
@@ -344,18 +355,114 @@ Storage/Firestore emulator: `Not verified` if not used.
 - Do not delete `teacher_app`.
 - Do not implement Phase 7 evaluators.
 
-## 22. Completion report template
+## 22. Completion report
+
+Phase 6 is **code complete**, not production-closed.
+
+### Protocol commands
+
+- `start_submission_record` / `stop_submission_record` / `cancel_submission_record`
+- Protocol v1, `request_id`, current `session_id`, Pydantic `extra=forbid`
+- Ack metadata only: `local_file_path`, `video_duration_ms`, `video_size_bytes`, `content_type=video/mp4`, optional `video_sha256`
+- No MP4/base64 on WebSocket
+- Recording allowed only when prepare/start sets `allow_submission_recording=true` **and** movement is `Free Practice` in an active/prepared camera session
+- Same-machine local temp path (no loopback HTTP)
+
+### Recorder architecture
+
+- `backend/vision/submission_recorder.py` copies frames from the existing Python camera/session flow
+- Does **not** open a second `cv2.VideoCapture`
+- Hard cap `MAX_SUBMISSION_DURATION_SECONDS = 20` (backend, independent of UI)
+- Size bound `MAX_SUBMISSION_SIZE_BYTES = 15 MiB`
+- Temp dir `{temp}/elixr_submissions/clip_{uuid}.mp4`
+- One recorder per WebSocket session; cancel/stop/disconnect/session replace/cleanup are deterministic
+
+### Exact `assignment_attempts` schema / state machine
+
+Kind `teacher_review_submission`. Status: `draft` → `submitted` (trainee) → `approved` | `needs_retry` (frozen assigning Teacher). Optional `supersedes_attempt_id` only when previous is the same identity, kind submission, status and verdict `needs_retry`. Historical review fields are immutable. `awards_global_xp` is always false. No `source_session_id`. No `sessions` / leaderboard writes.
+
+Video fields: `video_storage_path`, `video_content_type`, `video_size_bytes`, `video_duration_ms`, `submitted_at`, `video_expires_at`, `video_deleted_at`, `deletion_failed`, optional `deletion_failed_at`, `review_verdict`, `review_feedback`, `reviewed_at`.
+
+### Exact Storage path / custom metadata
+
+`assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4`
+
+Custom metadata: `teacher_id`, `group_id`, `assignment_id`, `trainee_id`, `attempt_id`, `movement_id`, `revision_id`. Content type `video/mp4`.
+
+### Storage authorization matrix
+
+| Actor | Create | Read | Delete |
+|---|---|---|---|
+| Owner Trainee | Yes if current approved membership + matching draft attempt | Yes | Yes |
+| Frozen assigning Teacher | No | Yes without current membership, Progress, Evidence, or public profile | Yes (retention) |
+| Unrelated Teacher / other Trainee | No | No | No |
+| General Evidence Access alone | No | No | No |
+| Object update | Denied | | Replacement is a new attempt/object |
+
+JPEG `session_evidence` rules are unchanged.
+
+### Firestore transitions
+
+- Create draft: trainee, current approved membership, active teacher-created / teacher-reviewed assignment, no video/review fields
+- Trainee submit: draft/in_progress → submitted with canonical path, size 1..15MiB, duration 1..20000ms, `submitted_at == request.time`, `video_expires_at` ~30 days (29–31 day window)
+- Teacher review: submitted → approved|needs_retry, verdict matches status, `reviewed_at == request.time`, expires ~14 days (13–15 day window)
+- Cleanup: owner or frozen Teacher may only touch path / deleted_at / deletion_failed; cannot rewrite review/status/identity
+
+### Retention / lifecycle
+
+- Client reconciler on Teacher Reviews load and Trainee Assigned Movements load
+- Unreviewed ~30 days from `submitted_at`; reviewed ~14 days from `reviewed_at` (engineering defaults)
+- object-not-found is reconciled; other delete failures set `deletion_failed` and retry after 15 minutes
+- Replacement deletes superseded object after the new submission is durable
+- `storage.lifecycle.json`: Delete age 30 days, prefix **only** `assignment_submissions/`
+- Human command (**do not run**): `gcloud storage buckets update gs://elixr-app-2026.firebasestorage.app --lifecycle-file=storage.lifecycle.json`
+
+### Account-erasure order
+
+Session evidence Storage → Firestore domain (sessions, groups, owned classroom defs) → **assignment submission Storage (while attempts still exist)** → users doc → coaching notes → assignment_attempts → profile Storage.
+
+### Legal / policy
+
+Windows `ElixrLegalClient.traineeWindows` (unified Windows Teacher+Trainee): ordinary practice stays local; only explicit Record Submission + Submit uploads a short clip to the assigning Teacher. Android `teacherAndroid` does **not** claim Android can record. `RegistrationPrivacyConsent.policyVersion` **v3 → v4**.
+
+### Indexes
+
+No new composite index. Review queue uses existing `assignment_attempts.teacher_id` (and `teacher_id`+`assignment_id`) with local filter/sort. Trainee uses `trainee_id`.
+
+### Dependency
+
+`video_player_win` ^3.2.2 — Windows Media Foundation player. No Flutter camera plugin. `image_picker` is not used as a recording source.
+
+### Automated verification (this machine)
+
+| Suite | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | 441 files, 0 changed |
+| `flutter analyze` | 0 errors, 15 pre-existing infos/warnings |
+| `flutter test` (root) | **1322** passed |
+| `packages/elixr_core` `flutter test` | **87** passed |
+| `teacher_app` `flutter test` | **95** passed |
+| `firestore-tests` `npm test` (JDK 21) | **308** passed |
+| `backend` pytest | **1116** passed |
+| `backend` compileall | succeeded |
+| `flutter build windows` | succeeded (`build\windows\x64\runner\Release\elixr_application.exe`) |
+| `firebase deploy` | **not run** |
+| Storage lifecycle apply | **not run** |
+
+### Phase 7 / teacher_app / deploy
+
+Phase 7 not started. `teacher_app/` intact. Firebase not deployed. Lifecycle not applied.
 
 ```
 Phase 6 completion
-- Record protocol:
-- Storage path pattern:
-- Assignment Submission Authorization implemented in rules: yes/no
-- Deletion mechanism: client reconciler + assignment_submissions lifecycle
+- Record protocol: start/stop/cancel_submission_record; local path metadata only
+- Storage path pattern: assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4
+- Assignment Submission Authorization implemented in rules: yes (not production deployed)
+- Deletion mechanism: client reconciler + documented assignment_submissions lifecycle (not applied)
 - Trainee self-approve blocked: yes
-- Planning defaults used (unvalidated):
-- Commands run:
-- Not verified:
+- Planning defaults used (unvalidated): 20s / 15MiB / 30d unreviewed / 14d reviewed / 30d object age
+- Automated local suites: root 1322 / elixr_core 87 / teacher_app 95 / firestore-tests 308 / backend 1116 / Windows build succeeded
+- Not verified: production deploy, lifecycle apply, live camera/record/upload/review
 ```
 
 ## 23. Handoff requirements for Phase 7

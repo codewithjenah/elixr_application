@@ -1,6 +1,6 @@
 /// Registration-time privacy consent markers for RA 10173 tracking.
 abstract final class RegistrationPrivacyConsent {
-  static const policyVersion = 'v3';
+  static const policyVersion = 'v4';
 
   /// Fields merged into `users/{uid}` on successful registration.
   ///

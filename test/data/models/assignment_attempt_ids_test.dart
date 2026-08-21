@@ -18,4 +18,19 @@ void main() {
       'tc_draft_asg1_trainee-1',
     );
   });
+
+  test('review submission ids use review_sub_ and alphanumeric entropy', () {
+    expect(
+      assignmentAttemptIdForTeacherReviewSubmission('abc123'),
+      'review_sub_abc123',
+    );
+    expect(
+      () => assignmentAttemptIdForTeacherReviewSubmission('ada@x.com'),
+      throwsArgumentError,
+    );
+    final generated = newTeacherReviewSubmissionAttemptId(
+      entropy: () => 'Token42',
+    );
+    expect(generated, 'review_sub_Token42');
+  });
 }

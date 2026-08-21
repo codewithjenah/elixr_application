@@ -54,7 +54,8 @@ void main() {
     );
 
     expect(containing('pose/hand landmark detection'), findsOneWidget);
-    expect(containing('raw camera video is never uploaded'), findsOneWidget);
+    expect(containing('Record Submission'), findsOneWidget);
+    expect(containing('assigning Teacher'), findsWidgets);
     expect(containing('claimed achievements'), findsOneWidget);
     expect(containing('Settings > Privacy'), findsWidgets);
     expect(containing('leaderboard identity'), findsOneWidget);

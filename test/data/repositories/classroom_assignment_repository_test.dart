@@ -348,4 +348,70 @@ void main() {
       ),
     );
   });
+
+  test(
+    'video submission is a new attempt and retry does not rewrite history',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'First.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      final draft = await assignments.createTeacherReviewSubmissionDraft(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+        attemptId: 'review_sub_first',
+      );
+      expect(draft.attemptKind, AssignmentAttemptKind.teacherReviewSubmission);
+      expect(draft.awardsGlobalXp, isFalse);
+      expect(draft.sourceSessionId, isNull);
+      final submitted = await assignments.markTeacherReviewSubmitted(
+        traineeId: 'trainee-1',
+        attempt: draft,
+        videoStoragePath:
+            'assignment_submissions/teacher-1/g1/${assignment.id}/trainee-1/review_sub_first.mp4',
+        videoContentType: 'video/mp4',
+        videoSizeBytes: 1200,
+        videoDurationMs: 4000,
+        submittedAt: DateTime.utc(2026, 8, 20),
+        videoExpiresAt: DateTime.utc(2026, 9, 19),
+      );
+      final reviewed = await assignments.reviewTeacherSubmission(
+        teacherId: 'teacher-1',
+        attempt: submitted,
+        verdict: AssignmentReviewVerdict.needsRetry,
+        feedback: 'Keep the tin upright.',
+        reviewedAt: DateTime.utc(2026, 8, 21),
+        videoExpiresAt: DateTime.utc(2026, 9, 4),
+      );
+      final replacement = await assignments.createTeacherReviewSubmissionDraft(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+        attemptId: 'review_sub_second',
+        supersedesAttemptId: reviewed.id,
+      );
+      expect(replacement.id, isNot(reviewed.id));
+      expect(replacement.supersedesAttemptId, reviewed.id);
+      expect(
+        assignments.attempts[reviewed.id]!.reviewVerdict,
+        AssignmentReviewVerdict.needsRetry,
+      );
+      expect(
+        assignments.attempts[reviewed.id]!.reviewFeedback,
+        'Keep the tin upright.',
+      );
+    },
+  );
 }
