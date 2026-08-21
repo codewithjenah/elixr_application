@@ -47,6 +47,7 @@ class TeacherMovementsController extends ChangeNotifier {
   bool loading = false;
   bool busy = false;
   String? errorMessage;
+  SubmissionPlaybackFile? _playbackCache;
 
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<TeacherMovement>>? _movementsSub;
@@ -71,7 +72,7 @@ class TeacherMovementsController extends ChangeNotifier {
 
   List<AssignmentAttempt> get reviewQueue {
     final queued = attempts
-        .where((attempt) => attempt.isTeacherReviewSubmission)
+        .where((attempt) => attempt.isReviewFacingSubmission)
         .toList();
     queued.sort((a, b) {
       final aAt =
@@ -160,14 +161,28 @@ class TeacherMovementsController extends ChangeNotifier {
     }
   }
 
-  void selectReview(AssignmentAttempt? attempt) {
+  Future<void> selectReview(AssignmentAttempt? attempt) async {
+    await releasePlaybackCache();
     selectedReview = attempt;
     reviewFeedbackDraft = attempt?.reviewFeedback;
     notifyListeners();
   }
 
-  Future<Uri?> playableUri(AssignmentAttempt attempt) async {
-    return submissionRepository?.playableUri(attempt);
+  Future<SubmissionPlaybackFile?> openLocalPlayback(
+    AssignmentAttempt attempt,
+  ) async {
+    await releasePlaybackCache();
+    final playback = await submissionRepository?.openLocalPlayback(attempt);
+    _playbackCache = playback;
+    return playback;
+  }
+
+  Future<void> releasePlaybackCache() async {
+    final playback = _playbackCache;
+    _playbackCache = null;
+    final repo = submissionRepository;
+    if (repo == null || playback == null) return;
+    await repo.releaseLocalPlayback(playback);
   }
 
   Future<void> reviewSelected({
@@ -350,6 +365,7 @@ class TeacherMovementsController extends ChangeNotifier {
     _assignmentsSub?.cancel();
     _attemptsSub?.cancel();
     _membershipsSub?.cancel();
+    unawaited(releasePlaybackCache());
     super.dispose();
   }
 }

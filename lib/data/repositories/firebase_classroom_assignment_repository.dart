@@ -266,6 +266,20 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<void> deleteAbandonedTeacherReviewSubmissionDraft({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (!isAbandonedTeacherReviewSubmissionDraft(
+      attempt: attempt,
+      traineeId: traineeId,
+    )) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _attempts.doc(attempt.id).delete();
+  }
+
+  @override
   Future<AssignmentAttempt> markTeacherReviewSubmitted({
     required String traineeId,
     required AssignmentAttempt attempt,

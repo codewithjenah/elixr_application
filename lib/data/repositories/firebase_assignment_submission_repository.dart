@@ -1,10 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../models/assignment_attempt.dart';
 import '../models/assignment_submission_limits.dart';
-import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/ws_protocol.dart';
 import 'assignment_submission_repository.dart';
@@ -15,11 +15,19 @@ class FirebaseAssignmentSubmissionRepository
   FirebaseAssignmentSubmissionRepository({
     required ClassroomAssignmentRepository classroom,
     FirebaseStorage? storage,
+    Directory? reviewCacheDirectory,
+    Future<Uint8List> Function(String path, {required int maxSize})?
+    downloadBytes,
   }) : _classroom = classroom,
-       _storage = storage ?? FirebaseStorage.instance;
+       _storage = storage ?? FirebaseStorage.instance,
+       _reviewCacheDirectory = reviewCacheDirectory,
+       _downloadBytes = downloadBytes;
 
   final ClassroomAssignmentRepository _classroom;
   final FirebaseStorage _storage;
+  final Directory? _reviewCacheDirectory;
+  final Future<Uint8List> Function(String path, {required int maxSize})?
+  _downloadBytes;
 
   @override
   Future<AssignmentAttempt> submitLocalClip({
@@ -42,79 +50,42 @@ class FirebaseAssignmentSubmissionRepository
       );
     }
 
-    final now = DateTime.now().toUtc();
-    final draft = await _classroom.createTeacherReviewSubmissionDraft(
+    return submitLocalClipWithDraftCompensation(
       traineeId: traineeId,
       assignment: assignment,
+      clip: clip,
       supersedesAttemptId: supersedesAttemptId,
-    );
-    final path = assignmentSubmissionStoragePath(
-      teacherId: draft.teacherId,
-      groupId: draft.groupId,
-      assignmentId: draft.assignmentId,
-      traineeId: draft.traineeId,
-      attemptId: draft.id,
-    );
-    final ref = _storage.ref(path);
-    var uploaded = false;
-    try {
-      await ref.putFile(
-        file,
-        SettableMetadata(
-          contentType: AssignmentSubmissionLimits.contentType,
-          customMetadata: assignmentSubmissionCustomMetadata(
-            teacherId: draft.teacherId,
-            groupId: draft.groupId,
-            assignmentId: draft.assignmentId,
-            traineeId: draft.traineeId,
-            attemptId: draft.id,
-            movementId: draft.movementId,
-            revisionId: draft.revisionId,
-          ),
-        ),
-      );
-      uploaded = true;
-      final submitted = await _classroom.markTeacherReviewSubmitted(
-        traineeId: traineeId,
-        attempt: draft,
-        videoStoragePath: path,
-        videoContentType: AssignmentSubmissionLimits.contentType,
-        videoSizeBytes: clip.sizeBytes,
-        videoDurationMs: clip.durationMs,
-        submittedAt: now,
-        videoExpiresAt: unreviewedVideoExpiresAt(now),
-      );
-      await deleteSupersededSubmissionVideo(
-        actorId: traineeId,
-        supersedesAttemptId: supersedesAttemptId,
-        classroom: _classroom,
-        deleteObject: deleteSubmissionObject,
-        isObjectNotFound: _isObjectNotFound,
-        now: now,
-      );
-      try {
-        await file.delete();
-      } on FileSystemException {
-        // Backend cancel also deletes the temp clip.
-      }
-      return submitted;
-    } catch (error) {
-      if (uploaded) {
+      classroom: _classroom,
+      now: DateTime.now().toUtc(),
+      uploadObject: ({required draft, required storagePath}) async {
+        await _storage
+            .ref(storagePath)
+            .putFile(
+              file,
+              SettableMetadata(
+                contentType: AssignmentSubmissionLimits.contentType,
+                customMetadata: assignmentSubmissionCustomMetadata(
+                  teacherId: draft.teacherId,
+                  groupId: draft.groupId,
+                  assignmentId: draft.assignmentId,
+                  traineeId: draft.traineeId,
+                  attemptId: draft.id,
+                  movementId: draft.movementId,
+                  revisionId: draft.revisionId,
+                ),
+              ),
+            );
+      },
+      deleteObject: deleteSubmissionObject,
+      isObjectNotFound: _isObjectNotFound,
+      deleteLocalFile: () async {
         try {
-          await deleteSubmissionObject(path);
-        } catch (_) {
-          // Compensation best-effort; do not report success.
+          await file.delete();
+        } on FileSystemException {
+          // Backend cancel also deletes the temp clip.
         }
-      }
-      if (error is ClassroomException ||
-          error is AssignmentSubmissionException) {
-        rethrow;
-      }
-      throw const ClassroomException(
-        ClassroomError.uploadFailed,
-        'The submission clip could not be uploaded. Try again.',
-      );
-    }
+      },
+    );
   }
 
   @override
@@ -127,12 +98,22 @@ class FirebaseAssignmentSubmissionRepository
   }
 
   @override
-  Future<Uri?> playableUri(AssignmentAttempt attempt) async {
+  Future<SubmissionPlaybackFile?> openLocalPlayback(
+    AssignmentAttempt attempt,
+  ) async {
     if (!attempt.hasPlayableVideo || attempt.videoExpired) return null;
     final path = attempt.videoStoragePath;
     if (path == null || path.isEmpty) return null;
-    final url = await _storage.ref(path).getDownloadURL();
-    return Uri.parse(url);
+    return materializeAuthenticatedSubmissionClip(
+      attempt: attempt,
+      downloadBytes: _downloadBytes ?? _getAuthenticatedBytes,
+      cacheDirectory: _reviewCacheDirectory ?? _defaultReviewCacheDirectory(),
+    );
+  }
+
+  @override
+  Future<void> releaseLocalPlayback(SubmissionPlaybackFile? playback) {
+    return releaseSubmissionPlaybackFile(playback);
   }
 
   @override
@@ -148,6 +129,26 @@ class FirebaseAssignmentSubmissionRepository
       deleteObject: deleteSubmissionObject,
       isObjectNotFound: _isObjectNotFound,
       now: now,
+    );
+  }
+
+  Future<Uint8List> _getAuthenticatedBytes(
+    String storagePath, {
+    required int maxSize,
+  }) async {
+    final data = await _storage.ref(storagePath).getData(maxSize);
+    if (data == null || data.isEmpty) {
+      throw const AssignmentSubmissionException(
+        'The submission clip could not be downloaded.',
+      );
+    }
+    return data;
+  }
+
+  Directory _defaultReviewCacheDirectory() {
+    return Directory(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}'
+      '${AssignmentSubmissionLimits.reviewCacheDirname}',
     );
   }
 

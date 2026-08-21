@@ -3194,6 +3194,19 @@ service cloud.firestore {
         );
     }
 
+    function validAbandonedTeacherReviewDraftDelete() {
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status == 'draft'
+        && resource.data.awards_global_xp == false
+        && !resource.data.keys().hasAny([
+          'source_session_id', 'submitted_at', 'video_expires_at',
+          'video_storage_path', 'video_content_type', 'video_size_bytes',
+          'video_duration_ms', 'video_deleted_at', 'deletion_failed',
+          'review_verdict', 'review_feedback', 'reviewed_at'
+        ]);
+    }
+
     match /assignment_attempts/{attemptId} {
       allow get: if isSignedIn()
         && (
@@ -3211,10 +3224,15 @@ service cloud.firestore {
           || validTeacherReviewSubmissionCleanup()
         );
       allow delete: if isSignedIn()
-        && !exists(userPath(request.auth.uid))
         && (
-          resource.data.trainee_id == request.auth.uid
-          || resource.data.teacher_id == request.auth.uid
+          validAbandonedTeacherReviewDraftDelete()
+          || (
+            !exists(userPath(request.auth.uid))
+            && (
+              resource.data.trainee_id == request.auth.uid
+              || resource.data.teacher_id == request.auth.uid
+            )
+          )
         );
     }
 

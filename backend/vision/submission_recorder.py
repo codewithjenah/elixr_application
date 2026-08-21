@@ -44,7 +44,7 @@ class SubmissionRecorderError(Exception):
 class VideoWriterLike(Protocol):
     def isOpened(self) -> bool: ...
 
-    def write(self, frame: np.ndarray) -> bool: ...
+    def write(self, frame: np.ndarray) -> None: ...
 
     def release(self) -> None: ...
 
@@ -238,9 +238,9 @@ class SubmissionRecorder:
                 if writer is None or not writer.isOpened():
                     self._fail_unlocked("record_failed", "Video writer is not open.")
                     return False
-                if not writer.write(owned):
-                    self._fail_unlocked("record_failed", "Video writer rejected a frame.")
-                    return False
+                # OpenCV 4/5 may return bool; older Python bindings returned
+                # None on success. Never treat a falsey return as failure.
+                writer.write(owned)
                 self._frames_written += 1
                 self._last_frame_at = captured_at
                 self._last_sequence = sequence
@@ -343,6 +343,12 @@ class SubmissionRecorder:
             size = 0
         if size <= 0 or self._frames_written <= 0:
             self._fail_unlocked("record_failed", "Submission clip was empty.")
+            return None
+        if size > self._max_size_bytes:
+            self._fail_unlocked(
+                "record_failed",
+                "Submission clip exceeded the maximum size.",
+            )
             return None
         started = (
             self._started_at

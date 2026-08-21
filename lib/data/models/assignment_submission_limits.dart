@@ -6,6 +6,8 @@ abstract final class AssignmentSubmissionLimits {
   static const maxDurationSeconds = 20;
   static const maxDurationMs = 20000;
   static const maxSizeBytes = 15 * 1024 * 1024;
+  static const maxPlaybackDownloadBytes = maxSizeBytes + (256 * 1024);
+  static const reviewCacheDirname = 'elixr_review_cache';
   static const contentType = 'video/mp4';
   static const reviewFeedbackMaxLength = 1000;
   static const unreviewedRetention = Duration(days: 30);

@@ -7,16 +7,38 @@ import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 
+/// Awaitable native-player release so Windows can delete the MP4 afterward.
+class ElixrPlaybackSession {
+  Future<void> Function()? _release;
+
+  void attach(Future<void> Function() release) {
+    _release = release;
+  }
+
+  Future<void> release() async {
+    final release = _release;
+    _release = null;
+    if (release != null) {
+      await release();
+    }
+  }
+}
+
 /// Windows in-app playback using Media Foundation via `video_player_win`.
+///
+/// Submission review playback must pass a local `file:` URI. Do not feed a
+/// Firebase download URL into this widget.
 class ElixrVideoPlayer extends StatefulWidget {
   const ElixrVideoPlayer({
     super.key,
     required this.source,
     this.autoPlay = false,
+    this.session,
   });
 
   final Uri source;
   final bool autoPlay;
+  final ElixrPlaybackSession? session;
 
   @override
   State<ElixrVideoPlayer> createState() => _ElixrVideoPlayerState();
@@ -30,21 +52,33 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
   @override
   void initState() {
     super.initState();
+    widget.session?.attach(_releaseNative);
     _open(widget.source);
   }
 
   @override
   void didUpdateWidget(ElixrVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.session != widget.session) {
+      oldWidget.session?.attach(() async {});
+      widget.session?.attach(_releaseNative);
+    }
     if (oldWidget.source != widget.source) {
       _open(widget.source);
     }
   }
 
-  Future<void> _open(Uri source) async {
-    await _controller?.dispose();
+  Future<void> _releaseNative() async {
+    final controller = _controller;
     _controller = null;
     _ready = false;
+    if (controller != null) {
+      await controller.dispose();
+    }
+  }
+
+  Future<void> _open(Uri source) async {
+    await _releaseNative();
     _error = null;
     if (mounted) setState(() {});
     final next = source.isScheme('file') || source.scheme.isEmpty
@@ -74,7 +108,10 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
 
   @override
   void dispose() {
-    _controller?.dispose();
+    widget.session?.attach(() async {});
+    final controller = _controller;
+    _controller = null;
+    controller?.dispose();
     super.dispose();
   }
 

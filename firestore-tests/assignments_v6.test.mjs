@@ -12,6 +12,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   Timestamp,
   deleteField,
@@ -548,5 +549,47 @@ describe('Phase 6 teacher_review_submission', () => {
     await assertSucceeds(setDoc(doc(db, 'assignment_attempts', ATTEMPT), draftDoc()));
     await assertSucceeds(getDoc(doc(context('teacher').firestore(), 'assignment_attempts', ATTEMPT)));
     await assertFails(getDoc(doc(context('other').firestore(), 'assignment_attempts', ATTEMPT)));
+  });
+
+  test('trainee may delete own abandoned teacher_review_submission draft', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertSucceeds(
+      deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('trainee cannot delete submitted attempt', async () => {
+    await submitAsTrainee();
+    await assertFails(
+      deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('teacher cannot delete trainee draft', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertFails(
+      deleteDoc(doc(context('teacher').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('abandoned draft delete fails when video metadata is present', async () => {
+    await seedClassroom();
+    await seedDraft({
+      video_storage_path: PATH,
+      video_content_type: 'video/mp4',
+    });
+    await assertFails(
+      deleteDoc(doc(context('trainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
+  });
+
+  test('unrelated trainee cannot delete another trainee draft', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertFails(
+      deleteDoc(doc(context('otherTrainee').firestore(), 'assignment_attempts', ATTEMPT)),
+    );
   });
 });

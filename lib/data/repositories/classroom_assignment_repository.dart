@@ -71,6 +71,11 @@ abstract class ClassroomAssignmentRepository {
     String? attemptId,
   });
 
+  Future<void> deleteAbandonedTeacherReviewSubmissionDraft({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  });
+
   Future<AssignmentAttempt> markTeacherReviewSubmitted({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -349,4 +354,26 @@ void ensureCanSupersedeNeedsRetry({
       previous.revisionId != assignment.revisionId) {
     throw const ClassroomException(ClassroomError.invalidState);
   }
+}
+
+bool isAbandonedTeacherReviewSubmissionDraft({
+  required AssignmentAttempt attempt,
+  required String traineeId,
+}) {
+  return attempt.traineeId == traineeId &&
+      attempt.attemptKind == AssignmentAttemptKind.teacherReviewSubmission &&
+      attempt.status == AssignmentAttemptStatus.draft &&
+      attempt.awardsGlobalXp == false &&
+      attempt.sourceSessionId == null &&
+      attempt.submittedAt == null &&
+      attempt.videoExpiresAt == null &&
+      attempt.videoStoragePath == null &&
+      attempt.videoContentType == null &&
+      attempt.videoSizeBytes == null &&
+      attempt.videoDurationMs == null &&
+      attempt.videoDeletedAt == null &&
+      attempt.reviewVerdict == null &&
+      attempt.reviewFeedback == null &&
+      attempt.reviewedAt == null &&
+      attempt.deletionFailed == false;
 }

@@ -2,6 +2,7 @@ import 'package:elixr_core/models/rubric_assessment.dart';
 import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import 'assessment_mode.dart';
+import 'assignment_submission_limits.dart';
 import 'movement_origin.dart';
 import 'training_prop.dart';
 
@@ -137,6 +138,13 @@ class AssignmentAttempt {
 
   bool get isTeacherReviewSubmission =>
       attemptKind == AssignmentAttemptKind.teacherReviewSubmission;
+
+  bool get isReviewFacingSubmission {
+    if (!isTeacherReviewSubmission) return false;
+    return status == AssignmentAttemptStatus.submitted ||
+        status == AssignmentAttemptStatus.approved ||
+        status == AssignmentAttemptStatus.needsRetry;
+  }
 
   bool get hasPlayableVideo =>
       videoStoragePath != null &&
@@ -361,11 +369,19 @@ class AssignmentAttempt {
       if (sourceSessionId != null) return null;
       if (origin != MovementOrigin.teacherCreated) return null;
       if (assessmentMode != AssessmentMode.teacherReviewed) return null;
-      if (!_validReviewSubmissionShape(
+      if (!_validTeacherReviewSubmission(
         status: status,
         reviewVerdict: reviewVerdict,
         reviewFeedback: reviewFeedback,
         reviewedAt: reviewedAt,
+        videoStoragePath: videoStoragePath,
+        videoContentType: videoContentType,
+        videoSizeBytes: videoSizeBytes,
+        videoDurationMs: videoDurationMs,
+        submittedAt: submittedAt,
+        videoExpiresAt: videoExpiresAt,
+        videoDeletedAt: videoDeletedAt,
+        deletionFailed: deletionFailed,
       )) {
         return null;
       }
@@ -410,29 +426,111 @@ class AssignmentAttempt {
     );
   }
 
-  static bool _validReviewSubmissionShape({
+  static bool _validTeacherReviewSubmission({
     required AssignmentAttemptStatus status,
     required AssignmentReviewVerdict? reviewVerdict,
     required String? reviewFeedback,
     required DateTime? reviewedAt,
+    required String? videoStoragePath,
+    required String? videoContentType,
+    required int? videoSizeBytes,
+    required int? videoDurationMs,
+    required DateTime? submittedAt,
+    required DateTime? videoExpiresAt,
+    required DateTime? videoDeletedAt,
+    required bool deletionFailed,
   }) {
     switch (status) {
       case AssignmentAttemptStatus.draft:
       case AssignmentAttemptStatus.inProgress:
         return reviewVerdict == null &&
             reviewFeedback == null &&
-            reviewedAt == null;
+            reviewedAt == null &&
+            videoStoragePath == null &&
+            videoContentType == null &&
+            videoSizeBytes == null &&
+            videoDurationMs == null &&
+            submittedAt == null &&
+            videoExpiresAt == null &&
+            videoDeletedAt == null &&
+            !deletionFailed;
       case AssignmentAttemptStatus.submitted:
         return reviewVerdict == null &&
             reviewFeedback == null &&
-            reviewedAt == null;
+            reviewedAt == null &&
+            _validSubmittedVideoMetadata(
+              videoStoragePath: videoStoragePath,
+              videoContentType: videoContentType,
+              videoSizeBytes: videoSizeBytes,
+              videoDurationMs: videoDurationMs,
+              submittedAt: submittedAt,
+              videoExpiresAt: videoExpiresAt,
+              videoDeletedAt: videoDeletedAt,
+              deletionFailed: deletionFailed,
+            );
       case AssignmentAttemptStatus.approved:
         return reviewVerdict == AssignmentReviewVerdict.approved &&
-            reviewedAt != null;
+            reviewedAt != null &&
+            _validSubmittedVideoMetadata(
+              videoStoragePath: videoStoragePath,
+              videoContentType: videoContentType,
+              videoSizeBytes: videoSizeBytes,
+              videoDurationMs: videoDurationMs,
+              submittedAt: submittedAt,
+              videoExpiresAt: videoExpiresAt,
+              videoDeletedAt: videoDeletedAt,
+              deletionFailed: deletionFailed,
+            );
       case AssignmentAttemptStatus.needsRetry:
         return reviewVerdict == AssignmentReviewVerdict.needsRetry &&
-            reviewedAt != null;
+            reviewedAt != null &&
+            _validSubmittedVideoMetadata(
+              videoStoragePath: videoStoragePath,
+              videoContentType: videoContentType,
+              videoSizeBytes: videoSizeBytes,
+              videoDurationMs: videoDurationMs,
+              submittedAt: submittedAt,
+              videoExpiresAt: videoExpiresAt,
+              videoDeletedAt: videoDeletedAt,
+              deletionFailed: deletionFailed,
+            );
     }
+  }
+
+  static bool _validSubmittedVideoMetadata({
+    required String? videoStoragePath,
+    required String? videoContentType,
+    required int? videoSizeBytes,
+    required int? videoDurationMs,
+    required DateTime? submittedAt,
+    required DateTime? videoExpiresAt,
+    required DateTime? videoDeletedAt,
+    required bool deletionFailed,
+  }) {
+    if (videoContentType != AssignmentSubmissionLimits.contentType) {
+      return false;
+    }
+    if (videoSizeBytes == null ||
+        videoSizeBytes <= 0 ||
+        videoSizeBytes > AssignmentSubmissionLimits.maxSizeBytes) {
+      return false;
+    }
+    if (videoDurationMs == null ||
+        videoDurationMs <= 0 ||
+        videoDurationMs > AssignmentSubmissionLimits.maxDurationMs) {
+      return false;
+    }
+    if (submittedAt == null || videoExpiresAt == null) return false;
+
+    final hasPath = videoStoragePath != null && videoStoragePath.isNotEmpty;
+    final deleted = videoDeletedAt != null;
+    if (deletionFailed) {
+      return hasPath && !deleted;
+    }
+    if (deleted) {
+      return !hasPath;
+    }
+    return hasPath;
   }
 
   static String? _readId(Object? value) {

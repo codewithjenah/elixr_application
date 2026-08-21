@@ -1,5 +1,7 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import '../models/assignment_attempt.dart';
-import '../models/assignment_submission_limits.dart';
 import '../models/group_assignment.dart';
 import '../models/ws_protocol.dart';
 import 'assignment_submission_repository.dart';
@@ -12,15 +14,24 @@ class InMemoryAssignmentSubmissionRepository
     DateTime Function()? now,
     this.deletedPaths,
     this.failNextDelete = false,
+    this.failNextUpload = false,
     this.missingPaths = const {},
+    this.reviewCacheDirectory,
+    this.downloadedPaths,
+    Uint8List? playbackBytes,
   }) : _classroom = classroom,
-       _now = now;
+       _now = now,
+       _playbackBytes = playbackBytes;
 
   final ClassroomAssignmentRepository _classroom;
   final DateTime Function()? _now;
   final Set<String>? deletedPaths;
   bool failNextDelete;
+  bool failNextUpload;
   final Set<String> missingPaths;
+  final Directory? reviewCacheDirectory;
+  final Set<String>? downloadedPaths;
+  final Uint8List? _playbackBytes;
 
   DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
 
@@ -30,40 +41,23 @@ class InMemoryAssignmentSubmissionRepository
     required GroupAssignment assignment,
     required SubmissionRecordResult clip,
     String? supersedesAttemptId,
-  }) async {
-    ensureLocalClipWithinLimits(clip);
-    final submittedAt = now;
-    final draft = await _classroom.createTeacherReviewSubmissionDraft(
+  }) {
+    return submitLocalClipWithDraftCompensation(
       traineeId: traineeId,
       assignment: assignment,
-      supersedesAttemptId: supersedesAttemptId,
-    );
-    final path = assignmentSubmissionStoragePath(
-      teacherId: draft.teacherId,
-      groupId: draft.groupId,
-      assignmentId: draft.assignmentId,
-      traineeId: draft.traineeId,
-      attemptId: draft.id,
-    );
-    final submitted = await _classroom.markTeacherReviewSubmitted(
-      traineeId: traineeId,
-      attempt: draft,
-      videoStoragePath: path,
-      videoContentType: AssignmentSubmissionLimits.contentType,
-      videoSizeBytes: clip.sizeBytes,
-      videoDurationMs: clip.durationMs,
-      submittedAt: submittedAt,
-      videoExpiresAt: unreviewedVideoExpiresAt(submittedAt),
-    );
-    await deleteSupersededSubmissionVideo(
-      actorId: traineeId,
+      clip: clip,
       supersedesAttemptId: supersedesAttemptId,
       classroom: _classroom,
+      now: now,
+      uploadObject: ({required draft, required storagePath}) async {
+        if (failNextUpload) {
+          failNextUpload = false;
+          throw const AssignmentSubmissionException('storage upload failed');
+        }
+      },
       deleteObject: deleteSubmissionObject,
       isObjectNotFound: _isMissing,
-      now: submittedAt,
     );
-    return submitted;
   }
 
   @override
@@ -79,11 +73,33 @@ class InMemoryAssignmentSubmissionRepository
   }
 
   @override
-  Future<Uri?> playableUri(AssignmentAttempt attempt) async {
+  Future<SubmissionPlaybackFile?> openLocalPlayback(
+    AssignmentAttempt attempt,
+  ) async {
     if (!attempt.hasPlayableVideo || attempt.videoExpired) return null;
     final path = attempt.videoStoragePath;
-    if (path == null) return null;
-    return Uri.parse('memory://$path');
+    if (path == null || path.isEmpty) return null;
+    downloadedPaths?.add(path);
+    final cache =
+        reviewCacheDirectory ??
+        Directory.systemTemp.createTempSync('elixr_review_cache');
+    return materializeAuthenticatedSubmissionClip(
+      attempt: attempt,
+      cacheDirectory: cache,
+      downloadBytes: (storagePath, {required maxSize}) async {
+        if (storagePath.contains('://')) {
+          throw const AssignmentSubmissionException(
+            'Playback must not use a download URL.',
+          );
+        }
+        return _playbackBytes ?? Uint8List.fromList(const [0, 0, 0, 1]);
+      },
+    );
+  }
+
+  @override
+  Future<void> releaseLocalPlayback(SubmissionPlaybackFile? playback) {
+    return releaseSubmissionPlaybackFile(playback);
   }
 
   @override

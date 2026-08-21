@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -7,7 +9,7 @@ import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../submission_recording_controller.dart';
 
-class SubmissionRecordingPanel extends StatelessWidget {
+class SubmissionRecordingPanel extends StatefulWidget {
   const SubmissionRecordingPanel({
     super.key,
     required this.controller,
@@ -16,6 +18,22 @@ class SubmissionRecordingPanel extends StatelessWidget {
 
   final SubmissionRecordingController controller;
   final bool cameraReady;
+
+  @override
+  State<SubmissionRecordingPanel> createState() =>
+      _SubmissionRecordingPanelState();
+}
+
+class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
+  final _previewPlayback = ElixrPlaybackSession();
+
+  SubmissionRecordingController get controller => widget.controller;
+
+  @override
+  void dispose() {
+    unawaited(_previewPlayback.release());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,11 +66,12 @@ class SubmissionRecordingPanel extends StatelessWidget {
   }
 
   List<Widget> _body(BuildContext context) {
+    final busy = controller.recordCommandInFlight;
     switch (controller.phase) {
       case SubmissionRecordingPhase.idle:
         return [
           Button(
-            onPressed: cameraReady && controller.canRecord
+            onPressed: widget.cameraReady && controller.canRecord && !busy
                 ? controller.requestConsent
                 : null,
             child: const Text('Record Submission'),
@@ -70,12 +89,16 @@ class SubmissionRecordingPanel extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           FilledButton(
-            onPressed: cameraReady ? controller.beginRecording : null,
-            child: const Text('Start recording'),
+            onPressed: widget.cameraReady && !busy
+                ? controller.beginRecording
+                : null,
+            child: busy
+                ? const Text('Starting…')
+                : const Text('Start recording'),
           ),
           const SizedBox(height: AppSpacing.xs),
           Button(
-            onPressed: controller.cancelConsent,
+            onPressed: busy ? null : controller.cancelConsent,
             child: const Text('Cancel'),
           ),
         ];
@@ -90,8 +113,10 @@ class SubmissionRecordingPanel extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           FilledButton(
-            onPressed: controller.stopRecording,
-            child: const Text('Stop recording'),
+            onPressed: busy ? null : controller.stopRecording,
+            child: busy
+                ? const Text('Stopping…')
+                : const Text('Stop recording'),
           ),
         ];
       case SubmissionRecordingPhase.preview:
@@ -100,15 +125,25 @@ class SubmissionRecordingPanel extends StatelessWidget {
           if (clip != null)
             SizedBox(
               height: 180,
-              child: ElixrVideoPlayer(source: Uri.file(clip.localPath)),
+              child: ElixrVideoPlayer(
+                source: Uri.file(clip.localPath),
+                session: _previewPlayback,
+              ),
             ),
           const SizedBox(height: AppSpacing.sm),
           FilledButton(
-            onPressed: () => _confirmSubmit(context),
+            onPressed: busy ? null : () => _confirmSubmit(context),
             child: const Text('Submit to Teacher'),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Button(onPressed: controller.retake, child: const Text('Retake')),
+          Button(
+            onPressed: busy
+                ? null
+                : () => controller.retake(
+                    releasePlayback: _previewPlayback.release,
+                  ),
+            child: const Text('Retake'),
+          ),
         ];
       case SubmissionRecordingPhase.submitting:
         return const [
@@ -125,7 +160,14 @@ class SubmissionRecordingPanel extends StatelessWidget {
         ];
       case SubmissionRecordingPhase.failed:
         return [
-          Button(onPressed: controller.retake, child: const Text('Try again')),
+          Button(
+            onPressed: busy
+                ? null
+                : () => controller.retake(
+                    releasePlayback: _previewPlayback.release,
+                  ),
+            child: const Text('Try again'),
+          ),
         ];
     }
   }
@@ -152,6 +194,7 @@ class SubmissionRecordingPanel extends StatelessWidget {
       ),
     );
     if (confirmed == true) {
+      await _previewPlayback.release();
       await controller.submitToTeacher();
     }
   }

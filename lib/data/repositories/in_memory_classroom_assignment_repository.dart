@@ -22,6 +22,7 @@ class InMemoryClassroomAssignmentRepository
 
   final Map<String, GroupAssignment> assignments = {};
   final Map<String, AssignmentAttempt> attempts = {};
+  bool failNextSubmitTransition = false;
 
   final _teacherControllers =
       <String, StreamController<List<GroupAssignment>>>{};
@@ -296,6 +297,24 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
+  Future<void> deleteAbandonedTeacherReviewSubmissionDraft({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (!isAbandonedTeacherReviewSubmissionDraft(
+      attempt: attempt,
+      traineeId: traineeId,
+    )) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final existing = attempts.remove(attempt.id);
+    if (existing == null) return;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+  }
+
+  @override
   Future<AssignmentAttempt> markTeacherReviewSubmitted({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -317,6 +336,13 @@ class InMemoryClassroomAssignmentRepository
     if (existing.status != AssignmentAttemptStatus.draft &&
         existing.status != AssignmentAttemptStatus.inProgress) {
       throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (failNextSubmitTransition) {
+      failNextSubmitTransition = false;
+      throw const ClassroomException(
+        ClassroomError.uploadFailed,
+        'Could not finalize the submission metadata.',
+      );
     }
     final submitted = existing.copyWith(
       status: AssignmentAttemptStatus.submitted,

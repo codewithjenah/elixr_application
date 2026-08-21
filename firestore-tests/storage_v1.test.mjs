@@ -215,6 +215,20 @@ describe('assignment_submissions Storage', () => {
       ),
     );
     await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        trainee_id: 'trainee',
+        teacher_id: 'teacher',
+        group_id: GROUP_ID,
+        assignment_id: ASG,
+        movement_id: 'tm1',
+        revision_id: 'rev1',
+        origin: 'teacher_created',
+        assessment_mode: 'teacher_reviewed',
+        attempt_kind: 'teacher_review_submission',
+        status: 'submitted',
+        awards_global_xp: false,
+        created_at: Timestamp.now(),
+      }, { merge: true });
       await setDoc(doc(admin.firestore(), 'group_memberships', `${GROUP_ID}_trainee`), {
         group_id: GROUP_ID,
         teacher_id: 'teacher',
@@ -243,6 +257,11 @@ describe('assignment_submissions Storage', () => {
         metadata(),
       ),
     );
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        status: 'submitted',
+      }, { merge: true });
+    });
     await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
     await assertSucceeds(
       uploadBytes(
@@ -267,6 +286,11 @@ describe('assignment_submissions Storage', () => {
         metadata(),
       ),
     );
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        status: 'submitted',
+      }, { merge: true });
+    });
     await assertFails(getBytes(ref(context('other').storage(), PATH)));
     await assertFails(getBytes(ref(context('otherTrainee').storage(), PATH)));
   });
@@ -281,6 +305,9 @@ describe('assignment_submissions Storage', () => {
       ),
     );
     await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        status: 'submitted',
+      }, { merge: true });
       await setDoc(doc(admin.firestore(), 'teacher_student_links', 'other_trainee'), {
         teacher_id: 'other',
         trainee_id: 'trainee',
@@ -317,6 +344,11 @@ describe('assignment_submissions Storage', () => {
         metadata(),
       ),
     );
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        status: 'submitted',
+      }, { merge: true });
+    });
     await assertSucceeds(deleteObject(ref(context('teacher').storage(), PATH)));
   });
 
@@ -331,5 +363,49 @@ describe('assignment_submissions Storage', () => {
     await assertFails(
       updateMetadata(ref(storage, PATH), { contentType: 'video/mp4' }),
     );
+  });
+
+  async function uploadDraftObject() {
+    await seedClassroom();
+    await assertSucceeds(
+      uploadBytes(
+        ref(context('trainee').storage(), PATH),
+        new Uint8Array(64),
+        metadata(),
+      ),
+    );
+  }
+
+  async function setAttemptStatus(status) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'assignment_attempts', ATTEMPT), {
+        status,
+      }, { merge: true });
+    });
+  }
+
+  test('Teacher reading draft object is denied; Trainee cleanup still works', async () => {
+    await uploadDraftObject();
+    await assertFails(getBytes(ref(context('teacher').storage(), PATH)));
+    await assertSucceeds(getBytes(ref(context('trainee').storage(), PATH)));
+    await assertSucceeds(deleteObject(ref(context('trainee').storage(), PATH)));
+  });
+
+  test('Teacher reading submitted object is allowed', async () => {
+    await uploadDraftObject();
+    await setAttemptStatus('submitted');
+    await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
+  });
+
+  test('Teacher reading approved object is allowed', async () => {
+    await uploadDraftObject();
+    await setAttemptStatus('approved');
+    await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
+  });
+
+  test('Teacher reading needs_retry object is allowed', async () => {
+    await uploadDraftObject();
+    await setAttemptStatus('needs_retry');
+    await assertSucceeds(getBytes(ref(context('teacher').storage(), PATH)));
   });
 });

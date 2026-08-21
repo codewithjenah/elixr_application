@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -5,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/repositories/assignment_submission_repository.dart';
 import 'teacher_movements_controller.dart';
 
 class TeacherReviewsPane extends StatefulWidget {
@@ -18,7 +21,8 @@ class TeacherReviewsPane extends StatefulWidget {
 
 class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
   final _feedback = TextEditingController();
-  Uri? _playable;
+  final _playbackSession = ElixrPlaybackSession();
+  SubmissionPlaybackFile? _playable;
   Object? _playableError;
   String? _playableAttemptId;
 
@@ -34,32 +38,50 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
   void dispose() {
     controller.removeListener(_onController);
     _feedback.dispose();
+    unawaited(_releasePlayback());
     super.dispose();
   }
 
   void _onController() {
     final selected = controller.selectedReview;
     if (selected == null) {
-      _playable = null;
-      _playableError = null;
-      _playableAttemptId = null;
+      if (_playableAttemptId != null || _playable != null) {
+        unawaited(_releasePlayback());
+      }
       if (mounted) setState(() {});
       return;
     }
     if (_playableAttemptId != selected.id) {
       _feedback.text = controller.reviewFeedbackDraft ?? '';
-      _playableAttemptId = selected.id;
-      _loadPlayback(selected);
+      unawaited(_loadPlayback(selected));
     }
     if (mounted) setState(() {});
   }
 
+  Future<void> _releasePlayback() async {
+    await _playbackSession.release();
+    await controller.releasePlaybackCache();
+    _playable = null;
+    _playableError = null;
+    _playableAttemptId = null;
+  }
+
+  Future<void> _openReview(AssignmentAttempt? attempt) async {
+    await _playbackSession.release();
+    await controller.selectReview(attempt);
+  }
+
   Future<void> _loadPlayback(AssignmentAttempt attempt) async {
+    await _playbackSession.release();
+    _playableAttemptId = attempt.id;
+    _playable = null;
+    _playableError = null;
+    if (mounted) setState(() {});
     try {
-      final uri = await controller.playableUri(attempt);
+      final file = await controller.openLocalPlayback(attempt);
       if (!mounted || _playableAttemptId != attempt.id) return;
       setState(() {
-        _playable = uri;
+        _playable = file;
         _playableError = null;
       });
     } catch (error) {
@@ -81,6 +103,8 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
         feedback: _feedback,
         playable: _playable,
         playableError: _playableError,
+        playbackSession: _playbackSession,
+        onBack: () => _openReview(null),
       );
     }
     final queue = controller.reviewQueue;
@@ -142,7 +166,7 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
                   ),
                 ),
                 Button(
-                  onPressed: () => controller.selectReview(attempt),
+                  onPressed: () => _openReview(attempt),
                   child: const Text('Open'),
                 ),
               ],
@@ -161,13 +185,17 @@ class _Detail extends StatelessWidget {
     required this.feedback,
     required this.playable,
     required this.playableError,
+    required this.playbackSession,
+    required this.onBack,
   });
 
   final TeacherMovementsController controller;
   final AssignmentAttempt attempt;
   final TextEditingController feedback;
-  final Uri? playable;
+  final SubmissionPlaybackFile? playable;
   final Object? playableError;
+  final ElixrPlaybackSession playbackSession;
+  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -179,7 +207,7 @@ class _Detail extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: Button(
-            onPressed: () => controller.selectReview(null),
+            onPressed: onBack,
             child: const Text('Back to reviews'),
           ),
         ),
@@ -258,6 +286,6 @@ class _Detail extends StatelessWidget {
     if (playable == null) {
       return const Center(child: ProgressRing());
     }
-    return ElixrVideoPlayer(source: playable!);
+    return ElixrVideoPlayer(source: playable!.uri, session: playbackSession);
   }
 }

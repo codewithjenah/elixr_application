@@ -66,6 +66,10 @@ service firebase.storage {
         && attempt.awards_global_xp == false;
     }
 
+    function isReviewableSubmissionStatus(status) {
+      return status in ['submitted', 'approved', 'needs_retry'];
+    }
+
     function hasApprovedSubmissionMembership(groupId, teacherId, traineeId) {
       let membership = groupMembershipDoc(groupId, traineeId).data;
       return membership.group_id == groupId
@@ -88,7 +92,12 @@ service firebase.storage {
         )
         && (
           request.auth.uid == traineeId
-          || request.auth.uid == teacherId
+          || (
+            request.auth.uid == teacherId
+            && isReviewableSubmissionStatus(
+              assignmentAttemptDoc(resource.metadata.attempt_id).data.status
+            )
+          )
         );
 
       allow create: if isOwner(traineeId)
@@ -128,7 +137,12 @@ service firebase.storage {
         )
         && (
           request.auth.uid == traineeId
-          || request.auth.uid == teacherId
+          || (
+            request.auth.uid == teacherId
+            && isReviewableSubmissionStatus(
+              assignmentAttemptDoc(resource.metadata.attempt_id).data.status
+            )
+          )
         );
     }
 

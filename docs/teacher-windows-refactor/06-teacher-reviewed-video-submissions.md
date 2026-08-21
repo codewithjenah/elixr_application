@@ -1,6 +1,6 @@
 # Phase 6 — Teacher-reviewed video submissions
 
-**Status:** Code complete on `main` — **not production-closed**. Firestore rules, Storage rules, and Storage lifecycle are **not** production deployed/applied. Live camera/record/upload/review has **not** been human-verified. Phase 7 was **not** started.  
+**Status:** Post-commit audit correction applied in the working tree — **not production-closed**, **not committed**. Firestore rules, Storage rules, and Storage lifecycle are **not** production deployed/applied. Live camera/record/upload/review has **not** been human-verified. Phase 7 was **not** started.  
 **Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.
 
@@ -19,17 +19,28 @@
 
 ## 1. Status
 
-Code complete on `main`. **Not production-closed.**
+Post-commit audit correction applied in the working tree. **Not production-closed. Not committed.**
 
 | Gate | State |
 |---|---|
-| Code complete | Yes (this change) |
-| Automated verification | Local suites passed (see Completion report). **Not** production-closed. |
+| Code complete | Audit correction applied locally after `88b7af1`. **Not** a production close. |
+| Automated verification | See Completion report after this correction. **Not** production-closed. |
 | Firestore rules production deployed | **No** — do not `firebase deploy` |
 | Storage rules production deployed | **No** |
 | Storage lifecycle production applied | **No** — `storage.lifecycle.json` is documentation only |
 | Live camera / record / upload / review | **Not human-verified** |
 | Phase 7 | **Not started** |
+
+### Post-commit audit correction (this change)
+
+Findings after `88b7af1 feat: implement teacher-reviewed video submission functionality`:
+
+1. **OpenCV `VideoWriter.write` return value.** Production treated a falsey `write()` result as failure. Real Python OpenCV may return `None` (older bindings) or `bool` (OpenCV 5). `if not writer.write(frame)` treats `None` as failure. The recorder now calls `write()` without interpreting the return. Failures are exceptions/`cv2.error`, a writer that is not opened, or a missing/empty/oversized file after `release()`. FakeWriter returns `None`. Final size is checked again after `release()`.
+2. **Authenticated private playback.** Teacher review no longer uses `getDownloadURL()`. Playback downloads through the authenticated Firebase Storage SDK (`getData(maxSize)`), writes an ELIXR review cache file, and plays `Uri.file`. Cache is deleted when the selected review changes, the detail closes, the controller disposes, or download fails after a partial write.
+3. **Draft-attempt failure cleanup.** A failed upload deletes the Firestore draft. If Storage upload succeeded but submit metadata failed, the object is deleted first (object-not-found counts as gone); only then is the draft deleted. If object delete fails, the draft is kept as the authorization anchor. Do not report submitted.
+4. **Review queue draft filtering.** Teacher Reviews list only `submitted` / `approved` / `needs_retry`. Draft upload attempts are not reviews.
+5. **Record command single-flight.** `SubmissionRecordingController` acquires a record-command guard before the first await of start/stop/retake/submit. Duplicate Start or Stop issues one WebSocket command. Auto-stop racing manual Stop yields one clip. Retake cannot race Stop finalization.
+6. **Stricter `AssignmentAttempt` parser.** `teacher_review_submission` fails closed for draft vs submitted vs reviewed video/review metadata and deletion consistency. `practice_pointer` and `teacher_review_draft` are unchanged.
 
 ## 2. Goal
 
@@ -102,7 +113,7 @@ sequenceDiagram
   T->>S: upload mp4
   T->>F: submitted metadata plus frozen ids
   R->>F: list queue
-  R->>S: download if Assignment Submission Authorization
+  R->>S: authenticated Storage SDK download to local cache
   R->>F: teacher only submitted to approved or needs_retry
 ```
 
@@ -332,12 +343,14 @@ Storage/Firestore emulator: `Not verified` if not used.
 - [ ] After forcing `video_expires_at` in the past, opening the queue deletes the object and keeps verdict.
 - [ ] Simulating lifecycle object-not-found reconciles metadata without a fatal error.
 - [ ] Camera released after submit/cancel.
+- [ ] Retake after local preview deletes the MP4 on Windows without waiting for orphan cleanup.
 
 ## 20. Performance / storage / privacy risks
 
 - Unbounded storage if **both** reconciler never runs **and** lifecycle is misconfigured — mitigate with prefix-scoped lifecycle tested in a non-prod bucket first.
 - Loopback HTTP clip download must not bind on 0.0.0.0.
 - Do not log full local paths in production payloads.
+- Windows may keep a local MP4 open until `ElixrVideoPlayer` / Media Foundation releases it. Retake and review-cache cleanup dispose the player first, then retry delete. Live Windows file-lock behavior still needs human verification.
 
 ## 21. Explicit “Do not” list
 
@@ -357,7 +370,9 @@ Storage/Firestore emulator: `Not verified` if not used.
 
 ## 22. Completion report
 
-Phase 6 is **code complete**, not production-closed.
+Phase 6 is **not production-closed**. A post-commit audit correction is applied in the working tree and is **not committed**.
+
+Do not describe the implementation as fully code-complete without that audit correction.
 
 ### Protocol commands
 
@@ -376,6 +391,7 @@ Phase 6 is **code complete**, not production-closed.
 - Size bound `MAX_SUBMISSION_SIZE_BYTES = 15 MiB`
 - Temp dir `{temp}/elixr_submissions/clip_{uuid}.mp4`
 - One recorder per WebSocket session; cancel/stop/disconnect/session replace/cleanup are deterministic
+- `VideoWriter.write()` return is **not** treated as a boolean. OpenCV 5 on this machine returned `True`; older Python bindings return `None`. Failures are exceptions, a writer that is not opened, or a missing/empty/oversized file **after** `release()`.
 
 ### Exact `assignment_attempts` schema / state machine
 
@@ -394,7 +410,7 @@ Custom metadata: `teacher_id`, `group_id`, `assignment_id`, `trainee_id`, `attem
 | Actor | Create | Read | Delete |
 |---|---|---|---|
 | Owner Trainee | Yes if current approved membership + matching draft attempt | Yes | Yes |
-| Frozen assigning Teacher | No | Yes without current membership, Progress, Evidence, or public profile | Yes (retention) |
+| Frozen assigning Teacher | No | Yes if attempt status is `submitted` / `approved` / `needs_retry`; without current membership, Progress, Evidence, or public profile | Yes (retention; same reviewable statuses) |
 | Unrelated Teacher / other Trainee | No | No | No |
 | General Evidence Access alone | No | No | No |
 | Object update | Denied | | Replacement is a new attempt/object |
@@ -407,6 +423,7 @@ JPEG `session_evidence` rules are unchanged.
 - Trainee submit: draft/in_progress → submitted with canonical path, size 1..15MiB, duration 1..20000ms, `submitted_at == request.time`, `video_expires_at` ~30 days (29–31 day window)
 - Teacher review: submitted → approved|needs_retry, verdict matches status, `reviewed_at == request.time`, expires ~14 days (13–15 day window)
 - Cleanup: owner or frozen Teacher may only touch path / deleted_at / deletion_failed; cannot rewrite review/status/identity
+- Abandoned draft delete: owner Trainee may delete their own `teacher_review_submission` only while `status=draft`, `awards_global_xp=false`, and video/review/`source_session_id` fields are absent. Not generic attempt delete. Upload failure cleans the draft. If the object uploaded but submit metadata failed, delete the object first (object-not-found counts as gone) and only then delete the draft. If object delete fails, keep the draft.
 
 ### Retention / lifecycle
 
@@ -437,13 +454,13 @@ No new composite index. Review queue uses existing `assignment_attempts.teacher_
 
 | Suite | Result |
 |---|---|
-| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | 441 files, 0 changed |
+| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | 442 files, 0 changed |
 | `flutter analyze` | 0 errors, 15 pre-existing infos/warnings |
-| `flutter test` (root) | **1322** passed |
+| `flutter test` (root) | **1341** passed |
 | `packages/elixr_core` `flutter test` | **87** passed |
 | `teacher_app` `flutter test` | **95** passed |
-| `firestore-tests` `npm test` (JDK 21) | **308** passed |
-| `backend` pytest | **1116** passed |
+| `firestore-tests` `npm test` (JDK 21) | **317** passed |
+| `backend` pytest | **1120** passed |
 | `backend` compileall | succeeded |
 | `flutter build windows` | succeeded (`build\windows\x64\runner\Release\elixr_application.exe`) |
 | `firebase deploy` | **not run** |
@@ -461,7 +478,7 @@ Phase 6 completion
 - Deletion mechanism: client reconciler + documented assignment_submissions lifecycle (not applied)
 - Trainee self-approve blocked: yes
 - Planning defaults used (unvalidated): 20s / 15MiB / 30d unreviewed / 14d reviewed / 30d object age
-- Automated local suites: root 1322 / elixr_core 87 / teacher_app 95 / firestore-tests 308 / backend 1116 / Windows build succeeded
+- Automated local suites: root 1341 / elixr_core 87 / teacher_app 95 / firestore-tests 317 / backend 1120 / Windows build succeeded
 - Not verified: production deploy, lifecycle apply, live camera/record/upload/review
 ```
 

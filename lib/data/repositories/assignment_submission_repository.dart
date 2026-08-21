@@ -1,5 +1,9 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import '../models/assignment_attempt.dart';
 import '../models/assignment_submission_limits.dart';
+import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/ws_protocol.dart';
 import 'classroom_assignment_repository.dart';
@@ -17,13 +21,24 @@ abstract class AssignmentSubmissionRepository {
 
   Future<void> deleteSubmissionObject(String storagePath);
 
-  Future<Uri?> playableUri(AssignmentAttempt attempt);
+  Future<SubmissionPlaybackFile?> openLocalPlayback(AssignmentAttempt attempt);
+
+  Future<void> releaseLocalPlayback(SubmissionPlaybackFile? playback);
 
   Future<void> reconcileExpiredVideos({
     required String actorId,
     required List<AssignmentAttempt> attempts,
     DateTime? now,
   });
+}
+
+/// Local file handle for in-app review playback. Never a download URL.
+class SubmissionPlaybackFile {
+  const SubmissionPlaybackFile({required this.localPath});
+
+  final String localPath;
+
+  Uri get uri => Uri.file(localPath);
 }
 
 class AssignmentSubmissionException implements Exception {
@@ -57,6 +72,181 @@ void ensureLocalClipWithinLimits(SubmissionRecordResult clip) {
     throw const AssignmentSubmissionException(
       'The local submission clip is missing.',
     );
+  }
+}
+
+Future<void> releaseSubmissionPlaybackFile(
+  SubmissionPlaybackFile? playback,
+) async {
+  final path = playback?.localPath;
+  if (path == null || path.isEmpty) return;
+  try {
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  } on FileSystemException {
+    // Windows may still hold the file until the player releases it.
+  }
+}
+
+/// Downloads an authenticated clip into an ELIXR review cache file.
+///
+/// [downloadBytes] must use the signed-in Storage SDK. It must not mint a
+/// shareable download URL.
+Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClip({
+  required AssignmentAttempt attempt,
+  required Future<Uint8List> Function(String path, {required int maxSize})
+  downloadBytes,
+  required Directory cacheDirectory,
+}) async {
+  if (!attempt.hasPlayableVideo || attempt.videoExpired) {
+    throw const AssignmentSubmissionException(
+      'This clip is no longer available.',
+    );
+  }
+  final storagePath = attempt.videoStoragePath;
+  if (storagePath == null || storagePath.isEmpty) {
+    throw const AssignmentSubmissionException(
+      'This clip is no longer available.',
+    );
+  }
+  await cacheDirectory.create(recursive: true);
+  final local = File(
+    '${cacheDirectory.path}${Platform.pathSeparator}review_${attempt.id}.mp4',
+  );
+  try {
+    final bytes = await downloadBytes(
+      storagePath,
+      maxSize: AssignmentSubmissionLimits.maxPlaybackDownloadBytes,
+    );
+    if (bytes.isEmpty ||
+        bytes.length > AssignmentSubmissionLimits.maxPlaybackDownloadBytes) {
+      throw const AssignmentSubmissionException(
+        'The submission clip is empty or larger than the download limit.',
+      );
+    }
+    await local.writeAsBytes(bytes, flush: true);
+    return SubmissionPlaybackFile(localPath: local.path);
+  } catch (error) {
+    try {
+      if (await local.exists()) {
+        await local.delete();
+      }
+    } on FileSystemException {
+      // Partial cache must not linger after a failed download.
+    }
+    if (error is AssignmentSubmissionException || error is ClassroomException) {
+      rethrow;
+    }
+    throw const AssignmentSubmissionException(
+      'The submission clip could not be downloaded.',
+    );
+  }
+}
+
+Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
+  required String traineeId,
+  required GroupAssignment assignment,
+  required SubmissionRecordResult clip,
+  String? supersedesAttemptId,
+  required ClassroomAssignmentRepository classroom,
+  required Future<void> Function({
+    required AssignmentAttempt draft,
+    required String storagePath,
+  })
+  uploadObject,
+  required Future<void> Function(String path) deleteObject,
+  required bool Function(Object error) isObjectNotFound,
+  required DateTime now,
+  Future<void> Function()? deleteLocalFile,
+}) async {
+  ensureLocalClipWithinLimits(clip);
+  final draft = await classroom.createTeacherReviewSubmissionDraft(
+    traineeId: traineeId,
+    assignment: assignment,
+    supersedesAttemptId: supersedesAttemptId,
+  );
+  final path = assignmentSubmissionStoragePath(
+    teacherId: draft.teacherId,
+    groupId: draft.groupId,
+    assignmentId: draft.assignmentId,
+    traineeId: draft.traineeId,
+    attemptId: draft.id,
+  );
+  var uploaded = false;
+  try {
+    await uploadObject(draft: draft, storagePath: path);
+    uploaded = true;
+    final submitted = await classroom.markTeacherReviewSubmitted(
+      traineeId: traineeId,
+      attempt: draft,
+      videoStoragePath: path,
+      videoContentType: AssignmentSubmissionLimits.contentType,
+      videoSizeBytes: clip.sizeBytes,
+      videoDurationMs: clip.durationMs,
+      submittedAt: now,
+      videoExpiresAt: unreviewedVideoExpiresAt(now),
+    );
+    await deleteSupersededSubmissionVideo(
+      actorId: traineeId,
+      supersedesAttemptId: supersedesAttemptId,
+      classroom: classroom,
+      deleteObject: deleteObject,
+      isObjectNotFound: isObjectNotFound,
+      now: now,
+    );
+    try {
+      await deleteLocalFile?.call();
+    } catch (_) {}
+    return submitted;
+  } catch (error) {
+    if (!uploaded) {
+      await _deleteAbandonedDraftQuietly(
+        classroom: classroom,
+        traineeId: traineeId,
+        draft: draft,
+      );
+    } else {
+      var objectGone = false;
+      try {
+        await deleteObject(path);
+        objectGone = true;
+      } catch (deleteError) {
+        if (isObjectNotFound(deleteError)) {
+          objectGone = true;
+        }
+      }
+      if (objectGone) {
+        await _deleteAbandonedDraftQuietly(
+          classroom: classroom,
+          traineeId: traineeId,
+          draft: draft,
+        );
+      }
+    }
+    if (error is ClassroomException || error is AssignmentSubmissionException) {
+      rethrow;
+    }
+    throw const ClassroomException(
+      ClassroomError.uploadFailed,
+      'The submission clip could not be uploaded. Try again.',
+    );
+  }
+}
+
+Future<void> _deleteAbandonedDraftQuietly({
+  required ClassroomAssignmentRepository classroom,
+  required String traineeId,
+  required AssignmentAttempt draft,
+}) async {
+  try {
+    await classroom.deleteAbandonedTeacherReviewSubmissionDraft(
+      traineeId: traineeId,
+      attempt: draft,
+    );
+  } catch (_) {
+    // Leftover draft is retryable. Never report submitted.
   }
 }
 

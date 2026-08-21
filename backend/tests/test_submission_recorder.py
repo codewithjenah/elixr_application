@@ -28,13 +28,23 @@ class FakeWriter:
     def isOpened(self) -> bool:
         return not self.fail_open
 
-    def write(self, frame: np.ndarray) -> bool:
+    def write(self, frame: np.ndarray) -> None:
         self.frames.append(np.copy(frame))
         with self.path.open("ab") as handle:
             handle.write(b"frame")
-        return True
+        return None
 
     def release(self) -> None:
+        self.released = True
+
+
+class InflatingOnReleaseWriter(FakeWriter):
+    def __init__(self, path: Path, *, final_size: int):
+        super().__init__(path)
+        self.final_size = final_size
+
+    def release(self) -> None:
+        self.path.write_bytes(b"x" * self.final_size)
         self.released = True
 
 
@@ -189,6 +199,111 @@ def test_orphan_cleanup_removes_old_clips_only(tmp_path: Path):
     assert removed == 1
     assert old.exists() is False
     assert recent.exists() is True
+
+
+def test_writer_write_returning_none_finalizes_metadata(tmp_path: Path):
+    probe = FakeWriter(tmp_path / "none_probe.mp4")
+    assert probe.write(_frame()) is None
+    recorder, clock, writers = _recorder(tmp_path)
+    recorder.start()
+    still = recorder.write_frame(_frame(), captured_at_monotonic=0.0, sequence=1)
+    assert still is True
+    clock[0] = 0.5
+    recorder.write_frame(_frame(90), captured_at_monotonic=0.5, sequence=2)
+    metadata = recorder.stop()
+    assert writers[0].released is True
+    assert metadata.video_size_bytes > 0
+    assert metadata.video_duration_ms == 500
+    assert Path(metadata.local_path).exists()
+    assert metadata.content_type == "video/mp4"
+
+
+def test_oversized_file_after_release_is_rejected_and_deleted(tmp_path: Path):
+    writers: list[InflatingOnReleaseWriter] = []
+
+    def factory(path: Path, fps: float, size: tuple[int, int]) -> InflatingOnReleaseWriter:
+        writer = InflatingOnReleaseWriter(path, final_size=64)
+        writers.append(writer)
+        return writer
+
+    recorder = SubmissionRecorder(
+        fps=20,
+        max_duration_s=20,
+        max_size_bytes=16,
+        writer_factory=factory,
+        temp_root=tmp_path,
+        monotonic=lambda: 0.0,
+    )
+    recorder.start()
+    still = recorder.write_frame(_frame(), captured_at_monotonic=0.0, sequence=1)
+    assert still is True
+    with pytest.raises(SubmissionRecorderError) as exc:
+        recorder.stop()
+    assert exc.value.code == "record_failed"
+    assert writers[0].released is True
+    directory = submission_temp_dir(tmp_path)
+    assert list(directory.glob("clip_*.mp4")) == []
+
+
+def test_writer_exception_is_a_bounded_recording_failure(tmp_path: Path):
+    class RaisingWriter(FakeWriter):
+        def write(self, frame: np.ndarray) -> None:
+            raise RuntimeError("encoder failed")
+
+    def factory(path: Path, fps: float, size: tuple[int, int]) -> RaisingWriter:
+        return RaisingWriter(path)
+
+    recorder = SubmissionRecorder(
+        writer_factory=factory,
+        temp_root=tmp_path,
+        monotonic=lambda: 0.0,
+    )
+    recorder.start()
+    still = recorder.write_frame(_frame(), captured_at_monotonic=0.0, sequence=1)
+    assert still is False
+    with pytest.raises(SubmissionRecorderError) as exc:
+        recorder.stop()
+    assert exc.value.code == "record_failed"
+
+
+def test_real_opencv_write_return_is_ignored_and_synthetic_clip_finalizes(
+    tmp_path: Path,
+):
+    cv2 = pytest.importorskip("cv2")
+    probe = tmp_path / "probe.mp4"
+    writer = cv2.VideoWriter(
+        str(probe), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (16, 16)
+    )
+    if writer is None or not writer.isOpened():
+        pytest.skip("OpenCV could not open an mp4v writer")
+    frame = np.zeros((16, 16, 3), dtype=np.uint8)
+    write_return = writer.write(frame)
+    writer.release()
+    # OpenCV 5 returns bool; older Python bindings returned None. Either is
+    # success for this recorder as long as the value is not interpreted.
+    assert write_return is None or write_return is True or write_return is False
+
+    recorder = SubmissionRecorder(
+        fps=10,
+        max_duration_s=20,
+        temp_root=tmp_path,
+        monotonic=lambda: 0.0,
+    )
+    recorder.start()
+    clock = 0.0
+    for index in range(8):
+        clock = index * 0.1
+        tinted = np.full((48, 64, 3), min(index * 20, 255), dtype=np.uint8)
+        recorder.write_frame(
+            tinted, captured_at_monotonic=clock, sequence=index + 1
+        )
+    metadata = recorder.stop()
+    path = Path(metadata.local_path)
+    assert path.exists()
+    assert path.stat().st_size > 0
+    assert metadata.content_type == "video/mp4"
+    assert metadata.video_duration_ms > 0
+    recorder.cancel()
 
 
 def test_temp_names_are_opaque(tmp_path: Path):

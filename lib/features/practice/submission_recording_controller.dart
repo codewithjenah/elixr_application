@@ -21,6 +21,41 @@ enum SubmissionRecordingPhase {
   failed,
 }
 
+/// Deletes a local MP4 after playback has released it.
+///
+/// On Windows, Media Foundation may keep the file open until the player
+/// controller is disposed. [releasePlayback] must complete first. Retries
+/// cover a short residual lock; orphan temp cleanup remains a last resort.
+Future<void> deleteLocalClipAfterPlaybackRelease({
+  required String path,
+  Future<void> Function()? releasePlayback,
+  Future<void> Function(Duration delay)? delay,
+  Future<void> Function(String path)? deleteFile,
+  int retries = 5,
+}) async {
+  if (releasePlayback != null) {
+    await releasePlayback();
+  }
+  final wait = delay ?? Future<void>.delayed;
+  final doDelete =
+      deleteFile ??
+      (target) async {
+        final file = File(target);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      };
+  for (var attempt = 0; attempt < retries; attempt++) {
+    try {
+      await doDelete(path);
+      return;
+    } on FileSystemException {
+      if (attempt == retries - 1) return;
+      await wait(Duration(milliseconds: 50 * (attempt + 1)));
+    }
+  }
+}
+
 /// Trainee Record Submission state machine. Does not write sessions or XP.
 class SubmissionRecordingController extends ChangeNotifier {
   SubmissionRecordingController({
@@ -43,6 +78,10 @@ class SubmissionRecordingController extends ChangeNotifier {
   int elapsedSeconds = 0;
   AssignmentAttempt? latestSubmission;
   Timer? _timer;
+  bool _recordCommandInFlight = false;
+  bool _disposed = false;
+
+  bool get recordCommandInFlight => _recordCommandInFlight;
 
   bool get canRecord {
     final current = latestSubmission;
@@ -57,6 +96,18 @@ class SubmissionRecordingController extends ChangeNotifier {
     if (current == null) return null;
     if (current.status != AssignmentAttemptStatus.needsRetry) return null;
     return current.reviewFeedback;
+  }
+
+  bool _acquireRecordCommand() {
+    if (_disposed || _recordCommandInFlight) return false;
+    _recordCommandInFlight = true;
+    notifyListeners();
+    return true;
+  }
+
+  void _releaseRecordCommand() {
+    _recordCommandInFlight = false;
+    if (!_disposed) notifyListeners();
   }
 
   Future<void> refreshLatestSubmission() async {
@@ -86,26 +137,29 @@ class SubmissionRecordingController extends ChangeNotifier {
   }
 
   void requestConsent() {
-    if (!canRecord) return;
+    if (!canRecord || _recordCommandInFlight) return;
     errorMessage = null;
     phase = SubmissionRecordingPhase.consent;
     notifyListeners();
   }
 
   void cancelConsent() {
-    if (phase != SubmissionRecordingPhase.consent) return;
+    if (phase != SubmissionRecordingPhase.consent || _recordCommandInFlight) {
+      return;
+    }
     phase = SubmissionRecordingPhase.idle;
     notifyListeners();
   }
 
   Future<void> beginRecording() async {
+    if (!_acquireRecordCommand()) return;
     errorMessage = null;
     try {
       final ack = await websocket.sendStartSubmissionRecord();
+      if (_disposed) return;
       if (!ack.accepted) {
         phase = SubmissionRecordingPhase.failed;
         errorMessage = ack.message ?? ack.errorCode ?? 'Recording failed.';
-        notifyListeners();
         return;
       }
       elapsedSeconds = 0;
@@ -118,50 +172,59 @@ class SubmissionRecordingController extends ChangeNotifier {
           unawaited(stopRecording());
         }
       });
-      notifyListeners();
     } catch (_) {
+      if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
       errorMessage = 'Recording failed. Check the backend and try again.';
-      notifyListeners();
+    } finally {
+      _releaseRecordCommand();
     }
   }
 
   Future<void> stopRecording() async {
+    if (!_acquireRecordCommand()) return;
     _timer?.cancel();
     _timer = null;
     try {
       final ack = await websocket.sendStopSubmissionRecord();
+      if (_disposed) return;
       if (!ack.accepted) {
         phase = SubmissionRecordingPhase.failed;
         errorMessage =
             ack.message ?? ack.errorCode ?? 'Could not stop recording.';
-        notifyListeners();
         return;
       }
       clip = SubmissionRecordResult.fromAck(ack);
       phase = SubmissionRecordingPhase.preview;
-      notifyListeners();
     } catch (_) {
+      if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
       errorMessage = 'Could not stop recording.';
-      notifyListeners();
+    } finally {
+      _releaseRecordCommand();
     }
   }
 
-  Future<void> retake() async {
-    await abandonLocalClip();
-    clip = null;
-    elapsedSeconds = 0;
-    phase = SubmissionRecordingPhase.idle;
-    notifyListeners();
+  Future<void> retake({Future<void> Function()? releasePlayback}) async {
+    if (!_acquireRecordCommand()) return;
+    try {
+      await abandonLocalClip(releasePlayback: releasePlayback);
+      if (_disposed) return;
+      clip = null;
+      elapsedSeconds = 0;
+      errorMessage = null;
+      phase = SubmissionRecordingPhase.idle;
+    } finally {
+      _releaseRecordCommand();
+    }
   }
 
   Future<void> submitToTeacher() async {
     final current = clip;
     if (current == null) return;
+    if (!_acquireRecordCommand()) return;
     phase = SubmissionRecordingPhase.submitting;
     errorMessage = null;
-    notifyListeners();
     try {
       String? supersedesId;
       await refreshLatestSubmission();
@@ -177,36 +240,38 @@ class SubmissionRecordingController extends ChangeNotifier {
         supersedesAttemptId: supersedesId,
       );
       await abandonLocalClip();
+      if (_disposed) return;
       clip = null;
       phase = SubmissionRecordingPhase.submitted;
       await refreshLatestSubmission();
     } catch (error) {
+      if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
       errorMessage = error.toString();
-      notifyListeners();
+    } finally {
+      _releaseRecordCommand();
     }
   }
 
-  Future<void> abandonLocalClip() async {
+  Future<void> abandonLocalClip({
+    Future<void> Function()? releasePlayback,
+  }) async {
     final path = clip?.localPath;
     clip = null;
     try {
       await websocket.sendCancelSubmissionRecord();
     } catch (_) {}
     if (path != null && path.isNotEmpty) {
-      try {
-        final file = File(path);
-        if (file.existsSync()) {
-          await file.delete();
-        }
-      } on FileSystemException {
-        // Backend cancel also removes the temp file.
-      }
+      await deleteLocalClipAfterPlaybackRelease(
+        path: path,
+        releasePlayback: releasePlayback,
+      );
     }
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _timer?.cancel();
     unawaited(abandonLocalClip());
     super.dispose();
