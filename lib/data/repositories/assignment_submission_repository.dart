@@ -191,11 +191,9 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
     traineeId: draft.traineeId,
     attemptId: draft.id,
   );
-  var uploaded = false;
   var stage = Phase6SubmissionStage.storageUpload;
   try {
     await uploadObject(draft: draft, storagePath: path);
-    uploaded = true;
     stage = Phase6SubmissionStage.firestoreSubmit;
     final submitted = await classroom.markTeacherReviewSubmitted(
       traineeId: traineeId,
@@ -233,48 +231,64 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
       error: error,
       log: diagnosticLog,
     );
-    if (!uploaded) {
-      await _markAbandonedDraftQuietly(
-        classroom: classroom,
-        traineeId: traineeId,
-        draft: draft,
-        diagnosticLog: diagnosticLog,
-      );
-    } else {
-      var objectGone = false;
-      try {
-        await deleteObject(path);
-        objectGone = true;
-      } catch (deleteError) {
-        if (isObjectNotFound(deleteError)) {
-          objectGone = true;
-        }
-      }
-      if (objectGone) {
-        await _markAbandonedDraftQuietly(
-          classroom: classroom,
-          traineeId: traineeId,
-          draft: draft,
-          videoDeletedAt: now,
-          diagnosticLog: diagnosticLog,
-        );
-      } else {
-        await _markAbandonedDraftQuietly(
-          classroom: classroom,
-          traineeId: traineeId,
-          draft: draft,
-          deletionFailed: true,
-          deletionFailedAt: now,
-          diagnosticLog: diagnosticLog,
-        );
-      }
-    }
+    // Firebase C++ desktop can CREATE the object and still complete the
+    // caller Future with unauthorized after the metadata PATCH. Always
+    // attempt exactly one canonical-path delete before abandoning.
+    await _abandonDraftAfterFailedUpload(
+      classroom: classroom,
+      traineeId: traineeId,
+      draft: draft,
+      storagePath: path,
+      deleteObject: deleteObject,
+      isObjectNotFound: isObjectNotFound,
+      now: now,
+      diagnosticLog: diagnosticLog,
+    );
     if (error is ClassroomException || error is AssignmentSubmissionException) {
       rethrow;
     }
     throw const ClassroomException(
       ClassroomError.uploadFailed,
       'The submission clip could not be uploaded. Try again.',
+    );
+  }
+}
+
+Future<void> _abandonDraftAfterFailedUpload({
+  required ClassroomAssignmentRepository classroom,
+  required String traineeId,
+  required AssignmentAttempt draft,
+  required String storagePath,
+  required Future<void> Function(String path) deleteObject,
+  required bool Function(Object error) isObjectNotFound,
+  required DateTime now,
+  void Function(String line)? diagnosticLog,
+}) async {
+  var objectGone = false;
+  try {
+    await deleteObject(storagePath);
+    objectGone = true;
+  } catch (deleteError) {
+    if (isObjectNotFound(deleteError)) {
+      objectGone = true;
+    }
+  }
+  if (objectGone) {
+    await _markAbandonedDraftQuietly(
+      classroom: classroom,
+      traineeId: traineeId,
+      draft: draft,
+      videoDeletedAt: now,
+      diagnosticLog: diagnosticLog,
+    );
+  } else {
+    await _markAbandonedDraftQuietly(
+      classroom: classroom,
+      traineeId: traineeId,
+      draft: draft,
+      deletionFailed: true,
+      deletionFailedAt: now,
+      diagnosticLog: diagnosticLog,
     );
   }
 }

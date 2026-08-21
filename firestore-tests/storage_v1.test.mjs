@@ -352,14 +352,14 @@ describe('assignment_submissions Storage', () => {
     await assertSucceeds(deleteObject(ref(context('teacher').storage(), PATH)));
   });
 
-  test('object update is denied', async () => {
+  test('object update is denied after metadata is present', async () => {
     await seedClassroom();
     const storage = context('trainee').storage();
     await assertSucceeds(
       uploadBytes(ref(storage, PATH), new Uint8Array(64), metadata()),
     );
-    // Byte overwrite is treated as create by the Storage emulator. Metadata
-    // update is the real `update` operation and must stay denied.
+    // Atomic CREATE already bootstraps custom metadata. A later metadata
+    // PATCH is not the one-time Windows bootstrap and must stay denied.
     await assertFails(
       updateMetadata(ref(storage, PATH), { contentType: 'video/mp4' }),
     );

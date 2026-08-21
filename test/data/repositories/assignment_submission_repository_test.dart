@@ -88,6 +88,7 @@ void main() {
       ),
     );
     expect(submitted.id, startsWith('review_sub_'));
+    expect(deleted, isEmpty);
   });
 
   Future<GroupAssignment> teacherAssignment(
@@ -131,10 +132,12 @@ void main() {
       );
       addTearDown(assignments.dispose);
       final assignment = await teacherAssignment(assignments);
+      final deleted = <String>{};
       final submissions = InMemoryAssignmentSubmissionRepository(
         classroom: assignments,
         now: () => DateTime.utc(2026, 8, 20),
         failNextUpload: true,
+        deletedPaths: deleted,
       );
       await expectLater(
         submissions.submitLocalClip(
@@ -159,6 +162,19 @@ void main() {
       expect(leftover.isReviewFacingSubmission, isFalse);
       expect(leftover.videoStoragePath, isNull);
       expect(leftover.awardsGlobalXp, isFalse);
+      expect(leftover.sourceSessionId, isNull);
+      expect(deleted, hasLength(1));
+      expect(
+        deleted.single,
+        assignmentSubmissionStoragePath(
+          teacherId: leftover.teacherId,
+          groupId: leftover.groupId,
+          assignmentId: leftover.assignmentId,
+          traineeId: leftover.traineeId,
+          attemptId: leftover.id,
+        ),
+      );
+      expect(leftover.videoDeletedAt, DateTime.utc(2026, 8, 20));
     },
   );
 
@@ -479,6 +495,7 @@ void main() {
       expect(leftover.status, AssignmentAttemptStatus.draft);
       expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
       expect(leftover.deletionFailed, isFalse);
+      expect(leftover.videoDeletedAt, DateTime.utc(2026, 8, 20));
       expect(leftover.awardsGlobalXp, isFalse);
       expect(leftover.sourceSessionId, isNull);
       expect(
@@ -611,4 +628,202 @@ void main() {
       '[Phase6Submission] stage=storage_upload result=success bytes=2048',
     );
   });
+
+  const clip = SubmissionRecordResult(
+    localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+    durationMs: 3500,
+    sizeBytes: 2048,
+    contentType: 'video/mp4',
+  );
+
+  test(
+    'COMP-A upload Future throw deletes canonical object once then abandons',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final deleted = <String>[];
+      await expectLater(
+        submitLocalClipWithDraftCompensation(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: clip,
+          classroom: assignments,
+          now: DateTime.utc(2026, 8, 20),
+          uploadObject: ({required draft, required storagePath}) async {
+            throw const AssignmentSubmissionException('storage upload failed');
+          },
+          deleteObject: (path) async {
+            deleted.add(path);
+          },
+          isObjectNotFound: (_) => false,
+        ),
+        throwsA(isA<AssignmentSubmissionException>()),
+      );
+      final leftover = assignments.attempts.values.singleWhere(
+        (attempt) =>
+            attempt.attemptKind ==
+            AssignmentAttemptKind.teacherReviewSubmission,
+      );
+      expect(deleted, hasLength(1));
+      expect(
+        deleted.single,
+        assignmentSubmissionStoragePath(
+          teacherId: leftover.teacherId,
+          groupId: leftover.groupId,
+          assignmentId: leftover.assignmentId,
+          traineeId: leftover.traineeId,
+          attemptId: leftover.id,
+        ),
+      );
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.videoDeletedAt, DateTime.utc(2026, 8, 20));
+      expect(leftover.deletionFailed, isFalse);
+      expect(leftover.videoStoragePath, isNull);
+      expect(leftover.awardsGlobalXp, isFalse);
+      expect(leftover.sourceSessionId, isNull);
+    },
+  );
+
+  test(
+    'COMP-B upload Future throw treats object-not-found delete as clean',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final deleted = <String>[];
+      await expectLater(
+        submitLocalClipWithDraftCompensation(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: clip,
+          classroom: assignments,
+          now: DateTime.utc(2026, 8, 20),
+          uploadObject: ({required draft, required storagePath}) async {
+            throw const AssignmentSubmissionException('storage upload failed');
+          },
+          deleteObject: (path) async {
+            deleted.add(path);
+            throw const AssignmentSubmissionException('object-not-found');
+          },
+          isObjectNotFound: (error) =>
+              error is AssignmentSubmissionException &&
+              error.message == 'object-not-found',
+        ),
+        throwsA(isA<AssignmentSubmissionException>()),
+      );
+      final leftover = assignments.attempts.values.singleWhere(
+        (attempt) =>
+            attempt.attemptKind ==
+            AssignmentAttemptKind.teacherReviewSubmission,
+      );
+      expect(deleted, hasLength(1));
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.videoDeletedAt, DateTime.utc(2026, 8, 20));
+      expect(leftover.deletionFailed, isFalse);
+      expect(leftover.videoStoragePath, isNull);
+      expect(leftover.awardsGlobalXp, isFalse);
+      expect(leftover.sourceSessionId, isNull);
+    },
+  );
+
+  test(
+    'COMP-C upload Future throw records deletion_failed when delete fails',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final deleted = <String>[];
+      await expectLater(
+        submitLocalClipWithDraftCompensation(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: clip,
+          classroom: assignments,
+          now: DateTime.utc(2026, 8, 20),
+          uploadObject: ({required draft, required storagePath}) async {
+            throw const AssignmentSubmissionException('storage upload failed');
+          },
+          deleteObject: (path) async {
+            deleted.add(path);
+            throw const AssignmentSubmissionException('permission-denied');
+          },
+          isObjectNotFound: (_) => false,
+        ),
+        throwsA(isA<AssignmentSubmissionException>()),
+      );
+      final leftover = assignments.attempts.values.singleWhere(
+        (attempt) =>
+            attempt.attemptKind ==
+            AssignmentAttemptKind.teacherReviewSubmission,
+      );
+      expect(deleted, hasLength(1));
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.deletionFailed, isTrue);
+      expect(leftover.deletionFailedAt, DateTime.utc(2026, 8, 20));
+      expect(leftover.videoDeletedAt, isNull);
+      expect(leftover.videoStoragePath, isNull);
+      expect(leftover.awardsGlobalXp, isFalse);
+      expect(leftover.sourceSessionId, isNull);
+    },
+  );
+
+  test(
+    'COMP-D successful upload submits once and does not delete the new object',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final deleted = <String>[];
+      var uploads = 0;
+      final submitted = await submitLocalClipWithDraftCompensation(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+        clip: clip,
+        classroom: assignments,
+        now: DateTime.utc(2026, 8, 20),
+        uploadObject: ({required draft, required storagePath}) async {
+          uploads += 1;
+        },
+        deleteObject: (path) async {
+          deleted.add(path);
+        },
+        isObjectNotFound: (_) => false,
+      );
+      expect(uploads, 1);
+      expect(deleted, isEmpty);
+      expect(submitted.status, AssignmentAttemptStatus.submitted);
+      expect(submitted.awardsGlobalXp, isFalse);
+      expect(submitted.sourceSessionId, isNull);
+      expect(
+        assignments.attempts.values.where(
+          (attempt) =>
+              attempt.attemptKind ==
+              AssignmentAttemptKind.teacherReviewSubmission,
+        ),
+        hasLength(1),
+      );
+      expect(
+        assignments.attempts.values.where(
+          (attempt) => attempt.status == AssignmentAttemptStatus.submitted,
+        ),
+        hasLength(1),
+      );
+    },
+  );
 }

@@ -238,11 +238,18 @@ describe('assignment_submissions create predicates', () => {
     );
   });
 
-  test('10 missing attempt_id metadata is denied', async () => {
+  test('10 missing attempt_id among other custom metadata is denied', async () => {
     await seedClassroom();
     const meta = metadata();
     delete meta.customMetadata.attempt_id;
     await assertFails(upload(TRAINEE, { meta }));
+  });
+
+  test('10b metadata-free Windows CREATE is allowed', async () => {
+    await seedClassroom();
+    await assertSucceeds(
+      upload(TRAINEE, { meta: { contentType: 'video/mp4' } }),
+    );
   });
 
   test('11 wrong custom teacher_id is denied', async () => {

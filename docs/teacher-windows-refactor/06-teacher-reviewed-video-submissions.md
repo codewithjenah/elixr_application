@@ -411,15 +411,17 @@ Video fields: `video_storage_path`, `video_content_type`, `video_size_bytes`, `v
 
 Custom metadata: `teacher_id`, `group_id`, `assignment_id`, `trainee_id`, `attempt_id`, `movement_id`, `revision_id`. Content type `video/mp4`.
 
+Windows Firebase C++ desktop uploads as two stages: object CREATE may omit the seven custom metadata fields, then a one-time metadata bootstrap UPDATE PATCHes exactly those fields. Attempt identity is derived from the canonical filename `review_sub_[A-Za-z0-9]+.mp4`, not from metadata. After bootstrap, bytes and those seven fields are immutable. Replacement remains a new attempt/object.
+
 ### Storage authorization matrix
 
 | Actor | Create | Read | Delete |
 |---|---|---|---|
-| Owner Trainee | Yes if current approved membership + matching **non-abandoned** draft attempt | Yes | Yes |
-| Frozen assigning Teacher | No | Yes if attempt status is `submitted` / `approved` / `needs_retry`; without current membership, Progress, Evidence, or public profile. **Not** draft or abandoned. | Yes for reviewable statuses **and** abandoned leftover objects |
+| Owner Trainee | Yes if current approved membership + matching **non-abandoned** draft attempt. Custom metadata may be omitted (Windows) or must be the exact seven Phase 6 fields. | Yes only after metadata is fully bootstrapped and consistent with path/attempt | Yes, including unbootstrapped leftover objects identified by canonical filename |
+| Frozen assigning Teacher | No | Yes if metadata is bootstrapped **and** attempt status is `submitted` / `approved` / `needs_retry`; without current membership, Progress, Evidence, or public profile. **Not** draft, abandoned, or unbootstrapped. | Yes for reviewable statuses **and** abandoned leftover objects (metadata not required to identify the object) |
 | Unrelated Teacher / other Trainee | No | No | No |
 | General Evidence Access alone | No | No | No |
-| Object update | Denied | | Replacement is a new attempt/object |
+| Object update | One-time metadata bootstrap only: owner Trainee, unchanged bytes/hashes/contentType, adds exactly the seven Phase 6 fields while the attempt is still an active non-abandoned draft. Any later metadata or binary overwrite is denied. | | Replacement is a new attempt/object |
 
 JPEG `session_evidence` rules are unchanged.
 

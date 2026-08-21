@@ -34,17 +34,82 @@ service firebase.storage {
         ];
     }
 
-    function isAssignmentMp4Name(fileName, attemptId) {
-      return fileName == attemptId + '.mp4'
-        && attemptId.matches('^review_sub_[A-Za-z0-9]+$');
+    // Canonical filename is the identity source. Windows Firebase C++ desktop
+    // uploads object bytes first, then PATCHes custom metadata. Never trust
+    // custom metadata as the only identifier during CREATE/DELETE.
+    function isCanonicalAssignmentMp4Name(fileName) {
+      return fileName.matches('^review_sub_[A-Za-z0-9]+[.]mp4$');
     }
 
-    function submissionMetadataMatchesPath(meta, teacherId, groupId, assignmentId, traineeId, attemptId) {
-      return meta.teacher_id == teacherId
+    function attemptIdFromCanonicalFileName(fileName) {
+      return fileName[0:fileName.size() - 4];
+    }
+
+    function assignmentMetadataKeys() {
+      return ['teacher_id', 'group_id', 'assignment_id', 'trainee_id',
+        'attempt_id', 'movement_id', 'revision_id'];
+    }
+
+    function assignmentCustomMetadataAbsent(meta) {
+      return meta == null || meta.size() == 0;
+    }
+
+    function assignmentPathMetadataMatches(
+        meta, teacherId, groupId, assignmentId, traineeId, attemptId) {
+      return meta != null
+        && meta.keys().hasAll(assignmentMetadataKeys())
+        && meta.teacher_id == teacherId
         && meta.group_id == groupId
         && meta.assignment_id == assignmentId
         && meta.trainee_id == traineeId
         && meta.attempt_id == attemptId;
+    }
+
+    function assignmentAttemptMetadataMatches(meta, movementId, revisionId) {
+      return meta != null
+        && meta.movement_id == movementId
+        && meta.revision_id == revisionId;
+    }
+
+    function assignmentCustomMetadataMatches(
+        meta, teacherId, groupId, assignmentId, traineeId, attemptId, attempt) {
+      return assignmentPathMetadataMatches(
+          meta, teacherId, groupId, assignmentId, traineeId, attemptId
+        )
+        && assignmentAttemptMetadataMatches(
+          meta, attempt.movement_id, attempt.revision_id
+        );
+    }
+
+    function assignmentCreateMetadataCompatible(
+        meta, teacherId, groupId, assignmentId, traineeId, attemptId, attempt) {
+      return assignmentCustomMetadataAbsent(meta)
+        || (
+          assignmentCustomMetadataMatches(
+            meta, teacherId, groupId, assignmentId, traineeId, attemptId, attempt
+          )
+          && meta.size() == 7
+        );
+    }
+
+    function isImmutableStoredObjectBytes() {
+      return request.resource.size == resource.size
+        && request.resource.md5Hash == resource.md5Hash
+        && request.resource.crc32c == resource.crc32c
+        && request.resource.contentType == resource.contentType
+        && request.resource.contentType == 'video/mp4'
+        && resource.contentType == 'video/mp4'
+        && resource.size > 0
+        && resource.size <= 15 * 1024 * 1024;
+    }
+
+    function isAssignmentMetadataBootstrapTransition() {
+      let previous = resource.metadata == null ? {} : resource.metadata;
+      let next = request.resource.metadata == null ? {} : request.resource.metadata;
+      let changed = next.diff(previous).affectedKeys();
+      return assignmentCustomMetadataAbsent(resource.metadata)
+        && changed.size() == 7
+        && changed.hasAll(assignmentMetadataKeys());
     }
 
     function submissionAttemptMatchesPath(attempt, teacherId, groupId, assignmentId, traineeId, attemptId) {
@@ -77,8 +142,8 @@ service firebase.storage {
     // per request. Keep the submission attempt and membership bound once per
     // evaluation; do not reintroduce repeated get/exists calls.
 
-    function canCreateAssignmentSubmission(teacherId, groupId, assignmentId, traineeId) {
-      let attemptId = request.resource.metadata.attempt_id;
+    function canCreateAssignmentSubmission(
+        teacherId, groupId, assignmentId, traineeId, attemptId) {
       let attempt = firestore.get(
         /databases/(default)/documents/assignment_attempts/$(attemptId)
       ).data;
@@ -88,22 +153,52 @@ service firebase.storage {
       return submissionAttemptMatchesPath(
           attempt, teacherId, groupId, assignmentId, traineeId, attemptId
         )
-        && attempt.movement_id == request.resource.metadata.movement_id
-        && attempt.revision_id == request.resource.metadata.revision_id
         && isActiveSubmissionUploadAnchor(attempt)
         && membership.group_id == groupId
         && membership.teacher_id == teacherId
         && membership.trainee_id == traineeId
-        && membership.status == 'approved';
+        && membership.status == 'approved'
+        && assignmentCreateMetadataCompatible(
+          request.resource.metadata,
+          teacherId, groupId, assignmentId, traineeId, attemptId, attempt
+        );
     }
 
-    function canReadAssignmentSubmission(teacherId, groupId, assignmentId, traineeId) {
-      let attemptId = resource.metadata.attempt_id;
+    function canBootstrapAssignmentSubmissionMetadata(
+        teacherId, groupId, assignmentId, traineeId, attemptId) {
+      let attempt = firestore.get(
+        /databases/(default)/documents/assignment_attempts/$(attemptId)
+      ).data;
+      let membership = firestore.get(
+        /databases/(default)/documents/group_memberships/$(groupId + '_' + traineeId)
+      ).data;
+      return submissionAttemptMatchesPath(
+          attempt, teacherId, groupId, assignmentId, traineeId, attemptId
+        )
+        && isActiveSubmissionUploadAnchor(attempt)
+        && membership.group_id == groupId
+        && membership.teacher_id == teacherId
+        && membership.trainee_id == traineeId
+        && membership.status == 'approved'
+        && isImmutableStoredObjectBytes()
+        && isAssignmentMetadataBootstrapTransition()
+        && assignmentCustomMetadataMatches(
+          request.resource.metadata,
+          teacherId, groupId, assignmentId, traineeId, attemptId, attempt
+        );
+    }
+
+    function canReadAssignmentSubmission(
+        teacherId, groupId, assignmentId, traineeId, attemptId) {
       let attempt = firestore.get(
         /databases/(default)/documents/assignment_attempts/$(attemptId)
       ).data;
       return submissionAttemptMatchesPath(
           attempt, teacherId, groupId, assignmentId, traineeId, attemptId
+        )
+        && assignmentCustomMetadataMatches(
+          resource.metadata,
+          teacherId, groupId, assignmentId, traineeId, attemptId, attempt
         )
         && (
           request.auth.uid == traineeId
@@ -114,8 +209,8 @@ service firebase.storage {
         );
     }
 
-    function canDeleteAssignmentSubmission(teacherId, groupId, assignmentId, traineeId) {
-      let attemptId = resource.metadata.attempt_id;
+    function canDeleteAssignmentSubmission(
+        teacherId, groupId, assignmentId, traineeId, attemptId) {
       let attempt = firestore.get(
         /databases/(default)/documents/assignment_attempts/$(attemptId)
       ).data;
@@ -139,29 +234,35 @@ service firebase.storage {
 
     match /assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{fileName} {
       allow read: if isSignedIn()
-        && resource.metadata.attempt_id is string
-        && isAssignmentMp4Name(fileName, resource.metadata.attempt_id)
-        && canReadAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
+        && isCanonicalAssignmentMp4Name(fileName)
+        && canReadAssignmentSubmission(
+          teacherId, groupId, assignmentId, traineeId,
+          attemptIdFromCanonicalFileName(fileName)
+        );
 
       allow create: if isOwner(traineeId)
-        && request.resource.metadata.attempt_id is string
-        && isAssignmentMp4Name(fileName, request.resource.metadata.attempt_id)
+        && isCanonicalAssignmentMp4Name(fileName)
         && request.resource.size > 0
         && request.resource.size <= 15 * 1024 * 1024
         && request.resource.contentType == 'video/mp4'
-        && submissionMetadataMatchesPath(
-          request.resource.metadata,
+        && canCreateAssignmentSubmission(
           teacherId, groupId, assignmentId, traineeId,
-          request.resource.metadata.attempt_id
-        )
-        && canCreateAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
+          attemptIdFromCanonicalFileName(fileName)
+        );
 
-      allow update: if false;
+      allow update: if isOwner(traineeId)
+        && isCanonicalAssignmentMp4Name(fileName)
+        && canBootstrapAssignmentSubmissionMetadata(
+          teacherId, groupId, assignmentId, traineeId,
+          attemptIdFromCanonicalFileName(fileName)
+        );
 
       allow delete: if isSignedIn()
-        && resource.metadata.attempt_id is string
-        && isAssignmentMp4Name(fileName, resource.metadata.attempt_id)
-        && canDeleteAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
+        && isCanonicalAssignmentMp4Name(fileName)
+        && canDeleteAssignmentSubmission(
+          teacherId, groupId, assignmentId, traineeId,
+          attemptIdFromCanonicalFileName(fileName)
+        );
     }
 
     // TEMPORARY PHASE 6 CROSS-SERVICE DIAGNOSTIC.
