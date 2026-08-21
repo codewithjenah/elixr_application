@@ -24,6 +24,7 @@ import 'data/repositories/firebase_classroom_assignment_repository.dart';
 import 'data/repositories/firebase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
 import 'debug/assignment_put_data_probe.dart';
+import 'debug/storage_cross_service_probe.dart';
 import 'debug/storage_put_file_probe.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
@@ -88,6 +89,7 @@ class _ElixrAppState extends State<ElixrApp> {
     await maybeRunLiveStoragePutFileProbe();
     await maybeRunLiveAssignmentPutDataProbe();
     await maybeRunLiveAssignmentDelayedProbe();
+    await maybeRunLiveStorageCrossServiceProbe();
   }
 
   @override

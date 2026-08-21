@@ -164,6 +164,85 @@ service firebase.storage {
         && canDeleteAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
     }
 
+    // TEMPORARY PHASE 6 CROSS-SERVICE DIAGNOSTIC.
+    // REMOVE AFTER PRODUCTION ISOLATION.
+    // Isolated from assignment_submissions helpers. Do not reuse
+    // canCreateAssignmentSubmission. Four exact probe names only.
+
+    function phase6DiagnosticKnownTraineeId() {
+      return 'OeflNaVfBkZ93BLOsGhRyOv6WAD3';
+    }
+
+    function phase6DiagnosticLocalCreateOk(traineeId) {
+      return isSignedIn()
+        && request.auth.uid == phase6DiagnosticKnownTraineeId()
+        && traineeId == request.auth.uid
+        && request.resource.size > 0
+        && request.resource.size <= 256
+        && request.resource.contentType == 'application/octet-stream';
+    }
+
+    function phase6DiagnosticCanDelete(traineeId) {
+      return isSignedIn()
+        && request.auth.uid == phase6DiagnosticKnownTraineeId()
+        && traineeId == request.auth.uid;
+    }
+
+    function phase6DiagnosticMembershipOneGetOk() {
+      let membership = firestore.get(
+        /databases/(default)/documents/group_memberships/i0CaSM4nEA9sNuKSRagO_OeflNaVfBkZ93BLOsGhRyOv6WAD3
+      ).data;
+      return membership.group_id == 'i0CaSM4nEA9sNuKSRagO'
+        && membership.teacher_id == 'WNFvwRJ4bzTFpVmsgv5x3qV2urt1'
+        && membership.trainee_id == 'OeflNaVfBkZ93BLOsGhRyOv6WAD3'
+        && membership.status == 'approved';
+    }
+
+    function phase6DiagnosticAssignmentOneGetOk() {
+      let assignment = firestore.get(
+        /databases/(default)/documents/group_assignments/ENvAezoRemcyihux3wpP
+      ).data;
+      return assignment.teacher_id == 'WNFvwRJ4bzTFpVmsgv5x3qV2urt1'
+        && assignment.group_id == 'i0CaSM4nEA9sNuKSRagO'
+        && assignment.movement_id == 'CYdQM78YMPbLTCTblERB'
+        && assignment.revision_id == 'DNLnQUFnxmwUP0y5uIM9'
+        && assignment.origin == 'teacher_created'
+        && assignment.assessment_mode == 'teacher_reviewed'
+        && assignment.status == 'active';
+    }
+
+    match /__elixr_diagnostics__/phase6_cross_service/{traineeId}/request_local.bin {
+      allow read: if false;
+      allow update: if false;
+      allow create: if phase6DiagnosticLocalCreateOk(traineeId);
+      allow delete: if phase6DiagnosticCanDelete(traineeId);
+    }
+
+    match /__elixr_diagnostics__/phase6_cross_service/{traineeId}/membership_one_get.bin {
+      allow read: if false;
+      allow update: if false;
+      allow create: if phase6DiagnosticLocalCreateOk(traineeId)
+        && phase6DiagnosticMembershipOneGetOk();
+      allow delete: if phase6DiagnosticCanDelete(traineeId);
+    }
+
+    match /__elixr_diagnostics__/phase6_cross_service/{traineeId}/assignment_one_get.bin {
+      allow read: if false;
+      allow update: if false;
+      allow create: if phase6DiagnosticLocalCreateOk(traineeId)
+        && phase6DiagnosticAssignmentOneGetOk();
+      allow delete: if phase6DiagnosticCanDelete(traineeId);
+    }
+
+    match /__elixr_diagnostics__/phase6_cross_service/{traineeId}/two_gets.bin {
+      allow read: if false;
+      allow update: if false;
+      allow create: if phase6DiagnosticLocalCreateOk(traineeId)
+        && phase6DiagnosticAssignmentOneGetOk()
+        && phase6DiagnosticMembershipOneGetOk();
+      allow delete: if phase6DiagnosticCanDelete(traineeId);
+    }
+
     // Authenticated users may view any profile avatar (shown across the
     // app in the sidebar, profile menu, and profile settings). Only the
     // owning UID may create, replace, or delete files under their own
