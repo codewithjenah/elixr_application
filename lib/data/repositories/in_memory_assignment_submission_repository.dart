@@ -18,6 +18,8 @@ class InMemoryAssignmentSubmissionRepository
     this.missingPaths = const {},
     this.reviewCacheDirectory,
     this.downloadedPaths,
+    this.diagnosticLog,
+    this.uploadException,
     Uint8List? playbackBytes,
   }) : _classroom = classroom,
        _now = now,
@@ -31,6 +33,8 @@ class InMemoryAssignmentSubmissionRepository
   final Set<String> missingPaths;
   final Directory? reviewCacheDirectory;
   final Set<String>? downloadedPaths;
+  final void Function(String line)? diagnosticLog;
+  Object? uploadException;
   final Uint8List? _playbackBytes;
 
   DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
@@ -49,7 +53,13 @@ class InMemoryAssignmentSubmissionRepository
       supersedesAttemptId: supersedesAttemptId,
       classroom: _classroom,
       now: now,
+      diagnosticLog: diagnosticLog,
       uploadObject: ({required draft, required storagePath}) async {
+        if (uploadException != null) {
+          final error = uploadException!;
+          uploadException = null;
+          throw error;
+        }
         if (failNextUpload) {
           failNextUpload = false;
           throw const AssignmentSubmissionException('storage upload failed');

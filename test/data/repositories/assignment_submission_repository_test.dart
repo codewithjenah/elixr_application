@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_submission_limits.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/phase6_submission_diagnostics.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
@@ -13,6 +15,7 @@ import 'package:elixr_application/data/repositories/in_memory_assignment_submiss
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -415,4 +418,197 @@ void main() {
       expect(updated.isReviewFacingSubmission, isFalse);
     },
   );
+
+  test(
+    'storage upload FirebaseException is rethrown after abandon compensation',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final logs = <String>[];
+      final submissions = InMemoryAssignmentSubmissionRepository(
+        classroom: assignments,
+        now: () => DateTime.utc(2026, 8, 20),
+        diagnosticLog: logs.add,
+        uploadException: FirebaseException(
+          plugin: 'firebase_storage',
+          code: 'unauthorized',
+          message:
+              'Bearer ya29.secret token=abc https://example.com/o?token=1 '
+              r'C:\Temp\elixr_submissions\clip.mp4 user@example.com',
+        ),
+      );
+
+      await expectLater(
+        submissions.submitLocalClip(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: const SubmissionRecordResult(
+            localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+            durationMs: 3500,
+            sizeBytes: 2048,
+            contentType: 'video/mp4',
+          ),
+        ),
+        throwsA(
+          isA<ClassroomException>()
+              .having((e) => e.code, 'code', ClassroomError.uploadFailed)
+              .having(
+                (e) => e.message,
+                'message',
+                'The submission clip could not be uploaded. Try again.',
+              ),
+        ),
+      );
+
+      expect(
+        logs.singleWhere((line) => line.contains('stage=storage_upload')),
+        contains('plugin=firebase_storage'),
+      );
+      expect(logs.join('\n'), isNot(contains('ya29')));
+      expect(logs.join('\n'), isNot(contains(r'C:\Temp')));
+      expect(logs.join('\n'), isNot(contains('user@example.com')));
+      final leftover = assignments.attempts.values.singleWhere(
+        (attempt) =>
+            attempt.attemptKind ==
+            AssignmentAttemptKind.teacherReviewSubmission,
+      );
+      expect(leftover.status, AssignmentAttemptStatus.draft);
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.deletionFailed, isFalse);
+      expect(leftover.awardsGlobalXp, isFalse);
+      expect(leftover.sourceSessionId, isNull);
+      expect(
+        logs.singleWhere((line) => line.contains('[Phase6StorageAnchor]')),
+        contains('attempt_exists=true'),
+      );
+      expect(
+        logs.singleWhere((line) => line.contains('[Phase6StorageAnchor]')),
+        contains('abandoned=false'),
+      );
+    },
+  );
+
+  test(
+    'Firestore submit failure is distinguished from Storage upload failure',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      assignments.failNextSubmitTransition = true;
+      final assignment = await teacherAssignment(assignments);
+      final logs = <String>[];
+      final deleted = <String>{};
+      final submissions = InMemoryAssignmentSubmissionRepository(
+        classroom: assignments,
+        now: () => DateTime.utc(2026, 8, 20),
+        diagnosticLog: logs.add,
+        deletedPaths: deleted,
+      );
+
+      await expectLater(
+        submissions.submitLocalClip(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: const SubmissionRecordResult(
+            localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+            durationMs: 3500,
+            sizeBytes: 2048,
+            contentType: 'video/mp4',
+          ),
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (e) => e.message,
+            'message',
+            'Could not finalize the submission metadata.',
+          ),
+        ),
+      );
+
+      expect(
+        logs.where((line) => line.contains('stage=storage_upload')),
+        isEmpty,
+      );
+      expect(
+        logs.singleWhere((line) => line.contains('stage=firestore_submit')),
+        contains('classroom_code=uploadFailed'),
+      );
+      expect(deleted, isNotEmpty);
+      final leftover = assignments.attempts.values.singleWhere(
+        (attempt) =>
+            attempt.attemptKind ==
+            AssignmentAttemptKind.teacherReviewSubmission,
+      );
+      expect(leftover.isAbandonedTeacherReviewDraft, isTrue);
+      expect(leftover.videoDeletedAt, isNotNull);
+      expect(leftover.awardsGlobalXp, isFalse);
+    },
+  );
+
+  test('diagnostic formatter redacts tokens and local paths', () {
+    final line = formatPhase6SubmissionDiagnostic(
+      stage: Phase6SubmissionStage.storageUpload,
+      error: FirebaseException(
+        plugin: 'firebase_storage',
+        code: 'unknown',
+        message:
+            'Authorization: Bearer ya29.secret token=abc '
+            'https://firebasestorage.googleapis.com/v0/b/x/o?token=y '
+            r'C:\Users\Jiro\clip.mp4 ada@example.com',
+      ),
+    );
+    expect(line, contains('stage=storage_upload'));
+    expect(line, contains('plugin=firebase_storage'));
+    expect(line, contains('code=unknown'));
+    expect(line, isNot(contains('ya29')));
+    expect(line, isNot(contains('Bearer ya29')));
+    expect(line, isNot(contains('token=y')));
+    expect(line, isNot(contains(r'C:\Users')));
+    expect(line, isNot(contains('ada@example.com')));
+    expect(line, isNot(contains('https://firebasestorage')));
+  });
+
+  test(
+    'runPhase6StorageUpload rethrows FirebaseException after logging',
+    () async {
+      final logs = <String>[];
+      await expectLater(
+        runPhase6StorageUpload(
+          log: logs.add,
+          upload: () async {
+            throw FirebaseException(
+              plugin: 'firebase_storage',
+              code: 'canceled',
+              message: 'upload canceled',
+            );
+          },
+        ),
+        throwsA(
+          isA<FirebaseException>().having((e) => e.code, 'code', 'canceled'),
+        ),
+      );
+      expect(logs.single, contains('stage=storage_upload'));
+      expect(logs.single, contains('plugin=firebase_storage'));
+      expect(logs.single, contains('code=canceled'));
+    },
+  );
+
+  test('runPhase6StorageUpload logs success bytes', () async {
+    final logs = <String>[];
+    final bytes = await runPhase6StorageUpload(
+      log: logs.add,
+      upload: () async => 2048,
+    );
+    expect(bytes, 2048);
+    expect(
+      logs.single,
+      '[Phase6Submission] stage=storage_upload result=success bytes=2048',
+    );
+  });
 }

@@ -8,8 +8,12 @@ import {
   assertFails,
 } from '@firebase/rules-unit-testing';
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
+  where,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -750,5 +754,38 @@ describe('Phase 6 teacher_review_submission', () => {
         deletion_failed: false,
       }),
     );
+  });
+});
+
+describe('Phase 6 assignment_attempts list queries', () => {
+  test('authenticated trainee can query own trainee_id', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const listed = await assertSucceeds(getDocs(query(
+      collection(context('trainee').firestore(), 'assignment_attempts'),
+      where('trainee_id', '==', 'trainee'),
+    )));
+    assert.equal(listed.docs.length, 1);
+    assert.equal(listed.docs[0].id, ATTEMPT);
+  });
+
+  test('authenticated other trainee cannot query someone else trainee_id', async () => {
+    await seedClassroom();
+    await seedDraft();
+    await assertFails(getDocs(query(
+      collection(context('otherTrainee').firestore(), 'assignment_attempts'),
+      where('trainee_id', '==', 'trainee'),
+    )));
+  });
+
+  test('authenticated assigning Teacher can query own teacher_id', async () => {
+    await seedClassroom();
+    await seedDraft();
+    const listed = await assertSucceeds(getDocs(query(
+      collection(context('teacher').firestore(), 'assignment_attempts'),
+      where('teacher_id', '==', 'teacher'),
+    )));
+    assert.equal(listed.docs.length, 1);
+    assert.equal(listed.docs[0].id, ATTEMPT);
   });
 });

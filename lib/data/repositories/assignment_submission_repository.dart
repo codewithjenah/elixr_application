@@ -5,8 +5,11 @@ import '../models/assignment_attempt.dart';
 import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
+import '../models/phase6_submission_diagnostics.dart';
 import '../models/ws_protocol.dart';
 import 'classroom_assignment_repository.dart';
+
+export '../models/classroom_exceptions.dart' show AssignmentSubmissionException;
 
 /// Classroom video submissions. Separate from session-evidence JPEGs.
 ///
@@ -39,15 +42,6 @@ class SubmissionPlaybackFile {
   final String localPath;
 
   Uri get uri => Uri.file(localPath);
-}
-
-class AssignmentSubmissionException implements Exception {
-  const AssignmentSubmissionException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
 }
 
 void ensureLocalClipWithinLimits(SubmissionRecordResult clip) {
@@ -160,12 +154,35 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
   required bool Function(Object error) isObjectNotFound,
   required DateTime now,
   Future<void> Function()? deleteLocalFile,
+  void Function(String line)? diagnosticLog,
 }) async {
   ensureLocalClipWithinLimits(clip);
-  final draft = await classroom.createTeacherReviewSubmissionDraft(
-    traineeId: traineeId,
-    assignment: assignment,
-    supersedesAttemptId: supersedesAttemptId,
+  late final AssignmentAttempt draft;
+  try {
+    draft = await classroom.createTeacherReviewSubmissionDraft(
+      traineeId: traineeId,
+      assignment: assignment,
+      supersedesAttemptId: supersedesAttemptId,
+    );
+  } catch (error) {
+    emitPhase6SubmissionDiagnostic(
+      stage: Phase6SubmissionStage.createDraft,
+      error: error,
+      log: diagnosticLog,
+    );
+    if (error is ClassroomException || error is AssignmentSubmissionException) {
+      rethrow;
+    }
+    throw const ClassroomException(
+      ClassroomError.uploadFailed,
+      'The submission clip could not be uploaded. Try again.',
+    );
+  }
+  await emitPhase6DurableDraftAnchor(
+    draft: draft,
+    readAttempt: ({required attemptId}) =>
+        classroom.getAttempt(attemptId: attemptId),
+    diagnosticLog: diagnosticLog,
   );
   final path = assignmentSubmissionStoragePath(
     teacherId: draft.teacherId,
@@ -175,9 +192,11 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
     attemptId: draft.id,
   );
   var uploaded = false;
+  var stage = Phase6SubmissionStage.storageUpload;
   try {
     await uploadObject(draft: draft, storagePath: path);
     uploaded = true;
+    stage = Phase6SubmissionStage.firestoreSubmit;
     final submitted = await classroom.markTeacherReviewSubmitted(
       traineeId: traineeId,
       attempt: draft,
@@ -188,6 +207,7 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
       submittedAt: now,
       videoExpiresAt: unreviewedVideoExpiresAt(now),
     );
+    stage = Phase6SubmissionStage.supersededCleanup;
     await deleteSupersededSubmissionVideo(
       actorId: traineeId,
       supersedesAttemptId: supersedesAttemptId,
@@ -196,16 +216,29 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
       isObjectNotFound: isObjectNotFound,
       now: now,
     );
+    stage = Phase6SubmissionStage.localCleanup;
     try {
       await deleteLocalFile?.call();
-    } catch (_) {}
+    } catch (error) {
+      emitPhase6SubmissionDiagnostic(
+        stage: Phase6SubmissionStage.localCleanup,
+        error: error,
+        log: diagnosticLog,
+      );
+    }
     return submitted;
   } catch (error) {
+    emitPhase6SubmissionDiagnostic(
+      stage: stage,
+      error: error,
+      log: diagnosticLog,
+    );
     if (!uploaded) {
       await _markAbandonedDraftQuietly(
         classroom: classroom,
         traineeId: traineeId,
         draft: draft,
+        diagnosticLog: diagnosticLog,
       );
     } else {
       var objectGone = false;
@@ -223,6 +256,7 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
           traineeId: traineeId,
           draft: draft,
           videoDeletedAt: now,
+          diagnosticLog: diagnosticLog,
         );
       } else {
         await _markAbandonedDraftQuietly(
@@ -231,6 +265,7 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
           draft: draft,
           deletionFailed: true,
           deletionFailedAt: now,
+          diagnosticLog: diagnosticLog,
         );
       }
     }
@@ -251,6 +286,7 @@ Future<void> _markAbandonedDraftQuietly({
   DateTime? videoDeletedAt,
   bool deletionFailed = false,
   DateTime? deletionFailedAt,
+  void Function(String line)? diagnosticLog,
 }) async {
   try {
     await classroom.markTeacherReviewSubmissionAbandoned(
@@ -260,7 +296,12 @@ Future<void> _markAbandonedDraftQuietly({
       deletionFailed: deletionFailed,
       deletionFailedAt: deletionFailedAt,
     );
-  } catch (_) {
+  } catch (error) {
+    emitPhase6SubmissionDiagnostic(
+      stage: Phase6SubmissionStage.abandonCompensation,
+      error: error,
+      log: diagnosticLog,
+    );
     // Leftover draft remains an authorization anchor. Never report submitted.
   }
 }

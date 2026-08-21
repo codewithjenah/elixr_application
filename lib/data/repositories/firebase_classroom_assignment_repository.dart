@@ -6,6 +6,7 @@ import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
+import '../models/phase6_submission_diagnostics.dart';
 import '../models/teacher_movement.dart';
 import 'classroom_assignment_repository.dart';
 
@@ -311,15 +312,23 @@ class FirebaseClassroomAssignmentRepository
     if (attempt.traineeId != traineeId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
-    await _attempts.doc(attempt.id).update({
-      'status': AssignmentAttemptStatus.submitted.wireValue,
-      'video_storage_path': videoStoragePath,
-      'video_content_type': videoContentType,
-      'video_size_bytes': videoSizeBytes,
-      'video_duration_ms': videoDurationMs,
-      'submitted_at': FieldValue.serverTimestamp(),
-      'video_expires_at': Timestamp.fromDate(videoExpiresAt.toUtc()),
-    });
+    try {
+      await _attempts.doc(attempt.id).update({
+        'status': AssignmentAttemptStatus.submitted.wireValue,
+        'video_storage_path': videoStoragePath,
+        'video_content_type': videoContentType,
+        'video_size_bytes': videoSizeBytes,
+        'video_duration_ms': videoDurationMs,
+        'submitted_at': FieldValue.serverTimestamp(),
+        'video_expires_at': Timestamp.fromDate(videoExpiresAt.toUtc()),
+      });
+    } on FirebaseException catch (error) {
+      emitPhase6SubmissionDiagnostic(
+        stage: Phase6SubmissionStage.firestoreSubmit,
+        error: error,
+      );
+      rethrow;
+    }
     return attempt.copyWith(
       status: AssignmentAttemptStatus.submitted,
       videoStoragePath: videoStoragePath,

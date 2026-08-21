@@ -8,6 +8,15 @@ class ClassroomException implements Exception {
   String toString() => message ?? code.name;
 }
 
+class AssignmentSubmissionException implements Exception {
+  const AssignmentSubmissionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 enum ClassroomError {
   notFound,
   forbidden,
