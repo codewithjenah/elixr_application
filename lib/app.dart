@@ -23,6 +23,8 @@ import 'data/repositories/firebase_assignment_submission_repository.dart';
 import 'data/repositories/firebase_classroom_assignment_repository.dart';
 import 'data/repositories/firebase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
+import 'debug/assignment_put_data_probe.dart';
+import 'debug/storage_put_file_probe.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
@@ -66,7 +68,8 @@ class _ElixrAppState extends State<ElixrApp> {
     _authService = AuthService(
       leaderboardRepository: LeaderboardRepository(),
       publicProfileRepository: _publicProfileRepository,
-    )..initialize();
+    );
+    unawaited(_initializeAuthThenMaybeProbe());
     _settingsService = SettingsService()..initialize();
     _cameraDeviceService = CameraDeviceService();
     _tutorialProgressService = TutorialProgressService();
@@ -78,6 +81,12 @@ class _ElixrAppState extends State<ElixrApp> {
       _tutorialProgressService,
       _joinLinkService,
     );
+  }
+
+  Future<void> _initializeAuthThenMaybeProbe() async {
+    await _authService.initialize();
+    await maybeRunLiveStoragePutFileProbe();
+    await maybeRunLiveAssignmentPutDataProbe();
   }
 
   @override
