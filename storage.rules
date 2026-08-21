@@ -34,14 +34,6 @@ service firebase.storage {
         ];
     }
 
-    function assignmentAttemptDoc(attemptId) {
-      return firestore.get(/databases/(default)/documents/assignment_attempts/$(attemptId));
-    }
-
-    function groupMembershipDoc(groupId, traineeId) {
-      return firestore.get(/databases/(default)/documents/group_memberships/$(groupId + '_' + traineeId));
-    }
-
     function isAssignmentMp4Name(fileName, attemptId) {
       return fileName == attemptId + '.mp4'
         && attemptId.matches('^review_sub_[A-Za-z0-9]+$');
@@ -81,12 +73,65 @@ service firebase.storage {
         && !isAbandonedTeacherReviewAnchor(attempt);
     }
 
-    function hasApprovedSubmissionMembership(groupId, teacherId, traineeId) {
-      let membership = groupMembershipDoc(groupId, traineeId).data;
-      return membership.group_id == groupId
+    // Cloud Storage Security Rules allow at most two Firestore document accesses
+    // per request. Keep the submission attempt and membership bound once per
+    // evaluation; do not reintroduce repeated get/exists calls.
+
+    function canCreateAssignmentSubmission(teacherId, groupId, assignmentId, traineeId) {
+      let attemptId = request.resource.metadata.attempt_id;
+      let attempt = firestore.get(
+        /databases/(default)/documents/assignment_attempts/$(attemptId)
+      ).data;
+      let membership = firestore.get(
+        /databases/(default)/documents/group_memberships/$(groupId + '_' + traineeId)
+      ).data;
+      return submissionAttemptMatchesPath(
+          attempt, teacherId, groupId, assignmentId, traineeId, attemptId
+        )
+        && attempt.movement_id == request.resource.metadata.movement_id
+        && attempt.revision_id == request.resource.metadata.revision_id
+        && isActiveSubmissionUploadAnchor(attempt)
+        && membership.group_id == groupId
         && membership.teacher_id == teacherId
         && membership.trainee_id == traineeId
         && membership.status == 'approved';
+    }
+
+    function canReadAssignmentSubmission(teacherId, groupId, assignmentId, traineeId) {
+      let attemptId = resource.metadata.attempt_id;
+      let attempt = firestore.get(
+        /databases/(default)/documents/assignment_attempts/$(attemptId)
+      ).data;
+      return submissionAttemptMatchesPath(
+          attempt, teacherId, groupId, assignmentId, traineeId, attemptId
+        )
+        && (
+          request.auth.uid == traineeId
+          || (
+            request.auth.uid == teacherId
+            && isReviewableSubmissionStatus(attempt.status)
+          )
+        );
+    }
+
+    function canDeleteAssignmentSubmission(teacherId, groupId, assignmentId, traineeId) {
+      let attemptId = resource.metadata.attempt_id;
+      let attempt = firestore.get(
+        /databases/(default)/documents/assignment_attempts/$(attemptId)
+      ).data;
+      return submissionAttemptMatchesPath(
+          attempt, teacherId, groupId, assignmentId, traineeId, attemptId
+        )
+        && (
+          request.auth.uid == traineeId
+          || (
+            request.auth.uid == teacherId
+            && (
+              isReviewableSubmissionStatus(attempt.status)
+              || isAbandonedTeacherReviewAnchor(attempt)
+            )
+          )
+        );
     }
 
     // Assignment Submission Authorization is independent of Public Profile,
@@ -96,20 +141,7 @@ service firebase.storage {
       allow read: if isSignedIn()
         && resource.metadata.attempt_id is string
         && isAssignmentMp4Name(fileName, resource.metadata.attempt_id)
-        && firestore.exists(/databases/(default)/documents/assignment_attempts/$(resource.metadata.attempt_id))
-        && submissionAttemptMatchesPath(
-          assignmentAttemptDoc(resource.metadata.attempt_id).data,
-          teacherId, groupId, assignmentId, traineeId, resource.metadata.attempt_id
-        )
-        && (
-          request.auth.uid == traineeId
-          || (
-            request.auth.uid == teacherId
-            && isReviewableSubmissionStatus(
-              assignmentAttemptDoc(resource.metadata.attempt_id).data.status
-            )
-          )
-        );
+        && canReadAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
 
       allow create: if isOwner(traineeId)
         && request.resource.metadata.attempt_id is string
@@ -122,45 +154,14 @@ service firebase.storage {
           teacherId, groupId, assignmentId, traineeId,
           request.resource.metadata.attempt_id
         )
-        && firestore.exists(/databases/(default)/documents/assignment_attempts/$(request.resource.metadata.attempt_id))
-        && submissionAttemptMatchesPath(
-          assignmentAttemptDoc(request.resource.metadata.attempt_id).data,
-          teacherId, groupId, assignmentId, traineeId,
-          request.resource.metadata.attempt_id
-        )
-        && assignmentAttemptDoc(request.resource.metadata.attempt_id).data.movement_id
-          == request.resource.metadata.movement_id
-        && assignmentAttemptDoc(request.resource.metadata.attempt_id).data.revision_id
-          == request.resource.metadata.revision_id
-        && isActiveSubmissionUploadAnchor(
-          assignmentAttemptDoc(request.resource.metadata.attempt_id).data
-        )
-        && hasApprovedSubmissionMembership(groupId, teacherId, traineeId);
+        && canCreateAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
 
       allow update: if false;
 
       allow delete: if isSignedIn()
         && resource.metadata.attempt_id is string
         && isAssignmentMp4Name(fileName, resource.metadata.attempt_id)
-        && firestore.exists(/databases/(default)/documents/assignment_attempts/$(resource.metadata.attempt_id))
-        && submissionAttemptMatchesPath(
-          assignmentAttemptDoc(resource.metadata.attempt_id).data,
-          teacherId, groupId, assignmentId, traineeId, resource.metadata.attempt_id
-        )
-        && (
-          request.auth.uid == traineeId
-          || (
-            request.auth.uid == teacherId
-            && (
-              isReviewableSubmissionStatus(
-                assignmentAttemptDoc(resource.metadata.attempt_id).data.status
-              )
-              || isAbandonedTeacherReviewAnchor(
-                assignmentAttemptDoc(resource.metadata.attempt_id).data
-              )
-            )
-          )
-        );
+        && canDeleteAssignmentSubmission(teacherId, groupId, assignmentId, traineeId);
     }
 
     // Authenticated users may view any profile avatar (shown across the

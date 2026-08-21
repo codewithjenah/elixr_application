@@ -84,7 +84,9 @@ async function seedClassroom({
   membership = 'approved',
   attemptStatus = 'draft',
   includeAttempt = true,
+  includeMembership = true,
   attemptOverrides = {},
+  membershipOverrides = {},
   abandoned = false,
 } = {}) {
   await testEnv.withSecurityRulesDisabled(async (admin) => {
@@ -97,17 +99,20 @@ async function seedClassroom({
       full_name: 'Trainee One',
       role: 'Trainee',
     });
-    await setDoc(doc(db, 'group_memberships', `${GROUP}_${TRAINEE}`), {
-      group_id: GROUP,
-      teacher_id: TEACHER,
-      trainee_id: TRAINEE,
-      teacher_display_name: 'Teacher One',
-      trainee_display_name: 'Trainee One',
-      status: membership,
-      invite_id: '7KPMXR4DQ2WT',
-      created_at: Timestamp.now(),
-      updated_at: Timestamp.now(),
-    });
+    if (includeMembership) {
+      await setDoc(doc(db, 'group_memberships', `${GROUP}_${TRAINEE}`), {
+        group_id: GROUP,
+        teacher_id: TEACHER,
+        trainee_id: TRAINEE,
+        teacher_display_name: 'Teacher One',
+        trainee_display_name: 'Trainee One',
+        status: membership,
+        invite_id: '7KPMXR4DQ2WT',
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+        ...membershipOverrides,
+      });
+    }
     await setDoc(doc(db, 'group_assignments', ASG), {
       teacher_id: TEACHER,
       group_id: GROUP,
@@ -316,7 +321,38 @@ describe('assignment_submissions create predicates', () => {
     await assertFails(upload(TRAINEE));
   });
 
-  test('21 exact fully valid request is allowed', async () => {
+  test('21 missing membership document is denied', async () => {
+    await seedClassroom({ includeMembership: false });
+    await assertFails(upload(TRAINEE));
+  });
+
+  test('22 mismatched membership teacher is denied', async () => {
+    await seedClassroom({
+      membershipOverrides: { teacher_id: 'otherTeacherUid0000000000001' },
+    });
+    await assertFails(upload(TRAINEE));
+  });
+
+  test('23 mismatched membership trainee is denied', async () => {
+    await seedClassroom({
+      membershipOverrides: { trainee_id: 'otherTraineeUid0000000000001' },
+    });
+    await assertFails(upload(TRAINEE));
+  });
+
+  test('24 mismatched membership group is denied', async () => {
+    await seedClassroom({
+      membershipOverrides: { group_id: 'otherGroup0000000001' },
+    });
+    await assertFails(upload(TRAINEE));
+  });
+
+  test('25 zero-byte object is denied', async () => {
+    await seedClassroom();
+    await assertFails(upload(TRAINEE, { body: new Uint8Array(0) }));
+  });
+
+  test('26 exact fully valid request is allowed', async () => {
     await seedClassroom();
     await assertSucceeds(upload(TRAINEE));
   });
