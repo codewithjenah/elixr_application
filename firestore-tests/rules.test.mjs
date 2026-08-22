@@ -1377,7 +1377,11 @@ describe('daily_quest_boards', () => {
 
   test('board is fully immutable after creation', async () => {
     const db = aliceDb();
-    const { id, data } = boardData('alice', new Date(Date.now() + 18_000_000));
+    // Create is anchored to emulator request.time (today's Manila day_key).
+    // A Date.now() + N shift can roll into the next Manila calendar day and
+    // deny create before immutability is exercised.
+    const now = new Date();
+    const { id, data } = boardData('alice', now);
     await assertSucceeds(setDoc(doc(db, 'daily_quest_boards', id), data));
     await assertFails(
       setDoc(doc(db, 'daily_quest_boards', id), { ...data, quest_ids: [...VALID_QUEST_IDS].reverse() }),
