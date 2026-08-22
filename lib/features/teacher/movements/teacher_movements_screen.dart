@@ -11,12 +11,13 @@ import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
-import '../../../data/models/teacher_reviewed_movement_spec.dart';
-import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../services/auth_service.dart';
+import 'teacher_live_test_screen.dart';
+import 'teacher_movement_builder_dialog.dart';
+import 'teacher_movement_builder_draft.dart';
 import 'teacher_movements_controller.dart';
 import 'teacher_reviews_pane.dart';
 
@@ -484,130 +485,64 @@ Future<void> _showCreateOrEditMovement(
   TeacherMovementsController controller, {
   TeacherMovement? existing,
 }) async {
-  final title = TextEditingController(text: existing?.title ?? '');
-  final instructions = TextEditingController();
-  final safety = TextEditingController();
-  var prop = TrainingProp.bottle;
+  TeacherMovementRevision? revision;
   if (existing != null) {
-    final revision = await controller.movementRepository.getRevision(
+    revision = await controller.movementRepository.getRevision(
       movementId: existing.id,
       revisionId: existing.currentRevisionId,
     );
-    instructions.text = revision?.spec.instructions ?? '';
-    safety.text = revision?.spec.safetyGuidance ?? '';
-    prop = revision?.spec.requiredProp ?? TrainingProp.bottle;
   }
   if (!context.mounted) return;
+  TeacherLiveTestDraft? liveTest;
   await showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return ContentDialog(
-            title: Text(existing == null ? 'Create movement' : 'Edit movement'),
-            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  InfoBar(
-                    title: const Text('Teacher reviewed'),
-                    content: const Text(
-                      'No automatic ELIXR score. Editing publishes a new revision and keeps old assignments pinned.',
-                    ),
-                    severity: InfoBarSeverity.info,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  InfoLabel(
-                    label: 'Title',
-                    child: TextBox(
-                      controller: title,
-                      placeholder: 'Movement title',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  InfoLabel(
-                    label: 'Instructions',
-                    child: TextBox(
-                      controller: instructions,
-                      maxLines: 6,
-                      placeholder: 'What the trainee should practice',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  InfoLabel(
-                    label: 'Required prop',
-                    child: ComboBox<TrainingProp>(
-                      value: prop,
-                      items: [
-                        for (final value in TrainingProp.values)
-                          ComboBoxItem(
-                            value: value,
-                            child: Text(value.displayLabel),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => prop = value);
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  InfoLabel(
-                    label: 'Safety guidance (optional)',
-                    child: TextBox(controller: safety, maxLines: 3),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              Button(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
-              ),
-              ElixPrimaryButton(
-                label: existing == null ? 'Create' : 'Save revision',
-                expanded: false,
-                dense: true,
-                onPressed: () async {
-                  final titleError = TeacherReviewedMovementSpec.validateTitle(
-                    title.text,
-                  );
-                  final instructionsError =
-                      TeacherReviewedMovementSpec.validateInstructions(
-                        instructions.text,
-                      );
-                  if (titleError != null || instructionsError != null) {
-                    return;
-                  }
-                  if (existing == null) {
-                    await controller.createMovement(
-                      title: title.text,
-                      instructions: instructions.text,
-                      requiredProp: prop,
-                      safetyGuidance: safety.text,
-                    );
-                  } else {
-                    await controller.editMovement(
-                      movement: existing,
-                      title: title.text,
-                      instructions: instructions.text,
-                      requiredProp: prop,
-                      safetyGuidance: safety.text,
-                    );
-                  }
-                  if (dialogContext.mounted) Navigator.pop(dialogContext);
-                },
-              ),
-            ],
-          );
+      return TeacherMovementBuilderDialog(
+        existing: existing,
+        existingRevision: revision,
+        onCreateTeacherReviewed:
+            ({
+              required title,
+              required instructions,
+              required requiredProp,
+              safetyGuidance,
+            }) {
+              return controller.createMovement(
+                title: title,
+                instructions: instructions,
+                requiredProp: requiredProp,
+                safetyGuidance: safetyGuidance,
+              );
+            },
+        onEditTeacherReviewed: existing == null
+            ? null
+            : ({
+                required title,
+                required instructions,
+                required requiredProp,
+                safetyGuidance,
+              }) {
+                return controller.editMovement(
+                  movement: existing,
+                  title: title,
+                  instructions: instructions,
+                  requiredProp: requiredProp,
+                  safetyGuidance: safetyGuidance,
+                );
+              },
+        onOpenLiveTest: (draft) {
+          liveTest = draft;
+          Navigator.pop(dialogContext);
         },
       );
     },
   );
-  title.dispose();
-  instructions.dispose();
-  safety.dispose();
+  if (liveTest == null || !context.mounted) return;
+  await Navigator.of(context).push(
+    FluentPageRoute<void>(
+      builder: (_) => TeacherLiveTestScreen(draft: liveTest!),
+    ),
+  );
 }
 
 Future<void> _showAssignDialog(
