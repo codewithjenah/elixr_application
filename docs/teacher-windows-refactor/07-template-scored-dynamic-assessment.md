@@ -1,6 +1,6 @@
 # Phase 7 — Template-scored dynamic assessment (Wrist Stall vertical slice)
 
-**Status:** PHASE 7 FIRESTORE RULES DEPLOYED — production E2E pending; physical camera characterization deferred
+**Status:** PHASE 7 PRODUCTION CLOSED — FUNCTIONAL WRITE PATH; physical camera characterization deferred
 **Sequence:** `07` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 6 complete enough that Teacher-reviewed custom movements work, **and** Phase 5 `assignment_attempts` + revision `spec` exist. If missing, **STOP**. Do not score into `sessions`.
 
@@ -19,9 +19,11 @@
 
 ## 1. Status
 
-PHASE 7 FIRESTORE RULES DEPLOYED — production E2E pending; physical camera characterization deferred
+PHASE 7 PRODUCTION CLOSED — FUNCTIONAL WRITE PATH
 
-Phase 7 is **not** PRODUCTION CLOSED. Automated implementation and local/emulator gates are complete. Production Firestore Phase 7 rules were deployed on 2026-08-22 after explicit human authorization. Production Phase 7 E2E is **not verified**. Real-camera Wrist Stall accuracy is **not verified**. Phase 8 is **not started**.
+Phase 7 functional production E2E passed on 2026-08-22 after explicit human authorization `AUTHORIZED FOR PHASE7 CONTROLLED PRODUCTION E2E`. Production Firestore Phase 7 rules remain the live rules-only deploy. Real-camera Wrist Stall accuracy is **not verified**. Physical Wrist Stall characterization remains **DEFERRED / NOT VERIFIED**. Phase 8 is **not started**.
+
+Classroom/template scores remain **controlled-client capstone classroom assessment data**.
 
 | Gate | State |
 |---|---|
@@ -34,15 +36,11 @@ Phase 7 is **not** PRODUCTION CLOSED. Automated implementation and local/emulato
 | Physical Wrist Stall camera characterization | **DEFERRED / NOT VERIFIED** — not a failing automated gate |
 | Real-camera Wrist Stall accuracy | **NOT VERIFIED** |
 | Phase 7 Firestore production rules rollout | **PASS** (rules only; 2026-08-22) |
-| Production Phase 7 functional E2E | **NOT VERIFIED** |
-| Phase 7 overall | **NOT PRODUCTION CLOSED** |
+| Production Phase 7 functional E2E | **PASS** (2026-08-22) |
+| Phase 7 overall | **PRODUCTION CLOSED — FUNCTIONAL WRITE PATH** |
 | Phase 8 | **NOT STARTED** |
 
-Phase 7E writes template-scored revisions, freezes `assessment_spec` on Teacher-created assignments, and persists append-only `template_score` attempts. Live Firestore rules in project `elixr-app-2026` now include those Phase 7 write paths. Storage rules, Storage lifecycle, and Firestore indexes were not part of this deploy. Do not treat rules deployment as production E2E verification.
-
-Physical Wrist Stall A–L characterization was **explicitly deferred by the human operator**. That is a documented thesis/project validation limitation. It is **not** classified as an automated-gate failure. The product must **not** claim that Wrist Stall accuracy has been physically validated. Do not fabricate camera results. Future UAT or demo testing may characterize physical accuracy later; that work is not required to close this documentation task and is not requested here.
-
-See [§24 Phase 7F verification](#24-phase-7f-verification) through [§31 remaining production E2E](#31-remaining-production-e2e-not-yet-executed).
+See [§24 Phase 7F verification](#24-phase-7f-verification) through [§31 production E2E evidence](#31-production-e2e-evidence).
 
 ## 2. Goal
 
@@ -239,13 +237,13 @@ flutter build windows
 ## 19. Manual verification checklist
 
 - [ ] Teacher Live Test Wrist Stall: preview, readiness, score, stop, camera released.
-- [x] Trainee assignment persist path exists locally (`template_score` on `assignment_attempts`); Phase 7 Firestore production rules rollout is **PASS**. Production functional E2E is still **NOT VERIFIED**.
-- [ ] Trainee assignment: result on Teacher student/assignment UI; global XP unchanged.
+- [x] Trainee assignment persist path exists locally and in production (`template_score` on `assignment_attempts`).
+- [x] Trainee assignment: one production `template_score` result; assigning Teacher identity frozen; global XP unchanged.
 - [ ] Official Hand Stall still works.
 - [ ] Builder rejects a hacked spec with a numeric threshold if the UI is bypassed (or backend rejects).
-- [ ] Physical Wrist Stall A–L camera characterization: **DEFERRED BY HUMAN OPERATOR**. Not performed. Not classified as an automated failure. Real-camera accuracy remains **NOT VERIFIED**.
+- [ ] Physical Wrist Stall A–L camera characterization: **DEFERRED / NOT VERIFIED**. Not performed. Not classified as an automated failure.
 - [x] Phase 7 Firestore production rules rollout: **PASS** 2026-08-22 after explicit human authorization. Target was `firestore:rules` only.
-- [ ] Production Phase 7 functional E2E after authorized rules deploy: **NOT VERIFIED**.
+- [x] Production Phase 7 functional E2E: **PASS** 2026-08-22. See §31.
 
 ## 20. Performance / storage / privacy risks
 
@@ -272,14 +270,12 @@ flutter build windows
 Phase 7F close-out — AUTOMATED VERIFICATION COMPLETE
 PHYSICAL CAMERA CHARACTERIZATION DEFERRED / NOT VERIFIED
 
-- Status: PHASE 7 FIRESTORE RULES DEPLOYED — production E2E pending;
-  physical camera characterization deferred
-- Do NOT write: PRODUCTION CLOSED
+- Status: PHASE 7 PRODUCTION CLOSED — FUNCTIONAL WRITE PATH
+- Functional production E2E: PASS (2026-08-22)
 - template_id shipped locally: balance_stall.wrist_v1
 - Prop: bottle only
 - Live Test uses existing Python: yes (local implementation)
-- Tamper-proof claim avoided: yes
-  (controlled-client capstone classroom assessment data)
+- Trust wording: controlled-client capstone classroom assessment data
 - PHASE7F_AUTOMATED_VERIFICATION: PASS
 - PHASE7F_PHYSICAL_CHARACTERIZATION: DEFERRED
 - PHYSICAL_CAMERA_CHARACTERIZATION: DEFERRED
@@ -293,8 +289,11 @@ PHYSICAL CAMERA CHARACTERIZATION DEFERRED / NOT VERIFIED
 - LIVE_FIRESTORE_RULES_MATCH_INTENDED_LOCAL: YES
 - Storage / indexes / Functions / IAM / App Check deployed: NO
 - Phase 8 started: NO
-- PHASE7_OVERALL_COMPLETE: NO
+- PHASE7_FUNCTIONAL_PRODUCTION_PATH: CLOSED
+- PHASE7_OVERALL_COMPLETE: NO (physical camera characterization deferred)
+- Production Phase 7 functional E2E: PASS
 - READY_FOR_PHASE7_FIRESTORE_DEPLOY_AUTHORIZATION: consumed; do not reuse
+- PHASE7_CONTROLLED_PRODUCTION_E2E_AUTHORIZATION: consumed; do not reuse
 
 Automated evidence preserved from HEAD 94f5dcc25ef2a6fd88c8e8f6a79b9d7112cba4c7
 (not rerun in this documentation-only task):
@@ -316,15 +315,15 @@ Not verified:
 - real-camera Wrist Stall accuracy
 - trainee physical / production-app + emulator manual E2E
   (production Windows app has no Firestore emulator wiring)
-- production Phase 7 functional E2E
 - PHYSICAL_CAMERA_CHARACTERIZATION (deferred; not a failed automated gate)
+- real-camera Wrist Stall accuracy (not claimed from the functional E2E)
 ```
 
 ## 23. Handoff requirements for Phase 8
 
-Phase 8 must **not** start until Phase 7 is PRODUCTION CLOSED. The Firestore-rules-only production deploy is done. A later controlled production E2E is still required. This document does not start Phase 8.
+Phase 8 must **not** start in this change. Phase 7 is PRODUCTION CLOSED for the functional write path. Physical camera characterization remains **DEFERRED / NOT VERIFIED**. Real-camera accuracy remains **NOT VERIFIED**.
 
-When Phase 7 is later PRODUCTION CLOSED, Phase 8 still requires:
+When Phase 8 is later authorized, it still requires:
 
 1. Teacher-reviewed (Phase 6) and template-scored Wrist Stall (Phase 7) both exist.
 2. Feature list vs teacher_app can be compared (Android roster vs Windows Groups, etc.).
@@ -347,6 +346,7 @@ Physical camera characterization is **DEFERRED / NOT VERIFIED**.
 | Production Firestore rules | **DEPLOYED** (rules only; live hash matches intended local) |
 | Production Firestore indexes | **UNCHANGED** |
 | Production Storage | **UNCHANGED** (Phase 6 cleaned contract) |
+| Production Phase 7 functional E2E | **PASS** (2026-08-22) |
 
 Deferred physical characterization is a known validation limitation, not a failed automated suite. Future UAT or demo testing **may** characterize physical accuracy later. It is not required to fabricate results, and it does not block recording this repository documentation. Do **not** request camera testing as part of this close-out.
 
@@ -427,11 +427,9 @@ Teacher Live Test remains ephemeral: no `sessions`, no XP, no required `assignme
 
 Template-scored classroom results are **controlled-client capstone classroom assessment data**.
 
-Do **not** call them tamper-proof.
+The local Python CV backend performs the assessment and the authenticated Windows client persists the classroom result.
 
-The local Python backend performs inference. The authenticated Windows client persists the classroom result. A hostile modified client is outside the capstone trust model.
-
-Phase 7 Firestore rules now live in production. They freeze classroom identity and enforce `awards_global_xp = false`. That design protects the global XP / session / leaderboard path even though classroom scores themselves are not a trusted server-authoritative ranking against a hostile client.
+Firestore rules freeze the relevant classroom identity and require `awards_global_xp = false`. This protects the official sessions / leaderboard / global-XP path from Teacher-created template results.
 
 ## 29. Production Firestore rule evidence
 
@@ -491,7 +489,7 @@ Live production now supports the Phase 7 write path that local rules already con
 - frozen template assignment `assessment_spec`
 - `template_score` classroom result creation/read
 
-That is **not** the same as a verified production classroom workflow.
+That rules deploy is **not** itself the production classroom E2E. The later controlled functional write-path E2E is recorded in §31.
 
 ## 30. Production rollout authorization gate
 
@@ -505,30 +503,33 @@ npx --yes firebase-tools@latest deploy --only firestore:rules --project elixr-ap
 
 Do **not** use `--only firestore`. That target may also include Firestore indexes.
 
-## 31. Remaining production E2E (NOT YET EXECUTED)
+## 31. Production E2E evidence
 
-Rules-only deploy and hash/index/Storage read-back are complete. The following controlled production workflow is still **NOT VERIFIED** and was **not** executed by this documentation task:
+Authorization used: `AUTHORIZED FOR PHASE7 CONTROLLED PRODUCTION E2E`. That authorization is **consumed**. Do not reuse it. The earlier Firestore-rules-only deploy authorization was not reused. No Firebase deploy ran in this E2E.
 
-1. Teacher creates a template-scored Wrist Stall movement.
-2. Verify persisted immutable revision:
-   - `assessment_mode = template_scored`
-   - `template_id = balance_stall.wrist_v1`
-   - `prop = bottle`
-3. Teacher creates a classroom assignment.
-4. Verify assignment contains frozen canonical `assessment_spec`.
-5. Trainee opens that assignment.
-6. Trainee uses the `template_scored` WebSocket path.
-7. Successful assessment creates one `assignment_attempts` document with `attempt_kind = template_score`.
-8. Assigning Teacher can read the result.
-9. Verify result contains valid Assessment V2 rubric.
-10. Verify `awards_global_xp = false`.
-11. Verify NO corresponding normal `sessions` write exists for that template completion.
-12. Verify leaderboard remains unchanged: `total_xp` and `sessions_completed`.
-13. Verify no Phase 6 video-submission path is used.
-14. Verify Teacher review queue does not treat `template_score` as a `teacher_review_submission`.
+Human operator completed the Windows client workflow on 2026-08-22. Agent verification used production Firestore read-back plus the local Python backend log. Results are **controlled-client capstone classroom assessment data**.
 
-Only after this controlled production E2E passes may Phase 7 be considered for **PRODUCTION CLOSED**.
+| Step | Result | Evidence |
+|---|---|---|
+| 1. Teacher creates template-scored Wrist Stall | **PASS** | `teacher_movements/9treo5kp3nVzgqlY4EHB` title `Phase 7 Wrist Stall E2E.` teacher `WNFvwRJ4bzTFpVmsgv5x3qV2urt1` created `2026-08-22T09:11:04.965071Z` |
+| 2. Immutable revision | **PASS** | `revisions/7ClcFZU4H65nY8qifutv`: `assessment_mode = template_scored`; `spec.assessment.template_id = balance_stall.wrist_v1`; `spec.assessment.prop = bottle`; `spec.required_prop = bottle` |
+| 3. Teacher creates classroom assignment | **PASS** | `group_assignments/TwF89LlxpGDQJkeJxlbC` group `BSHM-4A` / `i0CaSM4nEA9sNuKSRagO` created `2026-08-22T09:11:17.425Z` |
+| 4. Frozen canonical `assessment_spec` | **PASS** | assignment `assessment_spec`: `schema_version = 1`, `template_id = balance_stall.wrist_v1`, `prop = bottle`, `target = wrist`, `laterality = either` |
+| 5. Trainee opens that assignment | **PASS** | production Trainee opened assignment `TwF89LlxpGDQJkeJxlbC`; the completed attempt references that assignment |
+| 6. `template_scored` WebSocket path | **PASS** | backend `2026-08-22T17:12:38` `session_purpose = template_scored`; `movement=Template Assessment`; `session_id=session-1787389944742193-1`; stop `17:12:42`; camera released `17:12:43`. Teacher-created display title was **not** evaluator dispatch identity. |
+| 7. One `template_score` attempt | **PASS** | only `assignment_attempts/template_score_1787389961506140` for that assignment; `attempt_kind = template_score`; `status = submitted`; created `2026-08-22T09:12:44.903801Z` |
+| 8. Assigning Teacher can read | **PASS** | attempt frozen `teacher_id = WNFvwRJ4bzTFpVmsgv5x3qV2urt1`; Teacher Movements lists `template_score` separately from Reviews |
+| 9. Valid Assessment V2 rubric | **PASS** | `assessment_version = 2`; rubric technique/prop_positioning/stability/completion all `3`; `rubric_total = 12`; `performance_level = mastered`; bounds 0..3 / 0..12 |
+| 10. `awards_global_xp = false` | **PASS** | field present and false |
+| 11. No `sessions` write | **PASS** | trainee `sessions` newest remains `9Zu9kksjTHhQMdBtkgKu` at `2026-08-20T02:01:08.278Z`; attempt has no `source_session_id` |
+| 12. Leaderboard unchanged | **PASS** | `leaderboard/OeflNaVfBkZ93BLOsGhRyOv6WAD3` still `total_xp = 110`, `sessions_completed = 4`; `updated_at` still `2026-08-21T07:30:00.156Z`; no new `leaderboard_processed_sessions` row |
+| 13. No Phase 6 video path | **PASS** | no `video_storage_path` / video metadata / `submitted_at`; no `assignment_submissions/` object created for this completion |
+| 14. Review queue exclusion | **PASS** | `attempt_kind = template_score`, not `teacher_review_submission`; `isReviewFacingSubmission` requires Teacher-review kind |
 
-Do **not** run that workflow from this documentation task. Request **new** explicit human authorization first. Do **not** reuse the consumed Firestore-rules-only deployment authorization.
+The persisted `12 / 12` / `mastered` result verifies functional result persistence and cross-layer contracts. It does **not** verify physical Wrist Stall detection accuracy.
 
-Phase 8 must not start. Physical Wrist Stall camera characterization remains **DEFERRED / NOT VERIFIED**.
+This controlled production E2E proved production persistence, authorization, assignment snapshot, template WebSocket path, rubric persistence, Teacher visibility, and global XP isolation. It did **not** prove real-camera Wrist Stall recognition accuracy, laterality accuracy under physical performance, false-positive / false-negative rate, or physical stability threshold quality.
+
+`PHYSICAL_CAMERA_CHARACTERIZATION` remains **DEFERRED**. `REAL_CAMERA_ACCURACY_VERIFIED` remains **NO**. This is a documented limitation.
+
+Phase 8 is **not started**.
