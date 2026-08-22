@@ -1,6 +1,7 @@
 import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import 'assessment_mode.dart';
+import 'teacher_movement_revision_spec.dart';
 import 'teacher_reviewed_movement_spec.dart';
 
 enum TeacherMovementStatus {
@@ -108,7 +109,7 @@ class TeacherMovementRevision {
   final String movementId;
   final String teacherId;
   final AssessmentMode assessmentMode;
-  final TeacherReviewedMovementSpec spec;
+  final TeacherMovementRevisionSpec spec;
   final int schemaVersion;
   final DateTime? createdAt;
 
@@ -123,7 +124,7 @@ class TeacherMovementRevision {
           ? map['assessment_mode'] as String
           : null,
     );
-    final spec = TeacherReviewedMovementSpec.tryFrom(map['spec']);
+    final spec = _tryParseSpec(mode, map['spec']);
     final schemaVersion = TeacherMovement._readInt(map['schema_version']);
     if (movementId == null ||
         teacherId == null ||
@@ -141,5 +142,19 @@ class TeacherMovementRevision {
       schemaVersion: schemaVersion!,
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
     );
+  }
+
+  static TeacherMovementRevisionSpec? _tryParseSpec(
+    AssessmentMode? mode,
+    Object? raw,
+  ) {
+    if (mode == null) return null;
+    return switch (mode) {
+      AssessmentMode.teacherReviewed => TeacherReviewedMovementSpec.tryFrom(
+        raw,
+      ),
+      AssessmentMode.templateScored => TemplateScoredRevisionSpec.tryFrom(raw),
+      AssessmentMode.officialGuided => null,
+    };
   }
 }

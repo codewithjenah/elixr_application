@@ -1,10 +1,11 @@
+import 'teacher_movement_revision_spec.dart';
 import 'training_prop.dart';
 
 /// Bounded Phase 5 spec for Teacher-created, teacher-reviewed movements.
 ///
 /// This is not an AssessmentSpec evaluator and does not enable template
 /// scoring. Capability is always teacher-review only.
-class TeacherReviewedMovementSpec {
+class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
   static const currentSchemaVersion = 1;
   static const teacherReviewOnly = 'teacher_review_only';
   static const titleMaxLength = 80;
@@ -18,13 +19,18 @@ class TeacherReviewedMovementSpec {
     this.capability = teacherReviewOnly,
   });
 
+  @override
   final String instructions;
+  @override
   final TrainingProp requiredProp;
+  @override
   final String? safetyGuidance;
   final String capability;
 
+  @override
   bool get isTeacherReviewOnly => capability == teacherReviewOnly;
 
+  @override
   Map<String, dynamic> toMap() {
     return {
       'instructions': instructions,
