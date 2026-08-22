@@ -1,6 +1,6 @@
 # Phase 6 — Teacher-reviewed video submissions
 
-**Status:** Phase 6 behavior complete; lifecycle operational close pending. Functional production verification passed on 2026-08-22. Cleaned Storage rules are live. Temporary live diagnostics were removed from the app and from live Storage rules. The leftover production diagnostic object was deleted. Storage lifecycle hard backstop is **not** applied because `gcloud` / `gsutil` are not available locally. Phase 6 is **not** marked production-closed. Phase 7 was **not** started.
+**Status:** Phase 6 — PRODUCTION CLOSED. Functional production verification passed on 2026-08-22. Cleaned Storage rules are live. Temporary live diagnostics were removed from the app and from live Storage rules. The leftover production diagnostic object was deleted. Storage lifecycle hard backstop is **applied** on `gs://elixr-app-2026.firebasestorage.app` (read back 2026-08-22): one Delete rule, age 30 days, prefix `assignment_submissions/` only. Lifecycle execution is asynchronous/age-based; a lifecycle-triggered deletion has **not** been observed and is not a closure prerequisite. Phase 7 remains **NOT STARTED**.
 **Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
 **Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.
 
@@ -19,7 +19,7 @@
 
 ## 1. Status
 
-Phase 6 behavior complete; lifecycle operational close pending. **Not production-closed.**
+Phase 6 behavior complete; storage lifecycle hard backstop applied. **PRODUCTION CLOSED.**
 
 | Gate | State |
 |---|---|
@@ -27,7 +27,7 @@ Phase 6 behavior complete; lifecycle operational close pending. **Not production
 | Automated verification | Local suites were run after diagnostic cleanup; see Completion report. |
 | Firestore rules production deployed | **Yes** — already live. Not redeployed in this cleanup. |
 | Storage rules production deployed | **Yes** — cleaned `assignment_submissions/` rules are live (ruleset `25e031f3-f7ec-470d-a939-e7ac5aa5fe48`, release updateTime `2026-08-22T05:49:09.308158Z`). Temporary diagnostic matches are gone from live rules. |
-| Storage lifecycle production applied | **No** — bucket currently has no lifecycle rules. `storage.lifecycle.json` is still documentation only. Blocker: no local `gcloud` / `gsutil`. |
+| Storage lifecycle production applied | **Yes** — live bucket lifecycle contains one Delete rule for objects aged 30+ days under `assignment_submissions/` only. Bucket `update_time` `2026-08-22T06:16:36+0000`, `metageneration` 2. Lifecycle execution is asynchronous/age-based; an actual lifecycle-triggered deletion has not yet been observed and is not a closure prerequisite. The approved replacement MP4 remained present after apply, as expected. |
 | Live camera / record / upload / review | **Human-verified in production** on 2026-08-22. See Production Verification. |
 | Temporary live diagnostics | **Removed** from the app, local/live Storage rules, and the known leftover production object. |
 | Phase 7 | **Not started** |
@@ -50,11 +50,11 @@ Human production lifecycle on Firebase project `elixr-app-2026` passed:
 | `submitted` → `approved` | PASS |
 | Global XP / sessions / leaderboard markers | Unchanged (`total_xp` 110, `sessions_completed` 4). Review/submission operations awarded no global XP. |
 
-Phase 6 is **not** marked production-closed. Remaining blocker: apply the `assignment_submissions/` 30-day lifecycle hard backstop after installing/authenticating `gcloud` or `gsutil`, then read the live bucket configuration back. Do not overwrite any unexpected pre-existing lifecycle rules if they appear later.
+Phase 6 is **PRODUCTION CLOSED**. The `assignment_submissions/` 30-day lifecycle hard backstop was applied with `gcloud storage buckets update --lifecycle-file=storage.lifecycle.json` after an empty-bucket pre-check, then read back. Live scope is exactly `assignment_submissions/`; no lifecycle rules target `users/`, `profile/`, `session_evidence/`, `__elixr_diagnostics__/`, or the bucket globally. Client retention reconciliation remains the primary operational cleanup mechanism. Lifecycle is an asynchronous/age-based hard backstop. Do not claim Cloud Storage has already deleted an object because of this rule. Do not overwrite unexpected extra lifecycle rules if they appear later.
 
 ### Authorization-anchor / orphan-object correction
 
-A `teacher_review_submission` draft is the Storage authorization anchor for `assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4`. Ordinary signed-in Trainees **must not** DELETE that Firestore document. Doing so after an MP4 upload would leave an object whose matching attempt is gone, so Storage read/delete could no longer be authorized until bucket lifecycle (which is **not** applied).
+A `teacher_review_submission` draft is the Storage authorization anchor for `assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4`. Ordinary signed-in Trainees **must not** DELETE that Firestore document. Doing so after an MP4 upload would leave an object whose matching attempt is gone, so Storage read/delete could no longer be authorized until bucket lifecycle (now applied as a 30-day `assignment_submissions/` hard backstop).
 
 Failed trainee uploads now mark the draft with `abandoned_at` (status stays `draft`). The document remains until account erasure. Storage CREATE requires the matching draft is not abandoned. Teacher reads remain `submitted` / `approved` / `needs_retry` only. Trainee owner and the frozen assigning Teacher may DELETE an abandoned leftover object. Reconciliation on Teacher Reviews / Assigned Movements load derives the canonical path even when `video_storage_path` was never written. Account erasure does the same before deleting attempt documents.
 
@@ -402,7 +402,23 @@ Storage/Firestore emulator: `Not verified` if not used.
 
 ## 22. Completion report
 
-Phase 6 functional behavior is **production verified** (2026-08-22). This document stage records local diagnostic cleanup **before** cleaned Storage rules redeploy, leftover diagnostic object deletion, and lifecycle apply. Phase 6 is **not** marked production-closed here. Do not encode credentials or tokens.
+Phase 6 functional behavior is **production verified** (2026-08-22). Cleaned Storage rules, leftover diagnostic object deletion, and the `assignment_submissions/` 30-day lifecycle hard backstop are live. Phase 6 is **PRODUCTION CLOSED** here. Authorization is a controlled capstone authorization model; do not describe it as tamper-proof. Do not encode credentials or tokens.
+
+| Final status | Value |
+|---|---|
+| Code complete | YES |
+| Automated verification | PASS |
+| Production submission | PASS |
+| Teacher authenticated playback | PASS |
+| Needs Retry | PASS |
+| Replacement/supersedes flow | PASS |
+| Approve | PASS |
+| XP/session isolation | PASS |
+| Cleaned Storage rules live | YES |
+| Temporary diagnostics removed | YES |
+| Storage lifecycle applied | YES |
+| Phase 6 production closed | YES |
+| Phase 7 started | NO |
 
 ### Protocol commands
 
@@ -465,7 +481,7 @@ JPEG `session_evidence` rules are unchanged.
 - object-not-found is reconciled; other delete failures set `deletion_failed` and retry after 15 minutes
 - Replacement deletes superseded object after the new submission is durable
 - `storage.lifecycle.json`: Delete age 30 days, prefix **only** `assignment_submissions/`
-- Live bucket lifecycle on 2026-08-22: **none**. Intended apply tool (`gcloud` / `gsutil`) is **not** available on this machine. Do not invent another apply path. Do not install Cloud SDK automatically.
+- Live bucket lifecycle contains one Delete rule for objects aged 30+ days under `assignment_submissions/` only (read back 2026-08-22; bucket `update_time` `2026-08-22T06:16:36+0000`, `metageneration` 2). Applied with `gcloud storage buckets update --lifecycle-file=storage.lifecycle.json`. Does not target `users/`, `session_evidence/`, `profile/`, `__elixr_diagnostics__/`, or the bucket globally. Lifecycle execution is asynchronous/age-based; an actual lifecycle-triggered deletion has not yet been observed and is not a closure prerequisite. Application retention reconciliation remains the primary operational cleanup mechanism.
 
 ### Account-erasure order
 
@@ -495,25 +511,26 @@ Local suites after diagnostic cleanup are recorded in the cleanup completion rep
 | Temporary live probes removed from app | Yes |
 | Temporary diagnostic Storage matches removed | Yes, locally and live |
 | Leftover production diagnostic object delete | Yes — exact `request_local.bin` deleted; diagnostic prefix empty |
-| Storage lifecycle apply | **Not applied** — `gcloud` / `gsutil` unavailable; bucket lifecycle is empty (no conflict) |
+| Storage lifecycle apply | **Applied** — live rule: Delete, age 30+ days, prefix `assignment_submissions/` only; approved MP4 still present. Lifecycle-triggered deletion not yet observed (not a closure prerequisite). |
 
 ### Phase 7 / teacher_app / deploy
 
 Phase 7 not started. `teacher_app/` intact. This cleanup does not deploy Firestore/indexes, Hosting, Functions, Auth, IAM, or App Check.
 
 ```
-Phase 6 behavior complete; lifecycle operational close pending
+Phase 6 — PRODUCTION CLOSED
 - Record protocol: start/stop/cancel_submission_record; local path metadata only
 - Storage path pattern: assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4
-- Assignment Submission Authorization: implemented and production-exercised
+- Assignment Submission Authorization: controlled capstone authorization model; production-exercised
 - Production verification date: 2026-08-22
 - Windows metadata-free CREATE + one-time bootstrap: PASS
 - Teacher authenticated getData playback: PASS
 - Needs Retry + replacement/supersedes + old MP4 cleanup + Approve: PASS
 - XP/session/leaderboard invariants: PASS (total_xp 110, sessions_completed 4)
 - Temporary live diagnostics: removed from app, live Storage rules, and the known leftover object
-- Deletion mechanism: client reconciler implemented; assignment_submissions lifecycle documented, not applied
-- Lifecycle blocker: gcloud/gsutil unavailable; live bucket lifecycle empty
+- Deletion mechanism: client reconciler is primary operational cleanup; assignment_submissions lifecycle applied and read back as hard backstop
+- Live lifecycle: one Delete rule, age 30+ days, prefix assignment_submissions/ only (2026-08-22T06:16:36+0000)
+- Lifecycle-triggered deletion observed: NO (asynchronous/age-based; not a closure prerequisite)
 - Trainee self-approve blocked: yes
 - Planning defaults used (unvalidated): 20s / 15MiB / 30d unreviewed / 14d reviewed / 30d object age
 - Phase 7: NOT STARTED
