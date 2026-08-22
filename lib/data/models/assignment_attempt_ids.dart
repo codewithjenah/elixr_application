@@ -48,6 +48,28 @@ String newTeacherReviewSubmissionAttemptId({String Function()? entropy}) {
   return assignmentAttemptIdForTeacherReviewSubmission(raw);
 }
 
+final _templateScoreIdPattern = RegExp(r'^[A-Za-z0-9]+$');
+
+/// Collision-resistant ID for one completed template-scored attempt.
+///
+/// Repeated classroom runs must create new documents. Do not derive this
+/// from assignment+trainee alone.
+String assignmentAttemptIdForTemplateScore(String uniquePart) {
+  final token = uniquePart.trim();
+  if (token.isEmpty || token.length > 64) {
+    throw ArgumentError('uniquePart is required');
+  }
+  if (!_templateScoreIdPattern.hasMatch(token)) {
+    throw ArgumentError('uniquePart must be alphanumeric');
+  }
+  return 'template_score_$token';
+}
+
+String newTemplateScoreAttemptId({String Function()? entropy}) {
+  final raw = entropy?.call() ?? _defaultEntropy();
+  return assignmentAttemptIdForTemplateScore(raw);
+}
+
 String _defaultEntropy() {
   final mix =
       '${DateTime.now().toUtc().microsecondsSinceEpoch}'

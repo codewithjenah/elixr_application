@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 
+import 'package:elixr_core/models/rubric_assessment.dart';
+
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
 import '../models/classroom_exceptions.dart';
@@ -233,6 +235,27 @@ class FirebaseClassroomAssignmentRepository
       },
       isPermissionDenied: _isFirestorePermissionDenied,
     );
+  }
+
+  @override
+  Future<AssignmentAttempt> createTemplateScoreAttempt({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required RubricAssessment rubric,
+    required int durationSeconds,
+    required DateTime completedAt,
+  }) async {
+    final attempt = templateScoreAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      rubric: rubric,
+      durationSeconds: durationSeconds,
+      completedAt: completedAt,
+    );
+    await _attempts
+        .doc(attempt.id)
+        .set(attempt.toCreateMap(createdAt: FieldValue.serverTimestamp()));
+    return attempt;
   }
 
   @override

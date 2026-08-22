@@ -9,14 +9,49 @@ import '../../core/constants/movements.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../data/models/assessment_mode.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
+import 'template_scored_practice_screen.dart';
 import '../../services/auth_service.dart';
 import '../../services/tutorial_progress_service.dart';
+
+enum AssignedPracticeDispatch {
+  officialGuided,
+  teacherReviewed,
+  templateScored,
+  invalid,
+}
+
+AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
+  if (!assignment.isActive) return AssignedPracticeDispatch.invalid;
+  if (assignment.isOfficial) {
+    if (assignment.assessmentMode != AssessmentMode.officialGuided) {
+      return AssignedPracticeDispatch.invalid;
+    }
+    return AssignedPracticeDispatch.officialGuided;
+  }
+  if (assignment.assessmentMode == AssessmentMode.teacherReviewed) {
+    if (assignment.assessmentSpec != null) {
+      return AssignedPracticeDispatch.invalid;
+    }
+    return AssignedPracticeDispatch.teacherReviewed;
+  }
+  if (assignment.assessmentMode == AssessmentMode.templateScored) {
+    final spec = assignment.assessmentSpec;
+    if (spec == null ||
+        !spec.isCanonicalWristStallV1 ||
+        assignment.allowedProp != TrainingProp.bottle) {
+      return AssignedPracticeDispatch.invalid;
+    }
+    return AssignedPracticeDispatch.templateScored;
+  }
+  return AssignedPracticeDispatch.invalid;
+}
 
 class AssignedPracticeScreen extends StatefulWidget {
   const AssignedPracticeScreen({super.key, required this.assignmentId});
@@ -95,17 +130,33 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         });
         return;
       }
-      if (assignment.isOfficial) {
-        await _openOfficial(assignment);
-      } else {
-        setState(() {
-          _loading = false;
-          _child = LivePracticeScreen(
-            teacherCreatedAssignment: TeacherCreatedAssignmentPractice(
+      switch (dispatchAssignedPractice(assignment)) {
+        case AssignedPracticeDispatch.officialGuided:
+          await _openOfficial(assignment);
+        case AssignedPracticeDispatch.teacherReviewed:
+          setState(() {
+            _loading = false;
+            _child = LivePracticeScreen(
+              teacherCreatedAssignment: TeacherCreatedAssignmentPractice(
+                assignment: assignment,
+              ),
+            );
+          });
+        case AssignedPracticeDispatch.templateScored:
+          setState(() {
+            _loading = false;
+            _child = TemplateScoredPracticeScreen(
               assignment: assignment,
-            ),
-          );
-        });
+              traineeId: traineeId,
+            );
+          });
+        case AssignedPracticeDispatch.invalid:
+          setState(() {
+            _loading = false;
+            _error = assignment.assessmentMode == AssessmentMode.templateScored
+                ? 'This template assignment is malformed.'
+                : 'This assignment cannot be opened.';
+          });
       }
     } catch (_) {
       if (!mounted) return;

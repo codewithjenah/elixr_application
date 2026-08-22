@@ -10,6 +10,7 @@ void main() {
 
     expect(draft.assessmentMode, AssessmentMode.teacherReviewed);
     expect(draft.canPersistTeacherReviewed, isTrue);
+    expect(draft.canPersistTemplateScored, isFalse);
     expect(draft.canOpenLiveTest, isFalse);
     expect(draft.assessmentSpec, isNull);
     expect(draft.requiredProp, TrainingProp.bottle);
@@ -25,6 +26,7 @@ void main() {
       ..laterality = AssessmentLaterality.left;
 
     expect(draft.canPersistTeacherReviewed, isFalse);
+    expect(draft.canPersistTemplateScored, isTrue);
     expect(draft.canOpenLiveTest, isTrue);
     expect(
       draft.assessmentSpec,
@@ -102,5 +104,24 @@ void main() {
     draft.assessmentMode = AssessmentMode.templateScored;
     expect(draft.assessmentMode, AssessmentMode.teacherReviewed);
     expect(draft.canPersistTeacherReviewed, isTrue);
+    expect(draft.canPersistTemplateScored, isFalse);
+  });
+
+  test('editing a template movement stays template scored', () {
+    final draft = TeacherMovementBuilderDraft.editingExisting(
+      title: 'Classroom Wrist Stall',
+      instructions: 'Balance the bottle.',
+      requiredProp: TrainingProp.bottle,
+      assessmentMode: AssessmentMode.templateScored,
+      laterality: AssessmentLaterality.right,
+    );
+
+    expect(draft.assessmentMode, AssessmentMode.templateScored);
+    expect(draft.locksAssessmentMode, isTrue);
+    expect(draft.canPersistTemplateScored, isTrue);
+    expect(draft.canOpenLiveTest, isTrue);
+    expect(draft.laterality, AssessmentLaterality.right);
+    draft.assessmentMode = AssessmentMode.teacherReviewed;
+    expect(draft.assessmentMode, AssessmentMode.templateScored);
   });
 }

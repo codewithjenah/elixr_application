@@ -1,6 +1,6 @@
 # Phase 7 — Template-scored dynamic assessment (Wrist Stall vertical slice)
 
-**Status:** Planned  
+**Status:** IMPLEMENTATION IN PROGRESS — production rollout pending
 **Sequence:** `07` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 6 complete enough that Teacher-reviewed custom movements work, **and** Phase 5 `assignment_attempts` + revision `spec` exist. If missing, **STOP**. Do not score into `sessions`.
 
@@ -19,7 +19,18 @@
 
 ## 1. Status
 
-Planned
+IMPLEMENTATION IN PROGRESS — production rollout pending
+
+- Phase 7A: PASS
+- Phase 7B: PASS
+- Phase 7C: PASS
+- Phase 7D: PASS
+- Phase 7E: PASS (local code + emulator rules; production Firestore rules not deployed)
+- Firestore production rollout: PENDING
+- Physical camera characterization: PENDING
+- Phase 8: NOT STARTED
+
+Phase 7E writes template-scored revisions, freezes `assessment_spec` on Teacher-created assignments, and persists append-only `template_score` attempts. Live Firestore rules in the deployed project remain the previous production set until a later human-reviewed rollout. Do not treat this document as evidence that production Firebase was updated.
 
 ## 2. Goal
 
@@ -216,6 +227,7 @@ flutter build windows
 ## 19. Manual verification checklist
 
 - [ ] Teacher Live Test Wrist Stall: preview, readiness, score, stop, camera released.
+- [x] Trainee assignment persist path exists locally (`template_score` on `assignment_attempts`); production Firestore rules rollout is still PENDING.
 - [ ] Trainee assignment: result on Teacher student/assignment UI; global XP unchanged.
 - [ ] Official Hand Stall still works.
 - [ ] Builder rejects a hacked spec with a numeric threshold if the UI is bypassed (or backend rejects).

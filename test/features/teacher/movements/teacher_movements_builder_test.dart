@@ -20,6 +20,8 @@ import 'package:provider/provider.dart';
 class _TrackingMovements extends InMemoryTeacherMovementRepository {
   int createCalls = 0;
   int editCalls = 0;
+  int templateCreateCalls = 0;
+  int templateEditCalls = 0;
 
   @override
   Future<TeacherMovement> createMovement({
@@ -55,6 +57,44 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
+      safetyGuidance: safetyGuidance,
+    );
+  }
+
+  @override
+  Future<TeacherMovement> createTemplateScoredMovement({
+    required String teacherId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) {
+    templateCreateCalls += 1;
+    return super.createTemplateScoredMovement(
+      teacherId: teacherId,
+      title: title,
+      instructions: instructions,
+      assessment: assessment,
+      safetyGuidance: safetyGuidance,
+    );
+  }
+
+  @override
+  Future<TeacherMovement> editTemplateScoredMovement({
+    required String teacherId,
+    required String movementId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) {
+    templateEditCalls += 1;
+    return super.editTemplateScoredMovement(
+      teacherId: teacherId,
+      movementId: movementId,
+      title: title,
+      instructions: instructions,
+      assessment: assessment,
       safetyGuidance: safetyGuidance,
     );
   }
@@ -129,6 +169,32 @@ void main() {
                   title: title,
                   instructions: instructions,
                   requiredProp: requiredProp,
+                  safetyGuidance: safetyGuidance,
+                ),
+          onCreateTemplateScored:
+              ({
+                required title,
+                required instructions,
+                required assessmentSpec,
+                safetyGuidance,
+              }) => controller.createTemplateScoredMovement(
+                title: title,
+                instructions: instructions,
+                assessment: assessmentSpec,
+                safetyGuidance: safetyGuidance,
+              ),
+          onEditTemplateScored: existing == null
+              ? null
+              : ({
+                  required title,
+                  required instructions,
+                  required assessmentSpec,
+                  safetyGuidance,
+                }) => controller.editTemplateScoredMovement(
+                  movement: existing,
+                  title: title,
+                  instructions: instructions,
+                  assessment: assessmentSpec,
                   safetyGuidance: safetyGuidance,
                 ),
           onOpenLiveTest: onLiveTest,
@@ -210,14 +276,20 @@ void main() {
     expect(find.text('Grip'), findsNothing);
     expect(find.text('Basic Toss'), findsNothing);
     expect(find.text('Live Test'), findsOneWidget);
-    expect(find.text('Create'), findsNothing);
+    expect(find.byKey(const ValueKey('template-scored-save')), findsOneWidget);
     expect(find.textContaining('threshold'), findsNothing);
     expect(find.textContaining('confidence'), findsNothing);
     expect(find.textContaining('proximity'), findsNothing);
     expect(find.textContaining('hold seconds'), findsNothing);
     expect(find.textContaining('YOLO'), findsNothing);
     expect(
-      find.textContaining('Persistent template publishing'),
+      find.textContaining(
+        'Template results are classroom assessment data and do not award global XP',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Classroom results do not award global XP'),
       findsOneWidget,
     );
   });
@@ -273,15 +345,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('builder-title')),
-      'Should not persist',
+      'Classroom Wrist Stall',
     );
     await tester.enterText(
       find.byKey(const ValueKey('builder-instructions')),
-      'Still a draft only.',
+      'Balance the bottle on the wrist.',
     );
-    expect(find.text('Create'), findsNothing);
-    expect(find.text('Save revision'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('template-scored-save')));
+    await tester.pumpAndSettle();
     expect(movements.createCalls, 0);
+    expect(movements.templateCreateCalls, 1);
+    expect(
+      movements.revisions.values.single.assessmentMode,
+      AssessmentMode.templateScored,
+    );
   });
 
   testWidgets('existing edit flow remains teacher reviewed', (tester) async {

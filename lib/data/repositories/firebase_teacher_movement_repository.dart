@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 
+import '../models/assessment_mode.dart';
+import '../models/assessment_spec.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
 import '../models/training_prop.dart';
@@ -94,6 +96,14 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     if (current.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    final currentRevision = await getRevision(
+      movementId: movementId,
+      revisionId: current.currentRevisionId,
+    );
+    ensureRevisionAssessmentMode(
+      revision: currentRevision,
+      expected: AssessmentMode.teacherReviewed,
+    );
     final previousRevisionId = current.currentRevisionId;
     final revisionRef = movementRef
         .collection(FirestoreCollections.teacherMovementRevisions)
@@ -102,6 +112,124 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     batch.set(
       revisionRef,
       teacherMovementRevisionPayload(
+        movementId: movementId,
+        teacherId: teacherId,
+        spec: spec,
+        createdAt: FieldValue.serverTimestamp(),
+      ),
+    );
+    batch.update(movementRef, {
+      'title': title.trim(),
+      'current_revision_id': revisionRef.id,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+    assert(previousRevisionId != revisionRef.id);
+    return TeacherMovement(
+      id: movementId,
+      teacherId: teacherId,
+      title: title.trim(),
+      status: current.status,
+      currentRevisionId: revisionRef.id,
+      createdAt: current.createdAt,
+    );
+  }
+
+  @override
+  Future<TeacherMovement> createTemplateScoredMovement({
+    required String teacherId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) async {
+    final spec = buildTemplateScoredSpec(
+      title: title,
+      instructions: instructions,
+      assessment: assessment,
+      safetyGuidance: safetyGuidance,
+    );
+    final movementRef = _movements.doc();
+    final revisionRef = movementRef
+        .collection(FirestoreCollections.teacherMovementRevisions)
+        .doc();
+    final batch = _firestore.batch();
+    batch.set(
+      revisionRef,
+      teacherMovementTemplateRevisionPayload(
+        movementId: movementRef.id,
+        teacherId: teacherId,
+        spec: spec,
+        createdAt: FieldValue.serverTimestamp(),
+      ),
+    );
+    batch.set(
+      movementRef,
+      teacherMovementRootPayload(
+        teacherId: teacherId,
+        title: title,
+        currentRevisionId: revisionRef.id,
+        status: TeacherMovementStatus.active.name,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      ),
+    );
+    await batch.commit();
+    return TeacherMovement(
+      id: movementRef.id,
+      teacherId: teacherId,
+      title: title.trim(),
+      status: TeacherMovementStatus.active,
+      currentRevisionId: revisionRef.id,
+    );
+  }
+
+  @override
+  Future<TeacherMovement> editTemplateScoredMovement({
+    required String teacherId,
+    required String movementId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) async {
+    final spec = buildTemplateScoredSpec(
+      title: title,
+      instructions: instructions,
+      assessment: assessment,
+      safetyGuidance: safetyGuidance,
+    );
+    final movementRef = _movements.doc(movementId);
+    final existing = await movementRef.get();
+    if (!existing.exists) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    final current = TeacherMovement.tryFromMap(
+      existing.data() ?? const {},
+      id: existing.id,
+    );
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    if (current.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final currentRevision = await getRevision(
+      movementId: movementId,
+      revisionId: current.currentRevisionId,
+    );
+    ensureRevisionAssessmentMode(
+      revision: currentRevision,
+      expected: AssessmentMode.templateScored,
+    );
+    final previousRevisionId = current.currentRevisionId;
+    final revisionRef = movementRef
+        .collection(FirestoreCollections.teacherMovementRevisions)
+        .doc();
+    final batch = _firestore.batch();
+    batch.set(
+      revisionRef,
+      teacherMovementTemplateRevisionPayload(
         movementId: movementId,
         teacherId: teacherId,
         spec: spec,

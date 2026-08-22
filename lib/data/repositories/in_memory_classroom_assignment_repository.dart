@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/rubric_assessment.dart';
 
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
@@ -140,6 +141,7 @@ class InMemoryClassroomAssignmentRepository
       displayInstructions: existing.displayInstructions,
       displaySafetyGuidance: existing.displaySafetyGuidance,
       allowedProp: existing.allowedProp,
+      assessmentSpec: existing.assessmentSpec,
       dueAt: existing.dueAt,
       createdAt: existing.createdAt,
       updatedAt: now,
@@ -258,6 +260,49 @@ class InMemoryClassroomAssignmentRepository
       isPermissionDenied: (error) =>
           error is ClassroomException && error.code == ClassroomError.forbidden,
     );
+  }
+
+  @override
+  Future<AssignmentAttempt> createTemplateScoreAttempt({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required RubricAssessment rubric,
+    required int durationSeconds,
+    required DateTime completedAt,
+  }) async {
+    final attempt = templateScoreAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      rubric: rubric,
+      durationSeconds: durationSeconds,
+      completedAt: completedAt,
+    );
+    if (attempts.containsKey(attempt.id)) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    attempts[attempt.id] = AssignmentAttempt(
+      id: attempt.id,
+      traineeId: attempt.traineeId,
+      teacherId: attempt.teacherId,
+      groupId: attempt.groupId,
+      assignmentId: attempt.assignmentId,
+      movementId: attempt.movementId,
+      revisionId: attempt.revisionId,
+      origin: attempt.origin,
+      assessmentMode: attempt.assessmentMode,
+      attemptKind: attempt.attemptKind,
+      status: attempt.status,
+      awardsGlobalXp: false,
+      rubric: attempt.rubric,
+      durationSeconds: attempt.durationSeconds,
+      propType: attempt.propType,
+      completedAt: attempt.completedAt,
+      createdAt: now,
+    );
+    _emitAssignmentAttempts(assignment.teacherId, assignment.id);
+    _emitTraineeAttempts(traineeId);
+    _emitTeacherAttempts(assignment.teacherId);
+    return attempts[attempt.id]!;
   }
 
   @override

@@ -9,7 +9,8 @@ import 'training_prop.dart';
 enum AssignmentAttemptKind {
   practicePointer('practice_pointer'),
   teacherReviewDraft('teacher_review_draft'),
-  teacherReviewSubmission('teacher_review_submission');
+  teacherReviewSubmission('teacher_review_submission'),
+  templateScore('template_score');
 
   const AssignmentAttemptKind(this.wireValue);
 
@@ -397,6 +398,34 @@ class AssignmentAttempt {
         deletionFailed: deletionFailed,
         abandonedAt: abandonedAt,
       )) {
+        return null;
+      }
+    } else if (attemptKind == AssignmentAttemptKind.templateScore) {
+      if (sourceSessionId != null) return null;
+      if (origin != MovementOrigin.teacherCreated) return null;
+      if (assessmentMode != AssessmentMode.templateScored) return null;
+      if (status != AssignmentAttemptStatus.submitted) return null;
+      if (videoStoragePath != null ||
+          videoContentType != null ||
+          videoSizeBytes != null ||
+          videoDurationMs != null ||
+          submittedAt != null ||
+          videoExpiresAt != null ||
+          videoDeletedAt != null ||
+          reviewVerdict != null ||
+          reviewFeedback != null ||
+          reviewedAt != null ||
+          supersedesAttemptId != null ||
+          abandonedAt != null ||
+          deletionFailed) {
+        return null;
+      }
+      if (RubricAssessment.tryFromFirestore(map) == null) return null;
+      if (TeacherRosterInvite.readDateTime(map['completed_at']) == null) {
+        return null;
+      }
+      if (TrainingProp.tryParseStrict(map['prop_type']) !=
+          TrainingProp.bottle) {
         return null;
       }
     } else {

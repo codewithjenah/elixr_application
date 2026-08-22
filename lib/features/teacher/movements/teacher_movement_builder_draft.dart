@@ -2,7 +2,7 @@ import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/training_prop.dart';
 
-/// In-memory Teacher Movement Builder draft. Never persisted in Phase 7D.
+/// In-memory Teacher Movement Builder draft.
 class TeacherMovementBuilderDraft {
   TeacherMovementBuilderDraft()
     : _assessmentMode = AssessmentMode.teacherReviewed,
@@ -18,10 +18,13 @@ class TeacherMovementBuilderDraft {
     required this.instructions,
     required this.requiredProp,
     String? safetyGuidance,
-  }) : _assessmentMode = AssessmentMode.teacherReviewed,
+    AssessmentMode assessmentMode = AssessmentMode.teacherReviewed,
+    this.laterality = AssessmentLaterality.either,
+  }) : _assessmentMode = assessmentMode == AssessmentMode.officialGuided
+           ? AssessmentMode.teacherReviewed
+           : assessmentMode,
        locksAssessmentMode = true,
-       safetyGuidance = safetyGuidance ?? '',
-       laterality = AssessmentLaterality.either;
+       safetyGuidance = safetyGuidance ?? '';
 
   AssessmentMode _assessmentMode;
   final bool locksAssessmentMode;
@@ -38,10 +41,11 @@ class TeacherMovementBuilderDraft {
     _assessmentMode = value;
   }
 
-  bool get isTemplateScored =>
-      !locksAssessmentMode && _assessmentMode == AssessmentMode.templateScored;
+  bool get isTemplateScored => _assessmentMode == AssessmentMode.templateScored;
 
   bool get canPersistTeacherReviewed => !isTemplateScored;
+
+  bool get canPersistTemplateScored => isTemplateScored;
 
   bool get canOpenLiveTest => isTemplateScored;
 

@@ -94,6 +94,13 @@ class AssessmentSpec {
   final AssessmentTarget target;
   final AssessmentLaterality laterality;
 
+  bool get isCanonicalWristStallV1 {
+    return schemaVersion == currentSchemaVersion &&
+        templateId == AssessmentTemplateId.balanceStallWristV1 &&
+        prop == AssessmentProp.bottle &&
+        target == AssessmentTarget.wrist;
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'schema_version': schemaVersion,

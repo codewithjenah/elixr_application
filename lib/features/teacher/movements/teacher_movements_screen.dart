@@ -266,9 +266,7 @@ class _MyMovementsList extends StatelessWidget {
                       Text(movement.title, style: AppTheme.headingMedium),
                       const SizedBox(height: 4),
                       Text(
-                        movement.isActive
-                            ? 'Teacher reviewed · No automatic ELIXR score'
-                            : 'Archived · Historical assignments stay pinned',
+                        controller.movementModeLabel(movement),
                         style: AppTheme.caption.copyWith(
                           color: context.elixTextSecondary,
                         ),
@@ -401,6 +399,13 @@ class _AssignmentsList extends StatelessWidget {
           '${total == null ? '' : ' · $total/12'}'
           '${level == null ? '' : ' · $level'}';
     }
+    if (attempt.attemptKind == AssignmentAttemptKind.templateScore) {
+      final total = attempt.rubricTotal;
+      final level = attempt.performanceLevel?.label;
+      return 'Template-scored Wrist Stall'
+          '${total == null ? '' : ' · $total/12'}'
+          '${level == null ? '' : ' · $level'}';
+    }
     return 'Teacher-reviewed practice · ${attempt.status.wireValue}';
   }
 
@@ -530,6 +535,36 @@ Future<void> _showCreateOrEditMovement(
                   safetyGuidance: safetyGuidance,
                 );
               },
+        onCreateTemplateScored:
+            ({
+              required title,
+              required instructions,
+              required assessmentSpec,
+              safetyGuidance,
+            }) {
+              return controller.createTemplateScoredMovement(
+                title: title,
+                instructions: instructions,
+                assessment: assessmentSpec,
+                safetyGuidance: safetyGuidance,
+              );
+            },
+        onEditTemplateScored: existing == null
+            ? null
+            : ({
+                required title,
+                required instructions,
+                required assessmentSpec,
+                safetyGuidance,
+              }) {
+                return controller.editTemplateScoredMovement(
+                  movement: existing,
+                  title: title,
+                  instructions: instructions,
+                  assessment: assessmentSpec,
+                  safetyGuidance: safetyGuidance,
+                );
+              },
         onOpenLiveTest: (draft) {
           liveTest = draft;
           Navigator.pop(dialogContext);
@@ -590,7 +625,7 @@ Future<void> _showAssignDialog(
                 const SizedBox(height: 4),
                 Text(
                   official == null
-                      ? 'Teacher reviewed · No automatic ELIXR score'
+                      ? controller.movementModeLabel(custom!)
                       : 'Official ELIXR guided assessment',
                   style: AppTheme.caption.copyWith(
                     color: context.elixTextSecondary,

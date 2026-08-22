@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
@@ -8,6 +9,7 @@ import 'package:elixr_application/data/repositories/in_memory_classroom_assignme
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/rubric_assessment.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ElixrGroup _group({
@@ -493,4 +495,122 @@ void main() {
       expect(assignments.attempts[submitted.id], isNotNull);
     },
   );
+
+  test(
+    'template assignment freezes AssessmentSpec from the revision',
+    () async {
+      final movement = await movements.createTemplateScoredMovement(
+        teacherId: 'teacher-1',
+        title: 'Classroom Wrist Stall',
+        instructions: 'Balance the bottle on the wrist.',
+        assessment: const AssessmentSpec(laterality: AssessmentLaterality.left),
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      final assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+      );
+      expect(assignment.assessmentMode, AssessmentMode.templateScored);
+      expect(
+        assignment.assessmentSpec,
+        const AssessmentSpec(laterality: AssessmentLaterality.left),
+      );
+
+      await movements.editTemplateScoredMovement(
+        teacherId: 'teacher-1',
+        movementId: movement.id,
+        title: 'Classroom Wrist Stall v2',
+        instructions: 'Revised.',
+        assessment: const AssessmentSpec(
+          laterality: AssessmentLaterality.right,
+        ),
+      );
+      expect(
+        assignment.assessmentSpec,
+        const AssessmentSpec(laterality: AssessmentLaterality.left),
+      );
+      expect(assignment.revisionId, revision.id);
+    },
+  );
+
+  test('teacher-reviewed assignment keeps assessmentSpec absent', () async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'First.',
+      requiredProp: TrainingProp.bottle,
+    );
+    final revision = (await movements.getRevision(
+      movementId: movement.id,
+      revisionId: movement.currentRevisionId,
+    ))!;
+    final assignment = await assignments.createTeacherCreatedAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      movement: movement,
+      revision: revision,
+    );
+    expect(assignment.assessmentMode, AssessmentMode.teacherReviewed);
+    expect(assignment.assessmentSpec, isNull);
+  });
+
+  test('template score identity comes only from the assignment', () async {
+    final movement = await movements.createTemplateScoredMovement(
+      teacherId: 'teacher-1',
+      title: 'Classroom Wrist Stall',
+      instructions: 'Balance the bottle on the wrist.',
+      assessment: const AssessmentSpec(laterality: AssessmentLaterality.either),
+    );
+    final revision = (await movements.getRevision(
+      movementId: movement.id,
+      revisionId: movement.currentRevisionId,
+    ))!;
+    final assignment = await assignments.createTeacherCreatedAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: _group(),
+      movement: movement,
+      revision: revision,
+    );
+    const rubric = RubricAssessment(
+      technique: 3,
+      stability: 2,
+      completion: 3,
+      propPositioning: 2,
+    );
+    final attempt = await assignments.createTemplateScoreAttempt(
+      traineeId: 'trainee-1',
+      assignment: assignment,
+      rubric: rubric,
+      durationSeconds: 11,
+      completedAt: DateTime.utc(2026, 8, 22, 4),
+    );
+    expect(attempt.attemptKind, AssignmentAttemptKind.templateScore);
+    expect(attempt.teacherId, assignment.teacherId);
+    expect(attempt.groupId, assignment.groupId);
+    expect(attempt.movementId, assignment.movementId);
+    expect(attempt.revisionId, assignment.revisionId);
+    expect(attempt.assignmentId, assignment.id);
+    expect(attempt.assessmentMode, AssessmentMode.templateScored);
+    expect(attempt.awardsGlobalXp, isFalse);
+    expect(attempt.sourceSessionId, isNull);
+    expect(attempt.rubric?.total, 10);
+    expect(attempt.id, startsWith('template_score_'));
+
+    final second = await assignments.createTemplateScoreAttempt(
+      traineeId: 'trainee-1',
+      assignment: assignment,
+      rubric: rubric,
+      durationSeconds: 12,
+      completedAt: DateTime.utc(2026, 8, 22, 5),
+    );
+    expect(second.id, isNot(attempt.id));
+  });
 }

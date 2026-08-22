@@ -1,6 +1,8 @@
 import '../models/assessment_mode.dart';
+import '../models/assessment_spec.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_movement_revision_spec.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
 
@@ -20,6 +22,23 @@ abstract class TeacherMovementRepository {
     required String title,
     required String instructions,
     required TrainingProp requiredProp,
+    String? safetyGuidance,
+  });
+
+  Future<TeacherMovement> createTemplateScoredMovement({
+    required String teacherId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  });
+
+  Future<TeacherMovement> editTemplateScoredMovement({
+    required String teacherId,
+    required String movementId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
     String? safetyGuidance,
   });
 
@@ -103,4 +122,66 @@ Map<String, dynamic> teacherMovementRevisionPayload({
     'spec': spec.toMap(),
     'created_at': createdAt,
   };
+}
+
+TemplateScoredRevisionSpec buildTemplateScoredSpec({
+  required String title,
+  required String instructions,
+  required AssessmentSpec assessment,
+  String? safetyGuidance,
+}) {
+  final titleError = TeacherReviewedMovementSpec.validateTitle(title);
+  if (titleError != null) throw _malformed(titleError);
+  final instructionsError = TeacherReviewedMovementSpec.validateInstructions(
+    instructions,
+  );
+  if (instructionsError != null) throw _malformed(instructionsError);
+  final safetyError = TeacherReviewedMovementSpec.validateSafetyGuidance(
+    safetyGuidance,
+  );
+  if (safetyError != null) throw _malformed(safetyError);
+  if (!assessment.isCanonicalWristStallV1) {
+    throw _malformed('Unsupported or malformed AssessmentSpec.');
+  }
+  return TemplateScoredRevisionSpec(
+    instructions: instructions.trim(),
+    requiredProp: TrainingProp.bottle,
+    assessment: assessment,
+    safetyGuidance: () {
+      final trimmed = safetyGuidance?.trim();
+      if (trimmed == null || trimmed.isEmpty) return null;
+      return trimmed;
+    }(),
+  );
+}
+
+Map<String, dynamic> teacherMovementTemplateRevisionPayload({
+  required String movementId,
+  required String teacherId,
+  required TemplateScoredRevisionSpec spec,
+  required Object createdAt,
+}) {
+  return {
+    'movement_id': movementId,
+    'teacher_id': teacherId,
+    'schema_version': TeacherReviewedMovementSpec.currentSchemaVersion,
+    'assessment_mode': AssessmentMode.templateScored.wireValue,
+    'spec': spec.toMap(),
+    'created_at': createdAt,
+  };
+}
+
+void ensureRevisionAssessmentMode({
+  required TeacherMovementRevision? revision,
+  required AssessmentMode expected,
+}) {
+  if (revision == null) {
+    throw const ClassroomException(ClassroomError.notFound);
+  }
+  if (revision.assessmentMode != expected) {
+    throw const ClassroomException(
+      ClassroomError.identityMismatch,
+      'Assessment mode cannot change for an existing movement.',
+    );
+  }
 }

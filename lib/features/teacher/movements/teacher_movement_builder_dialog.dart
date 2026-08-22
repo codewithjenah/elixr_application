@@ -6,6 +6,7 @@ import '../../../core/widgets/elix_primary_button.dart';
 import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/teacher_movement.dart';
+import '../../../data/models/teacher_movement_revision_spec.dart';
 import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
 import 'teacher_movement_builder_draft.dart';
@@ -18,6 +19,14 @@ typedef TeacherReviewedSaveCallback =
       String? safetyGuidance,
     });
 
+typedef TemplateScoredSaveCallback =
+    Future<void> Function({
+      required String title,
+      required String instructions,
+      required AssessmentSpec assessmentSpec,
+      String? safetyGuidance,
+    });
+
 class TeacherMovementBuilderDialog extends StatefulWidget {
   const TeacherMovementBuilderDialog({
     super.key,
@@ -25,6 +34,8 @@ class TeacherMovementBuilderDialog extends StatefulWidget {
     this.existing,
     this.existingRevision,
     this.onEditTeacherReviewed,
+    this.onCreateTemplateScored,
+    this.onEditTemplateScored,
     this.onOpenLiveTest,
   });
 
@@ -32,6 +43,8 @@ class TeacherMovementBuilderDialog extends StatefulWidget {
   final TeacherMovementRevision? existingRevision;
   final TeacherReviewedSaveCallback onCreateTeacherReviewed;
   final TeacherReviewedSaveCallback? onEditTeacherReviewed;
+  final TemplateScoredSaveCallback? onCreateTemplateScored;
+  final TemplateScoredSaveCallback? onEditTemplateScored;
   final ValueChanged<TeacherLiveTestDraft>? onOpenLiveTest;
 
   @override
@@ -55,11 +68,18 @@ class _TeacherMovementBuilderDialogState
     final existing = widget.existing;
     final revision = widget.existingRevision;
     if (existing != null) {
+      final templateSpec = revision?.spec is TemplateScoredRevisionSpec
+          ? revision!.spec as TemplateScoredRevisionSpec
+          : null;
       _draft = TeacherMovementBuilderDraft.editingExisting(
         title: existing.title,
         instructions: revision?.spec.instructions ?? '',
         requiredProp: revision?.spec.requiredProp ?? TrainingProp.bottle,
         safetyGuidance: revision?.spec.safetyGuidance,
+        assessmentMode:
+            revision?.assessmentMode ?? AssessmentMode.teacherReviewed,
+        laterality:
+            templateSpec?.assessment.laterality ?? AssessmentLaterality.either,
       );
     } else {
       _draft = TeacherMovementBuilderDraft();
@@ -118,6 +138,42 @@ class _TeacherMovementBuilderDialogState
     if (mounted) Navigator.pop(context);
   }
 
+  Future<void> _saveTemplateScored() async {
+    _syncDraftText();
+    final titleError = TeacherReviewedMovementSpec.validateTitle(_draft.title);
+    final instructionsError = TeacherReviewedMovementSpec.validateInstructions(
+      _draft.instructions,
+    );
+    final safetyError = TeacherReviewedMovementSpec.validateSafetyGuidance(
+      _draft.safetyGuidance,
+    );
+    if (titleError != null ||
+        instructionsError != null ||
+        safetyError != null) {
+      setState(() {
+        _validationMessage = titleError ?? instructionsError ?? safetyError;
+      });
+      return;
+    }
+    final spec = _draft.buildAssessmentSpec(_draft.laterality);
+    if (_isEditing) {
+      await widget.onEditTemplateScored?.call(
+        title: _draft.title,
+        instructions: _draft.instructions,
+        assessmentSpec: spec,
+        safetyGuidance: _draft.safetyGuidance,
+      );
+    } else {
+      await widget.onCreateTemplateScored?.call(
+        title: _draft.title,
+        instructions: _draft.instructions,
+        assessmentSpec: spec,
+        safetyGuidance: _draft.safetyGuidance,
+      );
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
   void _openLiveTest() {
     _syncDraftText();
     widget.onOpenLiveTest?.call(_draft.toLiveTestDraft());
@@ -167,7 +223,20 @@ class _TeacherMovementBuilderDialogState
                 },
               ),
               const SizedBox(height: AppSpacing.md),
-            ] else
+            ] else if (_draft.isTemplateScored)
+              const Padding(
+                padding: EdgeInsets.only(bottom: AppSpacing.md),
+                child: InfoBar(
+                  title: Text('Template scored'),
+                  content: Text(
+                    'Assessment mode is locked. Editing publishes a new '
+                    'immutable Wrist Stall revision and keeps old assignments '
+                    'pinned.',
+                  ),
+                  severity: InfoBarSeverity.info,
+                ),
+              )
+            else
               const Padding(
                 padding: EdgeInsets.only(bottom: AppSpacing.md),
                 child: InfoBar(
@@ -183,9 +252,8 @@ class _TeacherMovementBuilderDialogState
               const InfoBar(
                 title: Text('Template scored'),
                 content: Text(
-                  'Preview and Live Test are available. Persistent template '
-                  'publishing will be enabled after classroom scoring storage '
-                  'is installed.',
+                  'ELIXR automatically evaluates Wrist Stall. Classroom '
+                  'results do not award global XP.',
                 ),
                 severity: InfoBarSeverity.info,
               ),
@@ -302,6 +370,14 @@ class _TeacherMovementBuilderDialogState
             expanded: false,
             dense: true,
             onPressed: _saveTeacherReviewed,
+          ),
+        if (_draft.canPersistTemplateScored)
+          ElixPrimaryButton(
+            key: const ValueKey('template-scored-save'),
+            label: _isEditing ? 'Save revision' : 'Create',
+            expanded: false,
+            dense: true,
+            onPressed: _saveTemplateScored,
           ),
       ],
     );

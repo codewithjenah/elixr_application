@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/assessment_mode.dart';
+import '../models/assessment_spec.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
 import '../models/training_prop.dart';
@@ -90,6 +91,10 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    ensureRevisionAssessmentMode(
+      revision: revisions['$movementId/${existing.currentRevisionId}'],
+      expected: AssessmentMode.teacherReviewed,
+    );
     final spec = buildTeacherReviewedSpec(
       title: title,
       instructions: instructions,
@@ -104,6 +109,98 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
       movementId: movementId,
       teacherId: teacherId,
       assessmentMode: AssessmentMode.teacherReviewed,
+      spec: spec,
+      createdAt: created,
+    );
+    final updated = TeacherMovement(
+      id: existing.id,
+      teacherId: existing.teacherId,
+      title: title.trim(),
+      status: existing.status,
+      currentRevisionId: revisionId,
+      createdAt: existing.createdAt,
+      updatedAt: created,
+    );
+    movements[movementId] = updated;
+    assert(revisions['$movementId/$previousRevisionId'] != null);
+    _emit(teacherId);
+    return updated;
+  }
+
+  @override
+  Future<TeacherMovement> createTemplateScoredMovement({
+    required String teacherId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) async {
+    final spec = buildTemplateScoredSpec(
+      title: title,
+      instructions: instructions,
+      assessment: assessment,
+      safetyGuidance: safetyGuidance,
+    );
+    final movementId = _generateId();
+    final revisionId = '${movementId}_v${++_counter}';
+    final created = now;
+    final revision = TeacherMovementRevision(
+      id: revisionId,
+      movementId: movementId,
+      teacherId: teacherId,
+      assessmentMode: AssessmentMode.templateScored,
+      spec: spec,
+      createdAt: created,
+    );
+    final movement = TeacherMovement(
+      id: movementId,
+      teacherId: teacherId,
+      title: title.trim(),
+      status: TeacherMovementStatus.active,
+      currentRevisionId: revisionId,
+      createdAt: created,
+      updatedAt: created,
+    );
+    revisions['$movementId/$revisionId'] = revision;
+    movements[movementId] = movement;
+    _emit(teacherId);
+    return movement;
+  }
+
+  @override
+  Future<TeacherMovement> editTemplateScoredMovement({
+    required String teacherId,
+    required String movementId,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) async {
+    final existing = movements[movementId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    ensureRevisionAssessmentMode(
+      revision: revisions['$movementId/${existing.currentRevisionId}'],
+      expected: AssessmentMode.templateScored,
+    );
+    final spec = buildTemplateScoredSpec(
+      title: title,
+      instructions: instructions,
+      assessment: assessment,
+      safetyGuidance: safetyGuidance,
+    );
+    final previousRevisionId = existing.currentRevisionId;
+    final revisionId = '${movementId}_v${++_counter}';
+    final created = now;
+    revisions['$movementId/$revisionId'] = TeacherMovementRevision(
+      id: revisionId,
+      movementId: movementId,
+      teacherId: teacherId,
+      assessmentMode: AssessmentMode.templateScored,
       spec: spec,
       createdAt: created,
     );

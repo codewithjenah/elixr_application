@@ -1,6 +1,7 @@
 import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import 'assessment_mode.dart';
+import 'assessment_spec.dart';
 import 'movement_origin.dart';
 import 'teacher_reviewed_movement_spec.dart';
 import 'training_prop.dart';
@@ -39,6 +40,7 @@ class GroupAssignment {
     this.displayInstructions,
     this.displaySafetyGuidance,
     this.allowedProp,
+    this.assessmentSpec,
     this.dueAt,
     this.createdAt,
     this.updatedAt,
@@ -59,6 +61,7 @@ class GroupAssignment {
   final String? displayInstructions;
   final String? displaySafetyGuidance;
   final TrainingProp? allowedProp;
+  final AssessmentSpec? assessmentSpec;
   final DateTime? dueAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -139,6 +142,21 @@ class GroupAssignment {
       if (allowedProp == null) return null;
     }
 
+    AssessmentSpec? assessmentSpec;
+    final hasAssessmentSpec = map.containsKey('assessment_spec');
+    if (origin == MovementOrigin.officialElixr ||
+        assessmentMode == AssessmentMode.teacherReviewed) {
+      if (hasAssessmentSpec) return null;
+    } else if (assessmentMode == AssessmentMode.templateScored) {
+      if (!hasAssessmentSpec) return null;
+      assessmentSpec = AssessmentSpec.tryFrom(map['assessment_spec']);
+      if (assessmentSpec == null || !assessmentSpec.isCanonicalWristStallV1) {
+        return null;
+      }
+      if (allowedProp != TrainingProp.bottle) return null;
+      if (assessmentSpec.prop != AssessmentProp.bottle) return null;
+    }
+
     return GroupAssignment(
       id: id,
       teacherId: teacherId,
@@ -163,6 +181,7 @@ class GroupAssignment {
         allowEmpty: true,
       ),
       allowedProp: allowedProp,
+      assessmentSpec: assessmentSpec,
       dueAt: TeacherRosterInvite.readDateTime(map['due_at']),
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       updatedAt: TeacherRosterInvite.readDateTime(map['updated_at']),

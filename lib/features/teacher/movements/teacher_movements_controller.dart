@@ -6,6 +6,8 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/movements.dart';
+import '../../../data/models/assessment_mode.dart';
+import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
@@ -39,6 +41,7 @@ class TeacherMovementsController extends ChangeNotifier {
   TeacherMovementsTab tab = TeacherMovementsTab.official;
   List<ElixrGroup> groups = const [];
   List<TeacherMovement> myMovements = const [];
+  Map<String, TeacherMovementRevision> currentRevisions = const {};
   List<GroupAssignment> assignments = const [];
   List<AssignmentAttempt> attempts = const [];
   List<GroupMembership> memberships = const [];
@@ -63,6 +66,28 @@ class TeacherMovementsController extends ChangeNotifier {
 
   List<TeacherMovement> get activeMyMovements =>
       myMovements.where((movement) => movement.isActive).toList();
+
+  TeacherMovementRevision? revisionFor(TeacherMovement movement) {
+    final cached = currentRevisions[movement.id];
+    if (cached != null && cached.id == movement.currentRevisionId) {
+      return cached;
+    }
+    return null;
+  }
+
+  String movementModeLabel(TeacherMovement movement) {
+    if (!movement.isActive) {
+      return 'Archived · Historical assignments stay pinned';
+    }
+    final revision = revisionFor(movement);
+    if (revision?.assessmentMode == AssessmentMode.templateScored) {
+      return 'Template scored · Wrist Stall · Bottle';
+    }
+    if (revision?.assessmentMode == AssessmentMode.teacherReviewed) {
+      return 'Teacher reviewed · No automatic ELIXR score';
+    }
+    return 'Teacher-created movement';
+  }
 
   List<AssignmentAttempt> attemptsFor(String assignmentId) {
     return attempts
@@ -131,7 +156,10 @@ class TeacherMovementsController extends ChangeNotifier {
           () => _movementsSub,
           (sub) => _movementsSub = sub,
           movementRepository.watchTeacherMovements(teacherId: teacherId),
-          (value) => myMovements = value,
+          (value) {
+            myMovements = value;
+            unawaited(_syncCurrentRevisions(value));
+          },
         ),
         _listenOnce(
           () => _assignmentsSub,
@@ -152,6 +180,7 @@ class TeacherMovementsController extends ChangeNotifier {
           (value) => memberships = value,
         ),
       ]);
+      await _syncCurrentRevisions(myMovements);
       await _reconcileExpired();
     } catch (_) {
       errorMessage = 'Could not load movements and assignments.';
@@ -258,6 +287,42 @@ class TeacherMovementsController extends ChangeNotifier {
     );
   }
 
+  Future<void> createTemplateScoredMovement({
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) {
+    return _runWrite(
+      () => movementRepository.createTemplateScoredMovement(
+        teacherId: teacherId,
+        title: title,
+        instructions: instructions,
+        assessment: assessment,
+        safetyGuidance: safetyGuidance,
+      ),
+    );
+  }
+
+  Future<void> editTemplateScoredMovement({
+    required TeacherMovement movement,
+    required String title,
+    required String instructions,
+    required AssessmentSpec assessment,
+    String? safetyGuidance,
+  }) {
+    return _runWrite(
+      () => movementRepository.editTemplateScoredMovement(
+        teacherId: teacherId,
+        movementId: movement.id,
+        title: title,
+        instructions: instructions,
+        assessment: assessment,
+        safetyGuidance: safetyGuidance,
+      ),
+    );
+  }
+
   Future<void> archiveMovement(TeacherMovement movement) {
     return _runWrite(
       () => movementRepository.archiveMovement(
@@ -315,6 +380,26 @@ class TeacherMovementsController extends ChangeNotifier {
         assignmentId: assignment.id,
       ),
     );
+  }
+
+  Future<void> _syncCurrentRevisions(List<TeacherMovement> items) async {
+    final next = <String, TeacherMovementRevision>{};
+    for (final movement in items) {
+      final cached = currentRevisions[movement.id];
+      if (cached != null && cached.id == movement.currentRevisionId) {
+        next[movement.id] = cached;
+        continue;
+      }
+      final revision = await movementRepository.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      );
+      if (revision != null) {
+        next[movement.id] = revision;
+      }
+    }
+    currentRevisions = next;
+    notifyListeners();
   }
 
   Future<void> _runWrite(Future<void> Function() action) async {
