@@ -32,3 +32,34 @@ def capability_for(spec: AssessmentSpec) -> AssessmentCapabilityStatus:
     ):
         return AssessmentCapabilityStatus.SUPPORTED
     return AssessmentCapabilityStatus.UNSUPPORTED
+
+
+def _require_supported(spec: AssessmentSpec) -> None:
+    if capability_for(spec) != AssessmentCapabilityStatus.SUPPORTED:
+        raise ValueError("unsupported_assessment_spec")
+
+
+def template_requires_pose(spec: AssessmentSpec) -> bool:
+    _require_supported(spec)
+    return True
+
+
+def template_requires_hands(spec: AssessmentSpec) -> bool:
+    _require_supported(spec)
+    return False
+
+
+def template_max_hands(spec: AssessmentSpec) -> int:
+    _require_supported(spec)
+    return 0
+
+
+def template_prop_type(spec: AssessmentSpec) -> str:
+    _require_supported(spec)
+    return spec.prop
+
+
+def template_display_label(spec: AssessmentSpec) -> str:
+    """Presentation label only. Never an official catalog / dispatch name."""
+    _require_supported(spec)
+    return "Wrist Stall"

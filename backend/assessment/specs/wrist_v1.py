@@ -1,7 +1,7 @@
 """Pure backend evaluator for AssessmentSpec template balance_stall.wrist_v1.
 
 Bottle + MediaPipe Pose wrists only. Not registered in the official rule
-engine and not invoked by the WebSocket runtime.
+engine. Template sessions dispatch here by validated template_id only.
 """
 
 from __future__ import annotations
@@ -25,24 +25,18 @@ _TEMPLATE_ID = "balance_stall.wrist_v1"
 _SUPPORTED_LATERALITY = frozenset({"either", "left", "right"})
 
 
-def _require_wrist_v1(spec: object) -> AssessmentSpec | object:
-    try:
-        schema_version = spec.schema_version
-        template_id = spec.template_id
-        prop = spec.prop
-        target = spec.target
-        laterality = spec.laterality
-    except AttributeError as exc:
+def _require_wrist_v1(spec: object) -> AssessmentSpec:
+    if not isinstance(spec, AssessmentSpec):
         raise ValueError(
             "Wrist v1 evaluator requires a validated AssessmentSpec "
             "for balance_stall.wrist_v1"
-        ) from exc
+        )
     if (
-        schema_version != 1
-        or template_id != _TEMPLATE_ID
-        or prop != "bottle"
-        or target != "wrist"
-        or laterality not in _SUPPORTED_LATERALITY
+        spec.schema_version != 1
+        or spec.template_id != _TEMPLATE_ID
+        or spec.prop != "bottle"
+        or spec.target != "wrist"
+        or spec.laterality not in _SUPPORTED_LATERALITY
     ):
         raise ValueError(
             "Wrist v1 evaluator only accepts AssessmentSpec "

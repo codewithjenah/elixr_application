@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -102,6 +103,8 @@ class _RecordingWebSocketService extends WebSocketService {
     int? legacyCameraIndex,
     String? sessionId,
     bool allowSubmissionRecording = false,
+    WebSocketSessionPurpose sessionPurpose = WebSocketSessionPurpose.official,
+    AssessmentSpec? assessmentSpec,
   }) {
     final resolvedSessionId =
         sessionId ?? currentSessionId ?? beginPracticeAttempt();
@@ -116,6 +119,9 @@ class _RecordingWebSocketService extends WebSocketService {
       'camera_device_id': cameraDeviceId,
       'camera_index': ?legacyCameraIndex,
       if (allowSubmissionRecording) 'allow_submission_recording': true,
+      if (sessionPurpose != WebSocketSessionPurpose.official)
+        'session_purpose': sessionPurpose.wireValue,
+      if (assessmentSpec != null) 'assessment_spec': assessmentSpec.toMap(),
     });
     return prepareAck.future;
   }

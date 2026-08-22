@@ -6,6 +6,24 @@ import 'practice_feedback.dart';
 /// Protocol version negotiated by new Flutter command payloads.
 const int wsProtocolVersion = 1;
 
+/// Reserved wire identity for template prepare payloads.
+///
+/// Not an official catalog movement. Evaluator dispatch uses
+/// [AssessmentSpec.templateId], never this label.
+const String kTemplateAssessmentMovement = 'Template Assessment';
+const String kTemplateAssessmentDifficulty = 'Standard';
+
+/// Explicit prepare purpose. Absent `session_purpose` is treated as official.
+enum WebSocketSessionPurpose {
+  official('official'),
+  templateScored('template_scored'),
+  liveTest('live_test');
+
+  const WebSocketSessionPurpose(this.wireValue);
+
+  final String wireValue;
+}
+
 /// Correlated acknowledgment for a version-1 command.
 class CommandAck {
   const CommandAck({

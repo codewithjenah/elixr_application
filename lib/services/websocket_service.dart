@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../core/constants/app_constants.dart';
+import '../data/models/assessment_spec.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/training_prop.dart';
 import '../data/models/ws_protocol.dart';
@@ -145,6 +146,8 @@ class WebSocketService extends ChangeNotifier {
     int? legacyCameraIndex,
     String? sessionId,
     bool allowSubmissionRecording = false,
+    WebSocketSessionPurpose sessionPurpose = WebSocketSessionPurpose.official,
+    AssessmentSpec? assessmentSpec,
   }) {
     final resolvedSessionId =
         sessionId ?? _currentSessionId ?? beginPracticeAttempt();
@@ -163,6 +166,8 @@ class WebSocketService extends ChangeNotifier {
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
         allowSubmissionRecording: allowSubmissionRecording,
+        sessionPurpose: sessionPurpose,
+        assessmentSpec: assessmentSpec,
       ),
     );
   }
@@ -521,6 +526,8 @@ class WebSocketService extends ChangeNotifier {
     required String sessionId,
     required String requestId,
     bool allowSubmissionRecording = false,
+    WebSocketSessionPurpose sessionPurpose = WebSocketSessionPurpose.official,
+    AssessmentSpec? assessmentSpec,
   }) {
     return _buildSessionPayload(
       action: 'prepare',
@@ -532,6 +539,8 @@ class WebSocketService extends ChangeNotifier {
       sessionId: sessionId,
       requestId: requestId,
       allowSubmissionRecording: allowSubmissionRecording,
+      sessionPurpose: sessionPurpose,
+      assessmentSpec: assessmentSpec,
     );
   }
 
@@ -673,7 +682,17 @@ class WebSocketService extends ChangeNotifier {
     required String sessionId,
     required String requestId,
     bool allowSubmissionRecording = false,
+    WebSocketSessionPurpose sessionPurpose = WebSocketSessionPurpose.official,
+    AssessmentSpec? assessmentSpec,
   }) {
+    if (action == 'prepare') {
+      _validatePreparePurpose(
+        sessionPurpose: sessionPurpose,
+        assessmentSpec: assessmentSpec,
+        allowSubmissionRecording: allowSubmissionRecording,
+      );
+    }
+
     final payload = <String, dynamic>{
       'protocol_version': wsProtocolVersion,
       'request_id': requestId,
@@ -696,7 +715,38 @@ class WebSocketService extends ChangeNotifier {
     if (allowSubmissionRecording) {
       payload['allow_submission_recording'] = true;
     }
+    // Omit default official so existing official clients keep the same wire.
+    if (action == 'prepare' &&
+        sessionPurpose != WebSocketSessionPurpose.official) {
+      payload['session_purpose'] = sessionPurpose.wireValue;
+      payload['assessment_spec'] = assessmentSpec!.toMap();
+    }
     return payload;
+  }
+
+  static void _validatePreparePurpose({
+    required WebSocketSessionPurpose sessionPurpose,
+    required AssessmentSpec? assessmentSpec,
+    required bool allowSubmissionRecording,
+  }) {
+    if (sessionPurpose == WebSocketSessionPurpose.official) {
+      if (assessmentSpec != null) {
+        throw ArgumentError(
+          'assessmentSpec is only valid for template_scored or live_test',
+        );
+      }
+      return;
+    }
+    if (assessmentSpec == null) {
+      throw ArgumentError(
+        'assessmentSpec is required for template_scored and live_test',
+      );
+    }
+    if (allowSubmissionRecording) {
+      throw ArgumentError(
+        'template and live-test sessions cannot enable submission recording',
+      );
+    }
   }
 
   Future<CommandAck> _sendTrackedCommand({
