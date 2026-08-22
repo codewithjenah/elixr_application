@@ -1,7 +1,7 @@
 # Phase 6 — Teacher-reviewed video submissions
 
-**Status:** Code complete after Phase 6 audit corrections — **not production-closed**. Firestore rules, Storage rules, and Storage lifecycle are **not** production deployed/applied. Live camera/record/upload/review has **not** been human-verified. Phase 7 was **not** started.  
-**Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
+**Status:** Phase 6 behavior complete; lifecycle operational close pending. Functional production verification passed on 2026-08-22. Cleaned Storage rules are live. Temporary live diagnostics were removed from the app and from live Storage rules. The leftover production diagnostic object was deleted. Storage lifecycle hard backstop is **not** applied because `gcloud` / `gsutil` are not available locally. Phase 6 is **not** marked production-closed. Phase 7 was **not** started.
+**Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
 **Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.
 
 ## Implementing agent instructions
@@ -19,17 +19,38 @@
 
 ## 1. Status
 
-Code complete after Phase 6 audit corrections. **Not production-closed.**
+Phase 6 behavior complete; lifecycle operational close pending. **Not production-closed.**
 
 | Gate | State |
 |---|---|
-| Code complete | Audit corrections applied after `f1cf6fa`. **Not** a production close. |
-| Automated verification | See Completion report after this correction. **Not** production-closed. |
-| Firestore rules production deployed | **No** — do not `firebase deploy` |
-| Storage rules production deployed | **No** |
-| Storage lifecycle production applied | **No** — `storage.lifecycle.json` is documentation only |
-| Live camera / record / upload / review | **Not human-verified** |
+| Code complete | Phase 6 assignment-submission contract is implemented and production-exercised. |
+| Automated verification | Local suites were run after diagnostic cleanup; see Completion report. |
+| Firestore rules production deployed | **Yes** — already live. Not redeployed in this cleanup. |
+| Storage rules production deployed | **Yes** — cleaned `assignment_submissions/` rules are live (ruleset `25e031f3-f7ec-470d-a939-e7ac5aa5fe48`, release updateTime `2026-08-22T05:49:09.308158Z`). Temporary diagnostic matches are gone from live rules. |
+| Storage lifecycle production applied | **No** — bucket currently has no lifecycle rules. `storage.lifecycle.json` is still documentation only. Blocker: no local `gcloud` / `gsutil`. |
+| Live camera / record / upload / review | **Human-verified in production** on 2026-08-22. See Production Verification. |
+| Temporary live diagnostics | **Removed** from the app, local/live Storage rules, and the known leftover production object. |
 | Phase 7 | **Not started** |
+
+### Production Verification (2026-08-22)
+
+Human production lifecycle on Firebase project `elixr-app-2026` passed:
+
+| Step | Result |
+|---|---|
+| Trainee initial submission | PASS |
+| Teacher authenticated private playback (`getData`, not `getDownloadURL`) | PASS |
+| Windows metadata-free CREATE + one-time metadata bootstrap | PASS |
+| `submitted` → `needs_retry` | PASS |
+| Retry feedback visible to Trainee | PASS |
+| Replacement submission | PASS |
+| `supersedes_attempt_id` linkage | PASS |
+| Old superseded MP4 cleanup | PASS |
+| Replacement Teacher authenticated playback | PASS |
+| `submitted` → `approved` | PASS |
+| Global XP / sessions / leaderboard markers | Unchanged (`total_xp` 110, `sessions_completed` 4). Review/submission operations awarded no global XP. |
+
+Phase 6 is **not** marked production-closed. Remaining blocker: apply the `assignment_submissions/` 30-day lifecycle hard backstop after installing/authenticating `gcloud` or `gsutil`, then read the live bucket configuration back. Do not overwrite any unexpected pre-existing lifecycle rules if they appear later.
 
 ### Authorization-anchor / orphan-object correction
 
@@ -343,11 +364,14 @@ Storage/Firestore emulator: `Not verified` if not used.
 
 ## 19. Manual verification checklist
 
-- [ ] Practice 30s without Record Submission → no Storage object.
-- [ ] Record Submission → assigning Teacher plays clip without Progress/Evidence grants.
-- [ ] Another Teacher cannot play it.
-- [ ] Needs Retry replacement → old object gone or marked deletion_failed.
-- [ ] Trainee cannot mark their own submission approved.
+- [x] Record Submission → assigning Teacher plays clip without Progress/Evidence grants (authenticated `getData` playback, 2026-08-22).
+- [x] Needs Retry replacement → old superseded MP4 deleted; new attempt linked via `supersedes_attempt_id` (2026-08-22).
+- [x] Replacement Teacher playback after retry (2026-08-22).
+- [x] Assigning Teacher Approve of replacement attempt (2026-08-22).
+- [x] Review/submission path awarded no global XP and created no normal session/leaderboard marker (`total_xp` 110, `sessions_completed` 4).
+- [ ] Practice 30s without Record Submission → no Storage object (not re-run in the 2026-08-22 production close path).
+- [ ] Another Teacher cannot play it (rules/emulator covered; not a second live Teacher account on 2026-08-22).
+- [ ] Trainee cannot mark their own submission approved (rules/emulator covered; not re-run as a live self-approve attempt).
 - [ ] After forcing `video_expires_at` in the past, opening the queue deletes the object and keeps verdict.
 - [ ] Simulating lifecycle object-not-found reconciles metadata without a fatal error.
 - [ ] Camera released after submit/cancel.
@@ -378,7 +402,7 @@ Storage/Firestore emulator: `Not verified` if not used.
 
 ## 22. Completion report
 
-Phase 6 is **not production-closed**. Code is complete after Phase 6 audit corrections. Do not encode transient git working-tree state into this document.
+Phase 6 functional behavior is **production verified** (2026-08-22). This document stage records local diagnostic cleanup **before** cleaned Storage rules redeploy, leftover diagnostic object deletion, and lifecycle apply. Phase 6 is **not** marked production-closed here. Do not encode credentials or tokens.
 
 ### Protocol commands
 
@@ -441,7 +465,7 @@ JPEG `session_evidence` rules are unchanged.
 - object-not-found is reconciled; other delete failures set `deletion_failed` and retry after 15 minutes
 - Replacement deletes superseded object after the new submission is durable
 - `storage.lifecycle.json`: Delete age 30 days, prefix **only** `assignment_submissions/`
-- Human command (**do not run**): `gcloud storage buckets update gs://elixr-app-2026.firebasestorage.app --lifecycle-file=storage.lifecycle.json`
+- Live bucket lifecycle on 2026-08-22: **none**. Intended apply tool (`gcloud` / `gsutil`) is **not** available on this machine. Do not invent another apply path. Do not install Cloud SDK automatically.
 
 ### Account-erasure order
 
@@ -461,34 +485,38 @@ No new composite index. Review queue uses existing `assignment_attempts.teacher_
 
 ### Automated verification (this machine)
 
-| Suite | Result |
+Local suites after diagnostic cleanup are recorded in the cleanup completion report. Historical pre-cleanup counts are not reused as current evidence.
+
+| Production gate (2026-08-22) | Result |
 |---|---|
-| `dart format --output=none --set-exit-if-changed lib test packages/elixr_core/lib packages/elixr_core/test` | 442 files, 0 changed |
-| `flutter analyze` | 0 errors, 15 pre-existing infos/warnings (exit 1 due to existing warning) |
-| `flutter test` (root) | **1343** passed |
-| `packages/elixr_core` `flutter test` | **91** passed |
-| `teacher_app` `flutter test` | **95** passed |
-| `firestore-tests` `npm test` (JDK 21) | **329** passed |
-| `backend` pytest | **1122** passed |
-| `backend` compileall | succeeded |
-| `flutter build windows` | succeeded (`build\windows\x64\runner\Release\elixr_application.exe`) |
-| `firebase deploy` | **not run** |
-| Storage lifecycle apply | **not run** |
+| End-to-end human production lifecycle | PASS |
+| Firestore rules live | Yes (already deployed; not redeployed in this cleanup) |
+| Cleaned Storage rules live | Yes — live source matches cleaned local `storage.rules` (normalized SHA-256 `7e58cb79ffdfacecbf49959c1e0047032c10466fab9debdbccfc56ad00fc8ecc`) |
+| Temporary live probes removed from app | Yes |
+| Temporary diagnostic Storage matches removed | Yes, locally and live |
+| Leftover production diagnostic object delete | Yes — exact `request_local.bin` deleted; diagnostic prefix empty |
+| Storage lifecycle apply | **Not applied** — `gcloud` / `gsutil` unavailable; bucket lifecycle is empty (no conflict) |
 
 ### Phase 7 / teacher_app / deploy
 
-Phase 7 not started. `teacher_app/` intact. Firebase not deployed. Lifecycle not applied.
+Phase 7 not started. `teacher_app/` intact. This cleanup does not deploy Firestore/indexes, Hosting, Functions, Auth, IAM, or App Check.
 
 ```
-Phase 6 completion
+Phase 6 behavior complete; lifecycle operational close pending
 - Record protocol: start/stop/cancel_submission_record; local path metadata only
 - Storage path pattern: assignment_submissions/{teacherId}/{groupId}/{assignmentId}/{traineeId}/{attemptId}.mp4
-- Assignment Submission Authorization implemented in rules: yes (not production deployed)
-- Deletion mechanism: client reconciler + documented assignment_submissions lifecycle (not applied)
+- Assignment Submission Authorization: implemented and production-exercised
+- Production verification date: 2026-08-22
+- Windows metadata-free CREATE + one-time bootstrap: PASS
+- Teacher authenticated getData playback: PASS
+- Needs Retry + replacement/supersedes + old MP4 cleanup + Approve: PASS
+- XP/session/leaderboard invariants: PASS (total_xp 110, sessions_completed 4)
+- Temporary live diagnostics: removed from app, live Storage rules, and the known leftover object
+- Deletion mechanism: client reconciler implemented; assignment_submissions lifecycle documented, not applied
+- Lifecycle blocker: gcloud/gsutil unavailable; live bucket lifecycle empty
 - Trainee self-approve blocked: yes
 - Planning defaults used (unvalidated): 20s / 15MiB / 30d unreviewed / 14d reviewed / 30d object age
-- Automated local suites: root 1343 / elixr_core 91 / teacher_app 95 / firestore-tests 329 / backend 1122 / Windows build succeeded
-- Not verified: production deploy, lifecycle apply, live camera/record/upload/review
+- Phase 7: NOT STARTED
 ```
 
 ## 23. Handoff requirements for Phase 7
