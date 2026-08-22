@@ -60,6 +60,29 @@ def pose_wrist_point(
     return _nearest_pose_point(pose, (15, 16), bottle)
 
 
+def pose_wrist_point_for_laterality(
+    pose: Optional[PoseLandmarks],
+    bottle: BottleDetection,
+    laterality: str,
+) -> Optional[Point2D]:
+    """Select the Pose wrist required by anatomical laterality.
+
+    MediaPipe Pose: 15 = anatomical left, 16 = anatomical right.
+    ``either`` uses the nearest usable wrist to the bottle and matches
+    ``pose_wrist_point``. ``left`` / ``right`` require that anatomical wrist
+    only. Preview mirroring is not laterality.
+    """
+    if laterality == "either":
+        return pose_wrist_point(pose, bottle)
+    if pose is None:
+        return None
+    if laterality == "left":
+        return pose.get(15)
+    if laterality == "right":
+        return pose.get(16)
+    return None
+
+
 def pose_elbow_point(
     pose: Optional[PoseLandmarks], bottle: BottleDetection
 ) -> Optional[Point2D]:
