@@ -1,6 +1,6 @@
 # Phase 7 — Template-scored dynamic assessment (Wrist Stall vertical slice)
 
-**Status:** IMPLEMENTATION IN PROGRESS — production rollout pending
+**Status:** IMPLEMENTATION VERIFIED AUTOMATICALLY — production rollout pending; physical camera characterization deferred
 **Sequence:** `07` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 6 complete enough that Teacher-reviewed custom movements work, **and** Phase 5 `assignment_attempts` + revision `spec` exist. If missing, **STOP**. Do not score into `sessions`.
 
@@ -19,18 +19,30 @@
 
 ## 1. Status
 
-IMPLEMENTATION IN PROGRESS — production rollout pending
+IMPLEMENTATION VERIFIED AUTOMATICALLY — production rollout pending; physical camera characterization deferred
 
-- Phase 7A: PASS
-- Phase 7B: PASS
-- Phase 7C: PASS
-- Phase 7D: PASS
-- Phase 7E: PASS (local code + emulator rules; production Firestore rules not deployed)
-- Firestore production rollout: PENDING
-- Physical camera characterization: PENDING
-- Phase 8: NOT STARTED
+Phase 7 is **not** PRODUCTION CLOSED. Automated implementation and local/emulator gates are complete. Production Firestore Phase 7 rules are **not deployed**. Real-camera Wrist Stall accuracy is **not verified**. Phase 8 is **not started**.
 
-Phase 7E writes template-scored revisions, freezes `assessment_spec` on Teacher-created assignments, and persists append-only `template_score` attempts. Live Firestore rules in the deployed project remain the previous production set until a later human-reviewed rollout. Do not treat this document as evidence that production Firebase was updated.
+| Gate | State |
+|---|---|
+| Phase 7A | PASS |
+| Phase 7B | PASS |
+| Phase 7C | PASS |
+| Phase 7D | PASS |
+| Phase 7E | PASS locally (code + emulator rules; production Firestore rules not deployed) |
+| Phase 7F automated verification | PASS |
+| Physical Wrist Stall camera characterization | **DEFERRED BY HUMAN OPERATOR** — not a failing automated gate |
+| Real-camera Wrist Stall accuracy | **NOT VERIFIED** |
+| Production Firestore Phase 7 rules | **NOT DEPLOYED** |
+| Production Phase 7 E2E | **NOT VERIFIED** |
+| Phase 7 overall | **NOT COMPLETE** |
+| Phase 8 | **NOT STARTED** |
+
+Phase 7E writes template-scored revisions, freezes `assessment_spec` on Teacher-created assignments, and persists append-only `template_score` attempts. Live Firestore rules in project `elixr-app-2026` remain the previous production set until a later **explicitly authorized** Firestore-rules-only rollout. Do not treat this document as evidence that production Firebase was updated.
+
+Physical Wrist Stall A–L characterization was **explicitly deferred by the human operator**. That is a documented thesis/project validation limitation. It is **not** classified as an automated-gate failure. The product must **not** claim that Wrist Stall accuracy has been physically validated. Do not fabricate camera results. Future UAT or demo testing may characterize physical accuracy later; that work is not required to close this documentation task and is not requested here.
+
+See [§24 Phase 7F verification](#24-phase-7f-verification) through [§31 future post-deploy plan](#31-future-post-deploy-plan-do-not-execute).
 
 ## 2. Goal
 
@@ -231,6 +243,9 @@ flutter build windows
 - [ ] Trainee assignment: result on Teacher student/assignment UI; global XP unchanged.
 - [ ] Official Hand Stall still works.
 - [ ] Builder rejects a hacked spec with a numeric threshold if the UI is bypassed (or backend rejects).
+- [ ] Physical Wrist Stall A–L camera characterization: **DEFERRED BY HUMAN OPERATOR**. Not performed. Not classified as an automated failure. Real-camera accuracy remains **NOT VERIFIED**.
+- [ ] Production Firestore Phase 7 rules deployment: **NOT AUTHORIZED** in this close-out. Prepared command is documented in §30 and must not be run without a new explicit human authorization.
+- [ ] Production Phase 7 E2E after authorized rules deploy: **NOT VERIFIED**.
 
 ## 20. Performance / storage / privacy risks
 
@@ -251,24 +266,250 @@ flutter build windows
 - Do not expand shaker / Grip / prop-on-prop in this Wrist Stall change set.
 - Do not claim classroom/template scores are tamper-proof.
 
-## 22. Completion report template
+## 22. Phase 7F close-out report
 
 ```
-Phase 7 completion
-- template_id shipped: balance_stall.wrist_v1
+Phase 7F close-out — AUTOMATED VERIFICATION COMPLETE
+PHYSICAL CAMERA CHARACTERIZATION DEFERRED / NOT VERIFIED
+
+- Status: IMPLEMENTATION VERIFIED AUTOMATICALLY — production rollout pending;
+  physical camera characterization deferred
+- Do NOT write: PRODUCTION CLOSED
+- template_id shipped locally: balance_stall.wrist_v1
 - Prop: bottle only
-- Live Test uses existing Python: yes
+- Live Test uses existing Python: yes (local implementation)
 - Tamper-proof claim avoided: yes
-- Live Test uses existing Python: yes/no
-- XP isolation:
-- Official 12 tests:
-- Commands run:
-- Not verified (camera accuracy):
+  (controlled-client capstone classroom assessment data)
+- PHASE7F_AUTOMATED_VERIFICATION: PASS
+- PHASE7F_PHYSICAL_CHARACTERIZATION: DEFERRED
+- PHYSICAL_CAMERA_CHARACTERIZATION: DEFERRED
+- REAL_CAMERA_ACCURACY_VERIFIED: NO
+- Physical characterization classified as failure: NO
+- TEMPLATE_WRITES_SESSIONS: NO
+- TEMPLATE_WRITES_LEADERBOARD: NO
+- TEMPLATE_AWARDS_GLOBAL_XP: NO
+- OFFICIAL_12_UNCHANGED: YES
+- Production Firestore Phase 7 rules deployed: NO
+- Production Firebase changed: NO
+- Phase 8 started: NO
+- PHASE7_OVERALL_COMPLETE: NO
+- READY_FOR_PHASE7_FIRESTORE_DEPLOY_AUTHORIZATION: YES
+  (authorization is not deployment; previous Phase 6 authorizations are not reusable)
+
+Automated evidence preserved from HEAD 94f5dcc25ef2a6fd88c8e8f6a79b9d7112cba4c7
+(not rerun in this documentation-only task):
+- dart format: 402 files, 0 changed
+- flutter analyze: 0 errors; 1 pre-existing warning; 14 pre-existing info items
+- root Flutter: 1461 passed, 0 failed
+- packages/elixr_core: 91 passed, 0 failed
+- backend: 1219 passed, 0 failed
+- explicit Phase 7 backend/spec/protocol/official consistency: 105 passed
+- official 12: unchanged
+- compileall: PASS
+- Phase 7E focused Firestore emulator: 46 passed, 0 failed
+- full Firestore emulator: 437 passed, 0 failed
+- Windows release build: PASS
+  (build\windows\x64\runner\Release\elixr_application.exe)
+
+Not verified:
+- physical Wrist Stall A–L camera characterization (deferred by human operator)
+- real-camera Wrist Stall accuracy
+- trainee physical / production-app + emulator manual E2E
+  (production Windows app has no Firestore emulator wiring)
+- production Phase 7 E2E
+- production Firestore Phase 7 rule enforcement
 ```
 
 ## 23. Handoff requirements for Phase 8
+
+Phase 8 must **not** start until Phase 7 is PRODUCTION CLOSED. That requires an authorized Firestore-rules-only production deploy **and** a later controlled production E2E. This document does not authorize either.
+
+When Phase 7 is later PRODUCTION CLOSED, Phase 8 still requires:
 
 1. Teacher-reviewed (Phase 6) and template-scored Wrist Stall (Phase 7) both exist.
 2. Feature list vs teacher_app can be compared (Android roster vs Windows Groups, etc.).
 3. No remaining required Teacher behavior lives **only** in `teacher_app` except Android packaging.
 4. `teacher_app/` still present until Phase 8 gates pass.
+
+## 24. Phase 7F verification
+
+Phase 7F automated verification is **PASS**.
+
+Physical camera characterization is **DEFERRED / NOT VERIFIED**.
+
+| Item | Result |
+|---|---|
+| Phase 7F automated gates | PASS |
+| Physical Wrist Stall A–L characterization | **NOT PERFORMED** — human decision: **DEFERRED** |
+| REAL_CAMERA_ACCURACY_VERIFIED | **NO** |
+| Classified as a failing automated gate | **NO** |
+| Trainee physical / app+emulator manual E2E | **NOT AVAILABLE** |
+| Production Firebase | **UNCHANGED** |
+
+Deferred physical characterization is a known validation limitation, not a failed automated suite. Future UAT or demo testing **may** characterize physical accuracy later. It is not required to fabricate results, and it does not block recording this repository documentation. Do **not** request camera testing as part of this close-out.
+
+Trainee physical / production-app + emulator manual E2E is unavailable because the production Windows app has no Firestore emulator wiring. Redirecting that path to production Firebase ad hoc is refused.
+
+## 25. Automated evidence (preserved)
+
+Recorded at starting/current implementation HEAD `94f5dcc25ef2a6fd88c8e8f6a79b9d7112cba4c7`. This documentation task did **not** rerun those suites: no application, backend, or rule source changed.
+
+| Check | Result |
+|---|---|
+| `dart format --output=none --set-exit-if-changed` | 402 files, 0 changed |
+| `flutter analyze` | 0 errors; 1 pre-existing warning; 14 pre-existing info items |
+| Root `flutter test` | **1461 passed**, 0 failed |
+| `packages/elixr_core` `flutter test` | **91 passed**, 0 failed |
+| Backend `pytest` | **1219 passed**, 0 failed |
+| Explicit Phase 7 backend / spec / protocol / official consistency | **105 passed** |
+| Official 12 | **UNCHANGED** |
+| `compileall` | PASS |
+| Phase 7E focused Firestore emulator | **46 passed**, 0 failed |
+| Full Firestore emulator | **437 passed**, 0 failed |
+| Windows release build | **PASS** |
+
+Windows executable from that build:
+
+`build\windows\x64\runner\Release\elixr_application.exe`
+
+Analyzer: 0 errors. Pre-existing non-error diagnostics remain.
+
+## 26. Frozen Wrist Stall baseline
+
+Repository constants at the Phase 7F implementation HEAD. These are recorded for later characterization; they were **not** tuned in this task.
+
+| Constant | Value |
+|---|---|
+| `STALL_PROXIMITY` | `0.12` |
+| `HAND_STALL_UPRIGHT_ASPECT_RATIO` | `1.25` |
+| `STALL_STABILITY_THRESHOLD` | `0.06` |
+| `STALL_HISTORY_FRAMES` | `12` |
+| Pose minimum visibility | `0.5` |
+| `READINESS_STABLE_DURATION_S` | `1.0` |
+| `HOLD_CONFIRMATION_SECONDS` | `2.5` |
+| `HOLD_UNKNOWN_GRACE_SECONDS` | `0.75` |
+| `HOLD_MAX_FRAME_GAP_SECONDS` | `0.35` |
+| `HOLD_MIN_POSITIVE_RATIO` | `0.85` |
+| Calibration | Pose shoulder-width based; reference `0.30`; clamped `0.6..1.6`; fallback `1.0` / `default` |
+
+Recording these values does **not** claim they were physically validated.
+
+## 27. Global XP / session isolation
+
+Template completion writes **only**:
+
+- `assignment_attempts` with `attempt_kind = template_score`
+
+It does **not** write:
+
+- `sessions`
+- `leaderboard`
+- `leaderboard_processed_sessions`
+
+It does **not** award:
+
+- global XP
+- daily quests
+- achievements
+- mastery
+
+| Flag | Value |
+|---|---|
+| `TEMPLATE_WRITES_SESSIONS` | **NO** |
+| `TEMPLATE_WRITES_LEADERBOARD` | **NO** |
+| `TEMPLATE_AWARDS_GLOBAL_XP` | **NO** |
+
+Teacher Live Test remains ephemeral: no `sessions`, no XP, no required `assignment_attempts`.
+
+## 28. Trust model
+
+Template-scored classroom results are **controlled-client capstone classroom assessment data**.
+
+Do **not** call them tamper-proof.
+
+The local Python backend performs inference. The authenticated Windows client persists the classroom result. A hostile modified client is outside the capstone trust model.
+
+Phase 7 Firestore rules (local, not yet production) freeze classroom identity and enforce `awards_global_xp = false`. That design protects the global XP / session / leaderboard path even though classroom scores themselves are not a trusted server-authoritative ranking against a hostile client.
+
+## 29. Production Firestore rule evidence
+
+Production Firestore Phase 7 rules: **NOT DEPLOYED**.
+
+Active Firebase project: `elixr-app-2026`.
+
+Read-only live rules recheck on 2026-08-22 (`firebase_get_security_rules`, no deploy):
+
+| Item | Value |
+|---|---|
+| `LIVE_FIRESTORE_RULES_READABLE` | **YES** |
+| Local `firestore.rules` LF-normalized SHA-256 | `1ae4debfd9b50671391e619590c56567eacad31375b486f6937b0cb943583b0e` |
+| Live production Firestore rules LF-normalized SHA-256 | `6839dedc5bf43bf1a1808624e3db12c9d6aa5f66b1622b328c4716b0eaf2efad` |
+| `LOCAL_FIRESTORE_RULES_DIFFER_FROM_LIVE` | **YES** |
+| Local hash changed unexpectedly vs prior Phase 7F evidence | **NO** |
+| Live hash changed since prior Phase 7F evidence | **NO** |
+| `PHASE7_RULE_DIFF_IS_ADDITIVE` | **YES** |
+
+Local `firestore.rules` adds Phase 7 support that live production currently lacks:
+
+- exact AssessmentSpec v1 validation (`validAssessmentSpecV1`)
+- `template_scored` revision creation
+- frozen template assignment `assessment_spec`
+- `template_score` classroom result creation/read
+
+Live production rules do **not** contain `validAssessmentSpecV1`, `template_scored` support, `template_score` support, or `assessment_spec` assignment snapshot authorization. Do not imply production already supports the new write path.
+
+Existing Phase 5/6 contracts were verified unchanged by emulator tests at the implementation HEAD. This documentation task did not change `firestore.rules`.
+
+## 30. Production rollout authorization gate
+
+The next production-changing action is a **FIRESTORE-RULES-ONLY** deployment.
+
+Prepared command — **DO NOT RUN** without a new explicit human authorization:
+
+```text
+npx --yes firebase-tools@latest deploy --only firestore:rules --project elixr-app-2026
+```
+
+Do **not** use `--only firestore`. That target may also include Firestore indexes depending on Firebase CLI target semantics and `firebase.json` configuration. The authorized target is **Firestore rules only**.
+
+This document does **not** create or constitute that authorization. Previous Phase 6 deployment authorizations are **not reusable**.
+
+Do not deploy Storage, Functions, indexes, Hosting, IAM, or App Check as part of the Phase 7 rules gate.
+
+### Immediate pre-deploy checks (required before any authorized run)
+
+If any item mismatches: **STOP** and re-review. Do not deploy over an unexpected live rules version.
+
+1. `branch = main`
+2. `HEAD = origin/main`
+3. Working tree clean
+4. Expected docs / current Phase 7 commit is the reviewed HEAD
+5. Firebase project = `elixr-app-2026`
+6. Local `firestore.rules` LF-normalized SHA-256 still equals `1ae4debfd9b50671391e619590c56567eacad31375b486f6937b0cb943583b0e`
+7. Live pre-deploy Firestore rules LF-normalized SHA-256 still equals `6839dedc5bf43bf1a1808624e3db12c9d6aa5f66b1622b328c4716b0eaf2efad`
+8. No unexpected production rules update (`LIVE_FIRESTORE_RULES_CHANGED_SINCE_PHASE7F` must remain **NO**)
+9. Emulator Phase 7 rule tests remain green
+10. Deploy target = `firestore:rules` only
+
+## 31. Future post-deploy plan (DO NOT EXECUTE)
+
+After a **new explicit human authorization** and a successful rules-only deploy, a later agent must:
+
+1. Read live Firestore rules back.
+2. Calculate LF-normalized SHA-256.
+3. Require live == intended local (`1ae4debfd9b50671391e619590c56567eacad31375b486f6937b0cb943583b0e` unless a reviewed rules change landed first).
+4. Verify the deployment targeted Firestore rules only.
+5. Verify Storage untouched.
+6. Verify indexes untouched.
+7. Verify Phase 6 production behavior remains available.
+8. Perform a controlled Phase 7 production workflow:
+   - Teacher template movement create
+   - Teacher assignment create
+   - Trainee template assessment
+   - `template_score` created
+   - assigning Teacher can read the result
+   - global XP / session counts unchanged
+
+Only after that can Phase 7 become **PRODUCTION CLOSED**.
+
+This task executed **none** of those steps.
