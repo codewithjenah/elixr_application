@@ -1,15 +1,14 @@
 # Phase 8 — `teacher_app` removal and hardening
 
-**Status:** Planned  
+**Status:** PHASE 8 CLOSED — `teacher_app` deleted; physical camera characterization remains deferred from Phase 7  
 **Sequence:** `08` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
-**Prerequisite:** Phases 1–7 complete **and** every migration gate below passes. If any gate fails, **STOP**. Do **not** delete [teacher_app/](../../teacher_app/).
+**Prerequisite:** Phases 1–7 complete **and** every migration gate below passed before deletion.
 
 ## Implementing agent instructions
 
 - Re-read current `main`, [AGENTS.md](../../AGENTS.md), [00-master-plan.md](00-master-plan.md), all prior phase completion reports, and this file before editing.
 - Work only on existing `main`. Do not create another branch.
-- This is the **only** phase allowed to delete `teacher_app`.
-- If parity is incomplete, leave `teacher_app` in place and report gaps. Do not delete “to finish the docs.”
+- `teacher_app/` was deleted in this phase. Do not restore it.
 - Update this document’s Status and Completion report when done.
 - Report tests actually run versus `Not verified`.
 
@@ -17,7 +16,29 @@
 
 ## 1. Status
 
-Planned
+PHASE 8 CLOSED — `teacher_app` deleted on 2026-08-22 after `AUTHORIZED TO START PHASE8` and Gate 9 `ANDROID TEACHER INSTALLS ARE NO LONGER REQUIRED.`
+
+The Windows executable is the only in-repo Teacher product. Existing Android Teacher installs will not receive updates from this repository. That is an accepted capstone cutoff.
+
+Phase 7 remains PRODUCTION CLOSED for the functional write path. Physical Wrist Stall camera characterization remains **DEFERRED / NOT VERIFIED**. Phase 8 did not claim real-camera accuracy.
+
+No Phase 9 exists. Follow-on work needs a new human-approved plan.
+
+| Gate | State |
+|---|---|
+| Phase 1 role routing / Teacher register / email verify | **PASS** |
+| Phase 2 groups / membership / legacy links retained | **PASS** |
+| Phase 3 Dashboard / Students / progress / coaching | **PASS** |
+| Phase 4 Global / My Students / Group + official XP gate | **PASS** |
+| Phase 5 movements / assignments / `assignment_attempts` | **PASS** |
+| Phase 6 Teacher-reviewed video + Storage lifecycle | **PASS** |
+| Phase 7 Wrist Stall Live Test on existing Python backend | **PASS** — functional path; real-camera accuracy **NOT VERIFIED** |
+| Gate 8 migrated teacher_app behaviors as Windows/`elixr_core` tests | **PASS** |
+| Gate 9 Android Teacher installs no longer required | **PASS** — 2026-08-22 |
+| `teacher_app` deleted | **YES** |
+| Phase 8 overall | **CLOSED** |
+
+See [§22](#22-completion-report) for commands and review notes.
 
 ## 2. Goal
 
@@ -32,26 +53,28 @@ Verify Windows Teacher feature parity with the useful behavior of the Android co
 
 ## 4. Verified current repo behavior (pre-deletion inventory)
 
-Confirm again on `main` before delete:
+Start inventory recorded on `main` at HEAD `825132d6343463d1bc5313732c185b32e1bde705` after Phase 8 start authorization. Confirm again immediately before any delete.
 
-| teacher_app capability | Windows replacement phase |
-|---|---|
-| Teacher register + email verify | 1 |
-| Teacher-only login reject | 1 |
-| Roster invite QR / rotate / revoke | 2 (group invites; QR optional) |
-| Approve/reject joins | 2 |
-| Student progress + waitingForAccess | 3 |
-| Coaching notes | 3 |
-| Roster ranking | 4 (My Students / Group) |
-| Session evidence JPEG download | 3 + General Evidence Access (unchanged stills) |
-| Video review | 6 (never existed on Android) |
-| Groups / assignments / template score | 2, 5, 7 (never existed on Android) |
+| teacher_app capability | Windows replacement | Test evidence | Parity |
+|---|---|---|---|
+| Teacher register + email verify | Phase 1 `registerTeacher` + `/verify-email` | `test/services/auth_teacher_flow_test.dart`; `test/core/router/app_redirect_test.dart` | **PASS** |
+| Teacher-only login reject / missing profile fail-closed | Phase 1 `createMissingProfile: false` | same auth + redirect tests | **PASS** |
+| Roster invite QR / rotate / revoke | Phase 2 `group_invites`; QR optional, not required | `packages/elixr_core/test/repositories/group_repository_test.dart`; `test/features/teacher/teacher_groups_controller_test.dart` | **PASS** (Windows Groups; Android QR is packaging UX) |
+| Approve/reject joins | Phase 2 membership | Windows groups controller + `elixr_core` membership tests | **PASS** |
+| Student progress + `waitingForAccess` | Phase 3 | `test/features/teacher/students/teacher_student_detail_controller_test.dart` | **PASS** |
+| Coaching notes | Phase 3 | Windows coaching section tests + `packages/elixr_core/test` coaching note tests | **PASS** |
+| Roster ranking | Phase 4 My Students / Group | `test/features/teacher/leaderboard/*` | **PASS** |
+| Session evidence JPEG download | Phase 3 + General Evidence Access | existing evidence/progress tests | **PASS** |
+| Video review | Phase 6 (never on Android) | Phase 6 Windows/Storage tests | **PASS** (Windows-only capability) |
+| Groups / assignments / template score | Phases 2, 5, 7 (never on Android) | Phase 5–7 Windows/backend tests | **PASS** (Windows-only capability) |
 
-CI today ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)): root `flutter test` + backend pytest. Does **not** run `teacher_app/test` or `packages/elixr_core/test`. Phase 8 must **add** `elixr_core` tests to CI if not already added in earlier phases, and **remove** any teacher_app CI if it was added later.
+Required Gate 8 behaviors already existed outside `teacher_app/test`. Remaining Android-shell tests (Material roster/QR widgets, Android theme, `ElixrTeacherApp` router) were deleted with the tree.
 
-`teacher_app/README.md` may be stale regarding Firebase — delete with the tree.
+CI now has a parallel `elixr_core` job: format, analyze, and `flutter test`. No `teacher_app` CI was added.
 
-`teacher_app/android/app/google-services.json` is Android client config; deleting the app removes it. Do not copy secrets into docs.
+Android client config `google-services.json` was deleted with the tree. It was not copied into docs.
+
+U5: Windows Groups write `group_invites`. The Android Teacher-level `teacher_invites` writer was removed with `teacher_app`. Legacy `teacher_invites` and `teacher_student_links` remain readable. This phase did **not** delete those production documents.
 
 ## 5. Dependencies / prerequisites
 
@@ -244,23 +267,86 @@ flutter build windows
 - Do not add a new branch.
 - Do not deploy Firebase without explicit human request.
 
-## 22. Completion report template
+## 22. Completion report
 
 ```
 Phase 8 completion
 - Parity table (pass/fail):
+  Teacher register + email verify: PASS
+  Teacher-only login reject / missing profile fail-closed: PASS
+  Group invite rotate / revoke (QR optional): PASS
+  Approve/reject joins: PASS
+  Student progress + waitingForAccess: PASS
+  Coaching notes: PASS
+  My Students / Group ranking: PASS
+  Session evidence JPEG: PASS
+  Video review / assignments / template score: PASS (Windows-only)
 - Tests ported:
-- teacher_app deleted: yes/no
-- Commands before delete:
-- Commands after delete:
+  Required Gate 8 behaviors already existed in Windows / elixr_core tests.
+  No package:elixr_teacher tests were copied.
+  Android-shell Material/QR/theme tests were deleted with the tree.
+- teacher_app deleted: YES
+- Commands before delete (2026-08-22):
+  dart format lib test: 402 files, 0 changed
+  flutter analyze: exit 0; 0 errors; 1 pre-existing warning; 14 pre-existing info
+  root flutter test: 1461 passed
+  packages/elixr_core flutter test: 91 passed
+  teacher_app flutter test: 95 passed
+  backend pytest: 1219 passed
+  compileall: PASS
+  flutter build windows: PASS
+    (build\windows\x64\runner\Release\elixr_application.exe)
+- Commands after delete (2026-08-22):
+  dart format lib test: 402 files, 0 changed
+  flutter analyze: exit 0; 0 errors; 1 pre-existing warning; 14 pre-existing info
+  root flutter test: 1461 passed
+  packages/elixr_core flutter test: 91 passed
+  backend pytest: 1219 passed
+  compileall: PASS
+  flutter build windows: PASS
+    (build\windows\x64\runner\Release\elixr_application.exe)
+  teacher_app directory: absent
 - Rules review notes:
+  firestore.rules were not modified.
+  Role immutability, official XP from official sessions, awards_global_xp=false
+  on classroom attempts, and the five authorization layers remain distinct.
+  teacher_invites list: if false remains. Production invite/consent documents
+  were not deleted.
+  Indexes unchanged. groups, group_memberships, assignment_attempts, and
+  leaderboard composites remain. group_assignments has no composite in
+  firestore.indexes.json; that pre-existed Phase 8 and was not added here.
 - Privacy review notes:
+  Public Profile Privacy remains separate from Classroom Authorization.
+  Progress Access, General Evidence Access, and Assignment Submission
+  Authorization remain separate.
+  Locked profile does not hide assignment work from the assigning Teacher.
+  Unrelated Teachers have no privileged reads.
+  sessions are not globally readable.
+  Video rules do not use General Evidence Access.
+  assignment_submissions/ lifecycle prefix remains assignment_submissions/ only
+  (age 30 days). It does not cover profile or session_evidence.
+  Coaching notes still require Classroom Authorization or an approved legacy
+  link. No silent consent.
+  Classroom/template scores remain controlled-client capstone classroom
+  assessment data.
 - Contract review notes:
+  WebSocket / movement / XP domains were not changed.
+  Teacher Live Test still uses the local Python backend.
+  No Flutter camera owner was added.
+  elixr_core format/analyze/test is now a CI job.
+  Historical phase docs may still mention teacher_app as the then-current
+  companion. Live product files no longer instruct anyone to run it.
 - Not verified:
+  Phase 8 manual UI checklist
+  Firestore emulator re-run
+  Firebase deploy (not requested)
+  production Android leftover-client behavior
+  physical Wrist Stall camera characterization (deferred from Phase 7)
+  real-camera accuracy
 ```
 
 ## 23. Handoff requirements for the next phase
 
 There is **no Phase 9** in this program. Follow-on work (Grip/shaker templates, assignment-score classroom boards) requires a **new** human-approved plan. Do not silently continue. Do not add Cloud Functions merely for video TTL (U3 already specifies lifecycle).
 
-If `teacher_app` was not deleted, the next allowed action is to finish the failing gate, not to start unrelated features.
+`teacher_app/` was deleted. Do not restore it. Do not start unrelated features.

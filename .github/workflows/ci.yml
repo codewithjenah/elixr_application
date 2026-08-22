@@ -44,6 +44,40 @@ jobs:
       - name: Run Flutter tests
         run: flutter test
 
+  elixr_core:
+    name: elixr_core checks
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: packages/elixr_core
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install elixr_core dependencies
+        run: flutter pub get
+
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Run Flutter analyzer
+        run: flutter analyze
+
+      - name: Run elixr_core tests
+        run: flutter test
+
   backend:
     name: Backend checks
     runs-on: windows-latest

@@ -1,6 +1,6 @@
 # ELIXR Teacher Windows Refactor — Master Plan
 
-**Status:** Planned  
+**Status:** Phases 1–8 executed on `main`. Android `teacher_app` removed in Phase 8.  
 **Branch policy:** existing `main` only. Do not create another branch.  
 **This directory is documentation / implementation planning only.** Do not treat these files as permission to implement multiple phases at once.
 
@@ -17,7 +17,7 @@ Every implementing agent must:
 3. Implement **only** the assigned phase document. Do not start a later phase “while you are in the files.”
 4. If a prerequisite from the previous phase is missing, **STOP** and report it. Do not silently implement the missing previous phase.
 5. Update that phase document’s Status and Completion report. Distinguish tests actually run from `Not verified`.
-6. Leave [teacher_app/](../../teacher_app/) intact unless executing Phase 8 after every migration gate passes.
+6. Do not restore a standalone Android `teacher_app`. Phase 8 removed it after the migration gates passed.
 7. Not implement multiple phases simultaneously unless a later **human** decision changes this policy.
 
 **Phase sequencing is mandatory:**
@@ -34,7 +34,7 @@ ELIXR becomes **one Windows Flutter executable** supporting Trainee and Teacher 
 
 | Decision | Approved shape |
 |---|---|
-| Clients | One Windows app. The standalone Android [teacher_app/](../../teacher_app/) is removed only in Phase 8. |
+| Clients | One Windows app. The standalone Android `teacher_app` (`elixr_teacher`) was removed in Phase 8. |
 | Identity | Shared Firebase Authentication. Role is `users/{uid}.role` = `Trainee` or `Teacher`, immutable after create. |
 | Storage | Shared Cloud Firestore + Firebase Storage. Firestore holds metadata only; never video bytes or base64. |
 | Camera / CV | One local Python FastAPI backend owns the webcam. Trainee practice uses it today. Phase 7 Teacher Movement Builder Live Test uses **the same** backend. No Flutter webcam owner. No second Teacher CV process. |
@@ -242,29 +242,19 @@ Rules invariant to preserve for official XP: `total_xp == sessions_completed * 2
 16. **Locked profile never hides assigned classroom work from the assigning Teacher.**
 17. **Unrelated Teachers get no privileged drill-down.**
 18. **Assignment Submission Authorization ≠ General Evidence Access.**
-19. **`teacher_app` deleted only in Phase 8.**
+19. **`teacher_app` was deleted only in Phase 8, after the migration gates passed. Do not restore it.**
 20. **Resources have deterministic cleanup** (camera, WS, temp files, controllers).
 21. **Do not implement multiple phases at once.**
 
 ---
 
-## 6. Why `teacher_app` is retained until Phase 8
+## 6. Why `teacher_app` was retained until Phase 8
 
-[teacher_app/](../../teacher_app/) (`elixr_teacher`, Android applicationId `com.codewithjenah.elixr_teacher`) is the live Teacher companion. It already:
+The standalone Android `teacher_app` (`elixr_teacher`, applicationId `com.codewithjenah.elixr_teacher`) was the live Teacher companion through Phases 1–7. It registered Teachers, rejected non-Teacher login, required email verification, managed legacy roster invites, and showed progress, evidence, coaching, and roster ranking.
 
-- registers `role: Teacher`,
-- rejects non-Teacher login,
-- requires email verification,
-- generates/rotates/revokes a Teacher-owned roster code + QR (`elixr://join?code=`),
-- approves/rejects join requests,
-- shows student progress when Progress Access is granted,
-- downloads session evidence stills when General Evidence Access is granted,
-- writes coaching notes,
-- shows roster-only ranking.
+It was retained until Windows Teacher parity and Gate 9 confirmation that Android Teacher installs were no longer required. Phase 8 deleted the tree. Existing Android installs will not receive updates from this repository. That is an accepted capstone cutoff.
 
-Deleting it before Windows Teacher parity would strand Teacher accounts, Android testers, and unmigrated tests. Phase 8 is the only deletion phase.
-
-`teacher_app/README.md` claiming Firebase is uninitialized is **stale**; `teacher_app/lib/main.dart` initializes Firebase. Code wins.
+Do not restore `teacher_app/`.
 
 ---
 
@@ -276,12 +266,12 @@ Reuse **logic and contracts**, not Material 3 widgets. Windows Teacher shell use
 |---|---|
 | `User` role helpers | [packages/elixr_core/lib/models/user.dart](../../packages/elixr_core/lib/models/user.dart) |
 | Auth repository | [packages/elixr_core/lib/repositories/auth_repository.dart](../../packages/elixr_core/lib/repositories/auth_repository.dart) |
-| Email-verified token refresh | same, plus teacher_app verify-email flow |
-| `createMissingProfile: false` for Teacher sessions | teacher_app `TeacherAuthController` vs Windows default `true` |
+| Email-verified token refresh | same, plus Windows `/verify-email` |
+| `createMissingProfile: false` for Teacher sessions | Windows `AuthService` |
 | Links, invites, CoachCode | `teacher_student_link.dart`, `teacher_roster_invite.dart`, `coach_code.dart` |
 | Progress / evidence / coaching / roster ranking triads | `packages/elixr_core/lib/repositories/*` |
-| Redirect/email-verify tests | `teacher_app/test/features/auth/*`, `teacher_app/test/core/router/*` |
-| Student progress states | `waitingForAccess` and related in teacher_app student_progress |
+| Redirect/email-verify tests | `test/services/auth_teacher_flow_test.dart`, `test/core/router/app_redirect_test.dart` |
+| Student progress states | Windows `waitingForAccess` in Teacher student detail |
 | Trainee join + consent | [lib/features/teacher_access/](../../lib/features/teacher_access/) |
 
 Do **not** copy Android QR-only UX as the Windows Groups design; QR may remain as an extra, not the only invite path.
@@ -296,7 +286,7 @@ A phase is complete only when:
 2. Its required tests were run and reported (or listed `Not verified` with reason).
 3. Its phase document Status and Completion report are updated.
 4. Its **Handoff requirements** for the next phase are true.
-5. `teacher_app/` still exists after Phases 1–7.
+5. `teacher_app/` existed after Phases 1–7 and was removed only in Phase 8.
 6. Cross-layer contracts touched by that phase (Dart models, rules, indexes, WS schemas, tests, docs) were updated together.
 
 The next phase must refuse to start if those handoff checks fail.
@@ -350,7 +340,7 @@ These are **adopted**. Implementing agents must not invent alternatives.
 | U2 | Video caps / retention numbers | Keep §10 values as **planning defaults requiring validation**. Do not describe them as experimentally validated. |
 | U3 | Video cleanup | **Client reconciler** (14-day reviewed_at policy, delete-on-replace, retry failures) **plus** server-side **`assignment_submissions/` Object Lifecycle Management** (~30-day hard age from upload). No Cloud Functions for this cleanup. |
 | U4 | Default-group backfill | **No automatic production/default-group migration.** Inventory first. Any migrator requires explicit human decision/action. |
-| U5 | Invite compatibility | Legacy `teacher_invites` remain while `teacher_app` compatibility is required. New Windows Groups use `group_invites`. **Deprecate legacy Teacher-level invites in Phase 8 after parity.** |
+| U5 | Invite compatibility | Windows Groups write `group_invites`. The Android Teacher-level `teacher_invites` writer was removed with `teacher_app` in Phase 8. Legacy `teacher_invites` and `teacher_student_links` remain readable for compatibility. Do **not** delete those production documents in Phase 8. |
 | U6 | Teacher Live Test | **Ephemeral.** No `sessions` row, no global XP, no required `assignment_attempts` log. |
 | U7 | Group leaderboard | Rank members using **official ELIXR global XP only**. Teacher-created / classroom assignments do **not** contribute. Assignment-specific views show rubric / completion / review status **separately**. Do **not** invent one cumulative classroom points formula. |
 
@@ -387,11 +377,11 @@ Creating this directory does **not** change runtime behavior. Implementing agent
 
 Checked across all nine files:
 
-1. `teacher_app` is deleted only in Phase 8, and only after gates pass.
+1. `teacher_app` was deleted only in Phase 8, and only after gates passed. Do not restore it.
 2. `assignment_attempts` never awards global XP. Official catalog practice stays in `sessions` (XP at most once). Official **assignment-context** completion **also** writes a required `assignment_attempts` pointer (`awards_global_xp: false`, no second XP).
 3. Locked Public Profile Privacy does not block assigned classroom work from the assigning Teacher. Public Profile Privacy remains separate from Classroom Authorization.
 4. Unrelated Teachers get no privileged drill-down.
 5. Explicitly submitted assignment video uses Assignment Submission Authorization, not General Evidence Access. Trainees cannot self-approve.
 6. Python is the only webcam owner; Phase 7 Live Test uses the same local backend; first template_id is `balance_stall.wrist_v1` (Bottle + Wrist only).
 7. Video cleanup is client reconciler (~14 days after review) **plus** `assignment_submissions/` Object Lifecycle ~30-day hard age. Values remain unvalidated planning defaults. No Cloud Functions for this cleanup.
-8. No automatic default-group migration (U4). Legacy `teacher_invites` last until Phase 8 deprecation (U5). Coaching notes: Classroom Authorization OR legacy approved link; no silent consent links.
+8. No automatic default-group migration (U4). The Android `teacher_invites` writer is deprecated (U5); leftover invite and consent documents remain. Coaching notes: Classroom Authorization OR legacy approved link; no silent consent links.

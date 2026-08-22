@@ -1,5 +1,7 @@
 # Phase 1 Teacher Rankings Implementation Plan
 
+**Superseded.** This Android `teacher_app` rankings plan is historical. The Windows Teacher product lives in [docs/teacher-windows-refactor/](teacher-windows-refactor/00-master-plan.md). Phase 8 removed `teacher_app` after the migration gates passed. Do not implement this plan.
+
 **Phase 1 adds a teacher-app platform Rankings tab that reads the existing signed-in leaderboard through shared `elixr_core` APIs. It is not a Firestore rules change, not a write/award move, and not a copy of the Windows Fluent leaderboard.**
 
 ---
