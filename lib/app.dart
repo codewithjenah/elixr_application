@@ -36,7 +36,13 @@ import 'services/join_code_resolver.dart';
 import 'services/join_link_service.dart';
 
 class ElixrApp extends StatefulWidget {
-  const ElixrApp({super.key});
+  ElixrApp({
+    super.key,
+    TeacherAccessCodeRepository? teacherAccessCodeRepository,
+  }) : teacherAccessCodeRepository =
+           teacherAccessCodeRepository ?? FirebaseTeacherAccessCodeRepository();
+
+  final TeacherAccessCodeRepository teacherAccessCodeRepository;
 
   @override
   State<ElixrApp> createState() => _ElixrAppState();
@@ -49,7 +55,6 @@ class _ElixrAppState extends State<ElixrApp> {
   late final TutorialProgressService _tutorialProgressService;
   late final PublicProfileRepository _publicProfileRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
-  late final TeacherAccessCodeRepository _teacherAccessCodeRepository;
   late final GroupRepository _groupRepository;
   late final JoinCodeResolver _joinCodeResolver;
   late final JoinLinkService _joinLinkService;
@@ -61,7 +66,6 @@ class _ElixrAppState extends State<ElixrApp> {
     super.initState();
     _publicProfileRepository = PublicProfileRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
-    _teacherAccessCodeRepository = FirebaseTeacherAccessCodeRepository();
     _groupRepository = FirebaseGroupRepository();
     _joinCodeResolver = JoinCodeResolver(
       groupRepository: _groupRepository,
@@ -129,7 +133,7 @@ class _ElixrAppState extends State<ElixrApp> {
           value: _teacherRelationshipRepository,
         ),
         Provider<TeacherAccessCodeRepository>.value(
-          value: _teacherAccessCodeRepository,
+          value: widget.teacherAccessCodeRepository,
         ),
         Provider<GroupRepository>.value(value: _groupRepository),
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),

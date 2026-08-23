@@ -39,7 +39,7 @@ Future<void> main() async {
         return true;
       };
 
-      runApp(const ElixrApp());
+      runApp(ElixrApp());
     },
     (error, stack) {
       // Best-effort: ErrorLogService may not be ready if init failed early.

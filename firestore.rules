@@ -239,11 +239,6 @@ service cloud.firestore {
       return ['session_id', 'user_id', 'rubric_total', 'xp_awarded', 'processed_at'];
     }
 
-    // Legacy alias — V1-only callers; prefer markerKeysV1/V2.
-    function markerKeys() {
-      return markerKeysV1();
-    }
-
     function boardKeys() {
       return ['user_id', 'day_key', 'day_start', 'quest_ids', 'created_at', 'updated_at'];
     }
@@ -668,11 +663,6 @@ service cloud.firestore {
         && marker.data.session_id == sessionId
         && marker.data.rubric_total == rubricTotal
         && marker.data.xp_awarded == 25;
-    }
-
-    // Backward-compatible alias used by V1 award paths.
-    function markerMatchesSession(sessionId, score) {
-      return markerMatchesLegacySession(sessionId, score);
     }
 
     function awardSessionId() {
@@ -1685,24 +1675,6 @@ service cloud.firestore {
       ];
     }
 
-    function publicProfileSessionKeys() {
-      return [
-        'session_id',
-        'user_id',
-        'movement_name',
-        'difficulty',
-        'score',
-        'duration_seconds',
-        'prop_type',
-        'created_at',
-        'assessment_version',
-        'rubric',
-        'rubric_total',
-        'performance_level',
-        'evidence_available'
-      ];
-    }
-
     function publicProfileSessionKeysV1() {
       return [
         'session_id',
@@ -1784,7 +1756,7 @@ service cloud.firestore {
           || (data.schema_version is int && data.schema_version >= 1));
     }
 
-    function validPublicProfileSummary(data, userId) {
+    function validPublicProfileSummary(data) {
       return data.keys().hasOnly(publicProfileSummaryKeys())
         && isNonNegInt(data.total_duration_seconds)
         && data.completed_movement_names is list;
@@ -1837,7 +1809,7 @@ service cloud.firestore {
           && (canReadProtectedPublicProfile(userId)
             || hasApprovedProgressAccess(userId));
         allow create, update: if isOwner(userId)
-          && validPublicProfileSummary(request.resource.data, userId);
+          && validPublicProfileSummary(request.resource.data);
         allow delete: if isOwner(userId);
       }
 
@@ -2041,16 +2013,6 @@ service cloud.firestore {
         && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_version
           == 1
         && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_granted_at
-          is timestamp;
-    }
-
-    function hasApprovedEvidenceAccess(traineeId) {
-      return hasApprovedProgressAccess(traineeId)
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.evidence_access
-          == 'granted'
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.evidence_access_version
-          == 1
-        && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.evidence_access_granted_at
           is timestamp;
     }
 
@@ -2314,7 +2276,7 @@ service cloud.firestore {
         && get(userPath(request.auth.uid)).data.get('role', '') == 'Teacher';
     }
 
-    function validGroupCreate(data, groupId) {
+    function validGroupCreate(data) {
       return isVerifiedTeacher()
         && data.keys().hasOnly(groupAllowedKeys())
         && data.keys().hasAll(groupKeys())
@@ -2474,7 +2436,12 @@ service cloud.firestore {
       assignmentId,
       attemptId
     ) {
-      return false;
+      return teacherId == request.auth.uid
+        && groupId is string
+        && traineeId is string
+        && assignmentId is string
+        && attemptId is string
+        && false;
     }
 
     function validPendingMembershipCreate(data, membershipId) {
@@ -2565,7 +2532,7 @@ service cloud.firestore {
         && resource.data.status == 'active';
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
 
-      allow create: if validGroupCreate(request.resource.data, groupId);
+      allow create: if validGroupCreate(request.resource.data);
 
       allow update: if validGroupTeacherUpdate(groupId);
 
