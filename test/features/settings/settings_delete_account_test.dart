@@ -37,7 +37,9 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestDeleteAccountEmailVerification() async {
+  Future<void> requestDeleteAccountEmailVerification({
+    String confirmationCode = '',
+  }) async {
     verificationRequested = true;
   }
 
@@ -161,6 +163,7 @@ void main() {
       repository: repository,
       leaderboardRepository: null,
       profileImageRepository: _NoopImages(),
+      generateDeleteVerificationCode: () => '123456',
     );
     authService.seedAuthenticatedUser(
       User(
@@ -271,14 +274,19 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.enterText(find.byType(TextBox).last, 'secret');
-    await tester.pump();
-
-    final emailConfirmLabel = find.text(
-      'I confirmed this request from the verification email',
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == '6-digit code',
+      ),
+      '123456',
     );
-    await tester.ensureVisible(emailConfirmLabel);
-    await tester.tap(emailConfirmLabel);
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextBox && widget.placeholder == 'Enter your password',
+      ),
+      'secret',
+    );
     await tester.pump();
 
     final confirmLabel = find.text(
@@ -297,5 +305,61 @@ void main() {
     expect(repository.lastDeletePassword, 'secret');
     expect(authService.isAuthenticated, isFalse);
     expect(find.text('Login'), findsOneWidget);
+  });
+
+  testWidgets('wrong confirmation code keeps the account', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      buildHarness(
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: ScaffoldPage(content: const SecuritySection()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Delete account').last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == '6-digit code',
+      ),
+      '000000',
+    );
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextBox && widget.placeholder == 'Enter your password',
+      ),
+      'secret',
+    );
+    await tester.pump();
+
+    final confirmLabel = find.text(
+      'I understand this permanently deletes my account and data',
+    );
+    await tester.ensureVisible(confirmLabel);
+    await tester.tap(confirmLabel);
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.widgetWithText(FilledButton, 'Delete account').last,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete account').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('confirmation code is incorrect'),
+      findsOneWidget,
+    );
+    expect(find.text('Delete account permanently?'), findsOneWidget);
+    expect(repository.deleteAccountCallCount, 0);
+    expect(authService.isAuthenticated, isTrue);
   });
 }

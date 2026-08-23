@@ -138,8 +138,12 @@ class SecuritySectionState extends State<SecuritySection> {
     final confirmed = await _DeleteAccountConfirm.show(
       context,
       email: authService.currentUser?.email ?? '',
+      confirmCode: authService.confirmDeleteVerificationCode,
     );
-    if (confirmed == null || !mounted) return;
+    if (confirmed == null || !mounted) {
+      authService.clearPendingDeleteVerification();
+      return;
+    }
 
     if (authService.needsEmailVerification) {
       await ElixDialog.error(
@@ -687,20 +691,27 @@ class _PasswordRequirement extends StatelessWidget {
 class _DeleteAccountConfirm {
   const _DeleteAccountConfirm._();
 
-  static Future<String?> show(BuildContext context, {required String email}) {
+  static Future<String?> show(
+    BuildContext context, {
+    required String email,
+    required bool Function(String code) confirmCode,
+  }) {
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
       barrierColor: const Color(0xCC000000),
-      builder: (ctx) => Center(child: _DeleteAccountDialog(email: email)),
+      builder: (ctx) => Center(
+        child: _DeleteAccountDialog(email: email, confirmCode: confirmCode),
+      ),
     );
   }
 }
 
 class _DeleteAccountDialog extends StatefulWidget {
-  const _DeleteAccountDialog({required this.email});
+  const _DeleteAccountDialog({required this.email, required this.confirmCode});
 
   final String email;
+  final bool Function(String code) confirmCode;
 
   @override
   State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
@@ -716,24 +727,31 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   ];
 
   final _passwordController = TextEditingController();
+  final _codeController = TextEditingController();
   bool _obscured = true;
   bool _confirmed = false;
-  bool _emailConfirmed = false;
+  String? _codeError;
 
   @override
   void initState() {
     super.initState();
     _passwordController.addListener(() => setState(() {}));
+    _codeController.addListener(() {
+      setState(() => _codeError = null);
+    });
   }
 
   @override
   void dispose() {
     _passwordController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
   bool get _canSubmit =>
-      _passwordController.text.isNotEmpty && _confirmed && _emailConfirmed;
+      _passwordController.text.isNotEmpty &&
+      _confirmed &&
+      _codeController.text.trim().length == 6;
 
   @override
   Widget build(BuildContext context) {
@@ -744,7 +762,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       iconColor: AppColors.error,
       headerAccentColor: AppColors.error,
       maxWidth: 480,
-      maxHeight: 620,
+      maxHeight: 680,
       scrollableContent: true,
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -753,9 +771,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           Text(
             widget.email.trim().isEmpty
                 ? TeacherAuthMessages.accountDeletionVerificationSent
-                : 'We sent a verification message to ${widget.email.trim()} '
-                      'to confirm this delete request. Check your inbox, then '
-                      'enter your password.',
+                : 'We sent a verification message to ${widget.email.trim()}. '
+                      'Click that link, then enter the 6-digit code from the '
+                      'page address (deleteCode=) and your password.',
             style: AppTheme.body.copyWith(
               fontSize: 14,
               color: context.elixTextSecondary,
@@ -799,14 +817,36 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             ),
           const SizedBox(height: AppSpacing.md),
           Text(
+            'Confirmation code',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: 6),
+          TextBox(
+            controller: _codeController,
+            placeholder: '6-digit code',
+            keyboardType: TextInputType.number,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 11,
+            ),
+          ),
+          if (_codeError != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _codeError!,
+              style: AppTheme.caption.copyWith(color: AppColors.error),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          Text(
             'Current password',
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
           const SizedBox(height: 6),
           TextBox(
             controller: _passwordController,
+            placeholder: 'Enter your password',
             obscureText: _obscured,
-            autofocus: true,
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
               vertical: 11,
@@ -821,31 +861,6 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Checkbox(
-                checked: _emailConfirmed,
-                onChanged: (value) =>
-                    setState(() => _emailConfirmed = value == true),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () =>
-                      setState(() => _emailConfirmed = !_emailConfirmed),
-                  child: Text(
-                    'I confirmed this request from the verification email',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -888,7 +903,16 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             dense: true,
             expanded: false,
             onPressed: _canSubmit
-                ? () => Navigator.of(context).pop(_passwordController.text)
+                ? () {
+                    if (!widget.confirmCode(_codeController.text)) {
+                      setState(
+                        () => _codeError = TeacherAuthMessages
+                            .accountDeletionInvalidConfirmationCode,
+                      );
+                      return;
+                    }
+                    Navigator.of(context).pop(_passwordController.text);
+                  }
                 : null,
           ),
         ),

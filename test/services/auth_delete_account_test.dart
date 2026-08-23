@@ -63,7 +63,9 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification() async {}
 
   @override
-  Future<void> requestDeleteAccountEmailVerification() async {}
+  Future<void> requestDeleteAccountEmailVerification({
+    String confirmationCode = '',
+  }) async {}
 
   @override
   Future<User?> refreshAuthenticatedUser() async => null;
@@ -105,12 +107,27 @@ void main() {
     email: 'ada@example.com',
   );
 
+  const deleteCode = '123456';
+
+  AuthService buildService(_TrackingDeleteAccountRepository repo) {
+    return AuthService(
+      repository: repo,
+      generateDeleteVerificationCode: () => deleteCode,
+    );
+  }
+
+  Future<void> confirmDeleteEmail(AuthService service) async {
+    await service.requestDeleteAccountEmailVerification();
+    expect(service.confirmDeleteVerificationCode(deleteCode), isTrue);
+  }
+
   test(
     'deleteAccount clears local auth and exposes one-shot message',
     () async {
       final repo = _TrackingDeleteAccountRepository();
-      final service = AuthService(repository: repo);
+      final service = buildService(repo);
       service.seedAuthenticatedUser(sampleUser);
+      await confirmDeleteEmail(service);
 
       await service.deleteAccount(password: 'secret');
 
@@ -132,8 +149,9 @@ void main() {
     () async {
       final repo = _TrackingDeleteAccountRepository()
         ..errorToThrow = Exception('purge failed');
-      final service = AuthService(repository: repo);
+      final service = buildService(repo);
       service.seedAuthenticatedUser(sampleUser);
+      await confirmDeleteEmail(service);
 
       await expectLater(
         () => service.deleteAccount(password: 'secret'),
@@ -151,8 +169,9 @@ void main() {
     'deleteAccount refuses unverified email without starting purge',
     () async {
       final repo = _TrackingDeleteAccountRepository()..emailVerified = false;
-      final service = AuthService(repository: repo);
+      final service = buildService(repo);
       service.seedAuthenticatedUser(sampleUser);
+      await confirmDeleteEmail(service);
 
       await expectLater(
         () => service.deleteAccount(password: 'secret'),
@@ -172,6 +191,46 @@ void main() {
       expect(service.takeAccountDeletedMessage(), isNull);
     },
   );
+
+  test('deleteAccount refuses without the email confirmation code', () async {
+    final repo = _TrackingDeleteAccountRepository();
+    final service = buildService(repo);
+    service.seedAuthenticatedUser(sampleUser);
+
+    await expectLater(
+      () => service.deleteAccount(password: 'secret'),
+      throwsA(
+        predicate(
+          (error) => error.toString().contains(
+            accountDeletionRequiresEmailConfirmationMessage,
+          ),
+        ),
+      ),
+    );
+
+    expect(repo.deleteAccountCallCount, 0);
+    expect(service.isAuthenticated, isTrue);
+  });
+
+  test('wrong delete confirmation code does not unlock delete', () async {
+    final repo = _TrackingDeleteAccountRepository();
+    final service = buildService(repo);
+    service.seedAuthenticatedUser(sampleUser);
+    await service.requestDeleteAccountEmailVerification();
+
+    expect(service.confirmDeleteVerificationCode('000000'), isFalse);
+    await expectLater(
+      () => service.deleteAccount(password: 'secret'),
+      throwsA(
+        predicate(
+          (error) => error.toString().contains(
+            accountDeletionRequiresEmailConfirmationMessage,
+          ),
+        ),
+      ),
+    );
+    expect(repo.deleteAccountCallCount, 0);
+  });
 
   // Storage-list failure → Auth.delete skipped is covered at repository level in
   // test/data/repositories/auth_account_deletion_storage_test.dart.

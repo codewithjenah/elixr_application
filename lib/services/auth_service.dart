@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -41,6 +42,7 @@ class AuthService extends ChangeNotifier {
     ProfileImageRepositoryBase? profileImageRepository,
     Duration? pendingEmailPollInterval,
     Duration? pendingEmailTimeout,
+    String Function()? generateDeleteVerificationCode,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
   }) : _repository = repository ?? AuthRepository(createMissingProfile: false),
        _leaderboardRepository = leaderboardRepository,
@@ -49,6 +51,8 @@ class AuthService extends ChangeNotifier {
        _pendingEmailPollInterval =
            pendingEmailPollInterval ?? const Duration(seconds: 5),
        _pendingEmailTimeout = pendingEmailTimeout ?? const Duration(minutes: 2),
+       _generateDeleteVerificationCode =
+           generateDeleteVerificationCode ?? _randomDeleteVerificationCode,
        _awaitInitialAuthState = awaitInitialAuthState;
 
   final AuthRepositoryBase _repository;
@@ -56,6 +60,7 @@ class AuthService extends ChangeNotifier {
   final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
   final Duration _pendingEmailTimeout;
+  final String Function() _generateDeleteVerificationCode;
   final Future<void> Function()? _awaitInitialAuthState;
 
   // Lazily constructed so tests that never touch profile-image upload do not
@@ -77,6 +82,9 @@ class AuthService extends ChangeNotifier {
   String? _teacherAuthInfoMessage;
   String? _teacherAuthErrorMessage;
   Future<void>? _pendingEmailCheckInFlight;
+  String? _pendingDeleteVerificationCode;
+  DateTime? _pendingDeleteVerificationExpiresAt;
+  bool _deleteVerificationConfirmed = false;
 
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
@@ -97,6 +105,24 @@ class AuthService extends ChangeNotifier {
     final message = _pendingEmailChangeSuccessMessage;
     _pendingEmailChangeSuccessMessage = null;
     return message;
+  }
+
+  bool get hasConfirmedDeleteEmailVerification => _deleteVerificationConfirmed;
+
+  static String _randomDeleteVerificationCode() {
+    return (Random.secure().nextInt(900000) + 100000).toString();
+  }
+
+  bool get _isPendingDeleteVerificationExpired {
+    final expiresAt = _pendingDeleteVerificationExpiresAt;
+    if (expiresAt == null) return true;
+    return DateTime.now().isAfter(expiresAt);
+  }
+
+  void _clearPendingDeleteVerification() {
+    _pendingDeleteVerificationCode = null;
+    _pendingDeleteVerificationExpiresAt = null;
+    _deleteVerificationConfirmed = false;
   }
 
   String? takeAccountDeletedMessage() {
@@ -288,6 +314,7 @@ class AuthService extends ChangeNotifier {
     _clearPendingEmailChange(clearError: true);
     _clearTeacherAuthMessages();
     _emailVerified = null;
+    _clearPendingDeleteVerification();
     _currentUser = null;
     await _repository.clearCurrentUser();
     notifyListeners();
@@ -678,8 +705,46 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Sends a verification email before account deletion.
-  Future<void> requestDeleteAccountEmailVerification() {
-    return _repository.requestDeleteAccountEmailVerification();
+  ///
+  /// The confirmation code is attached to the email continue URL. Signup
+  /// verification alone cannot satisfy [deleteAccount].
+  Future<void> requestDeleteAccountEmailVerification() async {
+    final code = _generateDeleteVerificationCode();
+    _pendingDeleteVerificationCode = code;
+    _pendingDeleteVerificationExpiresAt = DateTime.now().add(
+      const Duration(minutes: 15),
+    );
+    _deleteVerificationConfirmed = false;
+    try {
+      await _repository.requestDeleteAccountEmailVerification(
+        confirmationCode: code,
+      );
+    } catch (_) {
+      _clearPendingDeleteVerification();
+      rethrow;
+    }
+    notifyListeners();
+  }
+
+  /// Returns true when [input] matches the code from the current delete email.
+  bool confirmDeleteVerificationCode(String input) {
+    final pending = _pendingDeleteVerificationCode;
+    if (pending == null || _isPendingDeleteVerificationExpired) {
+      return false;
+    }
+    if (input.trim() != pending) {
+      return false;
+    }
+    _deleteVerificationConfirmed = true;
+    notifyListeners();
+    return true;
+  }
+
+  void clearPendingDeleteVerification() {
+    _clearPendingDeleteVerification();
+    if (!_disposed) {
+      notifyListeners();
+    }
   }
 
   Future<User?> refreshAuthenticatedUser() async {
@@ -753,6 +818,9 @@ class AuthService extends ChangeNotifier {
   /// On success, clears local auth state the same way [logout] does and
   /// queues a one-shot message for [takeAccountDeletedMessage].
   Future<void> deleteAccount({required String password}) async {
+    if (!_deleteVerificationConfirmed || _isPendingDeleteVerificationExpired) {
+      throw Exception(accountDeletionRequiresEmailConfirmationMessage);
+    }
     final verified = await _repository.isCurrentEmailVerified();
     if (!verified) {
       throw Exception(accountDeletionRequiresVerifiedEmailMessage);
@@ -761,6 +829,7 @@ class AuthService extends ChangeNotifier {
     _accountDeletedMessage =
         'Your account and associated data have been permanently deleted.';
     _clearPendingEmailChange(clearError: true);
+    _clearPendingDeleteVerification();
     _currentUser = null;
     await _repository.clearCurrentUser();
     notifyListeners();
@@ -910,6 +979,7 @@ class AuthService extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _clearPendingEmailChange(clearError: true);
+    _clearPendingDeleteVerification();
     super.dispose();
   }
 }

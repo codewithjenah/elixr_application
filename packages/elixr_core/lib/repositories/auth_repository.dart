@@ -131,11 +131,11 @@ abstract class AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification();
 
   /// Sends the same Firebase verification email used at signup so delete
-  /// can confirm the inbox. Test fakes inherit a default that forwards to
-  /// [requestCurrentEmailVerification].
-  Future<void> requestDeleteAccountEmailVerification() {
-    return requestCurrentEmailVerification();
-  }
+  /// can confirm the inbox. [confirmationCode] is attached to the email
+  /// continue URL so delete cannot complete from signup verification alone.
+  Future<void> requestDeleteAccountEmailVerification({
+    required String confirmationCode,
+  });
 
   Future<User?> refreshAuthenticatedUser();
 
@@ -224,6 +224,9 @@ const accountErasurePurgeFailedMessage =
 /// User-facing message when account deletion is refused because email is unverified.
 const accountDeletionRequiresVerifiedEmailMessage =
     'Verify your email before deleting your account.';
+
+const accountDeletionRequiresEmailConfirmationMessage =
+    'Confirm the code from the delete verification email before deleting your account.';
 
 /// Thrown from a purge stage so debug logs can identify where erasure failed.
 @visibleForTesting
@@ -775,12 +778,18 @@ class AuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestDeleteAccountEmailVerification() {
-    return _sendCurrentEmailVerification(allowIfAlreadyVerified: true);
+  Future<void> requestDeleteAccountEmailVerification({
+    required String confirmationCode,
+  }) {
+    return _sendCurrentEmailVerification(
+      allowIfAlreadyVerified: true,
+      confirmationCode: confirmationCode,
+    );
   }
 
   Future<void> _sendCurrentEmailVerification({
     required bool allowIfAlreadyVerified,
+    String? confirmationCode,
   }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) throw Exception('Not authenticated');
@@ -809,7 +818,23 @@ class AuthRepository implements AuthRepositoryBase {
     }
 
     try {
-      await activeUser.sendEmailVerification().timeout(_authOperationTimeout);
+      final code = confirmationCode?.trim() ?? '';
+      fb.ActionCodeSettings? actionCodeSettings;
+      if (code.isNotEmpty) {
+        final domain = _auth.app.options.authDomain?.trim() ?? '';
+        if (domain.isEmpty) {
+          throw Exception(
+            'Cannot send a delete confirmation email for this Firebase project.',
+          );
+        }
+        actionCodeSettings = fb.ActionCodeSettings(
+          url: 'https://$domain/?deleteCode=${Uri.encodeQueryComponent(code)}',
+          handleCodeInApp: false,
+        );
+      }
+      await activeUser
+          .sendEmailVerification(actionCodeSettings)
+          .timeout(_authOperationTimeout);
     } on fb.FirebaseAuthException catch (e) {
       throw Exception(
         _messageForAuthError(e, context: _AuthErrorContext.emailChange),

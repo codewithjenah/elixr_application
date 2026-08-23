@@ -14,7 +14,10 @@ abstract final class TeacherAuthMessages {
       accountDeletionRequiresVerifiedEmailMessage;
   static const accountDeletionVerificationSent =
       'We sent a verification message to confirm this delete request. '
-      'Check your inbox, then enter your password.';
+      'Click the link in that email, then enter the 6-digit code from the '
+      'page address (deleteCode=).';
+  static const accountDeletionInvalidConfirmationCode =
+      'That confirmation code is incorrect. Open the verification email link and try again.';
   static const teacherAuthorizationRefreshRequired =
       'Teacher verification needs to be refreshed. Verify your email and try again.';
   static const verificationSent = 'Verification email sent.';
