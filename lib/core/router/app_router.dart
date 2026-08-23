@@ -62,8 +62,7 @@ class AppRouter {
             isLoading: authService.isLoading,
             isAuthenticated: authService.isAuthenticated,
             user: authService.currentUser,
-            needsTeacherEmailVerification:
-                authService.needsTeacherEmailVerification,
+            needsEmailVerification: authService.needsEmailVerification,
             location: location,
             hasPendingJoinCode: joinLinks.hasPendingCode,
             tutorialInitialized: tutorialProgress.isInitialized,

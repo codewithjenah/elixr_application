@@ -130,6 +130,13 @@ abstract class AuthRepositoryBase {
 
   Future<void> requestCurrentEmailVerification();
 
+  /// Sends the same Firebase verification email used at signup so delete
+  /// can confirm the inbox. Test fakes inherit a default that forwards to
+  /// [requestCurrentEmailVerification].
+  Future<void> requestDeleteAccountEmailVerification() {
+    return requestCurrentEmailVerification();
+  }
+
   Future<User?> refreshAuthenticatedUser();
 
   Future<void> updatePassword({
@@ -213,6 +220,10 @@ Future<void> refreshStaleEmailVerifiedIdToken({
 const accountErasurePurgeFailedMessage =
     "We couldn't finish deleting all of your account data, so your sign-in "
     'account was not removed. Please try again.';
+
+/// User-facing message when account deletion is refused because email is unverified.
+const accountDeletionRequiresVerifiedEmailMessage =
+    'Verify your email before deleting your account.';
 
 /// Thrown from a purge stage so debug logs can identify where erasure failed.
 @visibleForTesting
@@ -759,7 +770,18 @@ class AuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestCurrentEmailVerification() async {
+  Future<void> requestCurrentEmailVerification() {
+    return _sendCurrentEmailVerification(allowIfAlreadyVerified: false);
+  }
+
+  @override
+  Future<void> requestDeleteAccountEmailVerification() {
+    return _sendCurrentEmailVerification(allowIfAlreadyVerified: true);
+  }
+
+  Future<void> _sendCurrentEmailVerification({
+    required bool allowIfAlreadyVerified,
+  }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) throw Exception('Not authenticated');
 
@@ -775,7 +797,7 @@ class AuthRepository implements AuthRepositoryBase {
 
     final activeUser = _auth.currentUser;
     if (activeUser == null) throw Exception('Not authenticated');
-    if (activeUser.emailVerified) {
+    if (activeUser.emailVerified && !allowIfAlreadyVerified) {
       throw Exception('Your email is already verified.');
     }
 
@@ -978,6 +1000,11 @@ class AuthRepository implements AuthRepositoryBase {
       throw Exception(
         'This account has no email address. Account cannot be deleted.',
       );
+    }
+
+    final verified = await isCurrentEmailVerified();
+    if (!verified) {
+      throw Exception(accountDeletionRequiresVerifiedEmailMessage);
     }
 
     final activeUser = await _refreshRecentLogin(

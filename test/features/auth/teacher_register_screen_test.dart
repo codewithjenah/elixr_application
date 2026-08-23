@@ -36,6 +36,9 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
   }
 
   @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
+
+  @override
   Future<bool> isCurrentEmailVerified() async => false;
 
   @override

@@ -26,12 +26,20 @@ class _StubAuthRepository implements AuthRepositoryBase {
   Object? deleteError;
   int deleteAccountCallCount = 0;
   String? lastDeletePassword;
+  bool verificationRequested = false;
 
   @override
   Future<bool> isCurrentEmailVerified() async => true;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {}
+  Future<void> requestCurrentEmailVerification() async {
+    verificationRequested = true;
+  }
+
+  @override
+  Future<void> requestDeleteAccountEmailVerification() async {
+    verificationRequested = true;
+  }
 
   @override
   Future<EmailChangeRequestResult> requestEmailChange({
@@ -252,6 +260,11 @@ void main() {
     await tester.tap(find.text('Delete account').last);
     await tester.pumpAndSettle();
 
+    expect(repository.verificationRequested, isTrue);
+    expect(
+      find.textContaining('We sent a verification message to user@example.com'),
+      findsOneWidget,
+    );
     expect(find.text('Delete account permanently?'), findsOneWidget);
     expect(
       find.textContaining('Practice sessions and feedback'),
@@ -259,6 +272,13 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextBox).last, 'secret');
+    await tester.pump();
+
+    final emailConfirmLabel = find.text(
+      'I confirmed this request from the verification email',
+    );
+    await tester.ensureVisible(emailConfirmLabel);
+    await tester.tap(emailConfirmLabel);
     await tester.pump();
 
     final confirmLabel = find.text(

@@ -8,6 +8,7 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
   int clearCurrentUserCallCount = 0;
   String? lastPassword;
   Object? errorToThrow;
+  bool emailVerified = true;
 
   @override
   Future<void> deleteAccount({required String password}) async {
@@ -30,7 +31,7 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
   }) async => PendingEmailChangeRecoveryResult.pending();
 
   @override
-  Future<bool> isCurrentEmailVerified() async => false;
+  Future<bool> isCurrentEmailVerified() async => emailVerified;
 
   @override
   Future<User> login({required String email, required String password}) async {
@@ -60,6 +61,9 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
 
   @override
   Future<void> requestCurrentEmailVerification() async {}
+
+  @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
 
   @override
   Future<User?> refreshAuthenticatedUser() async => null;
@@ -139,6 +143,32 @@ void main() {
       expect(service.isAuthenticated, isTrue);
       expect(service.currentUser?.id, 'uid-1');
       expect(repo.clearCurrentUserCallCount, 0);
+      expect(service.takeAccountDeletedMessage(), isNull);
+    },
+  );
+
+  test(
+    'deleteAccount refuses unverified email without starting purge',
+    () async {
+      final repo = _TrackingDeleteAccountRepository()..emailVerified = false;
+      final service = AuthService(repository: repo);
+      service.seedAuthenticatedUser(sampleUser);
+
+      await expectLater(
+        () => service.deleteAccount(password: 'secret'),
+        throwsA(
+          predicate(
+            (error) => error.toString().contains(
+              accountDeletionRequiresVerifiedEmailMessage,
+            ),
+          ),
+        ),
+      );
+
+      expect(repo.deleteAccountCallCount, 0);
+      expect(repo.clearCurrentUserCallCount, 0);
+      expect(service.isAuthenticated, isTrue);
+      expect(service.currentUser?.id, 'uid-1');
       expect(service.takeAccountDeletedMessage(), isNull);
     },
   );

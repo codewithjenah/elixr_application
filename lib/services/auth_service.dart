@@ -66,7 +66,7 @@ class AuthService extends ChangeNotifier {
 
   User? _currentUser;
   bool _isLoading = true;
-  bool? _teacherEmailVerified;
+  bool? _emailVerified;
   bool _disposed = false;
   bool _checkingPendingEmail = false;
   _PendingEmailChangeState? _pendingEmailChange;
@@ -81,8 +81,10 @@ class AuthService extends ChangeNotifier {
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
   bool get isLoading => _isLoading;
-  bool get needsTeacherEmailVerification =>
-      _currentUser?.isTeacher == true && _teacherEmailVerified == false;
+  bool get needsEmailVerification =>
+      _currentUser != null &&
+      _hasSupportedProductRole(_currentUser!) &&
+      _emailVerified == false;
   String? get teacherAuthInfoMessage => _teacherAuthInfoMessage;
   String? get teacherAuthErrorMessage => _teacherAuthErrorMessage;
   String? get pendingEmail => _pendingEmailChange?.pendingEmail;
@@ -139,7 +141,7 @@ class AuthService extends ChangeNotifier {
       return;
     }
     _currentUser = loadedUser;
-    await _refreshTeacherEmailVerificationState();
+    await _refreshEmailVerificationState();
     _isLoading = false;
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
@@ -152,6 +154,7 @@ class AuthService extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
+    _clearTeacherAuthMessages();
     final user = await _repository.register(
       firstName: firstName,
       middleName: middleName,
@@ -161,6 +164,13 @@ class AuthService extends ChangeNotifier {
       defaultRole: AppConstants.defaultRole,
     );
     _currentUser = user;
+    try {
+      await _repository.requestCurrentEmailVerification();
+      _teacherAuthInfoMessage = TeacherAuthMessages.verificationSent;
+    } catch (error) {
+      _teacherAuthErrorMessage = _sanitizeTeacherAuthError(error);
+    }
+    await _refreshEmailVerificationState();
     notifyListeners();
 
     // Seed public visibility before achievement sync. Sync/repair paths create
@@ -216,7 +226,7 @@ class AuthService extends ChangeNotifier {
     } catch (error) {
       _teacherAuthErrorMessage = _sanitizeTeacherAuthError(error);
     }
-    await _refreshTeacherEmailVerificationState();
+    await _refreshEmailVerificationState();
     notifyListeners();
   }
 
@@ -228,7 +238,7 @@ class AuthService extends ChangeNotifier {
       throw Exception(TeacherAuthMessages.unsupportedRole);
     }
     _currentUser = user;
-    await _refreshTeacherEmailVerificationState();
+    await _refreshEmailVerificationState();
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
   }
@@ -277,14 +287,15 @@ class AuthService extends ChangeNotifier {
   Future<void> logout() async {
     _clearPendingEmailChange(clearError: true);
     _clearTeacherAuthMessages();
-    _teacherEmailVerified = null;
+    _emailVerified = null;
     _currentUser = null;
     await _repository.clearCurrentUser();
     notifyListeners();
   }
 
-  Future<bool> resendTeacherVerificationEmail() async {
-    if (_currentUser?.isTeacher != true) return false;
+  Future<bool> resendVerificationEmail() async {
+    final user = _currentUser;
+    if (user == null || !_hasSupportedProductRole(user)) return false;
     _clearTeacherAuthMessages();
     try {
       await _repository.requestCurrentEmailVerification();
@@ -298,8 +309,10 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  Future<bool> checkTeacherEmailVerification() async {
-    if (_currentUser?.isTeacher != true) return false;
+  Future<bool> checkEmailVerification() async {
+    final user = _currentUser;
+    if (user == null || !_hasSupportedProductRole(user)) return false;
+    final expectTeacher = user.isTeacher;
     _clearTeacherAuthMessages();
     try {
       final verified = await _repository.isCurrentEmailVerified();
@@ -309,14 +322,20 @@ class AuthService extends ChangeNotifier {
         return false;
       }
       final refreshed = await _repository.refreshAuthenticatedUser();
-      if (refreshed == null || !refreshed.isTeacher) {
+      if (refreshed == null || !_hasSupportedProductRole(refreshed)) {
+        await logout();
+        _teacherAuthErrorMessage = TeacherAuthMessages.unsupportedRole;
+        notifyListeners();
+        return false;
+      }
+      if (expectTeacher && !refreshed.isTeacher) {
         await logout();
         _teacherAuthErrorMessage = TeacherAuthMessages.notATeacher;
         notifyListeners();
         return false;
       }
       _currentUser = refreshed;
-      await _refreshTeacherEmailVerificationState();
+      await _refreshEmailVerificationState();
       notifyListeners();
       return true;
     } catch (error) {
@@ -343,16 +362,16 @@ class AuthService extends ChangeNotifier {
     try {
       final verified = await _repository.isCurrentEmailVerified();
       if (!verified) {
-        final changed = _teacherEmailVerified != false;
-        _teacherEmailVerified = false;
+        final changed = _emailVerified != false;
+        _emailVerified = false;
         if (changed) {
           notifyListeners();
         }
         return false;
       }
 
-      final previousVerified = _teacherEmailVerified;
-      _teacherEmailVerified = true;
+      final previousVerified = _emailVerified;
+      _emailVerified = true;
       final refreshed = await _repository.refreshAuthenticatedUser();
       if (refreshed == null || !refreshed.isTeacher) {
         await logout();
@@ -375,16 +394,16 @@ class AuthService extends ChangeNotifier {
 
   void clearTeacherAuthMessages() => _clearTeacherAuthMessages();
 
-  Future<void> _refreshTeacherEmailVerificationState() async {
+  Future<void> _refreshEmailVerificationState() async {
     final user = _currentUser;
-    if (user == null || !user.isTeacher) {
-      _teacherEmailVerified = null;
+    if (user == null || !_hasSupportedProductRole(user)) {
+      _emailVerified = null;
       return;
     }
     try {
-      _teacherEmailVerified = await _repository.isCurrentEmailVerified();
+      _emailVerified = await _repository.isCurrentEmailVerified();
     } catch (_) {
-      _teacherEmailVerified = false;
+      _emailVerified = false;
     }
   }
 
@@ -658,6 +677,11 @@ class AuthService extends ChangeNotifier {
     return _repository.requestCurrentEmailVerification();
   }
 
+  /// Sends a verification email before account deletion.
+  Future<void> requestDeleteAccountEmailVerification() {
+    return _repository.requestDeleteAccountEmailVerification();
+  }
+
   Future<User?> refreshAuthenticatedUser() async {
     if (hasPendingEmailChange) {
       await checkPendingEmailChange();
@@ -729,6 +753,10 @@ class AuthService extends ChangeNotifier {
   /// On success, clears local auth state the same way [logout] does and
   /// queues a one-shot message for [takeAccountDeletedMessage].
   Future<void> deleteAccount({required String password}) async {
+    final verified = await _repository.isCurrentEmailVerified();
+    if (!verified) {
+      throw Exception(accountDeletionRequiresVerifiedEmailMessage);
+    }
     await _repository.deleteAccount(password: password);
     _accountDeletedMessage =
         'Your account and associated data have been permanently deleted.';

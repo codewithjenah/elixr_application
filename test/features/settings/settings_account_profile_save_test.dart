@@ -54,6 +54,9 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   }
 
   @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
+
+  @override
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,

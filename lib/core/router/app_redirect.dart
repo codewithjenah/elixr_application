@@ -8,7 +8,7 @@ class AppRedirectState {
     required this.isLoading,
     required this.isAuthenticated,
     required this.user,
-    required this.needsTeacherEmailVerification,
+    required this.needsEmailVerification,
     required this.location,
     required this.hasPendingJoinCode,
     required this.tutorialInitialized,
@@ -21,7 +21,7 @@ class AppRedirectState {
   final bool isLoading;
   final bool isAuthenticated;
   final User? user;
-  final bool needsTeacherEmailVerification;
+  final bool needsEmailVerification;
   final String location;
   final bool hasPendingJoinCode;
   final bool tutorialInitialized;
@@ -56,7 +56,7 @@ String? resolveAppRedirect(AppRedirectState state) {
       isAuthRoute: isAuthRoute,
       isLegalRoute: isLegalRoute,
       isVerifyRoute: isVerifyRoute,
-      needsVerification: state.needsTeacherEmailVerification,
+      needsVerification: state.needsEmailVerification,
     );
   }
 
@@ -65,7 +65,9 @@ String? resolveAppRedirect(AppRedirectState state) {
       state: state,
       location: location,
       isAuthRoute: isAuthRoute,
+      isLegalRoute: isLegalRoute,
       isVerifyRoute: isVerifyRoute,
+      needsVerification: state.needsEmailVerification,
     );
   }
 
@@ -109,8 +111,15 @@ String? _redirectAuthenticatedTrainee({
   required AppRedirectState state,
   required String location,
   required bool isAuthRoute,
+  required bool isLegalRoute,
   required bool isVerifyRoute,
+  required bool needsVerification,
 }) {
+  if (needsVerification) {
+    if (isVerifyRoute || isLegalRoute) return null;
+    return AppRoutePaths.verifyEmail;
+  }
+
   if (isVerifyRoute || AppRoutePaths.isTeacherShellRoute(location)) {
     return AppRoutePaths.dashboard;
   }

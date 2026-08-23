@@ -23,6 +23,9 @@ class _StubAuthRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification() async {}
 
   @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
+
+  @override
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,

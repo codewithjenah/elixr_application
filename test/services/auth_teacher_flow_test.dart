@@ -81,6 +81,9 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   }
 
   @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
+
+  @override
   Future<User?> refreshAuthenticatedUser() async {
     refreshAuthenticatedUserCalls++;
     if (refreshAuthenticatedUserThrows != null) {
@@ -160,30 +163,122 @@ void main() {
       expect(repository.lastDefaultRole, User.roleTeacher);
       expect(repository.verificationRequested, isTrue);
       expect(auth.currentUser?.isTeacher, isTrue);
-      expect(auth.needsTeacherEmailVerification, isTrue);
+      expect(auth.needsEmailVerification, isTrue);
     },
   );
 
-  test('register persists Trainee role without Teacher verification', () async {
-    final repository = _TeacherFlowRepository();
+  test(
+    'register persists Trainee role and requests email verification',
+    () async {
+      final repository = _TeacherFlowRepository();
+      final auth = AuthService(
+        repository: repository,
+        awaitInitialAuthState: () async {},
+      );
+      await auth.initialize();
+
+      await auth.register(
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        password: 'secret1',
+      );
+
+      expect(repository.registerCallCount, 1);
+      expect(repository.lastDefaultRole, User.roleTrainee);
+      expect(auth.currentUser?.isTrainee, isTrue);
+      expect(repository.verificationRequested, isTrue);
+      expect(auth.needsEmailVerification, isTrue);
+    },
+  );
+
+  test('unverified trainee login sets needsEmailVerification true', () async {
+    final repository = _TeacherFlowRepository(
+      loginUser: User(
+        id: 'tr1',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: User.roleTrainee,
+      ),
+    );
     final auth = AuthService(
       repository: repository,
       awaitInitialAuthState: () async {},
     );
     await auth.initialize();
 
-    await auth.register(
+    await auth.login(email: 'ada@example.com', password: 'secret1');
+
+    expect(auth.currentUser?.isTrainee, isTrue);
+    expect(auth.needsEmailVerification, isTrue);
+  });
+
+  test('verified trainee login sets needsEmailVerification false', () async {
+    final repository = _TeacherFlowRepository(
+      loginUser: User(
+        id: 'tr1',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: User.roleTrainee,
+      ),
+    )..emailVerified = true;
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+
+    await auth.login(email: 'ada@example.com', password: 'secret1');
+
+    expect(auth.currentUser?.isTrainee, isTrue);
+    expect(auth.needsEmailVerification, isFalse);
+  });
+
+  test('initialize gates persisted unverified trainee', () async {
+    final repository = _TeacherFlowRepository(
+      persistedUser: User(
+        id: 'tr1',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: User.roleTrainee,
+      ),
+    );
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
+
+    expect(auth.isAuthenticated, isTrue);
+    expect(auth.currentUser?.isTrainee, isTrue);
+    expect(auth.needsEmailVerification, isTrue);
+  });
+
+  test('resend and check email verification work for trainees', () async {
+    const trainee = User(
+      id: 'tr1',
       firstName: 'Ada',
       lastName: 'Lovelace',
       email: 'ada@example.com',
-      password: 'secret1',
+      role: User.roleTrainee,
     );
+    final repository = _TeacherFlowRepository(loginUser: trainee)
+      ..emailVerified = true
+      ..refreshUser = trainee;
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    auth.seedAuthenticatedUser(trainee);
 
-    expect(repository.registerCallCount, 1);
-    expect(repository.lastDefaultRole, User.roleTrainee);
+    expect(await auth.resendVerificationEmail(), isTrue);
+    expect(repository.verificationRequested, isTrue);
+    expect(await auth.checkEmailVerification(), isTrue);
+    expect(auth.needsEmailVerification, isFalse);
     expect(auth.currentUser?.isTrainee, isTrue);
-    expect(auth.needsTeacherEmailVerification, isFalse);
-    expect(repository.verificationRequested, isFalse);
   });
 
   test('login rejects Admin role without granting product access', () async {
@@ -295,30 +390,27 @@ void main() {
     },
   );
 
-  test(
-    'verified teacher login sets needsTeacherEmailVerification false',
-    () async {
-      final repository = _TeacherFlowRepository(
-        loginUser: User(
-          id: 't1',
-          firstName: 'T',
-          lastName: 'E',
-          email: 't@school.edu',
-          role: User.roleTeacher,
-        ),
-      )..emailVerified = true;
-      final auth = AuthService(
-        repository: repository,
-        awaitInitialAuthState: () async {},
-      );
-      await auth.initialize();
+  test('verified teacher login sets needsEmailVerification false', () async {
+    final repository = _TeacherFlowRepository(
+      loginUser: User(
+        id: 't1',
+        firstName: 'T',
+        lastName: 'E',
+        email: 't@school.edu',
+        role: User.roleTeacher,
+      ),
+    )..emailVerified = true;
+    final auth = AuthService(
+      repository: repository,
+      awaitInitialAuthState: () async {},
+    );
+    await auth.initialize();
 
-      await auth.login(email: 't@school.edu', password: 'secret1');
+    await auth.login(email: 't@school.edu', password: 'secret1');
 
-      expect(auth.currentUser?.isTeacher, isTrue);
-      expect(auth.needsTeacherEmailVerification, isFalse);
-    },
-  );
+    expect(auth.currentUser?.isTeacher, isTrue);
+    expect(auth.needsEmailVerification, isFalse);
+  });
 
   group('ensureTeacherAuthorizationFresh', () {
     const teacher = User(
@@ -348,7 +440,7 @@ void main() {
       expect(allowed, isTrue);
       expect(repository.isCurrentEmailVerifiedCalls, 1);
       expect(repository.refreshAuthenticatedUserCalls, 1);
-      expect(auth.needsTeacherEmailVerification, isFalse);
+      expect(auth.needsEmailVerification, isFalse);
       expect(auth.currentUser?.isTeacher, isTrue);
     });
 
@@ -367,7 +459,7 @@ void main() {
         expect(allowed, isTrue);
         expect(repository.isCurrentEmailVerifiedCalls, 1);
         expect(repository.emailVerified, isTrue);
-        expect(auth.needsTeacherEmailVerification, isFalse);
+        expect(auth.needsEmailVerification, isFalse);
       },
     );
 
@@ -382,7 +474,7 @@ void main() {
       expect(allowed, isFalse);
       expect(repository.isCurrentEmailVerifiedCalls, 1);
       expect(repository.refreshAuthenticatedUserCalls, 0);
-      expect(auth.needsTeacherEmailVerification, isTrue);
+      expect(auth.needsEmailVerification, isTrue);
       expect(auth.isAuthenticated, isTrue);
     });
 

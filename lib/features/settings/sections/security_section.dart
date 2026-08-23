@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/auth/teacher_auth_messages.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -26,6 +27,7 @@ class SecuritySectionState extends State<SecuritySection> {
 
   bool _savingPassword = false;
   bool _deletingAccount = false;
+  bool _preparingDelete = false;
   int _passwordFormRevision = 0;
 
   @override
@@ -116,11 +118,38 @@ class SecuritySectionState extends State<SecuritySection> {
   }
 
   Future<void> _confirmAndDeleteAccount() async {
-    final confirmed = await _DeleteAccountConfirm.show(context);
+    final authService = context.read<AuthService>();
+    setState(() => _preparingDelete = true);
+    try {
+      await authService.requestDeleteAccountEmailVerification();
+    } catch (e) {
+      if (mounted) {
+        await ElixDialog.error(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _preparingDelete = false);
+    }
+    if (!mounted) return;
+
+    final confirmed = await _DeleteAccountConfirm.show(
+      context,
+      email: authService.currentUser?.email ?? '',
+    );
     if (confirmed == null || !mounted) return;
 
+    if (authService.needsEmailVerification) {
+      await ElixDialog.error(
+        context,
+        accountDeletionRequiresVerifiedEmailMessage,
+      );
+      return;
+    }
+
     setState(() => _deletingAccount = true);
-    final authService = context.read<AuthService>();
     try {
       await authService.deleteAccount(password: confirmed);
       if (!mounted) return;
@@ -157,6 +186,7 @@ class SecuritySectionState extends State<SecuritySection> {
 
   @override
   Widget build(BuildContext context) {
+    final deleteBlocked = context.watch<AuthService>().needsEmailVerification;
     final newPass = _newPasswordController.text;
     final confirm = _confirmPasswordController.text;
 
@@ -371,7 +401,11 @@ class SecuritySectionState extends State<SecuritySection> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Button(
-                      onPressed: _deletingAccount || _savingPassword
+                      onPressed:
+                          _deletingAccount ||
+                              _savingPassword ||
+                              _preparingDelete ||
+                              deleteBlocked
                           ? null
                           : _confirmAndDeleteAccount,
                       style: ButtonStyle(
@@ -382,7 +416,19 @@ class SecuritySectionState extends State<SecuritySection> {
                           AppColors.error,
                         ),
                       ),
-                      child: _deletingAccount
+                      child: _preparingDelete
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const ProgressRing(strokeWidth: 2),
+                                const SizedBox(width: AppSpacing.sm),
+                                Text(
+                                  'Sending verification email...',
+                                  style: AppTheme.body.copyWith(fontSize: 14),
+                                ),
+                              ],
+                            )
+                          : _deletingAccount
                           ? Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -403,6 +449,15 @@ class SecuritySectionState extends State<SecuritySection> {
                               ],
                             ),
                     ),
+                    if (deleteBlocked) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        accountDeletionRequiresVerifiedEmailMessage,
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -632,18 +687,20 @@ class _PasswordRequirement extends StatelessWidget {
 class _DeleteAccountConfirm {
   const _DeleteAccountConfirm._();
 
-  static Future<String?> show(BuildContext context) {
+  static Future<String?> show(BuildContext context, {required String email}) {
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
       barrierColor: const Color(0xCC000000),
-      builder: (ctx) => const Center(child: _DeleteAccountDialog()),
+      builder: (ctx) => Center(child: _DeleteAccountDialog(email: email)),
     );
   }
 }
 
 class _DeleteAccountDialog extends StatefulWidget {
-  const _DeleteAccountDialog();
+  const _DeleteAccountDialog({required this.email});
+
+  final String email;
 
   @override
   State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
@@ -661,6 +718,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   final _passwordController = TextEditingController();
   bool _obscured = true;
   bool _confirmed = false;
+  bool _emailConfirmed = false;
 
   @override
   void initState() {
@@ -674,7 +732,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
     super.dispose();
   }
 
-  bool get _canSubmit => _passwordController.text.isNotEmpty && _confirmed;
+  bool get _canSubmit =>
+      _passwordController.text.isNotEmpty && _confirmed && _emailConfirmed;
 
   @override
   Widget build(BuildContext context) {
@@ -685,12 +744,25 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       iconColor: AppColors.error,
       headerAccentColor: AppColors.error,
       maxWidth: 480,
-      maxHeight: 560,
+      maxHeight: 620,
       scrollableContent: true,
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          Text(
+            widget.email.trim().isEmpty
+                ? TeacherAuthMessages.accountDeletionVerificationSent
+                : 'We sent a verification message to ${widget.email.trim()} '
+                      'to confirm this delete request. Check your inbox, then '
+                      'enter your password.',
+            style: AppTheme.body.copyWith(
+              fontSize: 14,
+              color: context.elixTextSecondary,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
           Text(
             'The following will be permanently erased:',
             style: AppTheme.body.copyWith(
@@ -749,6 +821,31 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Checkbox(
+                checked: _emailConfirmed,
+                onChanged: (value) =>
+                    setState(() => _emailConfirmed = value == true),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () =>
+                      setState(() => _emailConfirmed = !_emailConfirmed),
+                  child: Text(
+                    'I confirmed this request from the verification email',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

@@ -18,6 +18,7 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   String? lastLastName;
   String? lastEmail;
   String? lastDefaultRole;
+  bool verificationRequested = false;
 
   @override
   Future<User> register({
@@ -75,7 +76,12 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {}
+  Future<void> requestCurrentEmailVerification() async {
+    verificationRequested = true;
+  }
+
+  @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
 
   @override
   Future<User?> refreshAuthenticatedUser() async => null;
@@ -270,6 +276,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
 
         expect(repository.registerCallCount, 1);
+        expect(repository.verificationRequested, isTrue);
       },
     );
 
@@ -296,6 +303,7 @@ void main() {
 
       expect(repository.registerCallCount, 1);
       expect(repository.lastMiddleName, isNull);
+      expect(repository.verificationRequested, isTrue);
       expect(authService.isAuthenticated, isTrue);
     });
 

@@ -22,11 +22,13 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     setState(() => _isBusy = true);
     context.read<AuthService>().clearTeacherAuthMessages();
     try {
-      final verified = await context
-          .read<AuthService>()
-          .checkTeacherEmailVerification();
+      final auth = context.read<AuthService>();
+      final verified = await auth.checkEmailVerification();
       if (verified && mounted) {
-        context.go(AppRoutePaths.teacherDashboard);
+        final destination = auth.currentUser?.isTeacher == true
+            ? AppRoutePaths.teacherDashboard
+            : AppRoutePaths.dashboard;
+        context.go(destination);
       }
     } finally {
       if (mounted) setState(() => _isBusy = false);
@@ -36,7 +38,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Future<void> _resend() async {
     setState(() => _isBusy = true);
     try {
-      await context.read<AuthService>().resendTeacherVerificationEmail();
+      await context.read<AuthService>().resendVerificationEmail();
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
@@ -55,11 +57,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     return AuthScaffold(
       title: 'Verify your email',
       subtitle: email.isEmpty
-          ? 'Confirm this Teacher account from the message we sent you.'
+          ? 'Confirm this account from the message we sent you.'
           : 'We sent a verification message to $email',
-      formTitle: 'Teacher email verification',
-      formSubtitle:
-          'Verify your email before accessing the ELIXR Teacher shell.',
+      formTitle: 'Email verification',
+      formSubtitle: 'Verify your email before accessing ELIXR.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

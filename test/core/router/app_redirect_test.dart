@@ -39,7 +39,7 @@ AppRedirectState _state({
   bool isLoading = false,
   bool isAuthenticated = true,
   User? user,
-  bool needsTeacherEmailVerification = false,
+  bool needsEmailVerification = false,
   String location = AppRoutePaths.dashboard,
   bool hasPendingJoinCode = false,
   bool tutorialInitialized = true,
@@ -49,7 +49,7 @@ AppRedirectState _state({
     isLoading: isLoading,
     isAuthenticated: isAuthenticated,
     user: user,
-    needsTeacherEmailVerification: needsTeacherEmailVerification,
+    needsEmailVerification: needsEmailVerification,
     location: location,
     hasPendingJoinCode: hasPendingJoinCode,
     tutorialInitialized: tutorialInitialized,
@@ -122,7 +122,7 @@ void main() {
       resolveAppRedirect(
         _state(
           user: _teacher(),
-          needsTeacherEmailVerification: true,
+          needsEmailVerification: true,
           location: AppRoutePaths.teacherDashboard,
         ),
       ),
@@ -132,7 +132,7 @@ void main() {
       resolveAppRedirect(
         _state(
           user: _teacher(),
-          needsTeacherEmailVerification: true,
+          needsEmailVerification: true,
           location: AppRoutePaths.verifyEmail,
         ),
       ),
@@ -140,12 +140,73 @@ void main() {
     );
   });
 
-  test('authenticated trainee on verify-email redirects to dashboard', () {
+  test('verified trainee on verify-email redirects to dashboard', () {
     expect(
       resolveAppRedirect(
         _state(user: _trainee(), location: AppRoutePaths.verifyEmail),
       ),
       AppRoutePaths.dashboard,
+    );
+  });
+
+  test('unverified trainee is kept on verify-email', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          needsEmailVerification: true,
+          location: AppRoutePaths.dashboard,
+        ),
+      ),
+      AppRoutePaths.verifyEmail,
+    );
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          needsEmailVerification: true,
+          location: AppRoutePaths.verifyEmail,
+        ),
+      ),
+      isNull,
+    );
+  });
+
+  test('unverified trainee legal routes stay reachable', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          needsEmailVerification: true,
+          location: AppRoutePaths.privacyPolicy,
+        ),
+      ),
+      isNull,
+    );
+  });
+
+  test('unverified trainee join-code waits for email verification', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          needsEmailVerification: true,
+          hasPendingJoinCode: true,
+          location: AppRoutePaths.dashboard,
+        ),
+      ),
+      AppRoutePaths.verifyEmail,
+    );
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          needsEmailVerification: true,
+          hasPendingJoinCode: true,
+          location: AppRoutePaths.joinCoach,
+        ),
+      ),
+      AppRoutePaths.verifyEmail,
     );
   });
 

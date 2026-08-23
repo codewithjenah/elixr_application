@@ -120,6 +120,9 @@ class _FakeAuthRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification() async {}
 
   @override
+  Future<void> requestDeleteAccountEmailVerification() async {}
+
+  @override
   Future<User?> refreshAuthenticatedUser() async => user;
 
   @override
