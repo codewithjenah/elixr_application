@@ -231,6 +231,7 @@ class AuthService extends ChangeNotifier {
     required String lastName,
     required String email,
     required String password,
+    required String teacherAccessCode,
   }) async {
     _clearTeacherAuthMessages();
     final user = await _repository.register(
@@ -240,6 +241,7 @@ class AuthService extends ChangeNotifier {
       email: email,
       password: password,
       defaultRole: User.roleTeacher,
+      teacherAccessCode: teacherAccessCode,
     );
     if (!user.isTeacher) {
       await logout();

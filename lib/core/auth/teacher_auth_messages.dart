@@ -23,4 +23,8 @@ abstract final class TeacherAuthMessages {
   static const verificationSent = 'Verification email sent.';
   static const unsupportedRole =
       'This account cannot access ELIXR. Sign in with a Trainee or Teacher account.';
+  static const accessCodeRequired =
+      'Enter the Teacher access code provided by an administrator or an existing Teacher.';
+  static const accessCodeInvalid =
+      'That Teacher access code is not valid. Check the code and try again.';
 }

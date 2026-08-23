@@ -49,6 +49,7 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
     required String email,
     required String password,
     String defaultRole = User.roleTrainee,
+    String? teacherAccessCode,
   }) async {
     throw UnimplementedError();
   }

@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -34,6 +35,7 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
     required String email,
     required String password,
     required String defaultRole,
+    String? teacherAccessCode,
   }) async {
     registerCallCount++;
     lastDefaultRole = defaultRole;
@@ -76,13 +78,14 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestCurrentEmailVerification() async {
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {
     verificationRequested = true;
   }
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {}
 
   @override
@@ -101,7 +104,10 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<User> updateProfileDetails({
@@ -150,6 +156,7 @@ void main() {
       repository.emailVerified = false;
       final auth = AuthService(
         repository: repository,
+        emailCallbackServer: MemoryAuthEmailCallbackServer(),
         awaitInitialAuthState: () async {},
       );
       await auth.initialize();
@@ -159,6 +166,7 @@ void main() {
         lastName: 'Doe',
         email: 'jane@school.edu',
         password: 'secret1',
+        teacherAccessCode: '7KPM-XR4D-Q2WT',
       );
 
       expect(repository.registerCallCount, 1);
@@ -272,6 +280,7 @@ void main() {
       ..refreshUser = trainee;
     final auth = AuthService(
       repository: repository,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
       awaitInitialAuthState: () async {},
     );
     auth.seedAuthenticatedUser(trainee);
@@ -282,6 +291,38 @@ void main() {
     expect(auth.needsEmailVerification, isFalse);
     expect(auth.currentUser?.isTrainee, isTrue);
   });
+
+  test(
+    'verification watch detects a clicked email without a button press',
+    () async {
+      const trainee = User(
+        id: 'tr1',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: User.roleTrainee,
+      );
+      final repository = _TeacherFlowRepository(loginUser: trainee)
+        ..emailVerified = false
+        ..refreshUser = trainee;
+      final auth = AuthService(
+        repository: repository,
+        emailCallbackServer: MemoryAuthEmailCallbackServer(),
+        emailVerificationPollInterval: const Duration(milliseconds: 20),
+        awaitInitialAuthState: () async {},
+      );
+      auth.seedAuthenticatedUser(trainee);
+
+      await auth.beginEmailVerificationWatch();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(auth.needsEmailVerification, isTrue);
+
+      repository.emailVerified = true;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(auth.needsEmailVerification, isFalse);
+      auth.dispose();
+    },
+  );
 
   test('login rejects Admin role without granting product access', () async {
     final repository = _TeacherFlowRepository(

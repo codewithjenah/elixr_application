@@ -1257,10 +1257,38 @@ service cloud.firestore {
         && validQuestPeriodUpdate();
     }
 
+    // Teacher self-registration requires redeeming teacher_access_codes/{code}
+    // in the same write. users.role remains a client-writable field.
+    // TODO: Move Teacher role trust to a Firebase Auth custom claim set by a
+    // Cloud Function after code redemption. This rules check is an interim
+    // control, not the final authorization architecture.
+    function teacherAccessCodePath(code) {
+      return /databases/$(database)/documents/teacher_access_codes/$(code);
+    }
+
+    function isTeacherAccessCodeFormat(code) {
+      return code is string
+        && code.matches('^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$');
+    }
+
+    function teacherAccessCodeConsumedInSameWrite() {
+      let code = request.resource.data.get('teacher_access_code', '');
+      return request.resource.data.role == 'Teacher'
+        && isTeacherAccessCodeFormat(code)
+        && exists(teacherAccessCodePath(code))
+        && get(teacherAccessCodePath(code)).data.consumed == false
+        && existsAfter(teacherAccessCodePath(code))
+        && getAfter(teacherAccessCodePath(code)).data.consumed == true
+        && getAfter(teacherAccessCodePath(code)).data.consumed_by == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId)
-        && request.resource.data.role in ['Trainee', 'Teacher'];
+        && (
+          request.resource.data.role == 'Trainee'
+          || teacherAccessCodeConsumedInSameWrite()
+        );
       allow update: if isOwner(userId)
         && (
           (
@@ -2181,6 +2209,45 @@ service cloud.firestore {
         && (resource == null
           || resource.data.get('teacher_id', '') == request.auth.uid
           || resource.data.get('trainee_id', '') == request.auth.uid);
+    }
+
+    // Exact-id get is allowed without auth so registration can fail closed
+    // before createUser. List remains denied. Entropy of CoachCode (32^12)
+    // makes probing impractical.
+    function validTeacherAccessCodeMint(data, code) {
+      return isVerifiedTeacher()
+        && isNormalizedCoachCode(code)
+        && data.consumed == false
+        && data.created_by == request.auth.uid
+        && data.created_at == request.time
+        && data.keys().hasAll(['consumed', 'created_at', 'created_by'])
+        && data.keys().hasOnly(['consumed', 'created_at', 'created_by', 'note'])
+        && (
+          !data.keys().hasAny(['note'])
+          || (data.note is string && data.note.size() <= 200)
+        );
+    }
+
+    function validTeacherAccessCodeConsume(code) {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return isSignedIn()
+        && isNormalizedCoachCode(code)
+        && resource.data.consumed == false
+        && request.resource.data.consumed == true
+        && request.resource.data.consumed_by == request.auth.uid
+        && request.resource.data.consumed_at == request.time
+        && affected.hasOnly(['consumed', 'consumed_by', 'consumed_at'])
+        && existsAfter(userPath(request.auth.uid))
+        && getAfter(userPath(request.auth.uid)).data.role == 'Teacher'
+        && getAfter(userPath(request.auth.uid)).data.teacher_access_code == code;
+    }
+
+    match /teacher_access_codes/{code} {
+      allow get: if isTeacherAccessCodeFormat(code);
+      allow list: if false;
+      allow create: if validTeacherAccessCodeMint(request.resource.data, code);
+      allow update: if validTeacherAccessCodeConsume(code);
+      allow delete: if false;
     }
 
     match /teacher_student_links/{linkId} {
@@ -3587,6 +3654,27 @@ service cloud.firestore {
       allow create: if validCoachingCreate(request.resource.data);
       allow update: if validCoachingUpdate();
       allow delete: if isCoachingAuthor(resource.data) || isErasingOwnCoaching(resource.data);
+    }
+
+    // Possession of the unguessable token is the capability: the email continue
+    // page may run on another device where the user is not signed in.
+    match /email_link_acks/{token} {
+      allow get: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && token.matches('^[A-Za-z0-9]{32,64}$')
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly(['uid', 'status', 'created_at'])
+        && request.resource.data.created_at == request.time;
+      allow update: if token.matches('^[A-Za-z0-9]{32,64}$')
+        && resource.data.status == 'pending'
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.status == 'clicked'
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.keys().hasOnly(['uid', 'status', 'created_at', 'clicked_at'])
+        && request.resource.data.clicked_at == request.time;
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
   }
 }

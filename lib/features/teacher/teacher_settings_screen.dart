@@ -1,4 +1,7 @@
+import 'package:elixr_core/models/teacher_access_code.dart';
+import 'package:elixr_core/repositories/teacher_access_code_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -34,6 +37,23 @@ class TeacherSettingsScreen extends StatelessWidget {
                     _ReadOnlyField(label: 'Role', value: user.role),
                   ],
                 ),
+                if (user.isTeacher) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SettingsSection(
+                    title: 'Co-teachers',
+                    children: [
+                      const Text(
+                        'Create a one-time access code and share it with a colleague. '
+                        'They enter it when registering a Teacher account.',
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Button(
+                        onPressed: () => _inviteCoTeacher(context),
+                        child: const Text('Invite a co-teacher'),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 _SettingsSection(
                   title: 'Legal',
@@ -63,6 +83,68 @@ class TeacherSettingsScreen extends StatelessWidget {
             ),
     );
   }
+}
+
+Future<void> _inviteCoTeacher(BuildContext context) async {
+  final user = context.read<AuthService>().currentUser;
+  if (user == null || !user.isTeacher || user.id == null) return;
+
+  TeacherAccessCode? minted;
+  Object? error;
+  try {
+    minted = await context.read<TeacherAccessCodeRepository>().mint(
+      createdBy: user.id!,
+    );
+  } catch (e) {
+    error = e;
+  }
+  if (!context.mounted) return;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      if (error != null || minted == null) {
+        return ContentDialog(
+          title: const Text('Could not create access code'),
+          content: Text(
+            error?.toString().replaceFirst('Exception: ', '') ??
+                'Try again in a moment.',
+          ),
+          actions: [
+            Button(
+              child: const Text('Close'),
+              onPressed: () => Navigator.pop(dialogContext),
+            ),
+          ],
+        );
+      }
+      final display = minted.displayCode;
+      return ContentDialog(
+        title: const Text('Co-teacher access code'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Share this one-time code. It cannot be used again after a Teacher account is created.',
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SelectableText(display, style: AppTheme.headingMedium),
+          ],
+        ),
+        actions: [
+          Button(
+            child: const Text('Copy'),
+            onPressed: () => Clipboard.setData(ClipboardData(text: display)),
+          ),
+          FilledButton(
+            child: const Text('Done'),
+            onPressed: () => Navigator.pop(dialogContext),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 class _SettingsSection extends StatelessWidget {

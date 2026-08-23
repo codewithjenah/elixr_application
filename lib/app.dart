@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:elixr_core/repositories/firebase_teacher_access_code_repository.dart';
+import 'package:elixr_core/repositories/teacher_access_code_repository.dart';
 import 'package:elixr_core/repositories/firebase_group_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
@@ -15,6 +17,7 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'data/repositories/email_link_ack_store.dart';
 import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
 import 'data/repositories/classroom_assignment_repository.dart';
@@ -46,6 +49,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final TutorialProgressService _tutorialProgressService;
   late final PublicProfileRepository _publicProfileRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
+  late final TeacherAccessCodeRepository _teacherAccessCodeRepository;
   late final GroupRepository _groupRepository;
   late final JoinCodeResolver _joinCodeResolver;
   late final JoinLinkService _joinLinkService;
@@ -57,6 +61,7 @@ class _ElixrAppState extends State<ElixrApp> {
     super.initState();
     _publicProfileRepository = PublicProfileRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
+    _teacherAccessCodeRepository = FirebaseTeacherAccessCodeRepository();
     _groupRepository = FirebaseGroupRepository();
     _joinCodeResolver = JoinCodeResolver(
       groupRepository: _groupRepository,
@@ -66,6 +71,8 @@ class _ElixrAppState extends State<ElixrApp> {
     _authService = AuthService(
       leaderboardRepository: LeaderboardRepository(),
       publicProfileRepository: _publicProfileRepository,
+      joinLinkService: _joinLinkService,
+      emailLinkAckStore: FirestoreEmailLinkAckStore(),
     );
     unawaited(_authService.initialize());
     _settingsService = SettingsService()..initialize();
@@ -120,6 +127,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<TeacherRelationshipRepository>.value(
           value: _teacherRelationshipRepository,
+        ),
+        Provider<TeacherAccessCodeRepository>.value(
+          value: _teacherAccessCodeRepository,
         ),
         Provider<GroupRepository>.value(value: _groupRepository),
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),

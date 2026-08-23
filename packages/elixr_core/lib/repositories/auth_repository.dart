@@ -9,10 +9,13 @@ import 'package:flutter/foundation.dart';
 import '../database/firestore_collections.dart';
 import '../database/user_profile_store.dart';
 import '../models/coach_code.dart';
+import '../models/teacher_access_code_exception.dart';
 import '../models/user.dart';
 import '../utils/manila_day.dart';
 import '../utils/user_name.dart';
+import 'firebase_teacher_access_code_repository.dart';
 import 'profile_image_repository.dart';
+import 'teacher_access_code_repository.dart';
 
 /// A profile-picture mutation to persist alongside a profile update.
 class ProfilePictureUpdate {
@@ -84,6 +87,7 @@ abstract class AuthRepositoryBase {
     required String email,
     required String password,
     required String defaultRole,
+    String? teacherAccessCode,
   });
 
   Future<User> login({required String email, required String password});
@@ -509,6 +513,7 @@ class AuthRepository implements AuthRepositoryBase {
     FirebaseFirestore? firestore,
     ProfileImageRepositoryBase? profileImageRepository,
     FirebaseStorage? storage,
+    TeacherAccessCodeRepository? teacherAccessCodeRepository,
     Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
     this.createMissingProfile = true,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
@@ -520,6 +525,11 @@ class AuthRepository implements AuthRepositoryBase {
            ),
        _profileImages = profileImageRepository ?? ProfileImageRepository(),
        _storage = storage ?? FirebaseStorage.instance,
+       _teacherAccessCodes =
+           teacherAccessCodeRepository ??
+           FirebaseTeacherAccessCodeRepository(
+             firestore: firestore ?? FirebaseFirestore.instance,
+           ),
        _listProfileStorageObjectPaths = listProfileStorageObjectPaths;
 
   static const _authOperationTimeout = Duration(seconds: 30);
@@ -532,6 +542,7 @@ class AuthRepository implements AuthRepositoryBase {
   final FirebaseFirestore _firestore;
   final ProfileImageRepositoryBase _profileImages;
   final FirebaseStorage _storage;
+  final TeacherAccessCodeRepository _teacherAccessCodes;
   final Future<List<String>> Function(String userId)?
   _listProfileStorageObjectPaths;
 
@@ -548,9 +559,21 @@ class AuthRepository implements AuthRepositoryBase {
     required String email,
     required String password,
     required String defaultRole,
+    String? teacherAccessCode,
   }) async {
+    final isTeacher = defaultRole == User.roleTeacher;
+    if (isTeacher) {
+      await _teacherAccessCodes.assertRedeemable(teacherAccessCode);
+    } else if (teacherAccessCode != null &&
+        teacherAccessCode.trim().isNotEmpty) {
+      throw Exception(
+        'Teacher access codes cannot be used for Trainee registration.',
+      );
+    }
+
+    fb.UserCredential? credential;
     try {
-      final credential = await _auth.createUserWithEmailAndPassword(
+      credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -568,10 +591,39 @@ class AuthRepository implements AuthRepositoryBase {
         email: email,
         role: defaultRole,
       );
-      await _db.upsertUserProfile(user, includePrivacyConsent: true);
+      if (isTeacher) {
+        // TODO: After redemption, a Cloud Function should set a Teacher
+        // custom claim so role is not trusted from the Firestore user doc.
+        await _teacherAccessCodes.consumeAndCreateTeacherProfile(
+          code: teacherAccessCode!,
+          user: user,
+        );
+      } else {
+        await _db.upsertUserProfile(user, includePrivacyConsent: true);
+      }
       return user;
     } on fb.FirebaseAuthException catch (e) {
       throw Exception(_messageForAuthError(e));
+    } on TeacherAccessCodeException catch (e) {
+      await _deleteCreatedAuthUser(credential);
+      throw Exception(e.message ?? e.toString());
+    } catch (e) {
+      if (isTeacher) {
+        await _deleteCreatedAuthUser(credential);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _deleteCreatedAuthUser(fb.UserCredential? credential) async {
+    final created = credential?.user;
+    if (created == null) return;
+    try {
+      await created.delete();
+    } catch (_) {
+      try {
+        await _auth.signOut();
+      } catch (_) {}
     }
   }
 

@@ -1,4 +1,5 @@
 import 'package:elixr_application/features/auth/teacher_register_screen.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -8,6 +9,7 @@ import 'package:provider/provider.dart';
 
 class _TeacherRegisterRepository implements AuthRepositoryBase {
   String? lastDefaultRole;
+  String? lastTeacherAccessCode;
   bool verificationRequested = false;
 
   @override
@@ -18,8 +20,10 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
     required String email,
     required String password,
     required String defaultRole,
+    String? teacherAccessCode,
   }) async {
     lastDefaultRole = defaultRole;
+    lastTeacherAccessCode = teacherAccessCode;
     return User(
       id: 'teacher-new',
       firstName: firstName,
@@ -31,13 +35,14 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestCurrentEmailVerification() async {
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {
     verificationRequested = true;
   }
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {}
 
   @override
@@ -55,7 +60,10 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<EmailChangeRequestResult> requestEmailChange({
@@ -115,6 +123,7 @@ void main() {
     final repository = _TeacherRegisterRepository();
     final auth = AuthService(
       repository: repository,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
       awaitInitialAuthState: () async {},
     );
 
@@ -132,8 +141,9 @@ void main() {
     await tester.pump();
 
     await tester.enterText(find.byType(TextBox).at(0), 'jane@school.edu');
-    await tester.enterText(find.byType(TextBox).at(1), 'secret1');
+    await tester.enterText(find.byType(TextBox).at(1), '7KPM-XR4D-Q2WT');
     await tester.enterText(find.byType(TextBox).at(2), 'secret1');
+    await tester.enterText(find.byType(TextBox).at(3), 'secret1');
     await tester.tap(find.byKey(const Key('teacher_register_privacy_consent')));
     await tester.pump();
     await tester.tap(find.text('Create Teacher account'));
@@ -141,6 +151,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(repository.lastDefaultRole, User.roleTeacher);
+    expect(repository.lastTeacherAccessCode, '7KPMXR4DQ2WT');
     expect(repository.verificationRequested, isTrue);
     expect(auth.currentUser?.isTeacher, isTrue);
   });

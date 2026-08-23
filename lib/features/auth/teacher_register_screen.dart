@@ -1,3 +1,4 @@
+import 'package:elixr_core/models/coach_code.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +26,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   final _middleNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _accessCodeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   bool _agreedToLegal = false;
@@ -38,6 +40,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
     _middleNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
+    _accessCodeController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
@@ -69,6 +72,12 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
     }
     if (!_validatePersonalDetails()) return;
 
+    final accessCode = CoachCode.tryNormalize(_accessCodeController.text);
+    if (accessCode == null) {
+      setState(() => _error = TeacherAuthMessages.accessCodeInvalid);
+      return;
+    }
+
     if (_passwordController.text != _confirmController.text) {
       setState(() => _error = TeacherAuthMessages.passwordMismatch);
       return;
@@ -96,6 +105,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
         lastName: normalized.lastName,
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        teacherAccessCode: accessCode,
       );
       if (mounted) context.go(AppRoutePaths.verifyEmail);
     } catch (e) {
@@ -110,11 +120,14 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
     return AuthScaffold(
       formOnLeft: true,
       title: 'Teach with ELIXR',
-      subtitle: 'Create a dedicated Teacher account',
-      formTitle: _step == 0 ? 'Your name' : 'Work email & password',
+      subtitle:
+          'Teacher accounts require an access code from an administrator or an existing Teacher.',
+      formTitle: _step == 0
+          ? 'Your name'
+          : 'Work email, access code & password',
       formSubtitle: _step == 0
           ? 'Students will see this name in classroom contexts.'
-          : 'We will send a verification email before you can access the Teacher shell.',
+          : 'Enter the Teacher access code you were given, then verify your email before opening the Teacher shell.',
       child: Column(
         key: const Key('teacher_register_form_fields'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -147,6 +160,15 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               placeholder: 'Work email',
               icon: FluentIcons.mail_solid,
               keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            AuthTextField(
+              controller: _accessCodeController,
+              label: 'Teacher access code',
+              placeholder: '7KPM-XR4D-Q2WT',
+              icon: FluentIcons.permissions,
+              helperText:
+                  'Required. Ask an administrator or an existing Teacher for a code.',
             ),
             const SizedBox(height: AppSpacing.sm),
             AuthTextField(

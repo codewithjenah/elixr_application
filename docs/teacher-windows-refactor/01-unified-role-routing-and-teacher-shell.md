@@ -45,7 +45,7 @@ Re-verify line numbers at implementation time.
 - [lib/services/auth_service.dart](../../lib/services/auth_service.dart) `register` always passes `defaultRole: AppConstants.defaultRole` (`Trainee`). Login does not reject Teachers.
 - [packages/elixr_core/lib/repositories/auth_repository.dart](../../packages/elixr_core/lib/repositories/auth_repository.dart) defaults `createMissingProfile: true` (can synthesize a Trainee profile). teacher_app `TeacherAuthController` uses `createMissingProfile: false` and signs out on missing profile.
 - teacher_app [teacher_router.dart](../../teacher_app/lib/core/router/teacher_router.dart) + [teacher_routes.dart](../../teacher_app/lib/core/router/teacher_routes.dart): login/register/forgot/verify-email/legal/roster/ranking/students. Email verification required (`unverifiedTeacher`).
-- [firestore.rules](../../firestore.rules) `users/{userId}`: create `role in ['Trainee','Teacher']`; update must not change `role`.
+- [firestore.rules](../../firestore.rules) `users/{userId}`: create `role == 'Trainee'` or `role == 'Teacher'` with a matching unconsumed `teacher_access_codes/{code}` consumed in the same write; update must not change `role`.
 - Dart `User.roleAdmin` exists; rules will not create `Admin`. Do not map Admin → Teacher.
 - Trainee Settings is `SettingsScreen.show` overlay, not a GoRoute ([lib/features/settings/settings_screen.dart](../../lib/features/settings/settings_screen.dart)).
 - Root CI does not run `teacher_app/test` or `packages/elixr_core/test`.

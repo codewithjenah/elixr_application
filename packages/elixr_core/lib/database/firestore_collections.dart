@@ -12,6 +12,7 @@ abstract final class FirestoreCollections {
   static const publicProfiles = 'public_profiles';
   static const profileVisits = 'profile_visits';
   static const teacherInvites = 'teacher_invites';
+  static const teacherAccessCodes = 'teacher_access_codes';
   static const teacherStudentLinks = 'teacher_student_links';
   static const teacherCoachingNotes = 'teacher_coaching_notes';
   static const groups = 'groups';
@@ -21,6 +22,7 @@ abstract final class FirestoreCollections {
   static const teacherMovements = 'teacher_movements';
   static const groupAssignments = 'group_assignments';
   static const assignmentAttempts = 'assignment_attempts';
+  static const emailLinkAcks = 'email_link_acks';
 
   /// Subcollection under [teacherMovements] for immutable published revisions.
   static const teacherMovementRevisions = 'revisions';

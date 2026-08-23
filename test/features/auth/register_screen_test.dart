@@ -5,6 +5,7 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/auth/register_screen.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +29,7 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
     required String email,
     required String password,
     String defaultRole = User.roleTrainee,
+    String? teacherAccessCode,
   }) async {
     registerCallCount++;
     lastFirstName = firstName;
@@ -64,7 +66,10 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<User?> loadPersistedUser() async => null;
@@ -76,13 +81,14 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {
     verificationRequested = true;
   }
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {}
 
   @override
@@ -180,6 +186,7 @@ void main() {
     authService = AuthService(
       repository: repository,
       leaderboardRepository: null,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
     );
     router = GoRouter(
       initialLocation: '/register',

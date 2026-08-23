@@ -115,8 +115,8 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: AppSpacing.xs),
           Center(
             child: AuthFooterLink(
-              prompt: 'Are you a Teacher?',
-              action: 'Create Teacher account',
+              prompt: 'Have a Teacher access code?',
+              action: 'Register as a Teacher',
               onTap: () => context.go(AppRoutePaths.registerTeacher),
             ),
           ),
