@@ -123,12 +123,12 @@ class SecuritySectionState extends State<SecuritySection> {
     try {
       await authService.requestDeleteAccountEmailVerification();
     } catch (e) {
-      if (mounted) {
-        await ElixDialog.error(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-        );
-      }
+      if (!mounted) return;
+      setState(() => _preparingDelete = false);
+      await ElixDialog.error(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
       return;
     } finally {
       if (mounted) setState(() => _preparingDelete = false);

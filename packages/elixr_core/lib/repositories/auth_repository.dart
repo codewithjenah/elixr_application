@@ -228,6 +228,28 @@ const accountDeletionRequiresVerifiedEmailMessage =
 const accountDeletionRequiresEmailConfirmationMessage =
     'Confirm the code from the delete verification email before deleting your account.';
 
+const cannotSendDeleteConfirmationEmailMessage =
+    'Cannot send a delete confirmation email for this Firebase project.';
+
+/// Host used as the Firebase Auth continue URL for delete confirmation.
+///
+/// Windows native Firebase options drop [authDomain] after initialize, even
+/// when it is present in Dart `FirebaseOptions`. Fall back to the default
+/// `{projectId}.firebaseapp.com` authorized domain.
+@visibleForTesting
+String continueUrlHostForDeleteEmail({
+  required String? authDomain,
+  required String projectId,
+}) {
+  final domain = authDomain?.trim() ?? '';
+  if (domain.isNotEmpty) return domain;
+  final id = projectId.trim();
+  if (id.isEmpty) {
+    throw Exception(cannotSendDeleteConfirmationEmailMessage);
+  }
+  return '$id.firebaseapp.com';
+}
+
 /// Thrown from a purge stage so debug logs can identify where erasure failed.
 @visibleForTesting
 class AccountPurgeStageException implements Exception {
@@ -821,14 +843,12 @@ class AuthRepository implements AuthRepositoryBase {
       final code = confirmationCode?.trim() ?? '';
       fb.ActionCodeSettings? actionCodeSettings;
       if (code.isNotEmpty) {
-        final domain = _auth.app.options.authDomain?.trim() ?? '';
-        if (domain.isEmpty) {
-          throw Exception(
-            'Cannot send a delete confirmation email for this Firebase project.',
-          );
-        }
+        final host = continueUrlHostForDeleteEmail(
+          authDomain: _auth.app.options.authDomain,
+          projectId: _auth.app.options.projectId,
+        );
         actionCodeSettings = fb.ActionCodeSettings(
-          url: 'https://$domain/?deleteCode=${Uri.encodeQueryComponent(code)}',
+          url: 'https://$host/?deleteCode=${Uri.encodeQueryComponent(code)}',
           handleCodeInApp: false,
         );
       }
