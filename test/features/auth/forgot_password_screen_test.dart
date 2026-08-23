@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
@@ -5,6 +6,7 @@ import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/features/auth/forgot_password_screen.dart';
 import 'package:elixr_application/features/auth/login_screen.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,7 +19,10 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   Object? errorToThrow;
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {
     sendPasswordResetEmailCallCount++;
     lastEmail = email;
     if (errorToThrow != null) throw errorToThrow!;
@@ -65,11 +70,12 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {}
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {}
 
   @override
@@ -131,6 +137,7 @@ void main() {
     authService = AuthService(
       repository: repository,
       leaderboardRepository: null,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
     );
     router = GoRouter(
       initialLocation: '/forgot-password',
@@ -198,10 +205,39 @@ void main() {
 
         expect(repository.sendPasswordResetEmailCallCount, 1);
         expect(repository.lastEmail, 'trainee@example.com');
-        expect(find.text('Check your email for a reset link'), findsOneWidget);
+        expect(
+          find.text(TeacherAuthMessages.passwordResetWaiting),
+          findsOneWidget,
+        );
         expect(find.byType(ElixPrimaryButton), findsNothing);
       },
     );
+
+    testWidgets('auto-detects when the reset email link is completed', (
+      tester,
+    ) async {
+      await _setSurface(tester);
+      await pumpForgotPasswordScreen(tester);
+
+      await tester.enterText(
+        _authField('Email address'),
+        'trainee@example.com',
+      );
+      await tester.tap(find.byType(ElixPrimaryButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      authService.handleEmailActionCallback(
+        Uri.parse('http://localhost:1/elixr-auth?mode=reset'),
+      );
+      await tester.pump();
+
+      expect(
+        find.text(TeacherAuthMessages.passwordResetCompleted),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+    });
 
     testWidgets('shows AuthErrorBanner when the reset request fails', (
       tester,

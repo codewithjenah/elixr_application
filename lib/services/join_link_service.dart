@@ -12,10 +12,16 @@ class JoinLinkService extends ChangeNotifier {
   final AppLinks _appLinks;
   StreamSubscription<Uri>? _subscription;
   String? _pendingCode;
+  Uri? _pendingAuthCallback;
   bool _disposed = false;
+
+  /// Set by [AuthService] so `elixr://auth` continue-URL redirects are handled
+  /// even when the loopback HTTP page is blocked.
+  void Function(Uri uri)? authCallbackHandler;
 
   String? get pendingCode => _pendingCode;
   bool get hasPendingCode => _pendingCode != null;
+  Uri? get pendingAuthCallback => _pendingAuthCallback;
 
   Future<void> initialize() async {
     if (Platform.isWindows) {
@@ -41,6 +47,7 @@ class JoinLinkService extends ChangeNotifier {
 
   @visibleForTesting
   bool acceptUri(Uri uri) {
+    if (_acceptAuthCallback(uri)) return true;
     final values = uri.queryParametersAll;
     final codes = values['code'];
     if (uri.scheme.toLowerCase() != 'elixr' ||
@@ -57,6 +64,17 @@ class JoinLinkService extends ChangeNotifier {
     final normalized = CoachCode.tryNormalize(codes.single);
     if (normalized == null) return false;
     _pendingCode = normalized;
+    if (!_disposed) notifyListeners();
+    return true;
+  }
+
+  bool _acceptAuthCallback(Uri uri) {
+    if (uri.scheme.toLowerCase() != 'elixr') return false;
+    if (uri.host.toLowerCase() != 'auth') return false;
+    if (uri.userInfo.isNotEmpty || uri.hasPort) return false;
+    if (uri.path.isNotEmpty && uri.path != '/') return false;
+    _pendingAuthCallback = uri;
+    authCallbackHandler?.call(uri);
     if (!_disposed) notifyListeners();
     return true;
   }

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ELIXR</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        background: #111;
+        color: #eee;
+        text-align: center;
+        padding: 64px 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>ELIXR</h1>
+    <p id="status">Confirming this email link…</p>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("token") || "";
+      const action = params.get("elixr_action") || "";
+      const status = document.getElementById("status");
+
+      firebase.initializeApp({
+        apiKey: "AIzaSyBZkC1dK8jPdA8_q7MCkURhpmXbpb5J1n8",
+        authDomain: "elixr-app-2026.firebaseapp.com",
+        projectId: "elixr-app-2026",
+      });
+
+      async function confirm() {
+        if (!token) {
+          status.textContent = "This confirmation link is missing its token.";
+          return;
+        }
+        try {
+          await firebase.firestore().collection("email_link_acks").doc(token).update({
+            status: "clicked",
+            clicked_at: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          status.textContent = "Confirmed. You can return to ELIXR on your computer.";
+        } catch (error) {
+          status.textContent =
+            "Could not notify the app automatically. Keep ELIXR open and try the link again.";
+          console.error(error);
+        }
+        const protocol = "elixr://auth?elixr_action=" +
+          encodeURIComponent(action) +
+          "&token=" +
+          encodeURIComponent(token);
+        try {
+          window.location.replace(protocol);
+        } catch (_) {}
+      }
+
+      confirm();
+    </script>
+  </body>
+</html>

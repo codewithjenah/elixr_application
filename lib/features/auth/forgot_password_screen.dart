@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/auth/teacher_auth_messages.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/auth_scaffold.dart';
@@ -21,10 +22,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool _isLoading = false;
   bool _emailSent = false;
   String? _error;
+  AuthService? _auth;
 
   @override
   void dispose() {
     _emailController.dispose();
+    _auth?.endPasswordResetWatch();
     super.dispose();
   }
 
@@ -41,7 +44,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     try {
-      await context.read<AuthService>().sendPasswordResetEmail(email: email);
+      final auth = context.read<AuthService>();
+      _auth = auth;
+      await auth.sendPasswordResetEmail(email: email);
       if (mounted) {
         setState(() => _emailSent = true);
       }
@@ -54,14 +59,24 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final resetConfirmed = context.select<AuthService, bool>(
+      (auth) => auth.hasConfirmedPasswordResetLink,
+    );
+
     return AuthScaffold(
       title: 'Reset password',
       subtitle: 'We will email you a secure link to choose a new password',
       formTitle: 'Forgot password',
-      formSubtitle: _emailSent
+      formSubtitle: resetConfirmed
+          ? 'You can sign in now'
+          : _emailSent
           ? 'Check your inbox to continue'
           : 'Enter the email for your account',
-      child: _emailSent ? _buildSuccessContent() : _buildFormContent(),
+      child: resetConfirmed
+          ? _buildConfirmedContent()
+          : _emailSent
+          ? _buildSuccessContent()
+          : _buildFormContent(),
     );
   }
 
@@ -102,9 +117,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Check your email for a reset link',
-          style: AppTheme.body.copyWith(fontSize: 15, height: 1.45),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: SizedBox(width: 18, height: 18, child: ProgressRing()),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                TeacherAuthMessages.passwordResetWaiting,
+                style: AppTheme.body.copyWith(fontSize: 15, height: 1.45),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: AppSpacing.lg),
         Center(
@@ -113,6 +140,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             action: 'Sign in',
             onTap: () => context.go('/login'),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConfirmedContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          TeacherAuthMessages.passwordResetCompleted,
+          style: AppTheme.body.copyWith(fontSize: 15, height: 1.45),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        ElixPrimaryButton(
+          label: 'Sign in',
+          onPressed: () => context.go('/login'),
         ),
       ],
     );

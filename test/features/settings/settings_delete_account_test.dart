@@ -11,6 +11,7 @@ import 'package:elixr_application/data/repositories/profile_image_repository.dar
 import 'package:elixr_application/features/settings/sections/security_section.dart';
 import 'package:elixr_application/features/settings/settings_screen.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
@@ -32,13 +33,14 @@ class _StubAuthRepository implements AuthRepositoryBase {
   Future<bool> isCurrentEmailVerified() async => true;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {
     verificationRequested = true;
   }
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {
     verificationRequested = true;
   }
@@ -81,7 +83,10 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<User?> loadPersistedUser() async => _user;
@@ -165,6 +170,7 @@ void main() {
       leaderboardRepository: null,
       profileImageRepository: _NoopImages(),
       generateDeleteVerificationCode: () => '123456',
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
     );
     authService.seedAuthenticatedUser(
       User(
@@ -262,11 +268,12 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.text('Delete account').last);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
 
     expect(repository.verificationRequested, isTrue);
     expect(
-      find.textContaining('We sent a verification message to user@example.com'),
+      find.textContaining('We sent a verification link to user@example.com'),
       findsOneWidget,
     );
     expect(find.text('Delete account permanently?'), findsOneWidget);
@@ -275,12 +282,17 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.enterText(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == '6-digit code',
-      ),
-      '123456',
+    expect(
+      find.textContaining('Waiting for you to click the verification link'),
+      findsOneWidget,
     );
+
+    authService.handleEmailActionCallback(
+      Uri.parse('http://localhost:1/elixr-auth?mode=delete&token=123456'),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('Email confirmed'), findsOneWidget);
     await tester.enterText(
       find.byWidgetPredicate(
         (widget) =>
@@ -300,7 +312,8 @@ void main() {
     final deleteAction = find.widgetWithText(FilledButton, 'Delete account');
     await tester.ensureVisible(deleteAction.last);
     await tester.tap(deleteAction.last);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(repository.deleteAccountCallCount, 1);
     expect(repository.lastDeletePassword, 'secret');
@@ -308,7 +321,9 @@ void main() {
     expect(find.text('Login'), findsOneWidget);
   });
 
-  testWidgets('wrong confirmation code keeps the account', (tester) async {
+  testWidgets('delete stays blocked until the email link is clicked', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -325,14 +340,9 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.text('Delete account').last);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
 
-    await tester.enterText(
-      find.byWidgetPredicate(
-        (widget) => widget is TextBox && widget.placeholder == '6-digit code',
-      ),
-      '000000',
-    );
     await tester.enterText(
       find.byWidgetPredicate(
         (widget) =>
@@ -349,18 +359,9 @@ void main() {
     await tester.tap(confirmLabel);
     await tester.pump();
 
-    await tester.ensureVisible(
-      find.widgetWithText(FilledButton, 'Delete account').last,
-    );
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete account').last);
-    await tester.pumpAndSettle();
-
-    expect(
-      find.textContaining('confirmation code is incorrect'),
-      findsOneWidget,
-    );
     expect(find.text('Delete account permanently?'), findsOneWidget);
     expect(repository.deleteAccountCallCount, 0);
     expect(authService.isAuthenticated, isTrue);
+    expect(authService.hasConfirmedDeleteEmailVerification, isFalse);
   });
 }

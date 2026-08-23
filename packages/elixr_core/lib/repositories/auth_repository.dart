@@ -96,7 +96,13 @@ abstract class AuthRepositoryBase {
   ///
   /// Must not reveal whether [email] is registered. Callers should show a
   /// generic success message after this completes without error.
-  Future<void> sendPasswordResetEmail({required String email});
+  ///
+  /// When [continueUrl] is set, Firebase redirects there after the reset
+  /// action so the desktop app can detect completion.
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  });
 
   Future<User?> loadPersistedUser();
 
@@ -132,13 +138,14 @@ abstract class AuthRepositoryBase {
   /// `reload()` alone.
   Future<bool> isCurrentEmailVerified();
 
-  Future<void> requestCurrentEmailVerification();
+  Future<void> requestCurrentEmailVerification({String? continueUrl});
 
   /// Sends the same Firebase verification email used at signup so delete
-  /// can confirm the inbox. [confirmationCode] is attached to the email
-  /// continue URL so delete cannot complete from signup verification alone.
+  /// can confirm the inbox. [continueUrl] should include the one-time token
+  /// so the running app can detect the click without a typed code.
   Future<void> requestDeleteAccountEmailVerification({
     required String confirmationCode,
+    String? continueUrl,
   });
 
   Future<User?> refreshAuthenticatedUser();
@@ -230,7 +237,7 @@ const accountDeletionRequiresVerifiedEmailMessage =
     'Verify your email before deleting your account.';
 
 const accountDeletionRequiresEmailConfirmationMessage =
-    'Confirm the code from the delete verification email before deleting your account.';
+    'Click the verification email link and wait for this window to detect it before deleting your account.';
 
 const cannotSendDeleteConfirmationEmailMessage =
     'Cannot send a delete confirmation email for this Firebase project.';
@@ -240,7 +247,6 @@ const cannotSendDeleteConfirmationEmailMessage =
 /// Windows native Firebase options drop [authDomain] after initialize, even
 /// when it is present in Dart `FirebaseOptions`. Fall back to the default
 /// `{projectId}.firebaseapp.com` authorized domain.
-@visibleForTesting
 String continueUrlHostForDeleteEmail({
   required String? authDomain,
   required String projectId,
@@ -644,7 +650,10 @@ class AuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {
     final trimmedEmail = email.trim();
     if (trimmedEmail.isEmpty) {
       throw Exception('Email cannot be empty.');
@@ -655,7 +664,10 @@ class AuthRepository implements AuthRepositoryBase {
 
     try {
       await _auth
-          .sendPasswordResetEmail(email: trimmedEmail)
+          .sendPasswordResetEmail(
+            email: trimmedEmail,
+            actionCodeSettings: _actionCodeSettings(continueUrl: continueUrl),
+          )
           .timeout(_authOperationTimeout);
     } on fb.FirebaseAuthException catch (e) {
       // Avoid leaking whether an account exists for this address.
@@ -847,23 +859,49 @@ class AuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestCurrentEmailVerification() {
-    return _sendCurrentEmailVerification(allowIfAlreadyVerified: false);
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) {
+    return _sendCurrentEmailVerification(
+      allowIfAlreadyVerified: false,
+      continueUrl: continueUrl,
+    );
   }
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     required String confirmationCode,
+    String? continueUrl,
   }) {
     return _sendCurrentEmailVerification(
       allowIfAlreadyVerified: true,
       confirmationCode: confirmationCode,
+      continueUrl: continueUrl,
+    );
+  }
+
+  fb.ActionCodeSettings? _actionCodeSettings({
+    String? continueUrl,
+    String? confirmationCode,
+  }) {
+    final url = continueUrl?.trim() ?? '';
+    if (url.isNotEmpty) {
+      return fb.ActionCodeSettings(url: url, handleCodeInApp: false);
+    }
+    final code = confirmationCode?.trim() ?? '';
+    if (code.isEmpty) return null;
+    final host = continueUrlHostForDeleteEmail(
+      authDomain: _auth.app.options.authDomain,
+      projectId: _auth.app.options.projectId,
+    );
+    return fb.ActionCodeSettings(
+      url: 'https://$host/?deleteCode=${Uri.encodeQueryComponent(code)}',
+      handleCodeInApp: false,
     );
   }
 
   Future<void> _sendCurrentEmailVerification({
     required bool allowIfAlreadyVerified,
     String? confirmationCode,
+    String? continueUrl,
   }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) throw Exception('Not authenticated');
@@ -892,20 +930,13 @@ class AuthRepository implements AuthRepositoryBase {
     }
 
     try {
-      final code = confirmationCode?.trim() ?? '';
-      fb.ActionCodeSettings? actionCodeSettings;
-      if (code.isNotEmpty) {
-        final host = continueUrlHostForDeleteEmail(
-          authDomain: _auth.app.options.authDomain,
-          projectId: _auth.app.options.projectId,
-        );
-        actionCodeSettings = fb.ActionCodeSettings(
-          url: 'https://$host/?deleteCode=${Uri.encodeQueryComponent(code)}',
-          handleCodeInApp: false,
-        );
-      }
       await activeUser
-          .sendEmailVerification(actionCodeSettings)
+          .sendEmailVerification(
+            _actionCodeSettings(
+              continueUrl: continueUrl,
+              confirmationCode: confirmationCode,
+            ),
+          )
           .timeout(_authOperationTimeout);
     } on fb.FirebaseAuthException catch (e) {
       throw Exception(

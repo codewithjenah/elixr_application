@@ -13,11 +13,19 @@ abstract final class TeacherAuthMessages {
   static const accountDeletionRequiresVerifiedEmail =
       accountDeletionRequiresVerifiedEmailMessage;
   static const accountDeletionVerificationSent =
-      'We sent a verification message to confirm this delete request. '
-      'Click the link in that email, then enter the 6-digit code from the '
-      'page address (deleteCode=).';
+      'We sent a verification link to confirm this delete request. '
+      'Open the newest email, click the link, then wait until the page says '
+      'Confirmed. Keep this window open.';
   static const accountDeletionInvalidConfirmationCode =
-      'That confirmation code is incorrect. Open the verification email link and try again.';
+      'That delete confirmation is not complete yet. Click the verification '
+      'email link and wait for this window to detect it.';
+  static const emailVerificationWaiting =
+      'Open the verification email and click the link. This page will continue automatically.';
+  static const passwordResetWaiting =
+      'Open the email, click the link, and choose a new password. '
+      'This page will continue automatically when you are done.';
+  static const passwordResetCompleted =
+      'Password reset confirmed. Sign in with your new password.';
   static const teacherAuthorizationRefreshRequired =
       'Teacher verification needs to be refreshed. Verify your email and try again.';
   static const verificationSent = 'Verification email sent.';

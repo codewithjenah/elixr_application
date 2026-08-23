@@ -1,7 +1,31 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_application/data/repositories/email_link_ack_store.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/join_link_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _DeniedEmailLinkAckStore implements EmailLinkAckStore {
+  @override
+  Future<void> createPending({
+    required String token,
+    required String uid,
+  }) async {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'Missing or insufficient permissions.',
+    );
+  }
+
+  @override
+  Future<bool> isClicked(String token) async => false;
+
+  @override
+  Future<void> delete(String token) async {}
+}
 
 class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
   int deleteAccountCallCount = 0;
@@ -61,18 +85,22 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {}
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {}
 
   @override
   Future<User?> refreshAuthenticatedUser() async => null;
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<void> updatePassword({
@@ -114,6 +142,7 @@ void main() {
     return AuthService(
       repository: repo,
       generateDeleteVerificationCode: () => deleteCode,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
     );
   }
 
@@ -231,6 +260,129 @@ void main() {
       ),
     );
     expect(repo.deleteAccountCallCount, 0);
+  });
+
+  test(
+    'email callback after clicking the delete link unlocks delete',
+    () async {
+      final repo = _TrackingDeleteAccountRepository();
+      final service = buildService(repo);
+      service.seedAuthenticatedUser(sampleUser);
+      await service.requestDeleteAccountEmailVerification();
+
+      service.handleEmailActionCallback(
+        Uri.parse(
+          'http://localhost:1/elixr-auth?mode=delete&token=$deleteCode',
+        ),
+      );
+      await service.deleteAccount(password: 'secret');
+      expect(repo.deleteAccountCallCount, 1);
+    },
+  );
+
+  test('Firebase verifyEmail redirect still unlocks pending delete', () async {
+    final repo = _TrackingDeleteAccountRepository();
+    final service = buildService(repo);
+    service.seedAuthenticatedUser(sampleUser);
+    await service.requestDeleteAccountEmailVerification();
+
+    service.handleEmailActionCallback(
+      Uri.parse(
+        'http://localhost:1/elixr-auth?mode=verifyEmail&oobCode=abc'
+        '&token=$deleteCode',
+      ),
+    );
+    await service.deleteAccount(password: 'secret');
+    expect(repo.deleteAccountCallCount, 1);
+  });
+
+  test(
+    'Firebase redirect without a token still unlocks pending delete',
+    () async {
+      final repo = _TrackingDeleteAccountRepository();
+      final service = buildService(repo);
+      service.seedAuthenticatedUser(sampleUser);
+      await service.requestDeleteAccountEmailVerification();
+
+      service.handleEmailActionCallback(
+        Uri.parse('http://localhost:1/elixr-auth?mode=verifyEmail&oobCode=abc'),
+      );
+      await service.deleteAccount(password: 'secret');
+      expect(repo.deleteAccountCallCount, 1);
+    },
+  );
+
+  test('elixr://auth from the protocol handler unlocks delete', () async {
+    final repo = _TrackingDeleteAccountRepository();
+    final joinLinks = JoinLinkService();
+    addTearDown(joinLinks.dispose);
+    final service = AuthService(
+      repository: repo,
+      generateDeleteVerificationCode: () => deleteCode,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
+      joinLinkService: joinLinks,
+    );
+    addTearDown(service.dispose);
+    service.seedAuthenticatedUser(sampleUser);
+    await service.requestDeleteAccountEmailVerification();
+
+    expect(
+      joinLinks.acceptUri(
+        Uri.parse('elixr://auth?elixr_action=delete&token=$deleteCode'),
+      ),
+      isTrue,
+    );
+    await service.deleteAccount(password: 'secret');
+    expect(repo.deleteAccountCallCount, 1);
+  });
+
+  test('email-link ack from another device unlocks delete', () async {
+    final repo = _TrackingDeleteAccountRepository();
+    final acks = MemoryEmailLinkAckStore();
+    final service = AuthService(
+      repository: repo,
+      generateDeleteVerificationCode: () => deleteCode,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
+      emailLinkAckStore: acks,
+      emailLinkAckPollInterval: const Duration(milliseconds: 20),
+    );
+    addTearDown(service.dispose);
+    service.seedAuthenticatedUser(sampleUser);
+    await service.requestDeleteAccountEmailVerification();
+
+    acks.markClicked(deleteCode);
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await service.deleteAccount(password: 'secret');
+    expect(repo.deleteAccountCallCount, 1);
+  });
+
+  test(
+    'delete email still sends when ack store is permission-denied',
+    () async {
+      final repo = _TrackingDeleteAccountRepository();
+      final service = AuthService(
+        repository: repo,
+        generateDeleteVerificationCode: () => deleteCode,
+        emailCallbackServer: MemoryAuthEmailCallbackServer(),
+        emailLinkAckStore: _DeniedEmailLinkAckStore(),
+      );
+      addTearDown(service.dispose);
+      service.seedAuthenticatedUser(sampleUser);
+
+      await service.requestDeleteAccountEmailVerification();
+      expect(service.confirmDeleteVerificationCode(deleteCode), isTrue);
+    },
+  );
+
+  test('extracts a nested Firebase continueUrl token', () {
+    expect(
+      extractDeleteConfirmationCode(
+        'https://elixr-app-2026.firebaseapp.com/__/auth/action'
+        '?mode=verifyEmail&oobCode=abc'
+        '&continueUrl=${Uri.encodeComponent('http://localhost:1/elixr-auth?mode=delete&token=$deleteCode')}',
+      ),
+      deleteCode,
+    );
   });
 
   // Storage-list failure → Auth.delete skipped is covered at repository level in

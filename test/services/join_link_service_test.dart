@@ -54,4 +54,17 @@ void main() {
       expect(service.acceptUri(Uri.parse('elixr://join?code=short')), isFalse);
     },
   );
+
+  test('accepts elixr auth callbacks without treating them as join codes', () {
+    final service = JoinLinkService();
+    addTearDown(service.dispose);
+    expect(
+      service.acceptUri(
+        Uri.parse('elixr://auth?elixr_action=delete&token=123456'),
+      ),
+      isTrue,
+    );
+    expect(service.pendingCode, isNull);
+    expect(service.pendingAuthCallback?.queryParameters['token'], '123456');
+  });
 }

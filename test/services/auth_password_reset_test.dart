@@ -1,5 +1,6 @@
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,7 +10,10 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   Object? errorToThrow;
 
   @override
-  Future<void> sendPasswordResetEmail({required String email}) async {
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {
     sendPasswordResetEmailCallCount++;
     lastEmail = email;
     if (errorToThrow != null) throw errorToThrow!;
@@ -57,11 +61,12 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
-  Future<void> requestCurrentEmailVerification() async {}
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
   Future<void> requestDeleteAccountEmailVerification({
     String confirmationCode = '',
+    String? continueUrl,
   }) async {}
 
   @override
@@ -106,6 +111,7 @@ void main() {
     authService = AuthService(
       repository: repository,
       leaderboardRepository: null,
+      emailCallbackServer: MemoryAuthEmailCallbackServer(),
     );
   });
 
@@ -120,6 +126,30 @@ void main() {
       expect(repository.sendPasswordResetEmailCallCount, 1);
       expect(repository.lastEmail, 'user@example.com');
     });
+
+    test('marks the reset complete after the continue URL callback', () async {
+      await authService.sendPasswordResetEmail(email: 'user@example.com');
+      expect(authService.hasConfirmedPasswordResetLink, isFalse);
+
+      authService.handleEmailActionCallback(
+        Uri.parse('http://localhost:1/elixr-auth?mode=reset'),
+      );
+
+      expect(authService.hasConfirmedPasswordResetLink, isTrue);
+    });
+
+    test(
+      'marks the reset complete after Firebase resetPassword redirect',
+      () async {
+        await authService.sendPasswordResetEmail(email: 'user@example.com');
+
+        authService.handleEmailActionCallback(
+          Uri.parse('http://localhost:1/elixr-auth?mode=resetPassword'),
+        );
+
+        expect(authService.hasConfirmedPasswordResetLink, isTrue);
+      },
+    );
 
     test('propagates repository failures', () async {
       repository.errorToThrow = Exception('Too many attempts. Try again later');
