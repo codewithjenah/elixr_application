@@ -83,9 +83,9 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
-    label: 'Coaching',
+    label: 'Messages',
     icon: FluentIcons.chat,
-    route: '/coaching',
+    route: '/messages',
     group: SidebarGroup.insights,
   ),
   SidebarItem(

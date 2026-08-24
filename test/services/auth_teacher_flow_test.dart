@@ -36,6 +36,7 @@ class _TeacherFlowRepository implements AuthRepositoryBase {
     required String password,
     required String defaultRole,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     registerCallCount++;
     lastDefaultRole = defaultRole;
@@ -165,6 +166,7 @@ void main() {
         email: 'jane@school.edu',
         password: 'secret1',
         teacherAccessCode: '7KPM-XR4D-Q2WT',
+        legalConsent: RegistrationLegalConsent.current(),
       );
 
       expect(repository.registerCallCount, 1);
@@ -190,6 +192,7 @@ void main() {
         lastName: 'Lovelace',
         email: 'ada@example.com',
         password: 'secret1',
+        legalConsent: RegistrationLegalConsent.current(),
       );
 
       expect(repository.registerCallCount, 1);
@@ -407,10 +410,21 @@ void main() {
   );
 
   test(
-    'login with missing profile fails closed without synthesizing Trainee',
+    'valid login with a missing profile enters resumable completion',
     () async {
       final repository = _TeacherFlowRepository(
-        loginThrows: const MissingUserProfileException(),
+        loginThrows: const AuthFailure(
+          AuthFailureKind.missingProfile,
+          'Your sign-in is valid, but your ELIXR profile is incomplete.',
+          pendingProfile: PendingGoogleProfile(
+            uid: 'ghost-1',
+            email: 'ghost@example.com',
+            firstName: '',
+            lastName: '',
+            isNewUser: false,
+            identityProvider: ProfileIdentityProvider.password,
+          ),
+        ),
       );
       final auth = AuthService(
         repository: repository,
@@ -422,12 +436,16 @@ void main() {
         auth.login(email: 'ghost@example.com', password: 'secret1'),
         throwsA(
           predicate(
-            (error) =>
-                error.toString().contains(TeacherAuthMessages.missingProfile),
+            (error) => error.toString().contains('profile is incomplete'),
           ),
         ),
       );
       expect(auth.isAuthenticated, isFalse);
+      expect(auth.hasPendingGoogleProfile, isTrue);
+      expect(
+        auth.pendingGoogleProfile?.identityProvider,
+        ProfileIdentityProvider.password,
+      );
     },
   );
 

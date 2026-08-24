@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../services/auth_service.dart';
+import '../../auth/auth_validators.dart';
 import '../widgets/settings_components.dart';
 
 /// Security Settings: password change form.
@@ -68,7 +69,7 @@ class SecuritySectionState extends State<SecuritySection> {
     return current.isNotEmpty &&
         newPass.isNotEmpty &&
         confirm.isNotEmpty &&
-        newPass.length >= 6 &&
+        validateRegistrationPassword(newPass) == null &&
         newPass == confirm;
   }
 
@@ -85,11 +86,9 @@ class SecuritySectionState extends State<SecuritySection> {
       await ElixDialog.error(context, 'New passwords do not match.');
       return;
     }
-    if (newPass.length < 6) {
-      await ElixDialog.error(
-        context,
-        'Password must be at least 6 characters.',
-      );
+    final passwordError = validateRegistrationPassword(newPass);
+    if (passwordError != null) {
+      await ElixDialog.error(context, passwordError);
       return;
     }
 
@@ -182,7 +181,9 @@ class SecuritySectionState extends State<SecuritySection> {
       }
     }
 
-    final hasMinLength = newPass.length >= 6;
+    final hasMinLength = passwordHasMinimumLength(newPass);
+    final hasLetter = passwordHasLetter(newPass);
+    final hasNumber = passwordHasNumber(newPass);
     final passwordsMatch = confirm.isNotEmpty && newPass == confirm;
 
     return ConstrainedBox(
@@ -277,8 +278,16 @@ class SecuritySectionState extends State<SecuritySection> {
                         runSpacing: AppSpacing.xs,
                         children: [
                           _PasswordRequirement(
-                            label: 'At least 6 characters',
+                            label: 'At least 8 characters',
                             met: hasMinLength,
+                          ),
+                          _PasswordRequirement(
+                            label: 'Contains a letter',
+                            met: hasLetter,
+                          ),
+                          _PasswordRequirement(
+                            label: 'Contains a number',
+                            met: hasNumber,
                           ),
                           _PasswordRequirement(
                             label: 'Passwords must match',

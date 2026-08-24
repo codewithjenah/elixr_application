@@ -91,7 +91,9 @@ describe('Google Trainee profile onboarding', () => {
     role: ROLE_TRAINEE,
     created_at: serverTimestamp(),
     privacy_consent_at: serverTimestamp(),
-    privacy_policy_version: 'v4',
+    privacy_policy_version: 'v5',
+    terms_consent_at: serverTimestamp(),
+    terms_of_service_version: 'v2',
     ...overrides,
   });
 
@@ -110,7 +112,9 @@ describe('Google Trainee profile onboarding', () => {
 // Phase 3A coaching-note policy.  These tests intentionally use direct client
 // writes/queries: repository validation is defense in depth, while these rules
 // are the authoritative boundary for a modified client.
-describe('teacher coaching notes', () => {
+// Legacy coaching notes are immutable migration/audit input. Their former
+// client-write suite is retired with the Coaching UI and repositories.
+describe.skip('retired teacher coaching note writes', () => {
   const notePath = (db, id = 'note') => doc(db, 'teacher_coaching_notes', id);
   const linkId = 'bob_alice';
   const noteData = (overrides = {}) => ({
@@ -494,11 +498,15 @@ beforeEach(async () => {
 });
 
 function aliceDb() {
-  return testEnv.authenticatedContext('alice').firestore();
+  return testEnv.authenticatedContext('alice', {
+    email: 'alice@example.com',
+  }).firestore();
 }
 
 function bobDb() {
-  return testEnv.authenticatedContext('bob').firestore();
+  return testEnv.authenticatedContext('bob', {
+    email: 'bob@example.com',
+  }).firestore();
 }
 
 function boardData(userId, now = new Date()) {
@@ -3594,13 +3602,19 @@ describe('account self-erasure deletes', () => {
 });
 
 describe('users role constraints', () => {
-  function userProfile(role) {
+  function userProfile(role, email = 'alice@example.com', overrides = {}) {
     return {
       first_name: 'Ada',
       last_name: 'Lovelace',
       full_name: 'Ada Lovelace',
-      email: 'ada@example.com',
+      email,
       role,
+      created_at: serverTimestamp(),
+      privacy_consent_at: serverTimestamp(),
+      privacy_policy_version: 'v5',
+      terms_consent_at: serverTimestamp(),
+      terms_of_service_version: 'v2',
+      ...overrides,
     };
   }
 
@@ -3610,13 +3624,40 @@ describe('users role constraints', () => {
   });
 
   test('owner can create a Teacher profile', async () => {
+    const code = 'ABCDEFGHJKLM';
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'teacher_access_codes', code), {
+        consumed: false,
+        created_by: 'admin',
+        created_at: Timestamp.now(),
+      });
+    });
     const bob = bobDb();
-    await assertSucceeds(setDoc(doc(bob, 'users', 'bob'), userProfile(ROLE_TEACHER)));
+    const batch = writeBatch(bob);
+    batch.set(
+      doc(bob, 'users', 'bob'),
+      userProfile(ROLE_TEACHER, 'bob@example.com', {
+        teacher_access_code: code,
+      }),
+    );
+    batch.update(doc(bob, 'teacher_access_codes', code), {
+      consumed: true,
+      consumed_by: 'bob',
+      consumed_at: serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
   });
 
   test('owner cannot create an Admin profile', async () => {
-    const carol = testEnv.authenticatedContext('carol').firestore();
-    await assertFails(setDoc(doc(carol, 'users', 'carol'), userProfile(ROLE_ADMIN)));
+    const carol = testEnv.authenticatedContext('carol', {
+      email: 'carol@example.com',
+    }).firestore();
+    await assertFails(
+      setDoc(
+        doc(carol, 'users', 'carol'),
+        userProfile(ROLE_ADMIN, 'carol@example.com'),
+      ),
+    );
   });
 
   test('non-owner cannot create another user document', async () => {
@@ -3631,7 +3672,10 @@ describe('users role constraints', () => {
 
     const alice = aliceDb();
     await assertSucceeds(
-      updateDoc(doc(alice, 'users', 'alice'), { first_name: 'Augusta' }),
+      updateDoc(doc(alice, 'users', 'alice'), {
+        first_name: 'Augusta',
+        full_name: 'Augusta Lovelace',
+      }),
     );
   });
 

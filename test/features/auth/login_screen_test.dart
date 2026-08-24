@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/features/auth/login_screen.dart';
@@ -13,11 +15,14 @@ import 'package:provider/provider.dart';
 class _LoginRepository implements AuthRepositoryBase {
   int loginCalls = 0;
   Object? loginError;
+  Completer<User>? loginCompleter;
 
   @override
   Future<User> login({required String email, required String password}) async {
     loginCalls++;
     if (loginError != null) throw loginError!;
+    final pending = loginCompleter;
+    if (pending != null) return pending.future;
     return User(
       id: 'trainee-1',
       firstName: 'Test',
@@ -63,6 +68,7 @@ class _LoginRepository implements AuthRepositoryBase {
     required String password,
     required String defaultRole,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) => throw UnimplementedError();
   @override
   Future<User> updateProfileDetails({
@@ -121,6 +127,7 @@ class _GoogleLoginRepository extends _LoginRepository
 
   @override
   Future<User> completeGoogleProfile({
+    required RegistrationLegalConsent legalConsent,
     required PendingGoogleProfile pendingProfile,
     required String firstName,
     String? middleName,
@@ -323,5 +330,47 @@ void main() {
 
     expect(find.text('Email or password is incorrect.'), findsOneWidget);
     expect(find.textContaining('User not found'), findsNothing);
+  });
+
+  testWidgets('shows safe operational network failures', (tester) async {
+    repository.loginError = const AuthFailure(
+      AuthFailureKind.network,
+      'Network error. Check your connection and try again.',
+    );
+    await pumpLogin(tester);
+    await tester.enterText(field('Email address'), 'user@example.com');
+    await tester.enterText(field('Password'), 'old123');
+    await tester.tap(find.widgetWithText(ElixPrimaryButton, 'Sign In'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(
+      find.text('Network error. Check your connection and try again.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('coalesces repeated login submissions while in flight', (
+    tester,
+  ) async {
+    repository.loginCompleter = Completer<User>();
+    await pumpLogin(tester);
+    await tester.enterText(field('Email address'), 'user@example.com');
+    await tester.enterText(field('Password'), 'old123');
+    final submit = find.widgetWithText(ElixPrimaryButton, 'Sign In');
+    await tester.tap(submit);
+    await tester.tap(submit);
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(repository.loginCalls, 1);
+    repository.loginCompleter!.complete(
+      const User(
+        id: 'u1',
+        firstName: 'Test',
+        lastName: 'User',
+        email: 'user@example.com',
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
   });
 }

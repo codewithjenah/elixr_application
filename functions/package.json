@@ -1,0 +1,17 @@
+{
+  "name": "elixr-chat-functions",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:emulator": "node test/emulator_smoke.mjs",
+    "migrate:chat": "node scripts/migrate-chat.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0"
+  }
+}

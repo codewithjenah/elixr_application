@@ -30,6 +30,7 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
     required String password,
     String defaultRole = User.roleTrainee,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     registerCallCount++;
     lastFirstName = firstName;

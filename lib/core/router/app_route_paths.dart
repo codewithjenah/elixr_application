@@ -30,6 +30,7 @@ abstract final class AppRoutePaths {
   static const history = '/history';
   static const calendar = '/calendar';
   static const coaching = '/coaching';
+  static const messages = '/messages';
   static const progress = '/progress';
   static const achievements = '/achievements';
 
@@ -40,6 +41,7 @@ abstract final class AppRoutePaths {
   static const teacherStudentDetailSegment = 'students';
   static const teacherLeaderboard = '/teacher/leaderboard';
   static const teacherMovements = '/teacher/movements';
+  static const teacherMessages = '/teacher/messages';
   static const teacherSettings = '/teacher/settings';
 
   static const authRoutes = {
@@ -58,6 +60,7 @@ abstract final class AppRoutePaths {
     teacherStudents,
     teacherLeaderboard,
     teacherMovements,
+    teacherMessages,
     teacherSettings,
   };
 
@@ -71,6 +74,7 @@ abstract final class AppRoutePaths {
     history,
     calendar,
     coaching,
+    messages,
     progress,
     achievements,
   };

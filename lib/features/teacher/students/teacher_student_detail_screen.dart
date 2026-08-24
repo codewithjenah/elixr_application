@@ -10,7 +10,6 @@ import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
-import 'teacher_student_coaching_section.dart';
 import 'teacher_student_detail_controller.dart';
 import 'teacher_student_models.dart';
 
@@ -76,6 +75,28 @@ class _TeacherStudentDetailScreenState
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
+                CommandBarButton(
+                  icon: const Icon(FluentIcons.chat),
+                  label: const Text('Message student'),
+                  onPressed:
+                      controller.state == TeacherStudentDetailState.unauthorized
+                      ? null
+                      : () {
+                          final location = Uri(
+                            path: AppRoutePaths.teacherMessages,
+                            queryParameters: {
+                              'userId': controller.traineeId,
+                              'name': controller.displayName,
+                              'role': 'Trainee',
+                              if (controller.profileRoot?.profilePictureUrl !=
+                                  null)
+                                'avatar':
+                                    controller.profileRoot!.profilePictureUrl,
+                            },
+                          ).toString();
+                          context.go(location);
+                        },
+                ),
                 CommandBarButton(
                   icon: const Icon(FluentIcons.back),
                   label: const Text('Back to Students'),
@@ -145,7 +166,6 @@ class _AuthorizedBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.read<AuthService>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -154,11 +174,6 @@ class _AuthorizedBody extends StatelessWidget {
         _ClassroomStatus(controller: controller),
         const SizedBox(height: AppSpacing.xl),
         _ProgressSection(controller: controller),
-        const SizedBox(height: AppSpacing.xl),
-        TeacherStudentCoachingSection(
-          controller: controller,
-          teacherDisplayName: auth.currentUser?.fullName ?? 'Teacher',
-        ),
       ],
     );
   }

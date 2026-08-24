@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,11 +12,14 @@ import '../database/user_profile_store.dart';
 import '../models/coach_code.dart';
 import '../models/teacher_access_code_exception.dart';
 import '../models/user.dart';
+import '../privacy/privacy_consent.dart';
 import '../utils/manila_day.dart';
 import '../utils/user_name.dart';
 import 'firebase_teacher_access_code_repository.dart';
 import 'profile_image_repository.dart';
 import 'teacher_access_code_repository.dart';
+
+export '../privacy/privacy_consent.dart';
 
 /// A profile-picture mutation to persist alongside a profile update.
 class ProfilePictureUpdate {
@@ -44,6 +48,8 @@ enum AuthProviderKind { password, google }
 /// a silent Trainee choice after an app restart.
 enum GoogleOnboardingIntent { trainee, teacher, unspecified }
 
+enum ProfileIdentityProvider { password, google }
+
 class PendingGoogleProfile {
   const PendingGoogleProfile({
     required this.uid,
@@ -54,6 +60,7 @@ class PendingGoogleProfile {
     required this.isNewUser,
     this.intent = GoogleOnboardingIntent.unspecified,
     this.teacherAccessCode,
+    this.identityProvider = ProfileIdentityProvider.google,
   });
 
   final String uid;
@@ -64,6 +71,7 @@ class PendingGoogleProfile {
   final bool isNewUser;
   final GoogleOnboardingIntent intent;
   final String? teacherAccessCode;
+  final ProfileIdentityProvider identityProvider;
 
   PendingGoogleProfile copyWith({
     GoogleOnboardingIntent? intent,
@@ -81,6 +89,7 @@ class PendingGoogleProfile {
       teacherAccessCode: clearTeacherAccessCode
           ? null
           : (teacherAccessCode ?? this.teacherAccessCode),
+      identityProvider: identityProvider,
     );
   }
 }
@@ -204,6 +213,7 @@ abstract class AuthRepositoryBase {
     required String password,
     required String defaultRole,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   });
 
   Future<User> login({required String email, required String password});
@@ -292,6 +302,7 @@ abstract class GoogleAuthRepositoryBase {
     required String firstName,
     String? middleName,
     required String lastName,
+    required RegistrationLegalConsent legalConsent,
   });
 
   Future<void> cancelGoogleOnboarding(PendingGoogleProfile pendingProfile);
@@ -329,6 +340,7 @@ abstract class TeacherGoogleAuthRepositoryBase {
     String? middleName,
     required String lastName,
     required String teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   });
 }
 
@@ -640,12 +652,73 @@ Future<void> finishAccountDeletionAfterPurge({
   await deleteAuthUser();
 }
 
+/// Removes account-linked personal data from one-time Teacher access codes.
+/// Consumed-state audit facts are retained so a redeemed code never becomes
+/// usable again. Safe to retry after any partial completion.
+@visibleForTesting
+Future<void> purgeTeacherAccessCodesForAccountErasure({
+  required FirebaseFirestore firestore,
+  required String uid,
+}) async {
+  final collection = firestore.collection(
+    FirestoreCollections.teacherAccessCodes,
+  );
+  final created = await collection.where('created_by', isEqualTo: uid).get();
+  final consumed = await collection.where('consumed_by', isEqualTo: uid).get();
+  final docs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
+    for (final doc in created.docs) doc.reference.path: doc,
+    for (final doc in consumed.docs) doc.reference.path: doc,
+  };
+  for (final doc in docs.values) {
+    final data = doc.data();
+    final wasCreatedByUser = data['created_by'] == uid;
+    final wasConsumedByUser = data['consumed_by'] == uid;
+    if (wasCreatedByUser && data['consumed'] == false) {
+      await doc.reference.delete();
+      continue;
+    }
+    final updates = <String, dynamic>{};
+    if (wasCreatedByUser) {
+      updates['created_by'] = FieldValue.delete();
+      if (data.containsKey('note')) updates['note'] = FieldValue.delete();
+    }
+    if (wasConsumedByUser) {
+      updates['consumed_by'] = FieldValue.delete();
+    }
+    if (updates.isNotEmpty) await doc.reference.update(updates);
+  }
+}
+
 /// Thrown when a Firebase Auth session has no Firestore `users/{uid}` document
 /// and the client is not allowed to synthesize a Trainee profile.
 class MissingUserProfileException implements Exception {
   const MissingUserProfileException();
 
   static const message = 'Account profile not found. Please register first.';
+
+  @override
+  String toString() => message;
+}
+
+enum AuthFailureKind {
+  invalidCredentials,
+  disabledAccount,
+  rateLimited,
+  network,
+  missingProfile,
+  provisioning,
+  reauthentication,
+  unknown,
+}
+
+/// A presentation-safe authentication failure. [message] never includes raw
+/// Firebase details or account-existence information.
+class AuthFailure implements Exception {
+  const AuthFailure(this.kind, this.message, {this.pendingProfile});
+
+  final AuthFailureKind kind;
+  final String message;
+  final PendingGoogleProfile? pendingProfile;
 
   @override
   String toString() => message;
@@ -666,6 +739,7 @@ class AuthRepository
     TeacherAccessCodeRepository? teacherAccessCodeRepository,
     Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
     GoogleOAuthFlow? googleOAuthFlow,
+    Future<void> Function(String userId)? archiveChatForAccountErasure,
     this.createMissingProfile = true,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
@@ -682,11 +756,16 @@ class AuthRepository
              firestore: firestore ?? FirebaseFirestore.instance,
            ),
        _listProfileStorageObjectPaths = listProfileStorageObjectPaths,
-       _googleOAuthFlow = googleOAuthFlow;
+       _googleOAuthFlow = googleOAuthFlow,
+       _archiveChatForAccountErasureOverride = archiveChatForAccountErasure;
 
   static const _authOperationTimeout = Duration(seconds: 30);
   static const _batchLimit = 500;
   static const _whereInLimit = 30;
+  static const _chatApiBaseUrl = String.fromEnvironment(
+    'ELIXR_CHAT_API_BASE_URL',
+    defaultValue: 'https://asia-southeast1-elixr-app-2026.cloudfunctions.net/',
+  );
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   final fb.FirebaseAuth _auth;
@@ -698,6 +777,8 @@ class AuthRepository
   final Future<List<String>> Function(String userId)?
   _listProfileStorageObjectPaths;
   final GoogleOAuthFlow? _googleOAuthFlow;
+  final Future<void> Function(String userId)?
+  _archiveChatForAccountErasureOverride;
 
   /// When false, a Firebase session without a Firestore profile is signed out
   /// instead of synthesizing a Trainee document. Teacher clients pass false
@@ -713,11 +794,17 @@ class AuthRepository
     required String password,
     required String defaultRole,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
+    if (!legalConsent.isCurrent) {
+      throw const AuthFailure(
+        AuthFailureKind.provisioning,
+        'Current Privacy Policy and Terms consent is required.',
+      );
+    }
     final isTeacher = defaultRole == User.roleTeacher;
-    if (isTeacher) {
-      await _teacherAccessCodes.assertRedeemable(teacherAccessCode);
-    } else if (teacherAccessCode != null &&
+    if (!isTeacher &&
+        teacherAccessCode != null &&
         teacherAccessCode.trim().isNotEmpty) {
       throw Exception(
         'Teacher access codes cannot be used for Trainee registration.',
@@ -741,7 +828,9 @@ class AuthRepository
         firstName: normalized.firstName,
         middleName: normalized.middleName,
         lastName: normalized.lastName,
-        email: email,
+        email: credential.user!.email?.trim().isNotEmpty == true
+            ? credential.user!.email!.trim()
+            : email.trim(),
         role: defaultRole,
         teacherAccessCode: isTeacher
             ? teacherAccessCode == null
@@ -755,22 +844,75 @@ class AuthRepository
         await _teacherAccessCodes.consumeAndCreateTeacherProfile(
           code: teacherAccessCode!,
           user: user,
+          legalConsent: legalConsent,
         );
       } else {
-        await _db.upsertUserProfile(user, includePrivacyConsent: true);
+        await _db.upsertUserProfile(user, legalConsent: legalConsent);
       }
       return user;
     } on fb.FirebaseAuthException catch (e) {
-      throw Exception(_messageForAuthError(e));
+      throw _failureForAuthError(e);
     } on TeacherAccessCodeException catch (e) {
-      await _deleteCreatedAuthUser(credential);
-      throw Exception(e.message ?? e.toString());
-    } catch (e) {
-      if (isTeacher) {
-        await _deleteCreatedAuthUser(credential);
-      }
-      rethrow;
+      final reconciled = await _reconcileRegistration(
+        credential: credential,
+        expectedRole: defaultRole,
+        teacherAccessCode: teacherAccessCode,
+      );
+      if (reconciled != null) return reconciled;
+      throw AuthFailure(
+        AuthFailureKind.provisioning,
+        e.message ?? e.toString(),
+      );
+    } catch (error) {
+      final reconciled = await _reconcileRegistration(
+        credential: credential,
+        expectedRole: defaultRole,
+        teacherAccessCode: teacherAccessCode,
+      );
+      if (reconciled != null) return reconciled;
+      if (error is AuthFailure) rethrow;
+      throw const AuthFailure(
+        AuthFailureKind.provisioning,
+        'ELIXR could not finish creating your profile. Sign in to resume or try again.',
+      );
     }
+  }
+
+  Future<User?> _reconcileRegistration({
+    required fb.UserCredential? credential,
+    required String expectedRole,
+    required String? teacherAccessCode,
+  }) async {
+    final created = credential?.user;
+    if (created == null) return null;
+    try {
+      final expected = User(
+        id: created.uid,
+        firstName: '',
+        lastName: '',
+        email: created.email ?? '',
+        role: expectedRole,
+        teacherAccessCode: CoachCode.tryNormalize(teacherAccessCode ?? ''),
+      );
+      final profile = expectedRole == User.roleTeacher
+          ? await _teacherAccessCodes.reconcileTeacherProfile(
+              expectedUser: expected,
+              code: teacherAccessCode ?? '',
+            )
+          : await _db.getUserById(created.uid);
+      if (profile != null &&
+          profile.id == created.uid &&
+          profile.role == expectedRole &&
+          _emailsDiffer(profile.email, created.email ?? '') == false) {
+        return profile;
+      }
+      // A successful read confirming absence makes rollback safe. If this
+      // delete fails, the authenticated identity remains resumable on login.
+      await _deleteCreatedAuthUser(credential);
+    } catch (_) {
+      // An uncertain read must never trigger destructive rollback.
+    }
+    return null;
   }
 
   Future<void> _deleteCreatedAuthUser(fb.UserCredential? credential) async {
@@ -787,17 +929,24 @@ class AuthRepository
 
   @override
   Future<User> login({required String email, required String password}) async {
+    fb.UserCredential? credential;
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
+      credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
       return await _loadUserProfile(credential.user!);
     } on fb.FirebaseAuthException catch (e) {
-      throw Exception(_messageForAuthError(e));
+      throw _failureForAuthError(e);
     } on MissingUserProfileException {
-      await _signOutIgnoringErrors();
-      rethrow;
+      final firebaseUser = credential?.user;
+      throw AuthFailure(
+        AuthFailureKind.missingProfile,
+        'Your sign-in is valid, but your ELIXR profile is incomplete. Complete it to continue.',
+        pendingProfile: firebaseUser == null
+            ? null
+            : _pendingEmailProfile(firebaseUser),
+      );
     }
   }
 
@@ -815,7 +964,6 @@ class AuthRepository
   Future<GoogleSignInResult> signInWithGoogleTeacher({
     required String teacherAccessCode,
   }) async {
-    await _teacherAccessCodes.assertRedeemable(teacherAccessCode);
     return _signInWithGoogle(
       intent: GoogleOnboardingIntent.teacher,
       teacherAccessCode: CoachCode.tryNormalize(teacherAccessCode),
@@ -1053,19 +1201,31 @@ class AuthRepository
     );
   }
 
+  PendingGoogleProfile _pendingEmailProfile(fb.User firebaseUser) {
+    final parsed = parseLegacyFullName(firebaseUser.displayName ?? '');
+    return PendingGoogleProfile(
+      uid: firebaseUser.uid,
+      email: firebaseUser.email?.trim() ?? '',
+      firstName: parsed.firstName,
+      middleName: parsed.middleName,
+      lastName: parsed.lastName,
+      isNewUser: false,
+      identityProvider: ProfileIdentityProvider.password,
+    );
+  }
+
   @override
   Future<User> completeGoogleProfile({
     required PendingGoogleProfile pendingProfile,
     required String firstName,
     String? middleName,
     required String lastName,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null || firebaseUser.uid != pendingProfile.uid) {
       await _signOutIgnoringErrors();
-      throw Exception(
-        'The active Google account changed. Sign in with Google again.',
-      );
+      throw Exception('The active sign-in changed. Sign in again.');
     }
     try {
       await firebaseUser.reload().timeout(_authOperationTimeout);
@@ -1073,18 +1233,19 @@ class AuthRepository
       throw Exception(_messageForGoogleAuthError(e));
     } on TimeoutException {
       throw Exception(
-        'Google account verification timed out. Check your connection and retry.',
+        'Account verification timed out. Check your connection and retry.',
       );
     }
     final activeUser = _auth.currentUser;
     final activeEmail = activeUser?.email?.trim() ?? '';
     if (activeUser == null ||
         activeUser.uid != pendingProfile.uid ||
-        !activeUser.emailVerified ||
+        (pendingProfile.identityProvider == ProfileIdentityProvider.google &&
+            !activeUser.emailVerified) ||
         _emailsDiffer(activeEmail, pendingProfile.email)) {
       await _signOutIgnoringErrors();
       throw Exception(
-        'The active Google account no longer matches this profile. Sign in again.',
+        'The active sign-in no longer matches this profile. Sign in again.',
       );
     }
     final normalized = normalizeUserNameParts(
@@ -1101,7 +1262,7 @@ class AuthRepository
       role: User.roleTrainee,
     );
     try {
-      await _db.upsertUserProfile(user, includePrivacyConsent: true);
+      await _db.upsertUserProfile(user, legalConsent: legalConsent);
     } on FirebaseException {
       throw Exception(
         'ELIXR could not create your profile. Check your connection and retry.',
@@ -1117,6 +1278,7 @@ class AuthRepository
     String? middleName,
     required String lastName,
     required String teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null || firebaseUser.uid != pendingProfile.uid) {
@@ -1139,7 +1301,8 @@ class AuthRepository
     final activeEmail = activeUser?.email?.trim() ?? '';
     if (activeUser == null ||
         activeUser.uid != pendingProfile.uid ||
-        !activeUser.emailVerified ||
+        (pendingProfile.identityProvider == ProfileIdentityProvider.google &&
+            !activeUser.emailVerified) ||
         _emailsDiffer(activeEmail, pendingProfile.email)) {
       await _signOutIgnoringErrors();
       throw Exception(
@@ -1173,17 +1336,32 @@ class AuthRepository
       await _teacherAccessCodes.consumeAndCreateTeacherProfile(
         code: normalizedCode,
         user: user,
-        includePrivacyConsent: true,
+        legalConsent: legalConsent,
       );
     } on Object catch (error, stackTrace) {
       // Firestore transactions can commit successfully while the client sees
       // a timeout or transport error. Read the UID-scoped profile before
       // reporting failure so a retry cannot consume the code twice or display
       // a false failure.
-      final reconciled = await _matchingTeacherProfileAfterGoogleAttempt(
-        user: user,
-        code: normalizedCode,
-      );
+      User? reconciled;
+      try {
+        reconciled = await _teacherAccessCodes.reconcileTeacherProfile(
+          expectedUser: user,
+          code: normalizedCode,
+        );
+      } catch (reconciliationError, reconciliationStackTrace) {
+        if (kDebugMode) {
+          debugPrint(
+            'Teacher profile reconciliation was inconclusive: '
+            '$reconciliationError',
+          );
+          debugPrint('$reconciliationStackTrace');
+        }
+        throw const AuthFailure(
+          AuthFailureKind.provisioning,
+          'ELIXR could not confirm whether your Teacher profile was created. Check your connection and sign in again.',
+        );
+      }
       if (reconciled != null) return reconciled;
       if (error is TeacherAccessCodeException) {
         throw Exception(error.message ?? error.toString());
@@ -1200,29 +1378,6 @@ class AuthRepository
       rethrow;
     }
     return user;
-  }
-
-  Future<User?> _matchingTeacherProfileAfterGoogleAttempt({
-    required User user,
-    required String code,
-  }) async {
-    try {
-      final profile = await _db.getUserById(user.id!);
-      if (profile == null ||
-          profile.id != user.id ||
-          !profile.isTeacher ||
-          _emailsDiffer(profile.email, user.email) ||
-          profile.teacherAccessCode != code) {
-        return null;
-      }
-      return profile;
-    } catch (error, stackTrace) {
-      if (kDebugMode) {
-        debugPrint('Teacher Google profile reconciliation failed: $error');
-        debugPrint('$stackTrace');
-      }
-      return null;
-    }
   }
 
   @override
@@ -1767,6 +1922,16 @@ class AuthRepository
   }
 
   Future<void> _purgeUserData(String uid) async {
+    // Chat history is retained only after the trusted Function removes this
+    // account's UID/name/avatar and rewrites sender identities. This runs
+    // before deleting the user profile so the Function can still authenticate
+    // and classify the account. Failure is closed to prevent partial erasure.
+    await _runPurgeStage('chat anonymization and archival', () async {
+      final override = _archiveChatForAccountErasureOverride;
+      if (override != null) return override(uid);
+      await _archiveChatForAccountErasure(uid);
+    });
+
     // Evidence can contain private annotated images and must be purged before
     // session documents/auth are removed. A non-not-found failure is allowed
     // to fail closed so account deletion never leaves known image data behind.
@@ -1940,6 +2105,13 @@ class AuthRepository
       ]);
     });
 
+    await _runPurgeStage('teacher access-code personal data purge', () async {
+      await purgeTeacherAccessCodesForAccountErasure(
+        firestore: _firestore,
+        uid: uid,
+      );
+    });
+
     await _runPurgeStage('group data purge', () {
       return purgePhase2GroupDataForAccountErasure(
         firestore: _firestore,
@@ -2021,6 +2193,40 @@ class AuthRepository
         );
       }
       Error.throwWithStackTrace(wrapped, st);
+    }
+  }
+
+  Future<void> _archiveChatForAccountErasure(String uid) async {
+    final activeUser = _auth.currentUser;
+    if (activeUser == null || activeUser.uid != uid) {
+      throw StateError('The active sign-in does not match this account.');
+    }
+    final token = await activeUser
+        .getIdToken(true)
+        .timeout(_authOperationTimeout);
+    if (token == null || token.isEmpty) {
+      throw StateError('Could not authenticate chat account erasure.');
+    }
+    final endpoint = Uri.parse(
+      _chatApiBaseUrl,
+    ).resolve('archiveChatForAccountErasure');
+    final client = HttpClient();
+    try {
+      final request = await client
+          .postUrl(endpoint)
+          .timeout(_authOperationTimeout);
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.write('{}');
+      final response = await request.close().timeout(
+        const Duration(minutes: 9),
+      );
+      await response.drain<void>();
+      if (response.statusCode != HttpStatus.ok) {
+        throw StateError('Chat account erasure was not accepted.');
+      }
+    } finally {
+      client.close(force: true);
     }
   }
 
@@ -2198,6 +2404,23 @@ class AuthRepository
         }
         return error.message ?? 'Authentication failed';
     }
+  }
+
+  AuthFailure _failureForAuthError(
+    fb.FirebaseAuthException error, {
+    _AuthErrorContext context = _AuthErrorContext.login,
+  }) {
+    final kind = switch (error.code) {
+      'user-disabled' => AuthFailureKind.disabledAccount,
+      'too-many-requests' => AuthFailureKind.rateLimited,
+      'network-request-failed' => AuthFailureKind.network,
+      'user-not-found' || 'wrong-password' || 'invalid-credential' =>
+        context == _AuthErrorContext.login
+            ? AuthFailureKind.invalidCredentials
+            : AuthFailureKind.reauthentication,
+      _ => AuthFailureKind.unknown,
+    };
+    return AuthFailure(kind, _messageForAuthError(error, context: context));
   }
 
   static bool _isGoogleCancellation(String code) {

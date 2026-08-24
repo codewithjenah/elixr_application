@@ -15,6 +15,11 @@ abstract final class FirestoreCollections {
   static const teacherAccessCodes = 'teacher_access_codes';
   static const teacherStudentLinks = 'teacher_student_links';
   static const teacherCoachingNotes = 'teacher_coaching_notes';
+  static const chatUserDirectory = 'chat_user_directory';
+  static const chatConversations = 'chat_conversations';
+  static const chatMessages = 'messages';
+  static const chatBlocks = 'chat_blocks';
+  static const chatBlockedUsers = 'blocked_users';
   static const groups = 'groups';
   static const groupInvites = 'group_invites';
   static const groupMemberships = 'group_memberships';

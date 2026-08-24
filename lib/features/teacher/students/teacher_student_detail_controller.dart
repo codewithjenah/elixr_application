@@ -93,7 +93,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     return groupNameForId(groupId) ?? 'Group name unavailable';
   }
 
-  /// Caption under Coaching. Omits the raw group ID when metadata is missing.
+  /// Classroom caption that omits the raw group ID when metadata is missing.
   String? get classroomGroupCaption {
     if (selectedGroupId == null) return null;
     final name = selectedGroupName;

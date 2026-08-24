@@ -97,10 +97,6 @@ class AuthService extends ChangeNotifier {
       _repository is TeacherGoogleAuthRepositoryBase
       ? _repository as TeacherGoogleAuthRepositoryBase
       : null;
-  TeacherRegistrationRepositoryBase? get _teacherRegistrationRepository =>
-      _repository is TeacherRegistrationRepositoryBase
-      ? _repository as TeacherRegistrationRepositoryBase
-      : null;
   final LeaderboardRepository? _leaderboardRepository;
   final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
@@ -255,6 +251,7 @@ class AuthService extends ChangeNotifier {
     required String lastName,
     required String email,
     required String password,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     _clearTeacherAuthMessages();
     final user = await _repository.register(
@@ -264,6 +261,7 @@ class AuthService extends ChangeNotifier {
       email: email,
       password: password,
       defaultRole: AppConstants.defaultRole,
+      legalConsent: legalConsent,
     );
     _currentUser = user;
     _pendingGoogleProfile = null;
@@ -310,6 +308,7 @@ class AuthService extends ChangeNotifier {
     required String email,
     required String password,
     required String teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     _clearTeacherAuthMessages();
     final user = await _repository.register(
@@ -320,6 +319,7 @@ class AuthService extends ChangeNotifier {
       password: password,
       defaultRole: User.roleTeacher,
       teacherAccessCode: teacherAccessCode,
+      legalConsent: legalConsent,
     );
     if (!user.isTeacher) {
       await logout();
@@ -338,7 +338,20 @@ class AuthService extends ChangeNotifier {
 
   Future<void> login({required String email, required String password}) async {
     _clearTeacherAuthMessages();
-    final user = await _repository.login(email: email, password: password);
+    User user;
+    try {
+      user = await _repository.login(email: email, password: password);
+    } on AuthFailure catch (failure) {
+      if (failure.kind == AuthFailureKind.missingProfile &&
+          failure.pendingProfile != null) {
+        _currentUser = null;
+        _pendingGoogleProfile = failure.pendingProfile;
+        _providerKinds = const {AuthProviderKind.password};
+        _emailVerified = null;
+        notifyListeners();
+      }
+      rethrow;
+    }
     if (!_hasSupportedProductRole(user)) {
       await _repository.clearCurrentUser();
       throw Exception(TeacherAuthMessages.unsupportedRole);
@@ -392,13 +405,8 @@ class AuthService extends ChangeNotifier {
     if (normalizedCode == null) {
       throw Exception(TeacherAuthMessages.accessCodeInvalid);
     }
-    final registrationRepository = _teacherRegistrationRepository;
-    if (registrationRepository == null) {
-      throw Exception('Teacher registration is unavailable.');
-    }
-    await registrationRepository.assertTeacherAccessCodeRedeemable(
-      normalizedCode,
-    );
+    // Format-only before authentication. The final authenticated transaction
+    // performs authoritative validation and one-time consumption.
   }
 
   /// Starts the Teacher Google registration path after validating the
@@ -416,7 +424,6 @@ class AuthService extends ChangeNotifier {
     if (googleRepository == null) {
       throw Exception('Google sign-in is unavailable.');
     }
-    await prevalidateTeacherAccessCode(normalizedCode);
     final result = await googleRepository.signInWithGoogleTeacher(
       teacherAccessCode: normalizedCode,
     );
@@ -454,6 +461,7 @@ class AuthService extends ChangeNotifier {
     required String firstName,
     String? middleName,
     required String lastName,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     final pending = _pendingGoogleProfile;
     if (pending == null) {
@@ -473,6 +481,7 @@ class AuthService extends ChangeNotifier {
       firstName: firstName,
       middleName: middleName,
       lastName: lastName,
+      legalConsent: legalConsent,
     );
     if (!user.isTrainee) {
       await _repository.clearCurrentUser();
@@ -481,8 +490,12 @@ class AuthService extends ChangeNotifier {
     }
     _pendingGoogleProfile = null;
     _currentUser = user;
-    _emailVerified = true;
     await _refreshProviderKinds();
+    if (pending.identityProvider == ProfileIdentityProvider.google) {
+      _emailVerified = true;
+    } else {
+      await _refreshEmailVerificationState();
+    }
     notifyListeners();
     await _seedNewTraineePublicProfile(user);
     _scheduleClaimedAchievementProjectionSync();
@@ -496,6 +509,7 @@ class AuthService extends ChangeNotifier {
     String? middleName,
     required String lastName,
     required String teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     final pending = _pendingGoogleProfile;
     if (pending == null) {
@@ -515,6 +529,7 @@ class AuthService extends ChangeNotifier {
       middleName: middleName,
       lastName: lastName,
       teacherAccessCode: normalizedCode,
+      legalConsent: legalConsent,
     );
     if (!user.isTeacher) {
       await _repository.clearCurrentUser();
@@ -523,8 +538,12 @@ class AuthService extends ChangeNotifier {
     }
     _pendingGoogleProfile = null;
     _currentUser = user;
-    _emailVerified = true;
     await _refreshProviderKinds();
+    if (pending.identityProvider == ProfileIdentityProvider.google) {
+      _emailVerified = true;
+    } else {
+      await _refreshEmailVerificationState();
+    }
     notifyListeners();
   }
 
@@ -600,6 +619,9 @@ class AuthService extends ChangeNotifier {
       );
     } catch (_) {
       _awaitingPasswordResetCallback = false;
+      if (!_emailVerificationWatchActive) {
+        unawaited(_stopEmailCallbackServerAfterRequestFailure());
+      }
       rethrow;
     }
     notifyListeners();
@@ -1149,10 +1171,22 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> _stopEmailCallbackServer() async {
-    await _emailCallbackSubscription?.cancel();
+    final subscription = _emailCallbackSubscription;
     _emailCallbackSubscription = null;
     _emailCallbackBaseUri = null;
     await _emailCallbackServer.stop();
+    await subscription?.cancel();
+  }
+
+  Future<void> _stopEmailCallbackServerAfterRequestFailure() async {
+    try {
+      await _stopEmailCallbackServer();
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Could not stop failed reset callback server: $error');
+        debugPrint('$stackTrace');
+      }
+    }
   }
 
   Uri _continueUri(Uri base, {required String mode, String? token}) {

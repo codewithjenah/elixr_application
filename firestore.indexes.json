@@ -54,6 +54,14 @@
       ]
     },
     {
+      "collectionGroup": "chat_conversations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participant_ids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "teacher_coaching_notes",
       "queryScope": "COLLECTION",
       "fields": [

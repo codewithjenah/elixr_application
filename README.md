@@ -162,7 +162,7 @@ For the existing project:
    preserve an existing Trainee or Teacher profile when Google verifies the
    same email address.
    Trainee registration can complete with Google after legal consent. Teacher
-   registration first validates a one-time Teacher access code, then offers
+   registration first checks the Teacher access-code format, then offers
    **Continue with Google** or the existing email/password path. Google must
    return a verified email, but no school-domain restriction is applied. The
    Teacher code is consumed only in the same Firestore transaction that creates
@@ -170,6 +170,9 @@ For the existing project:
    that transaction does not consume the code. An interrupted Google
    onboarding is restored as role `unspecified` and requires an explicit role
    choice; choosing Teacher requires entering the code again.
+   New profiles record both `privacy_consent_at` / `privacy_policy_version: v5`
+   and `terms_consent_at` / `terms_of_service_version: v2`. Existing profiles
+   without the Terms fields remain compatible and are not bulk-backfilled.
 3. Keep `localhost` in Authentication > Settings > Authorized domains. The
    Windows Google flow uses a short-lived, nonce-protected localhost callback
    opened in Microsoft Edge when available. Privacy-hardened browsers can block
@@ -319,7 +322,8 @@ Other values such as `TARGET_FPS`, `YOLO_FRAME_SKIP`, JPEG quality, model confid
 
 ## Data model
 
-Firestore uses nine top-level collections:
+Firestore uses these primary top-level collections (plus the classroom,
+assignment, public-profile, and other feature collections described below):
 
 - `users` — per-user profile documents keyed by Firebase UID.
 - `sessions` — completed practice sessions owned by the authenticated user.
@@ -330,8 +334,52 @@ Firestore uses nine top-level collections:
 - `daily_quest_claims` — idempotency markers for quest-XP claims (`daily_quest_claims/{userId}_{dayKey}_{questId}`).
 - `achievement_claims` — immutable achievement claim markers (`achievement_claims/{userId}_{achievementId}`).
 - `user_cosmetics` — private unlock inventory for profile borders (`user_cosmetics/{userId}`).
+- `chat_user_directory` — server-owned sanitized name/role/avatar search rows; clients cannot read it directly.
+- `chat_conversations` — deterministic one-to-one conversation summaries, unread counters, read timestamps, and participant snapshots.
+- `chat_blocks/{blockerId}/blocked_users` — one-way block records checked in both directions before a send.
+- `teacher_coaching_notes` — immutable legacy migration/audit input; the app no longer creates or displays coaching notes.
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
+
+### Direct Messages
+
+Both Teachers and Trainees use Messages (`/messages` and
+`/teacher/messages`). `/coaching` redirects to `/messages`. Search calls the
+authenticated `searchChatUsers` HTTPS Function; email-shaped queries are exact
+and results never return an email address. Configure the production or emulator
+Functions root at build time without adding a Windows-incompatible Functions
+client plugin:
+
+```powershell
+flutter run -d windows --dart-define=ELIXR_CHAT_API_BASE_URL=http://127.0.0.1:5001/elixr-app-2026/asia-southeast1/
+```
+
+The first send atomically creates the deterministic conversation and message.
+Later sends update the last-message summary, increment only the recipient's
+unread count, and keep the sender count at zero. Opening a thread advances only
+the caller's read timestamp. Authors may edit or soft-delete their messages;
+blocks preserve readable history but prevent either participant from sending.
+The sanitized directory is maintained by `projectChatUserDirectory` and is
+never listed directly by the client.
+
+Account deletion first calls the trusted `archiveChatForAccountErasure`
+Function. It replaces the deleted UID/name/avatar and authored `sender_id`
+values with `Deleted user`, retains message bodies for the remaining
+participant under a deterministic hashed archive ID, removes block/directory
+data, and removes the archive if no active participant remains. A failed chat
+archival stops account erasure before the user profile is deleted.
+
+Legacy migration is privileged and dry-run by default:
+
+```powershell
+cd functions
+npm run migrate:chat
+npm run migrate:chat -- --write
+```
+
+Review dry-run counts before authorizing `--write`. Production rollout order is
+Functions, reviewed dry-run/backfill, Firestore rules/indexes, then the Windows
+app. Do not deploy Functions/rules or run `--write` without explicit approval.
 
 Current session persistence stores Assessment V2 rubric fields
 (`assessment_version`, `rubric`, `rubric_total`, `performance_level`), duration,

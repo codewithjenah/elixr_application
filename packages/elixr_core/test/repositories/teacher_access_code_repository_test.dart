@@ -72,6 +72,7 @@ void main() {
       await repository.consumeAndCreateTeacherProfile(
         code: '7KPM-XR4D-Q2WT',
         user: teacher,
+        legalConsent: RegistrationLegalConsent.current(),
       );
       expect(repository.codes[validCode]!.consumed, isTrue);
       expect(repository.codes[validCode]!.consumedBy, 'teacher-new');
@@ -81,6 +82,7 @@ void main() {
         repository.consumeAndCreateTeacherProfile(
           code: validCode,
           user: teacher.copyWith(id: 'other'),
+          legalConsent: RegistrationLegalConsent.current(),
         ),
         throwsA(
           isA<TeacherAccessCodeException>().having(
@@ -153,6 +155,7 @@ void main() {
         await repository.consumeAndCreateTeacherProfile(
           code: '7kpm-xr4d-q2wt',
           user: teacher,
+          legalConsent: RegistrationLegalConsent.current(),
         );
 
         final codeSnap = await firestore
@@ -180,6 +183,7 @@ void main() {
           repository.consumeAndCreateTeacherProfile(
             code: validCode,
             user: teacher,
+            legalConsent: RegistrationLegalConsent.current(),
           ),
           throwsA(isA<TeacherAccessCodeException>()),
         );

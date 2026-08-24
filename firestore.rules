@@ -1272,24 +1272,86 @@ service cloud.firestore {
         && getAfter(teacherAccessCodePath(code)).data.consumed_by == request.auth.uid;
     }
 
+    function validProfileName(value) {
+      return value is string
+        && value.size() >= 1
+        && value.size() <= 80
+        && value.matches('^\\S(?:.*\\S)?$');
+    }
+
+    function validOptionalMiddleName(data) {
+      return !data.keys().hasAny(['middle_name'])
+        || validProfileName(data.middle_name);
+    }
+
+    function validStructuredName(data) {
+      return validProfileName(data.first_name)
+        && validOptionalMiddleName(data)
+        && validProfileName(data.last_name)
+        && validProfileName(data.full_name)
+        && (
+          (
+            data.keys().hasAny(['middle_name'])
+            && data.full_name
+              == data.first_name + ' ' + data.middle_name + ' ' + data.last_name
+          )
+          || (
+            !data.keys().hasAny(['middle_name'])
+            && data.full_name == data.first_name + ' ' + data.last_name
+          )
+        );
+    }
+
+    function validNewUserProfile() {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+          'first_name', 'last_name', 'full_name', 'email', 'role',
+          'created_at', 'privacy_consent_at', 'privacy_policy_version',
+          'terms_consent_at', 'terms_of_service_version'
+        ])
+        && data.keys().hasOnly([
+          'first_name', 'middle_name', 'last_name', 'full_name', 'email',
+          'role', 'teacher_access_code', 'created_at', 'privacy_consent_at',
+          'privacy_policy_version', 'terms_consent_at',
+          'terms_of_service_version', 'profile_picture_url',
+          'profile_picture_storage_path'
+        ])
+        && validStructuredName(data)
+        && data.email is string
+        && request.auth.token.email is string
+        && data.email == request.auth.token.email
+        && data.role in ['Trainee', 'Teacher']
+        && data.created_at == request.time
+        && data.privacy_consent_at == request.time
+        && data.privacy_policy_version == 'v5'
+        && data.terms_consent_at == request.time
+        && data.terms_of_service_version == 'v2';
+    }
+
+    function validUserProfileUpdate() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return affected.hasOnly([
+          'first_name', 'middle_name', 'last_name', 'full_name', 'email',
+          'profile_picture_path', 'profile_picture_url',
+          'profile_picture_storage_path', 'session_evidence_enabled',
+          'teacher_roster_invite_code', 'teacher_invite_code'
+        ])
+        && (!affected.hasAny(['email'])
+          || request.resource.data.email == request.auth.token.email)
+        && (!affected.hasAny([
+            'first_name', 'middle_name', 'last_name', 'full_name'
+          ]) || validStructuredName(request.resource.data));
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId)
+        && validNewUserProfile()
         && (
           request.resource.data.role == 'Trainee'
           || teacherAccessCodeConsumedInSameWrite()
         );
-      allow update: if isOwner(userId)
-        && (
-          (
-            !resource.data.keys().hasAny(['role'])
-            && !request.resource.data.keys().hasAny(['role'])
-          )
-          || (
-            resource.data.keys().hasAny(['role'])
-            && request.resource.data.role == resource.data.role
-          )
-        );
+      allow update: if isOwner(userId) && validUserProfileUpdate();
       allow delete: if isOwner(userId);
     }
 
@@ -2173,9 +2235,8 @@ service cloud.firestore {
           || resource.data.get('trainee_id', '') == request.auth.uid);
     }
 
-    // Exact-id get is allowed without auth so registration can fail closed
-    // before createUser. List remains denied. Entropy of CoachCode (32^12)
-    // makes probing impractical.
+    // Access-code contents are private. Registration performs authoritative
+    // validation only after Firebase authentication.
     function validTeacherAccessCodeMint(data, code) {
       return isVerifiedTeacher()
         && isNormalizedCoachCode(code)
@@ -2204,12 +2265,36 @@ service cloud.firestore {
         && getAfter(userPath(request.auth.uid)).data.teacher_access_code == code;
     }
 
+    function validTeacherAccessCodeAnonymization() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let ownsCreatorData = resource.data.get('created_by', '') == request.auth.uid;
+      let ownsConsumerData = resource.data.get('consumed_by', '') == request.auth.uid;
+      return isSignedIn()
+        && resource.data.consumed == true
+        && request.resource.data.consumed == true
+        && request.resource.data.consumed_at == resource.data.consumed_at
+        && (ownsCreatorData || ownsConsumerData)
+        && affected.hasOnly(['created_by', 'consumed_by', 'note'])
+        && (!affected.hasAny(['created_by', 'note']) || ownsCreatorData)
+        && (!affected.hasAny(['consumed_by']) || ownsConsumerData)
+        && (!ownsCreatorData
+          || !request.resource.data.keys().hasAny(['created_by', 'note']))
+        && (!ownsConsumerData
+          || !request.resource.data.keys().hasAny(['consumed_by']));
+    }
+
     match /teacher_access_codes/{code} {
-      allow get: if isTeacherAccessCodeFormat(code);
-      allow list: if false;
+      allow get: if isSignedIn() && isTeacherAccessCodeFormat(code);
+      allow list: if isSignedIn()
+        && resource.data.get('created_by', '') == request.auth.uid;
+      allow list: if isSignedIn()
+        && resource.data.get('consumed_by', '') == request.auth.uid;
       allow create: if validTeacherAccessCodeMint(request.resource.data, code);
-      allow update: if validTeacherAccessCodeConsume(code);
-      allow delete: if false;
+      allow update: if validTeacherAccessCodeConsume(code)
+        || validTeacherAccessCodeAnonymization();
+      allow delete: if isSignedIn()
+        && resource.data.consumed == false
+        && resource.data.created_by == request.auth.uid;
     }
 
     match /teacher_student_links/{linkId} {
@@ -3476,6 +3561,284 @@ service cloud.firestore {
         );
     }
 
+    // Direct Messages v1. The Functions/Admin SDK owns the sanitized user
+    // directory and account-erasure archival; clients own participant-scoped
+    // conversations, messages, read state, and one-way block records.
+    function chatConversationPath(conversationId) {
+      return /databases/$(database)/documents/chat_conversations/$(conversationId);
+    }
+    function chatMessagePath(conversationId, messageId) {
+      return /databases/$(database)/documents/chat_conversations/$(conversationId)/messages/$(messageId);
+    }
+    function chatBlockPath(blockerId, blockedId) {
+      return /databases/$(database)/documents/chat_blocks/$(blockerId)/blocked_users/$(blockedId);
+    }
+    function isSupportedChatAccount(userId) {
+      return isParticipantId(userId)
+        && exists(userPath(userId))
+        && get(userPath(userId)).data.role in ['Teacher', 'Trainee']
+        && get(userPath(userId)).data.get('lifecycle_state', 'active')
+          != 'deleting';
+    }
+    function otherChatParticipant(data, userId) {
+      return data.participant_ids[0] == userId
+        ? data.participant_ids[1]
+        : data.participant_ids[0];
+    }
+    function isChatParticipant(data) {
+      return isSignedIn()
+        && data.participant_ids is list
+        && data.participant_ids.size() == 2
+        && request.auth.uid in data.participant_ids;
+    }
+    function validChatPair(data, conversationId) {
+      return data.participant_ids is list
+        && data.participant_ids.size() == 2
+        && isParticipantId(data.participant_ids[0])
+        && isParticipantId(data.participant_ids[1])
+        && data.participant_ids[0] < data.participant_ids[1]
+        && conversationId
+          == data.participant_ids[0] + '__' + data.participant_ids[1]
+        && isSupportedChatAccount(data.participant_ids[0])
+        && isSupportedChatAccount(data.participant_ids[1]);
+    }
+    function chatPairIsUnblocked(firstId, secondId) {
+      return !exists(chatBlockPath(firstId, secondId))
+        && !exists(chatBlockPath(secondId, firstId));
+    }
+    function validChatSnapshot(snapshot, userId) {
+      return snapshot is map
+        && snapshot.keys().hasAll(['id', 'display_name', 'role'])
+        && snapshot.keys().hasOnly(['id', 'display_name', 'role', 'avatar_url'])
+        && snapshot.id == userId
+        && snapshot.display_name == get(userPath(userId)).data.full_name
+        && snapshot.role == get(userPath(userId)).data.role
+        && snapshot.get('avatar_url', '')
+          == get(userPath(userId)).data.get('profile_picture_url', '');
+    }
+    function validChatSnapshots(data) {
+      return data.participant_snapshots is map
+        && data.participant_snapshots.keys().hasAll(data.participant_ids)
+        && data.participant_snapshots.keys().hasOnly(data.participant_ids)
+        && validChatSnapshot(
+          data.participant_snapshots[data.participant_ids[0]],
+          data.participant_ids[0]
+        )
+        && validChatSnapshot(
+          data.participant_snapshots[data.participant_ids[1]],
+          data.participant_ids[1]
+        );
+    }
+    function validChatBody(value) {
+      return value is string
+        && value.size() >= 1
+        && value.size() <= 2000
+        && value.matches('.*[^[:space:]].*');
+    }
+    function validChatConversationKeys(data) {
+      return data.keys().hasAll([
+          'participant_ids', 'participant_snapshots', 'last_message_id',
+          'last_message_body', 'last_message_sender_id', 'last_message_at',
+          'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
+          'schema_version'
+        ])
+        && data.keys().hasOnly([
+          'participant_ids', 'participant_snapshots', 'last_message_id',
+          'last_message_body', 'last_message_sender_id', 'last_message_at',
+          'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
+          'schema_version'
+        ]);
+    }
+    function validChatConversationCreate(data, conversationId) {
+      let sender = request.auth.uid;
+      let recipient = otherChatParticipant(data, sender);
+      return isSignedIn()
+        && validChatConversationKeys(data)
+        && validChatPair(data, conversationId)
+        && sender in data.participant_ids
+        && chatPairIsUnblocked(sender, recipient)
+        && validChatSnapshots(data)
+        && data.status == 'active'
+        && data.schema_version == 1
+        && data.created_at == request.time
+        && data.updated_at == request.time
+        && data.last_message_at == request.time
+        && data.last_message_sender_id == sender
+        && validChatBody(data.last_message_body)
+        && data.unread_counts is map
+        && data.unread_counts.keys().hasAll(data.participant_ids)
+        && data.unread_counts.keys().hasOnly(data.participant_ids)
+        && data.unread_counts[sender] == 0
+        && data.unread_counts[recipient] == 1
+        && data.read_at is map
+        && data.read_at.keys().hasAll(data.participant_ids)
+        && data.read_at.keys().hasOnly(data.participant_ids)
+        && data.read_at[sender] == request.time
+        && data.read_at[recipient] == null
+        && existsAfter(chatMessagePath(conversationId, data.last_message_id))
+        && getAfter(chatMessagePath(conversationId, data.last_message_id)).data.sender_id == sender
+        && getAfter(chatMessagePath(conversationId, data.last_message_id)).data.body == data.last_message_body;
+    }
+    function validChatSendUpdate(conversationId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let sender = request.auth.uid;
+      let recipient = otherChatParticipant(before, sender);
+      let message = getAfter(chatMessagePath(conversationId, after.last_message_id)).data;
+      return isChatParticipant(before)
+        && before.status == 'active'
+        && isSupportedChatAccount(before.participant_ids[0])
+        && isSupportedChatAccount(before.participant_ids[1])
+        && chatPairIsUnblocked(sender, recipient)
+        && after.diff(before).affectedKeys().hasOnly([
+          'participant_snapshots', 'last_message_id', 'last_message_body',
+          'last_message_sender_id', 'last_message_at', 'unread_counts',
+          'updated_at'
+        ])
+        && after.participant_ids == before.participant_ids
+        && after.status == before.status
+        && after.created_at == before.created_at
+        && after.schema_version == before.schema_version
+        && validChatSnapshots(after)
+        && after.last_message_sender_id == sender
+        && after.last_message_at == request.time
+        && after.updated_at == request.time
+        && validChatBody(after.last_message_body)
+        && after.unread_counts[sender] == 0
+        && after.unread_counts[recipient]
+          == before.unread_counts.get(recipient, 0) + 1
+        && existsAfter(chatMessagePath(conversationId, after.last_message_id))
+        && message.sender_id == sender
+        && message.body == after.last_message_body
+        && message.created_at == request.time;
+    }
+    function validChatReadUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let caller = request.auth.uid;
+      let other = otherChatParticipant(before, caller);
+      return isChatParticipant(before)
+        && after.diff(before).affectedKeys().hasOnly(['unread_counts', 'read_at'])
+        && after.unread_counts.keys().hasAll(before.participant_ids)
+        && after.unread_counts.keys().hasOnly(before.participant_ids)
+        && after.unread_counts[caller] == 0
+        && after.unread_counts[other] == before.unread_counts[other]
+        && after.read_at.keys().hasAll(before.participant_ids)
+        && after.read_at.keys().hasOnly(before.participant_ids)
+        && after.read_at[caller] == request.time
+        && after.read_at[other] == before.read_at[other];
+    }
+    function validLatestMessageSummaryUpdate(conversationId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let message = getAfter(chatMessagePath(conversationId, before.last_message_id)).data;
+      return isChatParticipant(before)
+        && after.diff(before).affectedKeys().hasOnly(['last_message_body'])
+        && message.sender_id == request.auth.uid
+        && (
+          (message.deleted_at == null && after.last_message_body == message.body)
+          || (message.deleted_at == request.time
+            && after.last_message_body == 'Message deleted')
+        );
+    }
+
+    match /chat_user_directory/{userId} {
+      allow read, write: if false;
+    }
+
+    match /chat_search_rate_limits/{userId} {
+      allow read, write: if false;
+    }
+
+    match /chat_blocks/{blockerId}/blocked_users/{blockedId} {
+      allow get: if isSignedIn()
+        && (request.auth.uid == blockerId || request.auth.uid == blockedId);
+      allow list: if isSignedIn() && request.auth.uid == blockerId;
+      allow create: if isSignedIn()
+        && request.auth.uid == blockerId
+        && blockerId != blockedId
+        && isSupportedChatAccount(blockedId)
+        && request.resource.data.keys().hasAll([
+          'blocker_id', 'blocked_id', 'created_at'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'blocker_id', 'blocked_id', 'created_at'
+        ])
+        && request.resource.data.blocker_id == blockerId
+        && request.resource.data.blocked_id == blockedId
+        && request.resource.data.created_at == request.time;
+      allow update: if false;
+      allow delete: if isSignedIn() && request.auth.uid == blockerId;
+    }
+
+    match /chat_conversations/{conversationId} {
+      allow get, list: if isChatParticipant(resource.data);
+      allow create: if validChatConversationCreate(
+        request.resource.data,
+        conversationId
+      );
+      allow update: if validChatSendUpdate(conversationId)
+        || validChatReadUpdate()
+        || validLatestMessageSummaryUpdate(conversationId);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow get, list: if exists(chatConversationPath(conversationId))
+          && isChatParticipant(get(chatConversationPath(conversationId)).data);
+        allow create: if isSignedIn()
+          && request.resource.data.keys().hasAll([
+            'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at'
+          ])
+          && request.resource.data.sender_id == request.auth.uid
+          && validChatBody(request.resource.data.body)
+          && request.resource.data.created_at == request.time
+          && request.resource.data.edited_at == null
+          && request.resource.data.deleted_at == null
+          && existsAfter(chatConversationPath(conversationId))
+          && getAfter(chatConversationPath(conversationId)).data.status == 'active'
+          && isChatParticipant(getAfter(chatConversationPath(conversationId)).data)
+          && getAfter(chatConversationPath(conversationId)).data.last_message_id == messageId
+          && chatPairIsUnblocked(
+            request.auth.uid,
+            otherChatParticipant(
+              getAfter(chatConversationPath(conversationId)).data,
+              request.auth.uid
+            )
+          );
+        allow update: if exists(chatConversationPath(conversationId))
+          && isChatParticipant(get(chatConversationPath(conversationId)).data)
+          && resource.data.sender_id == request.auth.uid
+          && request.resource.data.sender_id == resource.data.sender_id
+          && request.resource.data.created_at == resource.data.created_at
+          && request.resource.data.keys().hasOnly([
+            'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at',
+            'legacy_coaching'
+          ])
+          && (
+            (
+              resource.data.deleted_at == null
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['body', 'edited_at'])
+              && validChatBody(request.resource.data.body)
+              && request.resource.data.edited_at == request.time
+              && request.resource.data.deleted_at == null
+            )
+            || (
+              resource.data.deleted_at == null
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['body', 'edited_at', 'deleted_at'])
+              && request.resource.data.body == null
+              && request.resource.data.edited_at == null
+              && request.resource.data.deleted_at == request.time
+            )
+          );
+        allow delete: if false;
+      }
+    }
+
     // Phase 3A asynchronous teacher recommendations. They intentionally carry
     // no session or assessment data, and progress sharing is not consulted.
     function coachingKeys() {
@@ -3618,9 +3981,9 @@ service cloud.firestore {
         && isLegacyLinkCoachingSource(resource.data)
         && approvedCoachingLink(resource.data.teacher_id, resource.data.trainee_id);
       allow list: if isErasingOwnCoaching(resource.data);
-      allow create: if validCoachingCreate(request.resource.data);
-      allow update: if validCoachingUpdate();
-      allow delete: if isCoachingAuthor(resource.data) || isErasingOwnCoaching(resource.data);
+      // Legacy notes remain available for audit/migration but are immutable.
+      allow create, update: if false;
+      allow delete: if isErasingOwnCoaching(resource.data);
     }
   }
 }

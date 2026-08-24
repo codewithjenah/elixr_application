@@ -59,6 +59,7 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
     required String password,
     String defaultRole = User.roleTrainee,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     throw UnimplementedError();
   }
@@ -250,8 +251,10 @@ void main() {
       );
       await tester.tap(find.byType(ElixPrimaryButton));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
 
+      expect(repository.sendPasswordResetEmailCallCount, 1);
       expect(find.byType(AuthErrorBanner), findsOneWidget);
       expect(
         find.text('Network error. Check your connection and try again.'),

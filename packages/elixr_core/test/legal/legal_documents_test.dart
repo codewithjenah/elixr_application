@@ -103,7 +103,7 @@ void main() {
     );
   });
 
-  test('registration privacy consent version is v4', () {
-    expect(RegistrationPrivacyConsent.policyVersion, 'v4');
+  test('registration privacy consent version is v5', () {
+    expect(RegistrationPrivacyConsent.policyVersion, 'v5');
   });
 }

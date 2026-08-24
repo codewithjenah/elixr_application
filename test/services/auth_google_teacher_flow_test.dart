@@ -46,6 +46,7 @@ class _TeacherGoogleRepository extends Fake
 
   @override
   Future<User> completeGoogleTeacherProfile({
+    required RegistrationLegalConsent legalConsent,
     required PendingGoogleProfile pendingProfile,
     required String firstName,
     String? middleName,
@@ -73,6 +74,7 @@ class _TeacherGoogleRepository extends Fake
 
   @override
   Future<User> completeGoogleProfile({
+    required RegistrationLegalConsent legalConsent,
     required PendingGoogleProfile pendingProfile,
     required String firstName,
     String? middleName,
@@ -121,12 +123,11 @@ void main() {
   tearDown(() => auth.dispose());
 
   test(
-    'Teacher Google sign-in validates and retains the normalized code',
+    'Teacher Google sign-in retains the normalized code for final validation',
     () async {
       await auth.signInWithGoogleTeacher(teacherAccessCode: '7kpm-xr4d-q2wt');
 
-      expect(repository.assertCodeCalls, 1);
-      expect(repository.assertedCode, _code);
+      expect(repository.assertCodeCalls, 0);
       expect(repository.teacherSignInCalls, 1);
       expect(auth.pendingGoogleProfile?.intent, GoogleOnboardingIntent.teacher);
       expect(auth.pendingGoogleProfile?.teacherAccessCode, _code);
@@ -140,6 +141,7 @@ void main() {
       firstName: 'Ada',
       lastName: 'Lovelace',
       teacherAccessCode: '7kpm-xr4d-q2wt',
+      legalConsent: RegistrationLegalConsent.current(),
     );
 
     expect(repository.teacherCompletionCalls, 1);

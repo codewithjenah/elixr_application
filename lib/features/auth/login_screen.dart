@@ -53,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_isGoogleLoading) return;
+    if (_isLoading || _isGoogleLoading) return;
     setState(() {
       _emailTouched = true;
       _passwordTouched = true;
@@ -69,8 +69,22 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-    } catch (e) {
-      setState(() => _error = 'Email or password is incorrect.');
+    } on AuthFailure catch (failure) {
+      if (!mounted) return;
+      setState(() {
+        _error = switch (failure.kind) {
+          AuthFailureKind.network =>
+            'Network error. Check your connection and try again.',
+          AuthFailureKind.rateLimited =>
+            'Too many attempts. Wait a moment and try again.',
+          AuthFailureKind.disabledAccount =>
+            'This account has been disabled. Contact support for help.',
+          AuthFailureKind.missingProfile => failure.message,
+          _ => 'Email or password is incorrect.',
+        };
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Email or password is incorrect.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

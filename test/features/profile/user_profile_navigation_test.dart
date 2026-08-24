@@ -89,6 +89,7 @@ class _NavFakeAuthRepository implements AuthRepositoryBase {
     required String password,
     String defaultRole = User.roleTrainee,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     throw UnimplementedError();
   }

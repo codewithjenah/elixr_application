@@ -8,7 +8,7 @@ import 'firestore_collections.dart';
 abstract class UserProfileStore {
   Future<void> upsertUserProfile(
     User user, {
-    bool includePrivacyConsent = false,
+    RegistrationLegalConsent? legalConsent,
   });
 
   Future<void> updateUserProfileField(
@@ -35,11 +35,11 @@ class FirebaseUserProfileStore implements UserProfileStore {
 
   /// Builds the Firestore payload for [upsertUserProfile].
   ///
-  /// When [includePrivacyConsent] is true, registration consent markers are
-  /// included. [serverTimestamp] defaults to `FieldValue.serverTimestamp()`.
+  /// Consent markers are included only when an explicit [legalConsent]
+  /// contract is supplied. [serverTimestamp] defaults to a server timestamp.
   static Map<String, dynamic> userProfileWriteData(
     User user, {
-    bool includePrivacyConsent = false,
+    RegistrationLegalConsent? legalConsent,
     Object Function()? serverTimestamp,
   }) {
     final timestamp = serverTimestamp ?? () => FieldValue.serverTimestamp();
@@ -60,10 +60,8 @@ class FirebaseUserProfileStore implements UserProfileStore {
         'profile_picture_storage_path': user.profilePictureStoragePath,
       if (user.profilePictureUrl == null && user.profilePicturePath != null)
         'profile_picture_path': user.profilePicturePath,
-      if (includePrivacyConsent)
-        ...RegistrationPrivacyConsent.documentFields(
-          consentTimestamp: timestamp(),
-        ),
+      if (legalConsent != null)
+        ...legalConsent.documentFields(consentTimestamp: timestamp()),
     };
   }
 
@@ -84,6 +82,8 @@ class FirebaseUserProfileStore implements UserProfileStore {
       'profile_picture_storage_path': data['profile_picture_storage_path'],
       'privacy_consent_at': readCreatedAt(data['privacy_consent_at']),
       'privacy_policy_version': data['privacy_policy_version'],
+      'terms_consent_at': readCreatedAt(data['terms_consent_at']),
+      'terms_of_service_version': data['terms_of_service_version'],
       'session_evidence_enabled': data['session_evidence_enabled'],
     };
   }
@@ -91,7 +91,7 @@ class FirebaseUserProfileStore implements UserProfileStore {
   @override
   Future<void> upsertUserProfile(
     User user, {
-    bool includePrivacyConsent = false,
+    RegistrationLegalConsent? legalConsent,
   }) async {
     if (user.id == null) {
       throw ArgumentError('User id is required');
@@ -100,10 +100,7 @@ class FirebaseUserProfileStore implements UserProfileStore {
         .collection(FirestoreCollections.users)
         .doc(user.id)
         .set(
-          userProfileWriteData(
-            user,
-            includePrivacyConsent: includePrivacyConsent,
-          ),
+          userProfileWriteData(user, legalConsent: legalConsent),
           SetOptions(merge: true),
         );
   }

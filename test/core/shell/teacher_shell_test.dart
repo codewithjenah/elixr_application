@@ -40,6 +40,7 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
     required String password,
     required String defaultRole,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     throw UnimplementedError();
   }

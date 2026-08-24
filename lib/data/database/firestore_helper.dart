@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/database/user_profile_store.dart';
 import 'package:elixr_core/models/user.dart';
+import 'package:elixr_core/privacy/privacy_consent.dart';
 
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
@@ -88,16 +89,16 @@ class FirestoreHelper implements UserProfileStore {
 
   /// Builds the Firestore payload for [upsertUserProfile].
   ///
-  /// When [includePrivacyConsent] is true, registration consent markers are
-  /// included. [serverTimestamp] defaults to `FieldValue.serverTimestamp()`.
+  /// Consent markers are included only when an explicit [legalConsent]
+  /// contract is supplied. [serverTimestamp] defaults to a server timestamp.
   static Map<String, dynamic> userProfileWriteData(
     User user, {
-    bool includePrivacyConsent = false,
+    RegistrationLegalConsent? legalConsent,
     Object Function()? serverTimestamp,
   }) {
     return FirebaseUserProfileStore.userProfileWriteData(
       user,
-      includePrivacyConsent: includePrivacyConsent,
+      legalConsent: legalConsent,
       serverTimestamp: serverTimestamp,
     );
   }
@@ -105,12 +106,9 @@ class FirestoreHelper implements UserProfileStore {
   @override
   Future<void> upsertUserProfile(
     User user, {
-    bool includePrivacyConsent = false,
+    RegistrationLegalConsent? legalConsent,
   }) {
-    return _userProfiles.upsertUserProfile(
-      user,
-      includePrivacyConsent: includePrivacyConsent,
-    );
+    return _userProfiles.upsertUserProfile(user, legalConsent: legalConsent);
   }
 
   @override

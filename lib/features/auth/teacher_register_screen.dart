@@ -110,7 +110,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   }
 
   Future<void> _register() async {
-    if (_isGoogleLoading) return;
+    if (_isLoading || _isGoogleLoading) return;
     setState(() => _touched.addAll(['email', 'password', 'confirm', 'legal']));
     if (!_agreedToLegal) {
       setState(() => _error = TeacherAuthMessages.legalConsentRequired);
@@ -153,10 +153,13 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
         teacherAccessCode: accessCode,
+        legalConsent: RegistrationLegalConsent.current(),
       );
       if (mounted) context.go(AppRoutePaths.verifyEmail);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

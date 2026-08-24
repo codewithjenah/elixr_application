@@ -19,6 +19,8 @@ class User {
     this.profilePictureStoragePath,
     this.privacyConsentAt,
     this.privacyPolicyVersion,
+    this.termsConsentAt,
+    this.termsOfServiceVersion,
     this.sessionEvidenceEnabled,
   });
 
@@ -55,6 +57,10 @@ class User {
   /// Privacy Policy version acknowledged at registration (e.g. `v1`).
   final String? privacyPolicyVersion;
 
+  /// Terms acceptance is optional only for profiles created before v1.
+  final DateTime? termsConsentAt;
+  final String? termsOfServiceVersion;
+
   /// Null means the user has not yet been asked about private session images.
   final bool? sessionEvidenceEnabled;
 
@@ -83,6 +89,8 @@ class User {
     String? profilePictureStoragePath,
     DateTime? privacyConsentAt,
     String? privacyPolicyVersion,
+    DateTime? termsConsentAt,
+    String? termsOfServiceVersion,
     bool? sessionEvidenceEnabled,
   }) {
     return User(
@@ -100,6 +108,9 @@ class User {
           profilePictureStoragePath ?? this.profilePictureStoragePath,
       privacyConsentAt: privacyConsentAt ?? this.privacyConsentAt,
       privacyPolicyVersion: privacyPolicyVersion ?? this.privacyPolicyVersion,
+      termsConsentAt: termsConsentAt ?? this.termsConsentAt,
+      termsOfServiceVersion:
+          termsOfServiceVersion ?? this.termsOfServiceVersion,
       sessionEvidenceEnabled:
           sessionEvidenceEnabled ?? this.sessionEvidenceEnabled,
     );
@@ -125,6 +136,10 @@ class User {
         'privacy_consent_at': privacyConsentAt!.toIso8601String(),
       if (privacyPolicyVersion != null)
         'privacy_policy_version': privacyPolicyVersion,
+      if (termsConsentAt != null)
+        'terms_consent_at': termsConsentAt!.toIso8601String(),
+      if (termsOfServiceVersion != null)
+        'terms_of_service_version': termsOfServiceVersion,
       if (sessionEvidenceEnabled != null)
         'session_evidence_enabled': sessionEvidenceEnabled,
     };
@@ -148,6 +163,8 @@ class User {
     final structuredLast = map['last_name'];
     final privacyConsentAt = _readPrivacyConsentAt(map['privacy_consent_at']);
     final privacyPolicyVersion = map['privacy_policy_version'] as String?;
+    final termsConsentAt = _readPrivacyConsentAt(map['terms_consent_at']);
+    final termsOfServiceVersion = map['terms_of_service_version'] as String?;
 
     if (structuredFirst is String && structuredLast is String) {
       final middle = map['middle_name'];
@@ -168,6 +185,8 @@ class User {
             map['profile_picture_storage_path'] as String?,
         privacyConsentAt: privacyConsentAt,
         privacyPolicyVersion: privacyPolicyVersion,
+        termsConsentAt: termsConsentAt,
+        termsOfServiceVersion: termsOfServiceVersion,
         sessionEvidenceEnabled: map['session_evidence_enabled'] as bool?,
       );
     }
@@ -189,6 +208,8 @@ class User {
       profilePictureStoragePath: map['profile_picture_storage_path'] as String?,
       privacyConsentAt: privacyConsentAt,
       privacyPolicyVersion: privacyPolicyVersion,
+      termsConsentAt: termsConsentAt,
+      termsOfServiceVersion: termsOfServiceVersion,
       sessionEvidenceEnabled: map['session_evidence_enabled'] as bool?,
     );
   }

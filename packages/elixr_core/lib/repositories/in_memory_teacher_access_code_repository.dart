@@ -2,6 +2,7 @@ import '../models/coach_code.dart';
 import '../models/teacher_access_code.dart';
 import '../models/teacher_access_code_exception.dart';
 import '../models/user.dart';
+import '../privacy/privacy_consent.dart';
 import 'teacher_access_code_repository.dart';
 
 class InMemoryTeacherAccessCodeRepository
@@ -36,8 +37,11 @@ class InMemoryTeacherAccessCodeRepository
   Future<void> consumeAndCreateTeacherProfile({
     required String code,
     required User user,
-    bool includePrivacyConsent = true,
+    required RegistrationLegalConsent legalConsent,
   }) async {
+    if (!legalConsent.isCurrent) {
+      throw ArgumentError('Current registration legal consent is required.');
+    }
     final parsed = _requireUnconsumed(code);
     final userId = user.id;
     if (userId == null || userId.isEmpty) {
@@ -62,6 +66,22 @@ class InMemoryTeacherAccessCodeRepository
       consumedAt: now,
     );
     users[userId] = user;
+  }
+
+  @override
+  Future<User?> reconcileTeacherProfile({
+    required User expectedUser,
+    required String code,
+  }) async {
+    final normalized = CoachCode.tryNormalize(code);
+    final existing = users[expectedUser.id];
+    if (normalized == null || existing == null) return null;
+    return existing.role == User.roleTeacher &&
+            existing.teacherAccessCode == normalized &&
+            existing.email.trim().toLowerCase() ==
+                expectedUser.email.trim().toLowerCase()
+        ? existing
+        : null;
   }
 
   @override

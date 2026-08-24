@@ -67,7 +67,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    if (_isGoogleLoading) return;
+    if (_isLoading || _isGoogleLoading) return;
     setState(() => _touched.addAll(['email', 'password', 'confirm', 'legal']));
     if (!_agreedToLegal) return;
     if (!_validatePersonalDetails()) return;
@@ -102,9 +102,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         lastName: normalized.lastName,
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        legalConsent: RegistrationLegalConsent.current(),
       );
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

@@ -68,6 +68,7 @@ app.*.map.json
 
 # Firestore Emulator rules tests (firestore-tests/)
 firestore-tests/node_modules/
+functions/node_modules/
 scripts/legacy_coaching_provenance/node_modules/
 firestore-tests/firebase-debug.log
 firestore-tests/firestore-debug.log

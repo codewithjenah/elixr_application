@@ -1,5 +1,6 @@
 import '../models/teacher_access_code.dart';
 import '../models/user.dart';
+import '../privacy/privacy_consent.dart';
 
 /// One-time Teacher access codes used to gate `role: Teacher` registration.
 abstract class TeacherAccessCodeRepository {
@@ -14,7 +15,15 @@ abstract class TeacherAccessCodeRepository {
   Future<void> consumeAndCreateTeacherProfile({
     required String code,
     required User user,
-    bool includePrivacyConsent = true,
+    required RegistrationLegalConsent legalConsent,
+  });
+
+  /// Reconciles an uncertain transaction result against the UID-scoped
+  /// profile and normalized code. Returns null only when no matching profile
+  /// was committed.
+  Future<User?> reconcileTeacherProfile({
+    required User expectedUser,
+    required String code,
   });
 
   /// Mints a fresh unconsumed code for an existing Teacher to share.

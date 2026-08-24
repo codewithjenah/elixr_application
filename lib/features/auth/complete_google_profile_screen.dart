@@ -68,6 +68,7 @@ class _CompleteGoogleProfileScreenState
   }
 
   Future<void> _complete() async {
+    if (_isSaving || _isCancelling) return;
     final nameError = validateUserNameParts(
       firstName: _firstNameController.text,
       middleName: _middleNameController.text,
@@ -107,12 +108,14 @@ class _CompleteGoogleProfileScreenState
           middleName: normalized.middleName,
           lastName: normalized.lastName,
           teacherAccessCode: teacherCode!,
+          legalConsent: RegistrationLegalConsent.current(),
         );
       } else {
         await auth.completeGoogleProfile(
           firstName: normalized.firstName,
           middleName: normalized.middleName,
           lastName: normalized.lastName,
+          legalConsent: RegistrationLegalConsent.current(),
         );
       }
     } catch (error) {
@@ -127,6 +130,7 @@ class _CompleteGoogleProfileScreenState
   }
 
   Future<void> _cancel() async {
+    if (_isSaving || _isCancelling) return;
     setState(() => _isCancelling = true);
     try {
       await context.read<AuthService>().cancelGoogleOnboarding();
@@ -140,6 +144,9 @@ class _CompleteGoogleProfileScreenState
     final selectedIntent = _selectedIntent;
     final choosingRole = selectedIntent == null;
     final isTeacher = selectedIntent == GoogleOnboardingIntent.teacher;
+    final pending = context.read<AuthService>().pendingGoogleProfile;
+    final isGoogle =
+        pending?.identityProvider == ProfileIdentityProvider.google;
     return AuthScaffold(
       title: isTeacher
           ? 'Create your Teacher profile'
@@ -154,7 +161,9 @@ class _CompleteGoogleProfileScreenState
           ? 'This Google sign-in has no saved role selection. Teacher registration requires a new access code.'
           : isTeacher
           ? 'Google verified your email. Confirm your name and access code.'
-          : 'Google verified your email. Add your preferred name.',
+          : isGoogle
+          ? 'Google verified your email. Add your preferred name.'
+          : 'Your sign-in is valid. Finish the missing ELIXR profile.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -216,7 +225,7 @@ class _CompleteGoogleProfileScreenState
             icon: FluentIcons.contact,
           ),
           const SizedBox(height: AppSpacing.sm),
-          const Text('Verified Google email'),
+          Text(isGoogle ? 'Verified Google email' : 'Account email'),
           const SizedBox(height: AppSpacing.xs),
           TextBox(
             key: const Key('google_profile_email'),

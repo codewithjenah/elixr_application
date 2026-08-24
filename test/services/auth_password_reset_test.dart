@@ -4,6 +4,16 @@ import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class _TrackingCallbackServer extends MemoryAuthEmailCallbackServer {
+  int stopCalls = 0;
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    await super.stop();
+  }
+}
+
 class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   int sendPasswordResetEmailCallCount = 0;
   String? lastEmail;
@@ -50,6 +60,7 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
     required String password,
     String defaultRole = User.roleTrainee,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     throw UnimplementedError();
   }
@@ -103,13 +114,15 @@ void main() {
 
   late _TrackingPasswordResetRepository repository;
   late AuthService authService;
+  late _TrackingCallbackServer callbackServer;
 
   setUp(() {
     repository = _TrackingPasswordResetRepository();
+    callbackServer = _TrackingCallbackServer();
     authService = AuthService(
       repository: repository,
       leaderboardRepository: null,
-      emailCallbackServer: MemoryAuthEmailCallbackServer(),
+      emailCallbackServer: callbackServer,
     );
   });
 
@@ -162,6 +175,7 @@ void main() {
           ),
         ),
       );
+      expect(callbackServer.stopCalls, 1);
     });
   });
 }

@@ -42,9 +42,23 @@ abstract final class ElixrLegalDocuments {
     'Your ELIXR user profile (name, email, and role) is stored in Cloud '
         'Firestore. That document is readable and writable only by your own '
         'signed-in account.',
+    'Messages discoverability: all active registered Teachers and Trainees '
+        'can find one another by a case-insensitive prefix of any display-name '
+        'token. An exact email address may also be used privately to locate an '
+        'account, but search results never reveal email addresses. Results show '
+        'only display name, role, and profile avatar.',
+    'Direct messages are stored in Cloud Firestore and are readable only by '
+        'the two conversation participants. Messages may be edited by their '
+        'author or soft-deleted into a Message deleted tombstone. The app stores '
+        'conversation previews, unread counts, read timestamps, and block '
+        'records to provide inbox badges and Seen state. Blocking prevents both '
+        'participants from sending new messages while preserving history.',
     'Data Retention: account profile data is kept while your account is '
         'active. When an account is deleted, we permanently remove associated '
-        'personal data we hold for that account.',
+        'direct identifiers and other personal data we hold for that account. '
+        'Conversation bodies may be retained for the other participant after '
+        'your identity and sender identifiers are replaced with Deleted user. '
+        'If no active participant remains, the archived conversation is removed.',
     'Your Rights: Under the Philippine Data Privacy Act (RA 10173), you '
         'have the right to access, correct, or erase your personal data.',
   ];
@@ -86,10 +100,10 @@ abstract final class ElixrLegalDocuments {
         'that exact code to request to join, and the Teacher may approve or '
         'reject the request. Linking alone does not share progress. You can separately '
         'enable sanitized, read-only summary and practice/assessment history '
-        'for each linked Teacher. Linked Teachers may send stored instructional '
-        'notes without progress sharing; stop sharing affects progress only, while '
-        'revoke stops future Teacher access and preserves received note history. '
-        'Notes exclude raw video and protected assessment internals. Assignment '
+        'for each linked Teacher. Messaging is separate from classroom and '
+        'progress permissions: any registered Teacher or Trainee may send text '
+        'messages, including users who are not linked through a classroom. '
+        'Messages exclude raw video and protected assessment internals. Assignment '
         'submission clips are a separate classroom authorization for the assigning '
         'Teacher only; they are not shared through Public Profile, Progress Access, '
         'or General Evidence Access. You can stop sharing or revoke that Teacher at '
@@ -130,6 +144,10 @@ abstract final class ElixrLegalDocuments {
         'as-is for educational and training purposes.',
     'Your account is for your personal use only. Do not share credentials '
         'or abuse the service.',
+    'Use direct messages respectfully. Do not use user search or messaging for '
+        'harassment, impersonation, spam, unlawful content, or attempts to '
+        'collect another user’s private information. You may block another '
+        'participant at any time.',
     'ELIXR is not liable for interrupted service, data loss (beyond our '
         'control), or third-party systems.',
     'We reserve the right to update these terms. Changes will be posted '
@@ -145,8 +163,8 @@ abstract final class ElixrLegalDocuments {
     'Teacher accounts are for instructor use of the Teacher application. '
         'A Teacher roster lists only Trainees whose join request the Teacher approves. '
         'Student progress review is read-only when separately authorized by '
-        'the Trainee. Teachers may send stored coaching notes to approved Trainees; '
-        'progress review remains read-only and separately consented. Assignments '
-        'and chat remain unavailable.',
+        'the Trainee. Direct messaging is available independently of roster or '
+        'progress authorization; progress review remains read-only and separately '
+        'consented.',
   ];
 }

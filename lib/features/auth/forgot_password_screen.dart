@@ -40,6 +40,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isLoading) return;
     final email = _emailController.text.trim();
     setState(() => _emailTouched = true);
     if (validateAuthEmail(email) != null) return;
@@ -61,7 +62,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         _startCooldown();
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

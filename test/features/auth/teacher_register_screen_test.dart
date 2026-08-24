@@ -33,6 +33,7 @@ class _TeacherRegisterRepository
     required String password,
     required String defaultRole,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     lastDefaultRole = defaultRole;
     lastTeacherAccessCode = teacherAccessCode;
@@ -167,15 +168,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(fixture.repository.accessCodeChecks, 1);
-    expect(fixture.repository.prevalidatedAccessCode, '7KPMXR4DQ2WT');
+    expect(fixture.repository.accessCodeChecks, 0);
     expect(find.text('Step 2 of 4'), findsOneWidget);
     expect(find.text('Continue with Google'), findsOneWidget);
     expect(find.text('Use email and password'), findsOneWidget);
     expect(find.text('Email address'), findsNothing);
   });
 
-  testWidgets('does not expose registration methods for an invalid code', (
+  testWidgets('defers valid-format code validation until registration', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
@@ -189,14 +189,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('Step 1 of 4'), findsOneWidget);
-    expect(find.text('Continue with Google'), findsNothing);
-    expect(
-      find.text(
-        'That Teacher access code is invalid or has already been used.',
-      ),
-      findsOneWidget,
-    );
+    expect(fixture.repository.accessCodeChecks, 0);
+    expect(find.text('Step 2 of 4'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
   });
 
   testWidgets('teacher registration creates Teacher role with legal consent', (
@@ -242,7 +237,7 @@ void main() {
 
     expect(repository.lastDefaultRole, User.roleTeacher);
     expect(repository.lastTeacherAccessCode, '7KPMXR4DQ2WT');
-    expect(repository.accessCodeChecks, 1);
+    expect(repository.accessCodeChecks, 0);
     expect(repository.verificationRequested, isTrue);
     expect(auth.currentUser?.isTeacher, isTrue);
   });

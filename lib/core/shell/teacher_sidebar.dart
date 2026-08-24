@@ -50,6 +50,11 @@ const teacherSidebarItems = [
     route: AppRoutePaths.teacherMovements,
   ),
   TeacherSidebarItem(
+    label: 'Messages',
+    icon: FluentIcons.chat,
+    route: AppRoutePaths.teacherMessages,
+  ),
+  TeacherSidebarItem(
     label: 'Settings',
     icon: FluentIcons.settings,
     route: AppRoutePaths.teacherSettings,

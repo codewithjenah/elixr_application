@@ -6,6 +6,7 @@ import '../models/coach_code.dart';
 import '../models/teacher_access_code.dart';
 import '../models/teacher_access_code_exception.dart';
 import '../models/user.dart';
+import '../privacy/privacy_consent.dart';
 import 'teacher_access_code_repository.dart';
 
 class FirebaseTeacherAccessCodeRepository
@@ -36,7 +37,7 @@ class FirebaseTeacherAccessCodeRepository
   Future<void> consumeAndCreateTeacherProfile({
     required String code,
     required User user,
-    bool includePrivacyConsent = true,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     final normalized = CoachCode.tryNormalize(code);
     if (normalized == null) {
@@ -92,11 +93,43 @@ class FirebaseTeacherAccessCodeRepository
       transaction.set(userRef, {
         ...FirebaseUserProfileStore.userProfileWriteData(
           user,
-          includePrivacyConsent: includePrivacyConsent,
+          legalConsent: legalConsent,
         ),
         'teacher_access_code': normalized,
       });
     });
+  }
+
+  @override
+  Future<User?> reconcileTeacherProfile({
+    required User expectedUser,
+    required String code,
+  }) async {
+    final userId = expectedUser.id;
+    final normalized = CoachCode.tryNormalize(code);
+    if (userId == null || normalized == null) return null;
+    final snapshot = await _users.doc(userId).get();
+    if (!snapshot.exists) return null;
+    final profile = User.fromMap({
+      'id': snapshot.id,
+      ...snapshot.data()!,
+      'created_at': FirebaseUserProfileStore.readCreatedAt(
+        snapshot.data()!['created_at'],
+      ),
+      'privacy_consent_at': FirebaseUserProfileStore.readCreatedAt(
+        snapshot.data()!['privacy_consent_at'],
+      ),
+      'terms_consent_at': FirebaseUserProfileStore.readCreatedAt(
+        snapshot.data()!['terms_consent_at'],
+      ),
+    });
+    return profile.id == expectedUser.id &&
+            profile.email.trim().toLowerCase() ==
+                expectedUser.email.trim().toLowerCase() &&
+            profile.role == User.roleTeacher &&
+            profile.teacherAccessCode == normalized
+        ? profile
+        : null;
   }
 
   @override

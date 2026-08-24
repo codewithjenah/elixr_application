@@ -11,7 +11,7 @@ import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/auth/teacher_register_screen.dart';
 import '../../features/auth/verify_email_screen.dart';
-import '../../features/coaching/coaching_notes_screen.dart';
+import '../../features/messages/messages_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/leaderboard/leaderboard_screen.dart';
 import '../../features/legal/privacy_policy_screen.dart';
@@ -277,9 +277,13 @@ class AppRouter {
             ),
             GoRoute(
               path: AppRoutePaths.coaching,
+              redirect: (context, state) => AppRoutePaths.messages,
+            ),
+            GoRoute(
+              path: AppRoutePaths.messages,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
-                child: const CoachingNotesScreen(),
+                child: _messagesScreen(state),
               ),
             ),
             GoRoute(
@@ -365,6 +369,13 @@ class AppRouter {
               ),
             ),
             GoRoute(
+              path: AppRoutePaths.teacherMessages,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: _messagesScreen(state),
+              ),
+            ),
+            GoRoute(
               path: AppRoutePaths.teacherSettings,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
@@ -374,6 +385,16 @@ class AppRouter {
           ],
         ),
       ],
+    );
+  }
+
+  static MessagesScreen _messagesScreen(GoRouterState state) {
+    final query = state.uri.queryParameters;
+    return MessagesScreen(
+      initialUserId: query['userId'],
+      initialDisplayName: query['name'],
+      initialRole: query['role'],
+      initialAvatarUrl: query['avatar'],
     );
   }
 }

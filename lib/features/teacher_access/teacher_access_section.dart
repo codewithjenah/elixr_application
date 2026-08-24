@@ -590,7 +590,7 @@ Future<void> _confirmStopSharing(
       title: const Text('Stop sharing progress?'),
       content: const Text(
         'This Teacher will immediately lose access to your sanitized progress. '
-        'Your Teacher relationship will remain linked, coaching can continue, '
+        'Your Teacher relationship will remain linked, messaging remains available, '
         'and you can share progress again later.',
       ),
       actions: [
@@ -648,7 +648,7 @@ Future<void> _confirmRevokeTeacher(
       title: const Text('Revoke this Teacher?'),
       content: const Text(
         'This ends the Teacher relationship and removes any progress consent. '
-        'Future coaching stops, while historical received notes remain visible. '
+        'Direct messages remain available separately unless either user blocks the other. '
         'If you approve a future request from this Teacher, progress sharing will be off by default.',
       ),
       actions: [

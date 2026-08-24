@@ -67,6 +67,7 @@ class _FakeAuthRepository implements AuthRepositoryBase {
     required String password,
     String defaultRole = User.roleTrainee,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     return registerUser ?? _user(first: firstName, last: lastName);
   }
@@ -201,6 +202,7 @@ void main() {
       lastName: 'Hopper',
       email: 'grace@example.com',
       password: 'secret',
+      legalConsent: RegistrationLegalConsent.current(),
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -227,6 +229,7 @@ void main() {
       lastName: 'Hopper',
       email: 'grace@example.com',
       password: 'secret',
+      legalConsent: RegistrationLegalConsent.current(),
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -252,6 +255,7 @@ void main() {
       lastName: 'Hopper',
       email: 'grace@example.com',
       password: 'secret',
+      legalConsent: RegistrationLegalConsent.current(),
     );
     await Future<void>.delayed(Duration.zero);
 

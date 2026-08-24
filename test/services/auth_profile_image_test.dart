@@ -110,6 +110,7 @@ class _FakeAuthRepository implements AuthRepositoryBase {
     required String password,
     String defaultRole = User.roleTrainee,
     String? teacherAccessCode,
+    required RegistrationLegalConsent legalConsent,
   }) async {
     throw UnimplementedError();
   }

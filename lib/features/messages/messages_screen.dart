@@ -1,0 +1,943 @@
+import 'package:elixr_core/elixr_core.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_scaffold_page.dart';
+import '../../services/auth_service.dart';
+import 'messages_controller.dart';
+
+class MessagesScreen extends StatefulWidget {
+  const MessagesScreen({
+    super.key,
+    this.initialUserId,
+    this.initialDisplayName,
+    this.initialRole,
+    this.initialAvatarUrl,
+  });
+
+  final String? initialUserId;
+  final String? initialDisplayName;
+  final String? initialRole;
+  final String? initialAvatarUrl;
+
+  @override
+  State<MessagesScreen> createState() => _MessagesScreenState();
+}
+
+class _MessagesScreenState extends State<MessagesScreen> {
+  final _searchController = TextEditingController();
+  final _composerController = TextEditingController();
+  final _messageScrollController = ScrollController();
+  MessagesController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller != null) return;
+    final authUser = context.read<AuthService>().currentUser;
+    final userId = authUser?.id;
+    if (authUser == null || userId == null) return;
+    final controller = MessagesController(
+      repository: context.read<ChatRepository>(),
+      currentUser: ChatUser(
+        id: userId,
+        displayName: authUser.fullName,
+        role: authUser.role,
+        avatarUrl: authUser.profilePictureUrl,
+      ),
+    );
+    _controller = controller;
+    final targetId = widget.initialUserId?.trim();
+    final targetName = widget.initialDisplayName?.trim();
+    final targetRole = widget.initialRole;
+    controller.start(
+      initialUser:
+          targetId != null &&
+              targetId.isNotEmpty &&
+              targetName != null &&
+              targetName.isNotEmpty &&
+              (targetRole == 'Teacher' || targetRole == 'Trainee')
+          ? ChatUser(
+              id: targetId,
+              displayName: targetName,
+              role: targetRole!,
+              avatarUrl: widget.initialAvatarUrl,
+            )
+          : null,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _searchController.dispose();
+    _composerController.dispose();
+    _messageScrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller == null) {
+      return const ElixScaffoldPage(content: Center(child: ProgressRing()));
+    }
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) => ElixScaffoldPage(
+        content: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (controller.alertMessage != null) ...[
+                InfoBar(
+                  title: Text(controller.alertMessage!),
+                  severity: InfoBarSeverity.info,
+                  action: IconButton(
+                    icon: const Icon(FluentIcons.clear),
+                    onPressed: controller.dismissAlert,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final narrow = constraints.maxWidth < 840;
+                    if (narrow) {
+                      return controller.selectedUser == null
+                          ? _PeoplePane(
+                              controller: controller,
+                              searchController: _searchController,
+                            )
+                          : _ConversationPane(
+                              controller: controller,
+                              composerController: _composerController,
+                              scrollController: _messageScrollController,
+                              showBack: true,
+                            );
+                    }
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: context.elixCardSurface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.elixBorder),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 330,
+                            child: _PeoplePane(
+                              controller: controller,
+                              searchController: _searchController,
+                            ),
+                          ),
+                          Container(width: 1, color: context.elixBorder),
+                          Expanded(
+                            child: _ConversationPane(
+                              controller: controller,
+                              composerController: _composerController,
+                              scrollController: _messageScrollController,
+                              showBack: false,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PeoplePane extends StatelessWidget {
+  const _PeoplePane({required this.controller, required this.searchController});
+
+  final MessagesController controller;
+  final TextEditingController searchController;
+
+  @override
+  Widget build(BuildContext context) {
+    final searching = searchController.text.trim().isNotEmpty;
+    return Container(
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.elixBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Messages', style: AppTheme.headingLarge),
+                const SizedBox(height: AppSpacing.sm),
+                TextBox(
+                  controller: searchController,
+                  placeholder: 'Find a Teacher or Trainee',
+                  prefix: const Padding(
+                    padding: EdgeInsets.only(left: AppSpacing.sm),
+                    child: Icon(FluentIcons.search, size: 16),
+                  ),
+                  suffix: searching
+                      ? IconButton(
+                          icon: const Icon(FluentIcons.clear, size: 14),
+                          onPressed: () {
+                            searchController.clear();
+                            controller.updateSearch('');
+                          },
+                        )
+                      : null,
+                  onChanged: controller.updateSearch,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Enter at least 2 characters. Email search is exact and private.',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(
+            style: DividerThemeData(
+              decoration: BoxDecoration(color: context.elixBorder),
+            ),
+          ),
+          Expanded(
+            child: searching
+                ? _SearchResults(controller: controller)
+                : _InboxList(controller: controller),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchResults extends StatelessWidget {
+  const _SearchResults({required this.controller});
+  final MessagesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (controller.searchState) {
+      MessageSearchState.idle => const SizedBox.shrink(),
+      MessageSearchState.waiting => const _CenteredMessage(
+        text: 'Type one more character to search.',
+      ),
+      MessageSearchState.loading => const Center(child: ProgressRing()),
+      MessageSearchState.empty => const _CenteredMessage(
+        text: 'No matching people found.',
+      ),
+      MessageSearchState.error => _CenteredMessage(
+        text: controller.searchError is ChatException
+            ? (controller.searchError! as ChatException).userMessage
+            : 'Search is unavailable right now.',
+      ),
+      MessageSearchState.ready => ListView.builder(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        itemCount: controller.searchResults.length,
+        itemBuilder: (context, index) {
+          final user = controller.searchResults[index];
+          return _PersonTile(
+            user: user,
+            subtitle: user.role,
+            selected: controller.selectedUser?.id == user.id,
+            onPressed: () => controller.openUser(user),
+          );
+        },
+      ),
+    };
+  }
+}
+
+class _InboxList extends StatelessWidget {
+  const _InboxList({required this.controller});
+  final MessagesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.inboxError != null) {
+      return const _CenteredMessage(text: 'Could not load conversations.');
+    }
+    if (controller.inbox.isEmpty) {
+      return const _CenteredMessage(
+        text: 'No conversations yet. Search for someone to start messaging.',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      itemCount: controller.inbox.length,
+      itemBuilder: (context, index) {
+        final conversation = controller.inbox[index];
+        final user = conversation.otherParticipant(controller.currentUser.id);
+        if (user == null) return const SizedBox.shrink();
+        final preview = conversation.lastMessageBody ?? 'Start a conversation';
+        final timestamp = conversation.lastMessageAt;
+        return _PersonTile(
+          user: user,
+          subtitle: preview,
+          timestamp: timestamp,
+          unread: conversation.unreadFor(controller.currentUser.id),
+          selected: controller.selectedConversation?.id == conversation.id,
+          onPressed: () => controller.openConversation(conversation),
+        );
+      },
+    );
+  }
+}
+
+class _PersonTile extends StatelessWidget {
+  const _PersonTile({
+    required this.user,
+    required this.subtitle,
+    required this.selected,
+    required this.onPressed,
+    this.timestamp,
+    this.unread = 0,
+  });
+
+  final ChatUser user;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onPressed;
+  final DateTime? timestamp;
+  final int unread;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: HoverButton(
+        onPressed: onPressed,
+        builder: (context, states) => Container(
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.12)
+                : states.isHovered
+                ? context.elixBorder.withValues(alpha: 0.25)
+                : null,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Row(
+            children: [
+              _ChatAvatar(user: user, size: 38),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            user.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.body.copyWith(
+                              fontWeight: unread > 0
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (timestamp != null)
+                          Text(
+                            _compactTime(timestamp!),
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                              fontWeight: unread > 0 ? FontWeight.w600 : null,
+                            ),
+                          ),
+                        ),
+                        if (unread > 0) ...[
+                          const SizedBox(width: AppSpacing.xs),
+                          Container(
+                            constraints: const BoxConstraints(minWidth: 20),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(10),
+                              ),
+                            ),
+                            child: Text(
+                              unread > 99 ? '99+' : '$unread',
+                              textAlign: TextAlign.center,
+                              style: AppTheme.caption.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationPane extends StatelessWidget {
+  const _ConversationPane({
+    required this.controller,
+    required this.composerController,
+    required this.scrollController,
+    required this.showBack,
+  });
+
+  final MessagesController controller;
+  final TextEditingController composerController;
+  final ScrollController scrollController;
+  final bool showBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = controller.selectedUser;
+    if (user == null) {
+      return const _CenteredMessage(
+        icon: FluentIcons.chat,
+        text: 'Select a conversation or search for someone to message.',
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.elixBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                if (showBack) ...[
+                  IconButton(
+                    icon: const Icon(FluentIcons.back),
+                    onPressed: controller.showInboxPane,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                ],
+                _ChatAvatar(user: user, size: 36),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(user.displayName, style: AppTheme.headingMedium),
+                      Text(
+                        user.role,
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (controller.selectedConversation?.isArchived != true)
+                  Button(
+                    onPressed: () => _confirmBlock(context),
+                    child: Text(
+                      controller.blockState.blockedByMe ? 'Unblock' : 'Block',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Divider(
+            style: DividerThemeData(
+              decoration: BoxDecoration(color: context.elixBorder),
+            ),
+          ),
+          Expanded(child: _messageBody(context)),
+          Divider(
+            style: DividerThemeData(
+              decoration: BoxDecoration(color: context.elixBorder),
+            ),
+          ),
+          _Composer(controller: controller, textController: composerController),
+        ],
+      ),
+    );
+  }
+
+  Widget _messageBody(BuildContext context) {
+    if (controller.messageState == MessagePaneState.loading) {
+      return const Center(child: ProgressRing());
+    }
+    if (controller.messageState == MessagePaneState.error &&
+        controller.messages.isEmpty) {
+      return const _CenteredMessage(text: 'Could not load messages.');
+    }
+    if (controller.messages.isEmpty) {
+      return _CenteredMessage(
+        text: controller.selectedConversation?.isArchived == true
+            ? 'This archived conversation is read-only.'
+            : 'No messages yet. Say hello.',
+      );
+    }
+    final ascending = controller.messages.reversed.toList(growable: false);
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      children: [
+        if (controller.hasOlder || controller.paginationError != null)
+          Center(
+            child: Button(
+              onPressed: controller.loadingOlder ? null : controller.loadOlder,
+              child: Text(
+                controller.loadingOlder
+                    ? 'Loading…'
+                    : controller.paginationError != null
+                    ? 'Try loading older messages again'
+                    : 'Load older messages',
+              ),
+            ),
+          ),
+        for (var index = 0; index < ascending.length; index++) ...[
+          if (index == 0 ||
+              !_sameLocalDay(
+                ascending[index - 1].createdAt,
+                ascending[index].createdAt,
+              ))
+            _DateSeparator(date: ascending[index].createdAt),
+          _MessageBubble(
+            message: ascending[index],
+            mine: ascending[index].senderId == controller.currentUser.id,
+            seen: controller.isLatestOutgoingSeen(ascending[index]),
+            onRetry: () => controller.retryMessage(ascending[index]),
+            onEdit: () => _editMessage(context, ascending[index]),
+            onDelete: () => _deleteMessage(context, ascending[index]),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _confirmBlock(BuildContext context) async {
+    final unblocking = controller.blockState.blockedByMe;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text(unblocking ? 'Unblock this person?' : 'Block this person?'),
+        content: Text(
+          unblocking
+              ? 'You will both be able to send messages again unless they have blocked you.'
+              : 'Neither person can send new messages while this block is active. Message history remains visible.',
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(unblocking ? 'Unblock' : 'Block'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.toggleBlock();
+  }
+
+  Future<void> _editMessage(BuildContext context, ChatMessage message) async {
+    if (message.isDeleted || message.deliveryState != ChatDeliveryState.sent) {
+      return;
+    }
+    final text = TextEditingController(text: message.body);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Edit message'),
+        content: TextBox(
+          controller: text,
+          minLines: 2,
+          maxLines: 6,
+          maxLength: ChatMessage.maximumBodyLength,
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, text.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    text.dispose();
+    if (value != null && value.trim() != message.body) {
+      await controller.editMessage(message, value);
+    }
+  }
+
+  Future<void> _deleteMessage(BuildContext context, ChatMessage message) async {
+    if (message.isDeleted || message.deliveryState != ChatDeliveryState.sent) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Delete message?'),
+        content: const Text(
+          'The message body will be removed and replaced by a tombstone.',
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.deleteMessage(message);
+  }
+}
+
+class _Composer extends StatelessWidget {
+  const _Composer({required this.controller, required this.textController});
+  final MessagesController controller;
+  final TextEditingController textController;
+
+  @override
+  Widget build(BuildContext context) {
+    final archived = controller.selectedConversation?.isArchived == true;
+    final disabled = controller.blockState.cannotSend || archived;
+    final message = archived
+        ? 'This archived conversation is read-only.'
+        : controller.blockState.blockedByMe
+        ? 'Unblock this person to send a message.'
+        : controller.blockState.blockedByOther
+        ? 'Messages cannot be sent in this conversation.'
+        : null;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (message != null) ...[
+            Text(
+              message,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Focus(
+                  onKeyEvent: (_, event) {
+                    if (!disabled &&
+                        event is KeyDownEvent &&
+                        event.logicalKey == LogicalKeyboardKey.enter &&
+                        !HardwareKeyboard.instance.isShiftPressed) {
+                      _send();
+                      return KeyEventResult.handled;
+                    }
+                    return KeyEventResult.ignored;
+                  },
+                  child: TextBox(
+                    controller: textController,
+                    enabled: !disabled,
+                    minLines: 1,
+                    maxLines: 5,
+                    maxLength: ChatMessage.maximumBodyLength,
+                    placeholder: 'Write a message',
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              FilledButton(
+                onPressed: disabled ? null : _send,
+                child: const Icon(FluentIcons.send),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Enter to send • Shift+Enter for a new line',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _send() async {
+    final body = textController.text;
+    if (body.trim().isEmpty) return;
+    textController.clear();
+    final sent = await controller.send(body);
+    if (!sent) textController.text = body;
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  const _MessageBubble({
+    required this.message,
+    required this.mine,
+    required this.seen,
+    required this.onRetry,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ChatMessage message;
+  final bool mine;
+  final bool seen;
+  final VoidCallback onRetry;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final metadata = <String>[
+      DateFormat.jm().format(message.createdAt.toLocal()),
+      if (message.isEdited) 'Edited',
+      if (message.deliveryState == ChatDeliveryState.sending) 'Sending',
+      if (message.deliveryState == ChatDeliveryState.error) 'Error',
+      if (seen) 'Seen',
+    ].join(' • ');
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 560),
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: mine
+              ? AppColors.primary.withValues(alpha: 0.16)
+              : context.elixBackground,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: message.deliveryState == ChatDeliveryState.error
+                ? AppColors.error
+                : context.elixBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (message.isMigratedCoaching)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                child: Text(
+                  message.legacyMovementName == null
+                      ? 'Migrated coaching note'
+                      : 'Migrated coaching • ${message.legacyMovementName}',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            Text(
+              message.isDeleted ? 'Message deleted' : message.body ?? '',
+              style: AppTheme.body.copyWith(
+                color: message.isDeleted
+                    ? context.elixTextSecondary
+                    : context.elixTextPrimary,
+                fontStyle: message.isDeleted ? FontStyle.italic : null,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  metadata,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                if (message.deliveryState == ChatDeliveryState.error) ...[
+                  const SizedBox(width: AppSpacing.xs),
+                  HyperlinkButton(
+                    onPressed: onRetry,
+                    child: const Text('Retry'),
+                  ),
+                ] else if (mine && !message.isDeleted) ...[
+                  const SizedBox(width: AppSpacing.xs),
+                  HyperlinkButton(onPressed: onEdit, child: const Text('Edit')),
+                  HyperlinkButton(
+                    onPressed: onDelete,
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DateSeparator extends StatelessWidget {
+  const _DateSeparator({required this.date});
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          const Expanded(child: Divider()),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            child: Text(
+              DateFormat.yMMMd().format(date.toLocal()),
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+          const Expanded(child: Divider()),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatAvatar extends StatelessWidget {
+  const _ChatAvatar({required this.user, required this.size});
+  final ChatUser user;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final nameParts = user.displayName
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    final initials = nameParts
+        .take(2)
+        .map((part) => part[0])
+        .join()
+        .toUpperCase();
+    final avatar = user.avatarUrl;
+    return ClipOval(
+      child: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        color: AppColors.accent.withValues(alpha: 0.18),
+        child: avatar != null
+            ? Image.network(
+                avatar,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Text(initials),
+              )
+            : Text(
+                initials,
+                style: AppTheme.caption.copyWith(fontWeight: FontWeight.w700),
+              ),
+      ),
+    );
+  }
+}
+
+class _CenteredMessage extends StatelessWidget {
+  const _CenteredMessage({required this.text, this.icon});
+  final String text;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 32, color: context.elixTextSecondary),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+bool _sameLocalDay(DateTime first, DateTime second) {
+  final a = first.toLocal();
+  final b = second.toLocal();
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+String _compactTime(DateTime value) {
+  final local = value.toLocal();
+  final now = DateTime.now();
+  if (local.year == now.year &&
+      local.month == now.month &&
+      local.day == now.day) {
+    return DateFormat.jm().format(local);
+  }
+  return DateFormat.MMMd().format(local);
+}

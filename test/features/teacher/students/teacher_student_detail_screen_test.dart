@@ -16,7 +16,6 @@ void main() {
   late FakeTeacherLinksRepository links;
   late TrackingTeacherProgressRepository progress;
   late FakePublicProfileRepository profiles;
-  late InMemoryCoachingNoteRepository coaching;
   late AuthService auth;
 
   setUp(() {
@@ -24,7 +23,6 @@ void main() {
     links = FakeTeacherLinksRepository();
     progress = TrackingTeacherProgressRepository();
     profiles = FakePublicProfileRepository();
-    coaching = InMemoryCoachingNoteRepository();
     auth = phase3TeacherAuth();
   });
 
@@ -42,7 +40,6 @@ void main() {
           Provider<TeacherRelationshipRepository>.value(value: links),
           Provider<TeacherProgressRepository>.value(value: progress),
           Provider<PublicProfileRepository>.value(value: profiles),
-          Provider<CoachingNoteRepository>.value(value: coaching),
         ],
         child: const FluentApp(
           home: TeacherStudentDetailScreen(traineeId: 'trainee'),
