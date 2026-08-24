@@ -33,6 +33,7 @@ import 'services/settings_service.dart';
 import 'services/tutorial_progress_service.dart';
 import 'services/join_code_resolver.dart';
 import 'services/join_link_service.dart';
+import 'services/message_unread_service.dart';
 
 class ElixrApp extends StatefulWidget {
   ElixrApp({
@@ -57,6 +58,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final GroupRepository _groupRepository;
   late final JoinCodeResolver _joinCodeResolver;
   late final JoinLinkService _joinLinkService;
+  late final ChatRepository _chatRepository;
   late final GoRouter _router;
   bool _splashFinished = false;
 
@@ -71,6 +73,7 @@ class _ElixrAppState extends State<ElixrApp> {
       relationshipRepository: _teacherRelationshipRepository,
     );
     _joinLinkService = JoinLinkService();
+    _chatRepository = FirebaseChatRepository();
     _authService = AuthService(
       leaderboardRepository: LeaderboardRepository(),
       publicProfileRepository: _publicProfileRepository,
@@ -106,6 +109,15 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _settingsService),
         ChangeNotifierProvider.value(value: _cameraDeviceService),
         ChangeNotifierProvider.value(value: _joinLinkService),
+        Provider<ChatRepository>.value(value: _chatRepository),
+        ChangeNotifierProxyProvider<AuthService, MessageUnreadService>(
+          create: (_) => MessageUnreadService(repository: _chatRepository),
+          update: (_, auth, unread) {
+            unread ??= MessageUnreadService(repository: _chatRepository);
+            unread.setUser(auth.currentUser?.id);
+            return unread;
+          },
+        ),
         ChangeNotifierProxyProvider<AuthService, TutorialProgressService>(
           create: (_) => _tutorialProgressService,
           update: (_, auth, tutorial) {
@@ -149,7 +161,6 @@ class _ElixrAppState extends State<ElixrApp> {
               previous ??
               FirebaseAssignmentSubmissionRepository(classroom: classroom),
         ),
-        Provider<ChatRepository>(create: (_) => FirebaseChatRepository()),
         Provider<TeacherProgressRepository>(
           create: (_) => FirebaseTeacherProgressRepository(),
         ),

@@ -5,11 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/message_unread_service.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../router/app_route_paths.dart';
 import '../theme/app_theme.dart';
+import '../widgets/message_unread_badge.dart';
 
 class TeacherSidebarItem {
   const TeacherSidebarItem({
@@ -87,6 +89,8 @@ class TeacherSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
     final user = auth.currentUser;
+    final unreadCount =
+        context.watch<MessageUnreadService?>()?.unreadCount ?? 0;
     final width = isCollapsed ? _collapsedWidth : _expandedWidth;
 
     return AnimatedContainer(
@@ -116,6 +120,9 @@ class TeacherSidebar extends StatelessWidget {
                       item.route,
                     ),
                     isCollapsed: isCollapsed,
+                    unreadCount: item.route == AppRoutePaths.teacherMessages
+                        ? unreadCount
+                        : 0,
                     onTap: () => context.go(item.route),
                   ),
               ],
@@ -206,12 +213,14 @@ class _TeacherNavItem extends StatelessWidget {
     required this.item,
     required this.isActive,
     required this.isCollapsed,
+    required this.unreadCount,
     required this.onTap,
   });
 
   final TeacherSidebarItem item;
   final bool isActive;
   final bool isCollapsed;
+  final int unreadCount;
   final VoidCallback onTap;
 
   @override
@@ -246,7 +255,21 @@ class _TeacherNavItem extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(item.icon, size: 18, color: textColor),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(item.icon, size: 18, color: textColor),
+                    if (isCollapsed && unreadCount > 0)
+                      Positioned(
+                        top: -8,
+                        right: -12,
+                        child: MessageUnreadBadge(
+                          count: unreadCount,
+                          compact: true,
+                        ),
+                      ),
+                  ],
+                ),
                 if (!isCollapsed) ...[
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
@@ -260,6 +283,7 @@ class _TeacherNavItem extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (unreadCount > 0) MessageUnreadBadge(count: unreadCount),
                 ],
               ],
             ),

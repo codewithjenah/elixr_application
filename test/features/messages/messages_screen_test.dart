@@ -79,6 +79,31 @@ void main() {
     expect(repository.messages.values.single, hasLength(1));
     expect(find.text('Hello from keyboard'), findsOneWidget);
   });
+
+  testWidgets('incoming message shows the sender avatar beside its bubble', (
+    tester,
+  ) async {
+    final authUser = auth.currentUser!;
+    await repository.sendMessage(
+      sender: trainee,
+      recipient: ChatUser(
+        id: authUser.id!,
+        displayName: authUser.fullName,
+        role: authUser.role,
+        avatarUrl: authUser.profilePictureUrl,
+      ),
+      body: 'Hello po!',
+    );
+
+    await pump(tester, size: const Size(640, 760), initialConversation: true);
+    await tester.pump();
+
+    expect(find.text('Hello po!'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('message-sender-avatar-message_1')),
+      findsOneWidget,
+    );
+  });
 }
 
 Finder _composerFinder() => find.byWidgetPredicate(

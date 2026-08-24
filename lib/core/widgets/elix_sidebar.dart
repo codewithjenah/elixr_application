@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/message_unread_service.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/repositories/leaderboard_repository.dart';
 import '../constants/app_colors.dart';
@@ -15,6 +16,7 @@ import '../constants/gamification_rules.dart';
 import '../theme/app_theme.dart';
 import '../utils/user_name.dart';
 import 'profile_avatar.dart';
+import 'message_unread_badge.dart';
 import '../../features/profile/profile_menu.dart';
 
 // Neon accents matching the dashboard.
@@ -201,6 +203,8 @@ class _ElixSidebarState extends State<ElixSidebar> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().currentUser;
+    final unreadCount =
+        context.watch<MessageUnreadService?>()?.unreadCount ?? 0;
     final initials = (user?.fullName.isNotEmpty == true)
         ? userInitials(user!.fullName)
         : '?';
@@ -297,6 +301,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
                         children: _buildGroupedItems(
                           context,
                           showCollapsedLayout,
+                          unreadCount,
                         ),
                       ),
                     ),
@@ -320,6 +325,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
   List<Widget> _buildGroupedItems(
     BuildContext context,
     bool showCollapsedLayout,
+    int unreadCount,
   ) {
     final List<Widget> children = [];
 
@@ -357,6 +363,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
             item: item,
             isActive: isElixSidebarRouteActive(widget.currentRoute, item.route),
             isCollapsed: showCollapsedLayout,
+            unreadCount: item.label == 'Messages' ? unreadCount : 0,
             onTap: () => _onItemTap(item),
           ),
         );
@@ -599,12 +606,14 @@ class _SidebarTile extends StatefulWidget {
     required this.item,
     required this.isActive,
     required this.isCollapsed,
+    required this.unreadCount,
     required this.onTap,
   });
 
   final SidebarItem item;
   final bool isActive;
   final bool isCollapsed;
+  final int unreadCount;
   final VoidCallback onTap;
 
   @override
@@ -673,10 +682,24 @@ class _SidebarTileState extends State<_SidebarTile> {
                             ),
                           ),
                         Center(
-                          child: Icon(
-                            widget.item.icon,
-                            size: _navIconSize,
-                            color: iconColor,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(
+                                widget.item.icon,
+                                size: _navIconSize,
+                                color: iconColor,
+                              ),
+                              if (widget.unreadCount > 0)
+                                Positioned(
+                                  top: -8,
+                                  right: -12,
+                                  child: MessageUnreadBadge(
+                                    count: widget.unreadCount,
+                                    compact: true,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -749,6 +772,8 @@ class _SidebarTileState extends State<_SidebarTile> {
                               ),
                             ),
                           ),
+                        if (!soon && widget.unreadCount > 0)
+                          MessageUnreadBadge(count: widget.unreadCount),
                       ],
                     ),
             ),

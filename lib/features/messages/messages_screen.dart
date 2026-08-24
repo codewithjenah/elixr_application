@@ -551,6 +551,7 @@ class _ConversationPane extends StatelessWidget {
           _MessageBubble(
             message: ascending[index],
             mine: ascending[index].senderId == controller.currentUser.id,
+            sender: controller.selectedUser!,
             seen: controller.isLatestOutgoingSeen(ascending[index]),
             onRetry: () => controller.retryMessage(ascending[index]),
             onEdit: () => _editMessage(context, ascending[index]),
@@ -732,6 +733,7 @@ class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
     required this.mine,
+    required this.sender,
     required this.seen,
     required this.onRetry,
     required this.onEdit,
@@ -740,6 +742,7 @@ class _MessageBubble extends StatelessWidget {
 
   final ChatMessage message;
   final bool mine;
+  final ChatUser sender;
   final bool seen;
   final VoidCallback onRetry;
   final VoidCallback onEdit;
@@ -754,76 +757,91 @@ class _MessageBubble extends StatelessWidget {
       if (message.deliveryState == ChatDeliveryState.error) 'Error',
       if (seen) 'Seen',
     ].join(' • ');
+    final bubble = Container(
+      constraints: const BoxConstraints(maxWidth: 560),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: mine
+            ? AppColors.primary.withValues(alpha: 0.16)
+            : context.elixBackground,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: message.deliveryState == ChatDeliveryState.error
+              ? AppColors.error
+              : context.elixBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (message.isMigratedCoaching)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+              child: Text(
+                message.legacyMovementName == null
+                    ? 'Migrated coaching note'
+                    : 'Migrated coaching • ${message.legacyMovementName}',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          Text(
+            message.isDeleted ? 'Message deleted' : message.body ?? '',
+            style: AppTheme.body.copyWith(
+              color: message.isDeleted
+                  ? context.elixTextSecondary
+                  : context.elixTextPrimary,
+              fontStyle: message.isDeleted ? FontStyle.italic : null,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                metadata,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+              if (message.deliveryState == ChatDeliveryState.error) ...[
+                const SizedBox(width: AppSpacing.xs),
+                HyperlinkButton(onPressed: onRetry, child: const Text('Retry')),
+              ] else if (mine && !message.isDeleted) ...[
+                const SizedBox(width: AppSpacing.xs),
+                HyperlinkButton(onPressed: onEdit, child: const Text('Edit')),
+                HyperlinkButton(
+                  onPressed: onDelete,
+                  child: const Text('Delete'),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 560),
-        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        decoration: BoxDecoration(
-          color: mine
-              ? AppColors.primary.withValues(alpha: 0.16)
-              : context.elixBackground,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: message.deliveryState == ChatDeliveryState.error
-                ? AppColors.error
-                : context.elixBorder,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (message.isMigratedCoaching)
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                child: Text(
-                  message.legacyMovementName == null
-                      ? 'Migrated coaching note'
-                      : 'Migrated coaching • ${message.legacyMovementName}',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                    fontWeight: FontWeight.w600,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: mine
+            ? bubble
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _ChatAvatar(
+                    key: ValueKey('message-sender-avatar-${message.id}'),
+                    user: sender,
+                    size: 30,
                   ),
-                ),
-              ),
-            Text(
-              message.isDeleted ? 'Message deleted' : message.body ?? '',
-              style: AppTheme.body.copyWith(
-                color: message.isDeleted
-                    ? context.elixTextSecondary
-                    : context.elixTextPrimary,
-                fontStyle: message.isDeleted ? FontStyle.italic : null,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  metadata,
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                if (message.deliveryState == ChatDeliveryState.error) ...[
-                  const SizedBox(width: AppSpacing.xs),
-                  HyperlinkButton(
-                    onPressed: onRetry,
-                    child: const Text('Retry'),
-                  ),
-                ] else if (mine && !message.isDeleted) ...[
-                  const SizedBox(width: AppSpacing.xs),
-                  HyperlinkButton(onPressed: onEdit, child: const Text('Edit')),
-                  HyperlinkButton(
-                    onPressed: onDelete,
-                    child: const Text('Delete'),
-                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(child: bubble),
                 ],
-              ],
-            ),
-          ],
-        ),
+              ),
       ),
     );
   }
@@ -857,7 +875,7 @@ class _DateSeparator extends StatelessWidget {
 }
 
 class _ChatAvatar extends StatelessWidget {
-  const _ChatAvatar({required this.user, required this.size});
+  const _ChatAvatar({super.key, required this.user, required this.size});
   final ChatUser user;
   final double size;
 
