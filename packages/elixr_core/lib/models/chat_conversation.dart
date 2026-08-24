@@ -7,6 +7,7 @@ class ChatConversation {
     required this.updatedAt,
     required this.unreadCounts,
     required this.readAt,
+    this.clearedAt = const {},
     required this.status,
     this.lastMessageId,
     this.lastMessageBody,
@@ -23,6 +24,7 @@ class ChatConversation {
   final DateTime updatedAt;
   final Map<String, int> unreadCounts;
   final Map<String, DateTime?> readAt;
+  final Map<String, DateTime?> clearedAt;
   final String status;
 
   bool get isArchived => status == 'archived';
@@ -35,6 +37,14 @@ class ChatConversation {
   }
 
   int unreadFor(String userId) => unreadCounts[userId] ?? 0;
+
+  DateTime? clearedAtFor(String userId) => clearedAt[userId];
+
+  bool isClearedFor(String userId) {
+    final cleared = clearedAtFor(userId);
+    final latest = lastMessageAt;
+    return cleared != null && (latest == null || !latest.isAfter(cleared));
+  }
 
   static ChatConversation? tryFromMap(
     Map<String, dynamic> map, {
@@ -78,6 +88,15 @@ class ChatConversation {
         }
       }
     }
+    final clearedAt = <String, DateTime?>{};
+    final rawClearedAt = map['cleared_at'];
+    if (rawClearedAt is Map) {
+      for (final entry in rawClearedAt.entries) {
+        if (entry.key is String) {
+          clearedAt[entry.key as String] = readDate(entry.value);
+        }
+      }
+    }
     return ChatConversation(
       id: id,
       participants: participants,
@@ -94,6 +113,7 @@ class ChatConversation {
       updatedAt: updatedAt,
       unreadCounts: unread,
       readAt: readAt,
+      clearedAt: clearedAt,
       status: status,
     );
   }

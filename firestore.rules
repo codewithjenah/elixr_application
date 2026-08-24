@@ -3641,7 +3641,7 @@ service cloud.firestore {
           'participant_snapshots', 'last_message_id',
           'last_message_body', 'last_message_sender_id', 'last_message_at',
           'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
-          'schema_version'
+          'schema_version', 'cleared_at'
         ]);
     }
     function validChatConversationCreate(data, conversationId) {
@@ -3665,6 +3665,7 @@ service cloud.firestore {
         && data.unread_counts.keys().hasOnly(data.participant_ids)
         && data.unread_counts[sender] == 0
         && data.unread_counts[recipient] == 1
+        && data.get('cleared_at', {}).size() == 0
         && data.read_at is map
         && data.read_at.keys().hasAll(data.participant_ids)
         && data.read_at.keys().hasOnly(data.participant_ids)
@@ -3722,6 +3723,41 @@ service cloud.firestore {
         && after.read_at[caller] == request.time
         && after.read_at[other] == before.read_at[other];
     }
+    function validChatUnreadUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let caller = request.auth.uid;
+      let other = otherChatParticipant(before, caller);
+      return isChatParticipant(before)
+        && after.diff(before).affectedKeys().hasOnly(['unread_counts'])
+        && after.unread_counts.keys().hasAll(before.participant_ids)
+        && after.unread_counts.keys().hasOnly(before.participant_ids)
+        && after.unread_counts[caller] == 1
+        && after.unread_counts[other] == before.unread_counts[other];
+    }
+    function validChatClearUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let caller = request.auth.uid;
+      let other = otherChatParticipant(before, caller);
+      let beforeCleared = before.get('cleared_at', {});
+      return isChatParticipant(before)
+        && after.diff(before).affectedKeys().hasOnly([
+          'unread_counts', 'read_at', 'cleared_at'
+        ])
+        && after.unread_counts.keys().hasAll(before.participant_ids)
+        && after.unread_counts.keys().hasOnly(before.participant_ids)
+        && after.unread_counts[caller] == 0
+        && after.unread_counts[other] == before.unread_counts[other]
+        && after.read_at.keys().hasAll(before.participant_ids)
+        && after.read_at.keys().hasOnly(before.participant_ids)
+        && after.read_at[caller] == request.time
+        && after.read_at[other] == before.read_at[other]
+        && after.cleared_at is map
+        && after.cleared_at.keys().hasOnly(before.participant_ids)
+        && after.cleared_at[caller] == request.time
+        && after.cleared_at.get(other, null) == beforeCleared.get(other, null);
+    }
     function validLatestMessageSummaryUpdate(conversationId) {
       let before = resource.data;
       let after = request.resource.data;
@@ -3778,6 +3814,8 @@ service cloud.firestore {
       );
       allow update: if validChatSendUpdate(conversationId)
         || validChatReadUpdate()
+        || validChatUnreadUpdate()
+        || validChatClearUpdate()
         || validLatestMessageSummaryUpdate(conversationId);
       allow delete: if false;
 

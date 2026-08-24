@@ -299,13 +299,43 @@ class _InboxList extends StatelessWidget {
           unread: conversation.unreadFor(controller.currentUser.id),
           selected: controller.selectedConversation?.id == conversation.id,
           onPressed: () => controller.openConversation(conversation),
+          onMarkUnread: () => controller.markConversationUnread(conversation),
+          onDelete: () => _confirmDelete(context, conversation, user),
         );
       },
     );
   }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    ChatConversation conversation,
+    ChatUser user,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: const Text('Delete conversation?'),
+        content: Text(
+          'This removes your conversation with ${user.displayName} from your '
+          'inbox. It does not delete their copy, and this cannot be undone.',
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.clearConversation(conversation);
+  }
 }
 
-class _PersonTile extends StatelessWidget {
+class _PersonTile extends StatefulWidget {
   const _PersonTile({
     required this.user,
     required this.subtitle,
@@ -313,6 +343,8 @@ class _PersonTile extends StatelessWidget {
     required this.onPressed,
     this.timestamp,
     this.unread = 0,
+    this.onMarkUnread,
+    this.onDelete,
   });
 
   final ChatUser user;
@@ -321,17 +353,57 @@ class _PersonTile extends StatelessWidget {
   final VoidCallback onPressed;
   final DateTime? timestamp;
   final int unread;
+  final VoidCallback? onMarkUnread;
+  final VoidCallback? onDelete;
+
+  @override
+  State<_PersonTile> createState() => _PersonTileState();
+}
+
+class _PersonTileState extends State<_PersonTile> {
+  final _menuController = FlyoutController();
+
+  @override
+  void dispose() {
+    _menuController.dispose();
+    super.dispose();
+  }
+
+  void _showMenu() {
+    _menuController.showFlyout<void>(
+      placementMode: FlyoutPlacementMode.bottomRight,
+      builder: (context) => MenuFlyout(
+        constraints: const BoxConstraints(minWidth: 190),
+        items: [
+          MenuFlyoutItem(
+            leading: const Icon(FluentIcons.mail),
+            text: const Text('Mark as unread'),
+            onPressed: widget.unread > 0 ? null : widget.onMarkUnread,
+          ),
+          const MenuFlyoutSeparator(),
+          MenuFlyoutItem(
+            leading: const Icon(FluentIcons.delete),
+            text: const Text(
+              'Delete conversation',
+              style: TextStyle(color: AppColors.error),
+            ),
+            onPressed: widget.onDelete,
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: HoverButton(
-        onPressed: onPressed,
+        onPressed: widget.onPressed,
         builder: (context, states) => Container(
           padding: const EdgeInsets.all(AppSpacing.sm),
           decoration: BoxDecoration(
-            color: selected
+            color: widget.selected
                 ? AppColors.primary.withValues(alpha: 0.12)
                 : states.isHovered
                 ? context.elixBorder.withValues(alpha: 0.25)
@@ -340,7 +412,7 @@ class _PersonTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _ChatAvatar(user: user, size: 38),
+              _ChatAvatar(user: widget.user, size: 38),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
@@ -350,19 +422,19 @@ class _PersonTile extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            user.displayName,
+                            widget.user.displayName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.body.copyWith(
-                              fontWeight: unread > 0
+                              fontWeight: widget.unread > 0
                                   ? FontWeight.w700
                                   : FontWeight.w600,
                             ),
                           ),
                         ),
-                        if (timestamp != null)
+                        if (widget.timestamp != null)
                           Text(
-                            _compactTime(timestamp!),
+                            _compactTime(widget.timestamp!),
                             style: AppTheme.caption.copyWith(
                               color: context.elixTextSecondary,
                             ),
@@ -374,16 +446,18 @@ class _PersonTile extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            subtitle,
+                            widget.subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.caption.copyWith(
                               color: context.elixTextSecondary,
-                              fontWeight: unread > 0 ? FontWeight.w600 : null,
+                              fontWeight: widget.unread > 0
+                                  ? FontWeight.w600
+                                  : null,
                             ),
                           ),
                         ),
-                        if (unread > 0) ...[
+                        if (widget.unread > 0) ...[
                           const SizedBox(width: AppSpacing.xs),
                           Container(
                             constraints: const BoxConstraints(minWidth: 20),
@@ -398,7 +472,7 @@ class _PersonTile extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              unread > 99 ? '99+' : '$unread',
+                              widget.unread > 99 ? '99+' : '${widget.unread}',
                               textAlign: TextAlign.center,
                               style: AppTheme.caption.copyWith(
                                 color: Colors.white,
@@ -412,6 +486,24 @@ class _PersonTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (widget.onDelete != null) ...[
+                const SizedBox(width: 2),
+                AnimatedOpacity(
+                  duration: const Duration(milliseconds: 120),
+                  opacity: states.isHovered || widget.selected ? 1 : 0,
+                  child: IgnorePointer(
+                    ignoring: !states.isHovered && !widget.selected,
+                    child: FlyoutTarget(
+                      controller: _menuController,
+                      child: IconButton(
+                        key: ValueKey('conversation-menu-${widget.user.id}'),
+                        icon: const Icon(FluentIcons.more_vertical, size: 16),
+                        onPressed: _showMenu,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

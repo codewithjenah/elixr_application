@@ -116,6 +116,7 @@ class FirebaseChatRepository implements ChatRepository {
           (snapshot) => snapshot.docs
               .map(_conversationFromDocument)
               .whereType<ChatConversation>()
+              .where((item) => !item.isClearedFor(currentUserId))
               .toList(growable: false),
         )
         .handleError((Object error) => throw _classify(error));
@@ -385,6 +386,61 @@ class FirebaseChatRepository implements ChatRepository {
         final readAt = _dynamicMap(snapshot.data()?['read_at']);
         readAt[currentUserId] = FieldValue.serverTimestamp();
         transaction.update(ref, {'unread_counts': unread, 'read_at': readAt});
+      });
+    } catch (error) {
+      throw _classify(error);
+    }
+  }
+
+  @override
+  Future<void> markUnread({
+    required String conversationId,
+    required String currentUserId,
+  }) async {
+    final ref = _conversations.doc(conversationId);
+    try {
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(ref);
+        if (!snapshot.exists) return;
+        final participants = snapshot.data()?['participant_ids'];
+        if (participants is! List || !participants.contains(currentUserId)) {
+          throw const ChatException(ChatError.permissionDenied);
+        }
+        final unread = _intMap(snapshot.data()?['unread_counts']);
+        unread[currentUserId] = 1;
+        transaction.update(ref, {'unread_counts': unread});
+      });
+    } catch (error) {
+      throw _classify(error);
+    }
+  }
+
+  @override
+  Future<void> clearConversation({
+    required String conversationId,
+    required String currentUserId,
+  }) async {
+    final ref = _conversations.doc(conversationId);
+    try {
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(ref);
+        if (!snapshot.exists) return;
+        final data = snapshot.data()!;
+        final participants = data['participant_ids'];
+        if (participants is! List || !participants.contains(currentUserId)) {
+          throw const ChatException(ChatError.permissionDenied);
+        }
+        final unread = _intMap(data['unread_counts']);
+        unread[currentUserId] = 0;
+        final readAt = _dynamicMap(data['read_at']);
+        readAt[currentUserId] = FieldValue.serverTimestamp();
+        final clearedAt = _dynamicMap(data['cleared_at']);
+        clearedAt[currentUserId] = FieldValue.serverTimestamp();
+        transaction.update(ref, {
+          'unread_counts': unread,
+          'read_at': readAt,
+          'cleared_at': clearedAt,
+        });
       });
     } catch (error) {
       throw _classify(error);

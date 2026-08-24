@@ -219,12 +219,17 @@ class MessagesController extends ChangeNotifier {
         .watchMessages(conversationId: id)
         .listen(
           (page) {
-            final liveIds = page.messages.map((message) => message.id).toSet();
+            final visiblePage = page.messages
+                .where(_isVisibleAfterClear)
+                .toList(growable: false);
+            final reachedClearCutoff =
+                visiblePage.length != page.messages.length;
+            final liveIds = visiblePage.map((message) => message.id).toSet();
             final optimistic = messages.where(
               (message) =>
                   message.deliveryState == ChatDeliveryState.error ||
                   (message.deliveryState == ChatDeliveryState.sending &&
-                      !page.messages.any(
+                      !visiblePage.any(
                         (saved) =>
                             saved.senderId == message.senderId &&
                             saved.body == message.body &&
@@ -242,13 +247,13 @@ class MessagesController extends ChangeNotifier {
                   )
                 : const <ChatMessage>[];
             messages = _deduplicate([
-              ...page.messages,
+              ...visiblePage,
               ...retainedOlder,
               ...optimistic,
             ]);
             if (!_hasLoadedOlder) {
               _messageCursor = page.nextCursor;
-              hasOlder = page.hasMore;
+              hasOlder = page.hasMore && !reachedClearCutoff;
             }
             messageState = messages.isEmpty
                 ? MessagePaneState.empty
@@ -277,10 +282,14 @@ class MessagesController extends ChangeNotifier {
         conversationId: id,
         startAfter: cursor,
       );
-      messages = _deduplicate([...messages, ...page.messages]);
+      final visiblePage = page.messages
+          .where(_isVisibleAfterClear)
+          .toList(growable: false);
+      final reachedClearCutoff = visiblePage.length != page.messages.length;
+      messages = _deduplicate([...messages, ...visiblePage]);
       _hasLoadedOlder = true;
       _messageCursor = page.nextCursor;
-      hasOlder = page.hasMore;
+      hasOlder = page.hasMore && !reachedClearCutoff;
     } catch (error) {
       paginationError = error;
     } finally {
@@ -393,6 +402,33 @@ class MessagesController extends ChangeNotifier {
     }
   }
 
+  Future<void> markConversationUnread(ChatConversation conversation) async {
+    if (conversation.unreadFor(currentUser.id) > 0) return;
+    if (selectedConversation?.id == conversation.id) showInboxPane();
+    try {
+      await repository.markUnread(
+        conversationId: conversation.id,
+        currentUserId: currentUser.id,
+      );
+    } catch (_) {
+      alertMessage = 'Could not mark the conversation as unread.';
+      _notify();
+    }
+  }
+
+  Future<void> clearConversation(ChatConversation conversation) async {
+    if (selectedConversation?.id == conversation.id) showInboxPane();
+    try {
+      await repository.clearConversation(
+        conversationId: conversation.id,
+        currentUserId: currentUser.id,
+      );
+    } catch (_) {
+      alertMessage = 'Could not delete the conversation.';
+      _notify();
+    }
+  }
+
   bool isLatestOutgoingSeen(ChatMessage message) {
     final conversation = selectedConversation;
     final other = selectedUser;
@@ -411,6 +447,11 @@ class MessagesController extends ChangeNotifier {
     if (latestOutgoing?.id != message.id) return false;
     final seenAt = conversation.readAt[other.id];
     return seenAt != null && !seenAt.isBefore(message.createdAt);
+  }
+
+  bool _isVisibleAfterClear(ChatMessage message) {
+    final cutoff = selectedConversation?.clearedAtFor(currentUser.id);
+    return cutoff == null || message.createdAt.isAfter(cutoff);
   }
 
   void showInboxPane() {

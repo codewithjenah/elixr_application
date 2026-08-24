@@ -104,6 +104,37 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('conversation actions stay in an overflow menu', (tester) async {
+    final authUser = auth.currentUser!;
+    await repository.sendMessage(
+      sender: trainee,
+      recipient: ChatUser(
+        id: authUser.id!,
+        displayName: authUser.fullName,
+        role: authUser.role,
+      ),
+      body: 'Menu test',
+    );
+    await pump(tester, size: const Size(1200, 800));
+
+    expect(find.text('Mark as unread'), findsNothing);
+    expect(find.text('Delete conversation'), findsNothing);
+
+    final row = find.text('Terry Trainee');
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('conversation-menu-trainee')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mark as unread'), findsOneWidget);
+    expect(find.text('Delete conversation'), findsOneWidget);
+
+    await tester.tap(find.text('Delete conversation'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete conversation?'), findsOneWidget);
+    expect(find.textContaining('does not delete their copy'), findsOneWidget);
+  });
 }
 
 Finder _composerFinder() => find.byWidgetPredicate(

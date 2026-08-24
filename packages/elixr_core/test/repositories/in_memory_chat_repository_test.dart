@@ -159,4 +159,66 @@ void main() {
       isEmpty,
     );
   });
+
+  test('mark unread adds one unread marker for only the caller', () async {
+    final repository = InMemoryChatRepository();
+    addTearDown(repository.dispose);
+    final message = await repository.sendMessage(
+      sender: teacher,
+      recipient: trainee,
+      body: 'Read this',
+    );
+    await repository.markRead(
+      conversationId: message.conversationId,
+      currentUserId: trainee.id,
+    );
+
+    await repository.markUnread(
+      conversationId: message.conversationId,
+      currentUserId: trainee.id,
+    );
+
+    expect(
+      repository.conversations[message.conversationId]!.unreadFor(trainee.id),
+      1,
+    );
+    expect(
+      repository.conversations[message.conversationId]!.unreadFor(teacher.id),
+      0,
+    );
+  });
+
+  test(
+    'clear hides only the caller copy and later messages restore the row',
+    () async {
+      final repository = InMemoryChatRepository();
+      addTearDown(repository.dispose);
+      final oldMessage = await repository.sendMessage(
+        sender: teacher,
+        recipient: trainee,
+        body: 'Old history',
+      );
+
+      await repository.clearConversation(
+        conversationId: oldMessage.conversationId,
+        currentUserId: trainee.id,
+      );
+
+      expect(await repository.watchInbox(trainee.id).first, isEmpty);
+      expect(await repository.watchInbox(teacher.id).first, hasLength(1));
+
+      await repository.sendMessage(
+        sender: teacher,
+        recipient: trainee,
+        body: 'New message',
+      );
+      expect(await repository.watchInbox(trainee.id).first, hasLength(1));
+      expect(
+        repository.conversations[oldMessage.conversationId]!.clearedAtFor(
+          trainee.id,
+        ),
+        isNotNull,
+      );
+    },
+  );
 }

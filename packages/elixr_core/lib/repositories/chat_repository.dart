@@ -62,6 +62,14 @@ abstract class ChatRepository {
     required String conversationId,
     required String currentUserId,
   });
+  Future<void> markUnread({
+    required String conversationId,
+    required String currentUserId,
+  });
+  Future<void> clearConversation({
+    required String conversationId,
+    required String currentUserId,
+  });
   Stream<ChatBlockState> watchBlockState({
     required String currentUserId,
     required String otherUserId,

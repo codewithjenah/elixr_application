@@ -41,7 +41,11 @@ class InMemoryChatRepository implements ChatRepository {
     List<ChatConversation> current() {
       final result =
           conversations.values
-              .where((item) => item.participants.containsKey(currentUserId))
+              .where(
+                (item) =>
+                    item.participants.containsKey(currentUserId) &&
+                    !item.isClearedFor(currentUserId),
+              )
               .toList()
             ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       return result;
@@ -130,6 +134,7 @@ class InMemoryChatRepository implements ChatRepository {
       updatedAt: now,
       unreadCounts: unread,
       readAt: {...?existing?.readAt, sender.id: now},
+      clearedAt: existing?.clearedAt ?? const {},
       status: existing?.status ?? 'active',
     );
     _messageChanges.add(id);
@@ -213,6 +218,7 @@ class InMemoryChatRepository implements ChatRepository {
       updatedAt: old.updatedAt,
       unreadCounts: old.unreadCounts,
       readAt: old.readAt,
+      clearedAt: old.clearedAt,
       status: old.status,
     );
     _inboxChanges.add(null);
@@ -235,6 +241,54 @@ class InMemoryChatRepository implements ChatRepository {
       updatedAt: old.updatedAt,
       unreadCounts: {...old.unreadCounts, currentUserId: 0},
       readAt: {...old.readAt, currentUserId: DateTime.now().toUtc()},
+      clearedAt: old.clearedAt,
+      status: old.status,
+    );
+    _inboxChanges.add(null);
+  }
+
+  @override
+  Future<void> markUnread({
+    required String conversationId,
+    required String currentUserId,
+  }) async {
+    final old = conversations[conversationId];
+    if (old == null || !old.participants.containsKey(currentUserId)) return;
+    conversations[conversationId] = ChatConversation(
+      id: old.id,
+      participants: old.participants,
+      lastMessageId: old.lastMessageId,
+      lastMessageBody: old.lastMessageBody,
+      lastMessageSenderId: old.lastMessageSenderId,
+      lastMessageAt: old.lastMessageAt,
+      updatedAt: old.updatedAt,
+      unreadCounts: {...old.unreadCounts, currentUserId: 1},
+      readAt: old.readAt,
+      clearedAt: old.clearedAt,
+      status: old.status,
+    );
+    _inboxChanges.add(null);
+  }
+
+  @override
+  Future<void> clearConversation({
+    required String conversationId,
+    required String currentUserId,
+  }) async {
+    final old = conversations[conversationId];
+    if (old == null || !old.participants.containsKey(currentUserId)) return;
+    final now = DateTime.now().toUtc();
+    conversations[conversationId] = ChatConversation(
+      id: old.id,
+      participants: old.participants,
+      lastMessageId: old.lastMessageId,
+      lastMessageBody: old.lastMessageBody,
+      lastMessageSenderId: old.lastMessageSenderId,
+      lastMessageAt: old.lastMessageAt,
+      updatedAt: old.updatedAt,
+      unreadCounts: {...old.unreadCounts, currentUserId: 0},
+      readAt: {...old.readAt, currentUserId: now},
+      clearedAt: {...old.clearedAt, currentUserId: now},
       status: old.status,
     );
     _inboxChanges.add(null);

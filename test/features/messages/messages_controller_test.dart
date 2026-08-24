@@ -129,6 +129,73 @@ void main() {
       expect(controller.hasOlder, isFalse);
     },
   );
+
+  test(
+    'cleared history stays hidden when a later message restores chat',
+    () async {
+      final repository = InMemoryChatRepository();
+      addTearDown(repository.dispose);
+      final controller = MessagesController(
+        repository: repository,
+        currentUser: current,
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await repository.sendMessage(
+        sender: other,
+        recipient: current,
+        body: 'Old message',
+      );
+      await Future<void>.delayed(Duration.zero);
+      final conversation = repository.conversations.values.single;
+
+      await controller.clearConversation(conversation);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.inbox, isEmpty);
+
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      await repository.sendMessage(
+        sender: other,
+        recipient: current,
+        body: 'New message',
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      await controller.openConversation(controller.inbox.single);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.messages.map((message) => message.body), [
+        'New message',
+      ]);
+    },
+  );
+
+  test('mark unread closes an open thread and creates one marker', () async {
+    final repository = InMemoryChatRepository();
+    addTearDown(repository.dispose);
+    final controller = MessagesController(
+      repository: repository,
+      currentUser: current,
+    );
+    addTearDown(controller.dispose);
+    await repository.sendMessage(
+      sender: other,
+      recipient: current,
+      body: 'Remember this',
+    );
+    controller.start();
+    await Future<void>.delayed(Duration.zero);
+    await controller.openConversation(controller.inbox.single);
+    await Future<void>.delayed(Duration.zero);
+    final conversation = repository.conversations.values.single;
+
+    await controller.markConversationUnread(conversation);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.selectedConversation, isNull);
+    expect(controller.selectedUser, isNull);
+    expect(repository.conversations[conversation.id]!.unreadFor(current.id), 1);
+  });
 }
 
 class _CountingChatRepository extends InMemoryChatRepository {

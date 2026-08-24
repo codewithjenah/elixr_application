@@ -362,7 +362,11 @@ transaction may read the missing deterministic conversation document before
 creating it; existing conversations remain readable only by their participants.
 Later sends update the last-message summary, increment only the recipient's
 unread count, and keep the sender count at zero. Opening a thread advances only
-the caller's read timestamp. Authors may edit or soft-delete their messages;
+the caller's read timestamp. A participant may mark a conversation unread or
+clear it from only their own inbox; `cleared_at` is a per-participant cutoff, so
+the other participant retains their history and a later message restores the
+conversation without exposing messages at or before the caller's cutoff.
+Authors may edit or soft-delete their messages;
 blocks preserve readable history but prevent either participant from sending.
 `participant_ids` remains the canonical sorted pair; `participant_a` and
 `participant_b` mirror its two positions so Firestore rules can authorize the

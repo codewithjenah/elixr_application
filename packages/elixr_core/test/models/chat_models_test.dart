@@ -63,6 +63,8 @@ void main() {
         'updated_at': now,
         'unread_counts': {'teacher': 0, 'broken': -1},
         'read_at': {'teacher': now},
+        'cleared_at': {'teacher': now, 'broken': 'invalid'},
+        'last_message_at': now,
         'status': 'active',
       },
       id: 'conversation',
@@ -70,6 +72,8 @@ void main() {
     );
     expect(conversation?.participants.keys, ['teacher']);
     expect(conversation?.unreadCounts, {'teacher': 0});
+    expect(conversation?.clearedAtFor('teacher'), now);
+    expect(conversation?.isClearedFor('teacher'), isTrue);
     expect(
       ChatConversation.tryFromMap(
         {'participant_snapshots': {}, 'updated_at': now, 'status': 'active'},
