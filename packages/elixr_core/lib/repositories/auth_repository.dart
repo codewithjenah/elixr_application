@@ -78,6 +78,36 @@ class GoogleSignInCancelledException implements Exception {
   String toString() => 'Google sign-in was cancelled.';
 }
 
+/// Google OAuth tokens acquired by a platform-specific interactive flow.
+///
+/// Windows cannot use Firebase C++'s `SignInWithProvider`, so the desktop app
+/// supplies this flow and the repository exchanges the resulting Google token
+/// for the normal Firebase credential.
+class GoogleOAuthCredential {
+  const GoogleOAuthCredential({
+    this.idToken,
+    this.accessToken,
+    required this.isNewUser,
+  });
+
+  final String? idToken;
+  final String? accessToken;
+  final bool isNewUser;
+}
+
+abstract class GoogleOAuthFlow {
+  Future<GoogleOAuthCredential> authenticate();
+}
+
+class GoogleOAuthFlowException implements Exception {
+  const GoogleOAuthFlowException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class AccountReauthentication {
   const AccountReauthentication.password(this.password)
     : kind = AuthProviderKind.password;
@@ -572,6 +602,7 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
     FirebaseStorage? storage,
     TeacherAccessCodeRepository? teacherAccessCodeRepository,
     Future<List<String>> Function(String userId)? listProfileStorageObjectPaths,
+    GoogleOAuthFlow? googleOAuthFlow,
     this.createMissingProfile = true,
   }) : _auth = auth ?? fb.FirebaseAuth.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
@@ -587,7 +618,8 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
            FirebaseTeacherAccessCodeRepository(
              firestore: firestore ?? FirebaseFirestore.instance,
            ),
-       _listProfileStorageObjectPaths = listProfileStorageObjectPaths;
+       _listProfileStorageObjectPaths = listProfileStorageObjectPaths,
+       _googleOAuthFlow = googleOAuthFlow;
 
   static const _authOperationTimeout = Duration(seconds: 30);
   static const _batchLimit = 500;
@@ -602,6 +634,7 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
   final TeacherAccessCodeRepository _teacherAccessCodes;
   final Future<List<String>> Function(String userId)?
   _listProfileStorageObjectPaths;
+  final GoogleOAuthFlow? _googleOAuthFlow;
 
   /// When false, a Firebase session without a Firestore profile is signed out
   /// instead of synthesizing a Trainee document. Teacher clients pass false
@@ -703,10 +736,27 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
   @override
   Future<GoogleSignInResult> signInWithGoogle() async {
     try {
-      final credential = await _auth
-          .signInWithProvider(fb.GoogleAuthProvider())
-          .timeout(_authOperationTimeout);
-      return await _googleResultForCredential(credential);
+      final oauthCredential = await _acquireGoogleOAuthCredential();
+      final credential = oauthCredential == null
+          ? await _auth
+                .signInWithProvider(fb.GoogleAuthProvider())
+                .timeout(_authOperationTimeout)
+          : await _auth
+                .signInWithCredential(
+                  fb.GoogleAuthProvider.credential(
+                    idToken: oauthCredential.idToken,
+                    accessToken: oauthCredential.accessToken,
+                  ),
+                )
+                .timeout(_authOperationTimeout);
+      return await _googleResultForCredential(
+        credential,
+        isNewUserOverride: oauthCredential?.isNewUser,
+      );
+    } on GoogleSignInCancelledException {
+      rethrow;
+    } on GoogleOAuthFlowException catch (e) {
+      throw Exception(e.message);
     } on fb.FirebaseAuthException catch (e) {
       if (_isGoogleCancellation(e.code)) {
         throw const GoogleSignInCancelledException();
@@ -777,9 +827,23 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
 
     fb.UserCredential credential;
     try {
-      credential = await _auth
-          .signInWithProvider(fb.GoogleAuthProvider())
-          .timeout(_authOperationTimeout);
+      final oauthCredential = await _acquireGoogleOAuthCredential();
+      credential = oauthCredential == null
+          ? await firebaseUser
+                .reauthenticateWithProvider(fb.GoogleAuthProvider())
+                .timeout(_authOperationTimeout)
+          : await firebaseUser
+                .reauthenticateWithCredential(
+                  fb.GoogleAuthProvider.credential(
+                    idToken: oauthCredential.idToken,
+                    accessToken: oauthCredential.accessToken,
+                  ),
+                )
+                .timeout(_authOperationTimeout);
+    } on GoogleSignInCancelledException {
+      rethrow;
+    } on GoogleOAuthFlowException catch (e) {
+      throw Exception(e.message);
     } on fb.FirebaseAuthException catch (e) {
       if (_isGoogleCancellation(e.code)) {
         throw const GoogleSignInCancelledException();
@@ -818,8 +882,9 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
   }
 
   Future<GoogleSignInResult> _googleResultForCredential(
-    fb.UserCredential credential,
-  ) async {
+    fb.UserCredential credential, {
+    bool? isNewUserOverride,
+  }) async {
     final firebaseUser = credential.user;
     if (firebaseUser == null) {
       throw Exception('Google did not return an authenticated account.');
@@ -829,9 +894,25 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
     return PendingGoogleSignIn(
       _pendingGoogleProfile(
         firebaseUser,
-        isNewUser: credential.additionalUserInfo?.isNewUser == true,
+        isNewUser:
+            isNewUserOverride ??
+            credential.additionalUserInfo?.isNewUser == true,
       ),
     );
+  }
+
+  Future<GoogleOAuthCredential?> _acquireGoogleOAuthCredential() async {
+    final flow = _googleOAuthFlow;
+    if (flow == null) return null;
+    final credential = await flow.authenticate();
+    final hasIdToken = credential.idToken?.trim().isNotEmpty == true;
+    final hasAccessToken = credential.accessToken?.trim().isNotEmpty == true;
+    if (!hasIdToken && !hasAccessToken) {
+      throw const GoogleOAuthFlowException(
+        'Google did not return a usable sign-in credential. Please try again.',
+      );
+    }
+    return credential;
   }
 
   Future<User?> _loadExistingGoogleProfile(fb.User firebaseUser) async {
@@ -1916,6 +1997,10 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
         return 'Could not reach Google. Check your internet connection and try again.';
       case 'operation-not-allowed':
         return 'Google sign-in is not enabled for this Firebase project.';
+      case 'user-mismatch':
+        return 'Google verified a different account. No account data was deleted.';
+      case 'unimplemented':
+        return 'Google sign-in is unavailable in this Windows build. Please update ELIXR.';
       case 'user-disabled':
         return 'This account has been disabled.';
       default:

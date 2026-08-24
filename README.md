@@ -161,8 +161,13 @@ For the existing project:
    on the one-account-per-email setting. ELIXR relies on the Firebase UID to
    preserve an existing Trainee or Teacher profile when Google verifies the
    same email address.
-3. Create Cloud Firestore.
-4. Deploy the repository's rules and indexes when they change:
+3. Keep `localhost` in Authentication > Settings > Authorized domains. The
+   Windows Google flow uses a short-lived, nonce-protected localhost callback
+   opened in Microsoft Edge when available. Privacy-hardened browsers can block
+   Firebase's cross-origin authentication helper; the system default is used
+   only when Edge is unavailable.
+4. Create Cloud Firestore.
+5. Deploy the repository's rules and indexes when they change:
 
 ```powershell
 firebase deploy --only firestore

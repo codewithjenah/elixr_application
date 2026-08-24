@@ -10,8 +10,10 @@ import '../core/constants/app_constants.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
+import '../firebase_options.dart';
 import 'auth_email_callback_server.dart';
 import 'join_link_service.dart';
+import 'windows_google_oauth_flow.dart';
 
 /// Account-scoped phrase used as a deliberate-action safeguard in the UI.
 ///
@@ -56,7 +58,18 @@ class AuthService extends ChangeNotifier {
     Duration? verificationResendCooldown,
     JoinLinkService? joinLinkService,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
-  }) : _repository = repository ?? AuthRepository(createMissingProfile: false),
+  }) : _repository =
+           repository ??
+           AuthRepository(
+             createMissingProfile: false,
+             // Firebase's native Windows app options do not preserve the
+             // web-only authDomain needed by the browser OAuth page. Use the
+             // generated source configuration directly instead of reading the
+             // options back through Firebase.app().
+             googleOAuthFlow: WindowsGoogleOAuthFlow(
+               firebaseOptions: DefaultFirebaseOptions.currentPlatform,
+             ),
+           ),
        _leaderboardRepository = leaderboardRepository,
        _publicProfileRepository = publicProfileRepository,
        _explicitProfileImageRepository = profileImageRepository,
