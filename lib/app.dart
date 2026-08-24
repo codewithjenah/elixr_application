@@ -17,7 +17,6 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
-import 'data/repositories/email_link_ack_store.dart';
 import 'data/repositories/leaderboard_repository.dart';
 import 'data/repositories/public_profile_repository.dart';
 import 'data/repositories/classroom_assignment_repository.dart';
@@ -76,7 +75,6 @@ class _ElixrAppState extends State<ElixrApp> {
       leaderboardRepository: LeaderboardRepository(),
       publicProfileRepository: _publicProfileRepository,
       joinLinkService: _joinLinkService,
-      emailLinkAckStore: FirestoreEmailLinkAckStore(),
     );
     unawaited(_authService.initialize());
     _settingsService = SettingsService()..initialize();

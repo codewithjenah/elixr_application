@@ -54,12 +54,6 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
-
-  @override
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
@@ -137,7 +131,10 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email, String? continueUrl}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<User?> loadPersistedUser() async => _user;
@@ -164,7 +161,10 @@ class _TrackingAuthRepository implements AuthRepositoryBase {
     required String newPassword,
   }) async {}
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 }
 
 class _TrackingProfileImageRepository implements ProfileImageRepositoryBase {

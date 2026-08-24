@@ -64,12 +64,6 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
-
-  @override
   Future<User?> refreshAuthenticatedUser() async => null;
 
   @override
@@ -97,7 +91,10 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
     required String newPassword,
   }) async {}
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 }
 
 void main() {

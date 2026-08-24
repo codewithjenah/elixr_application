@@ -27,23 +27,13 @@ class _StubAuthRepository implements AuthRepositoryBase {
   Object? deleteError;
   int deleteAccountCallCount = 0;
   String? lastDeletePassword;
-  bool verificationRequested = false;
+  String? lastExpectedUserId;
 
   @override
   Future<bool> isCurrentEmailVerified() async => true;
 
   @override
-  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {
-    verificationRequested = true;
-  }
-
-  @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {
-    verificationRequested = true;
-  }
+  Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
   Future<EmailChangeRequestResult> requestEmailChange({
@@ -114,9 +104,13 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }) async {}
 
   @override
-  Future<void> deleteAccount({required String password}) async {
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {
     deleteAccountCallCount++;
     lastDeletePassword = password;
+    lastExpectedUserId = expectedUserId;
     if (deleteError != null) throw deleteError!;
     _user = null;
   }
@@ -169,7 +163,6 @@ void main() {
       repository: repository,
       leaderboardRepository: null,
       profileImageRepository: _NoopImages(),
-      generateDeleteVerificationCode: () => '123456',
       emailCallbackServer: MemoryAuthEmailCallbackServer(),
     );
     authService.seedAuthenticatedUser(
@@ -235,10 +228,10 @@ void main() {
     expect(find.text('Change password'), findsOneWidget);
   });
 
-  testWidgets('Delete account dialog requires password and confirm gate', (
+  testWidgets('Delete account separates phrase and password confirmation', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.physicalSize = const Size(1280, 768);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -267,61 +260,81 @@ void main() {
     );
     await tester.pump();
 
+    await tester.ensureVisible(find.text('Delete account').last);
     await tester.tap(find.text('Delete account').last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(repository.verificationRequested, isTrue);
+    expect(find.textContaining('delete user@example.com'), findsWidgets);
+    expect(find.textContaining('verification link'), findsNothing);
+    expect(find.text('Delete account permanently?'), findsOneWidget);
+    final phraseDialog = find.byKey(const ValueKey('delete-phrase-dialog'));
     expect(
-      find.textContaining('We sent a verification link to user@example.com'),
+      find.descendant(
+        of: phraseDialog,
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsNothing,
+    );
+    final dialogRect = tester.getRect(phraseDialog);
+    expect(dialogRect.top, greaterThanOrEqualTo(0));
+    expect(dialogRect.bottom, lessThanOrEqualTo(768));
+    expect(
+      find.text('Required. Type the full phrase exactly as shown.'),
       findsOneWidget,
     );
-    expect(find.text('Delete account permanently?'), findsOneWidget);
     expect(
       find.textContaining('Practice sessions and feedback'),
       findsOneWidget,
     );
 
+    final continueAction = find.widgetWithText(FilledButton, 'Continue');
+    expect(tester.widget<FilledButton>(continueAction).onPressed, isNull);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('delete-phrase-field')),
+      'delete user@example.com',
+    );
+    await tester.pump();
+
+    expect(find.text('Phrase matches.'), findsOneWidget);
+    expect(tester.widget<FilledButton>(continueAction).onPressed, isNotNull);
+    expect(find.byKey(const ValueKey('delete-password-field')), findsNothing);
+
+    await tester.tap(continueAction);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirm your identity'), findsOneWidget);
+    expect(find.text('Step 2 of 2 · Final security check'), findsOneWidget);
+    expect(find.byKey(const ValueKey('delete-phrase-field')), findsNothing);
     expect(
-      find.textContaining('Waiting for you to click the verification link'),
+      find.text('Required to verify that this is your account.'),
       findsOneWidget,
     );
 
-    authService.handleEmailActionCallback(
-      Uri.parse('http://localhost:1/elixr-auth?mode=delete&token=123456'),
+    final deleteAction = find.widgetWithText(
+      FilledButton,
+      'Delete permanently',
     );
-    await tester.pump();
-
-    expect(find.textContaining('Email confirmed'), findsOneWidget);
+    expect(tester.widget<FilledButton>(deleteAction).onPressed, isNull);
     await tester.enterText(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextBox && widget.placeholder == 'Enter your password',
-      ),
+      find.byKey(const ValueKey('delete-password-field')),
       'secret',
     );
     await tester.pump();
-
-    final confirmLabel = find.text(
-      'I understand this permanently deletes my account and data',
-    );
-    await tester.ensureVisible(confirmLabel);
-    await tester.tap(confirmLabel);
-    await tester.pump();
-
-    final deleteAction = find.widgetWithText(FilledButton, 'Delete account');
-    await tester.ensureVisible(deleteAction.last);
-    await tester.tap(deleteAction.last);
+    expect(tester.widget<FilledButton>(deleteAction).onPressed, isNotNull);
+    await tester.tap(deleteAction);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(repository.deleteAccountCallCount, 1);
     expect(repository.lastDeletePassword, 'secret');
+    expect(repository.lastExpectedUserId, 'u1');
     expect(authService.isAuthenticated, isFalse);
     expect(find.text('Login'), findsOneWidget);
   });
 
-  testWidgets('delete stays blocked until the email link is clicked', (
+  testWidgets('wrong phrase cannot advance to the password dialog', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1400, 900);
@@ -344,24 +357,73 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     await tester.enterText(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is TextBox && widget.placeholder == 'Enter your password',
+      find.byKey(const ValueKey('delete-phrase-field')),
+      'delete another@example.com',
+    );
+    await tester.pump();
+
+    expect(
+      find.text(
+        "Doesn't match yet. Check for missing words, spaces, or an email typo.",
       ),
-      'secret',
+      findsOneWidget,
     );
-    await tester.pump();
-
-    final confirmLabel = find.text(
-      'I understand this permanently deletes my account and data',
-    );
-    await tester.ensureVisible(confirmLabel);
-    await tester.tap(confirmLabel);
-    await tester.pump();
-
     expect(find.text('Delete account permanently?'), findsOneWidget);
     expect(repository.deleteAccountCallCount, 0);
     expect(authService.isAuthenticated, isTrue);
-    expect(authService.hasConfirmedDeleteEmailVerification, isFalse);
+    final continueAction = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Continue'),
+    );
+    expect(continueAction.onPressed, isNull);
+    expect(find.text('Confirm your identity'), findsNothing);
+    expect(find.byKey(const ValueKey('delete-password-field')), findsNothing);
+
+    await tester.tap(find.widgetWithText(Button, 'Cancel'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('password step requires a password before final deletion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      buildHarness(
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const ScaffoldPage(content: SecuritySection()),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Delete account').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    await tester.enterText(
+      find.byKey(const ValueKey('delete-phrase-field')),
+      'delete user@example.com',
+    );
+    await tester.pump();
+
+    expect(find.text('Phrase matches.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirm your identity'), findsOneWidget);
+    expect(
+      find.text('Required to verify that this is your account.'),
+      findsOneWidget,
+    );
+    final deleteAction = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Delete permanently'),
+    );
+    expect(deleteAction.onPressed, isNull);
+    expect(repository.deleteAccountCallCount, 0);
+
+    await tester.tap(find.widgetWithText(Button, 'Cancel'));
+    await tester.pumpAndSettle();
   });
 }

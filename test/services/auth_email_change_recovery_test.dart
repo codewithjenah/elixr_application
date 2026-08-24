@@ -58,7 +58,10 @@ class FakeAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email, String? continueUrl}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<User?> loadPersistedUser() async => _currentUser;
@@ -89,12 +92,6 @@ class FakeAuthRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
-
-  @override
   Future<User?> refreshAuthenticatedUser() async => null;
 
   @override
@@ -122,7 +119,10 @@ class FakeAuthRepository implements AuthRepositoryBase {
     required String newPassword,
   }) async {}
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 }
 
 User _testUser({String? id, String email = 'old@example.com'}) {

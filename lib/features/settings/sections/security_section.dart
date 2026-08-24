@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/auth/teacher_auth_messages.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -27,7 +26,6 @@ class SecuritySectionState extends State<SecuritySection> {
 
   bool _savingPassword = false;
   bool _deletingAccount = false;
-  bool _preparingDelete = false;
   int _passwordFormRevision = 0;
 
   @override
@@ -119,44 +117,18 @@ class SecuritySectionState extends State<SecuritySection> {
 
   Future<void> _confirmAndDeleteAccount() async {
     final authService = context.read<AuthService>();
-    setState(() => _preparingDelete = true);
-    try {
-      await authService.requestDeleteAccountEmailVerification();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _preparingDelete = false);
-      await ElixDialog.error(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
-      return;
-    } finally {
-      if (mounted) setState(() => _preparingDelete = false);
-    }
-    if (!mounted) return;
-
     final confirmed = await _DeleteAccountConfirm.show(
       context,
       email: authService.currentUser?.email ?? '',
-      confirmationListenable: authService,
-      isEmailConfirmed: () => authService.hasConfirmedDeleteEmailVerification,
     );
-    if (confirmed == null || !mounted) {
-      authService.clearPendingDeleteVerification();
-      return;
-    }
-
-    if (authService.needsEmailVerification) {
-      await ElixDialog.error(
-        context,
-        accountDeletionRequiresVerifiedEmailMessage,
-      );
-      return;
-    }
+    if (confirmed == null || !mounted) return;
 
     setState(() => _deletingAccount = true);
     try {
-      await authService.deleteAccount(password: confirmed);
+      await authService.deleteAccount(
+        password: confirmed.password,
+        confirmationPhrase: confirmed.phrase,
+      );
       if (!mounted) return;
       context.go('/login');
     } catch (e) {
@@ -191,7 +163,6 @@ class SecuritySectionState extends State<SecuritySection> {
 
   @override
   Widget build(BuildContext context) {
-    final deleteBlocked = context.watch<AuthService>().needsEmailVerification;
     final newPass = _newPasswordController.text;
     final confirm = _confirmPasswordController.text;
 
@@ -406,11 +377,7 @@ class SecuritySectionState extends State<SecuritySection> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Button(
-                      onPressed:
-                          _deletingAccount ||
-                              _savingPassword ||
-                              _preparingDelete ||
-                              deleteBlocked
+                      onPressed: _deletingAccount || _savingPassword
                           ? null
                           : _confirmAndDeleteAccount,
                       style: ButtonStyle(
@@ -421,19 +388,7 @@ class SecuritySectionState extends State<SecuritySection> {
                           AppColors.error,
                         ),
                       ),
-                      child: _preparingDelete
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const ProgressRing(strokeWidth: 2),
-                                const SizedBox(width: AppSpacing.sm),
-                                Text(
-                                  'Sending verification email...',
-                                  style: AppTheme.body.copyWith(fontSize: 14),
-                                ),
-                              ],
-                            )
-                          : _deletingAccount
+                      child: _deletingAccount
                           ? Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -454,15 +409,6 @@ class SecuritySectionState extends State<SecuritySection> {
                               ],
                             ),
                     ),
-                    if (deleteBlocked) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        accountDeletionRequiresVerifiedEmailMessage,
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -688,44 +634,90 @@ class _PasswordRequirement extends StatelessWidget {
   }
 }
 
-/// Returns the typed password when the user confirms deletion; otherwise null.
+class _DeleteAccountConfirmation {
+  const _DeleteAccountConfirmation({
+    required this.password,
+    required this.phrase,
+  });
+
+  final String password;
+  final String phrase;
+}
+
+/// Returns the typed confirmation when the user confirms deletion.
 class _DeleteAccountConfirm {
   const _DeleteAccountConfirm._();
 
-  static Future<String?> show(
+  static Future<_DeleteAccountConfirmation?> show(
     BuildContext context, {
     required String email,
-    required Listenable confirmationListenable,
-    required bool Function() isEmailConfirmed,
-  }) {
-    return showDialog<String>(
+  }) async {
+    final phrase = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       barrierColor: const Color(0xCC000000),
-      builder: (ctx) => Center(
-        child: _DeleteAccountDialog(
-          email: email,
-          confirmationListenable: confirmationListenable,
-          isEmailConfirmed: isEmailConfirmed,
-        ),
-      ),
+      builder: (ctx) => Center(child: _DeleteAccountDialog(email: email)),
     );
+    if (phrase == null || !context.mounted) return null;
+
+    final password = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0xCC000000),
+      builder: (ctx) => Center(child: _DeletePasswordDialog(email: email)),
+    );
+    if (password == null) return null;
+
+    return _DeleteAccountConfirmation(password: password, phrase: phrase);
   }
 }
 
 class _DeleteAccountDialog extends StatefulWidget {
-  const _DeleteAccountDialog({
-    required this.email,
-    required this.confirmationListenable,
-    required this.isEmailConfirmed,
-  });
+  const _DeleteAccountDialog({required this.email});
 
   final String email;
-  final Listenable confirmationListenable;
-  final bool Function() isEmailConfirmed;
 
   @override
   State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteInputStatus extends StatelessWidget {
+  const _DeleteInputStatus({
+    super.key,
+    required this.icon,
+    required this.message,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String message;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.xs),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(icon, size: 12, color: color),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                message,
+                style: AppTheme.caption.copyWith(color: color, height: 1.35),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
@@ -737,95 +729,72 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
     'Profile photo in cloud storage',
   ];
 
-  final _passwordController = TextEditingController();
-  bool _obscured = true;
-  bool _confirmed = false;
+  final _phraseController = TextEditingController();
+
+  String get _requiredPhrase =>
+      accountDeletionConfirmationPhraseFor(widget.email);
 
   @override
   void initState() {
     super.initState();
-    _passwordController.addListener(() => setState(() {}));
-    widget.confirmationListenable.addListener(_onConfirmationChanged);
+    _phraseController.addListener(_onFieldsChanged);
   }
 
   @override
   void dispose() {
-    widget.confirmationListenable.removeListener(_onConfirmationChanged);
-    _passwordController.dispose();
+    _phraseController.removeListener(_onFieldsChanged);
+    _phraseController.dispose();
     super.dispose();
   }
 
-  void _onConfirmationChanged() {
+  void _onFieldsChanged() {
     if (mounted) setState(() {});
   }
 
-  bool get _emailConfirmed => widget.isEmailConfirmed();
+  bool get _canContinue => _phraseController.text.trim() == _requiredPhrase;
 
-  bool get _canSubmit =>
-      _passwordController.text.isNotEmpty && _confirmed && _emailConfirmed;
+  Widget _buildPhraseStatus(BuildContext context) {
+    final phrase = _phraseController.text.trim();
+    if (phrase.isEmpty) {
+      return _DeleteInputStatus(
+        key: const ValueKey('delete-phrase-empty'),
+        icon: FluentIcons.info,
+        message: 'Required. Type the full phrase exactly as shown.',
+        color: context.elixTextSecondary,
+      );
+    }
+    if (phrase != _requiredPhrase) {
+      return const _DeleteInputStatus(
+        key: ValueKey('delete-phrase-mismatch'),
+        icon: FluentIcons.status_error_full,
+        message:
+            "Doesn't match yet. Check for missing words, spaces, or an email typo.",
+        color: AppColors.error,
+      );
+    }
+    return const _DeleteInputStatus(
+      key: ValueKey('delete-phrase-match'),
+      icon: FluentIcons.check_mark,
+      message: 'Phrase matches.',
+      color: AppColors.success,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return ElixDialog(
+      key: const ValueKey('delete-phrase-dialog'),
       title: 'Delete account permanently?',
       subtitle: 'This cannot be undone',
       icon: FluentIcons.delete,
       iconColor: AppColors.error,
       headerAccentColor: AppColors.error,
-      maxWidth: 480,
-      maxHeight: 680,
-      scrollableContent: true,
+      maxWidth: 620,
+      maxHeight: MediaQuery.sizeOf(context).height - (AppSpacing.lg * 2),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            widget.email.trim().isEmpty
-                ? TeacherAuthMessages.accountDeletionVerificationSent
-                : 'We sent a verification link to ${widget.email.trim()}. '
-                      'Open the newest email, click the link, and wait until '
-                      'the page says Confirmed. Keep this window open, then '
-                      'enter your password.',
-            style: AppTheme.body.copyWith(
-              fontSize: 14,
-              color: context.elixTextSecondary,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: _emailConfirmed
-                    ? const Icon(
-                        FluentIcons.check_mark,
-                        size: 16,
-                        color: AppColors.success,
-                      )
-                    : const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  _emailConfirmed
-                      ? 'Email confirmed. Enter your password to delete.'
-                      : 'Waiting for you to click the verification link...',
-                  style: AppTheme.body.copyWith(
-                    fontSize: 13,
-                    color: context.elixTextSecondary,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
           Text(
             'The following will be permanently erased:',
             style: AppTheme.body.copyWith(
@@ -861,52 +830,70 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               ),
             ),
           const SizedBox(height: AppSpacing.md),
-          Text(
-            'Current password',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.error.withValues(alpha: 0.28),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'TYPE THIS EXACTLY',
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.error,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                SelectableText(
+                  _requiredPhrase,
+                  key: const ValueKey('delete-required-phrase'),
+                  style: AppTheme.body.copyWith(
+                    color: context.elixTextPrimary,
+                    fontFamily: 'Consolas',
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.15,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Confirmation phrase',
+            style: AppTheme.body.copyWith(
+              color: context.elixTextPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
           TextBox(
-            controller: _passwordController,
-            placeholder: 'Enter your password',
-            obscureText: _obscured,
+            key: const ValueKey('delete-phrase-field'),
+            controller: _phraseController,
+            placeholder: 'Type the phrase shown above',
+            autocorrect: false,
+            enableSuggestions: false,
+            style: AppTheme.body.copyWith(
+              fontFamily: 'Consolas',
+              fontSize: 14,
+              letterSpacing: 0.15,
+            ),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
               vertical: 11,
             ),
-            suffix: IconButton(
-              icon: Icon(
-                _obscured ? FluentIcons.view : FluentIcons.hide,
-                size: 15,
-                color: context.elixTextSecondary,
-              ),
-              onPressed: () => setState(() => _obscured = !_obscured),
-            ),
           ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Checkbox(
-                checked: _confirmed,
-                onChanged: (value) =>
-                    setState(() => _confirmed = value == true),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => _confirmed = !_confirmed),
-                  child: Text(
-                    'I understand this permanently deletes my account and data',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          _buildPhraseStatus(context),
         ],
       ),
       actions: [
@@ -922,10 +909,174 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           width: 160,
           height: 52,
           child: ElixPrimaryButton(
-            label: 'Delete account',
+            label: 'Continue',
             dense: true,
             expanded: false,
-            onPressed: _canSubmit
+            onPressed: _canContinue
+                ? () => Navigator.of(context).pop(_phraseController.text.trim())
+                : null,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DeletePasswordDialog extends StatefulWidget {
+  const _DeletePasswordDialog({required this.email});
+
+  final String email;
+
+  @override
+  State<_DeletePasswordDialog> createState() => _DeletePasswordDialogState();
+}
+
+class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
+  final _passwordController = TextEditingController();
+  bool _obscured = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(_onPasswordChanged);
+  }
+
+  @override
+  void dispose() {
+    _passwordController.removeListener(_onPasswordChanged);
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _onPasswordChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _canDelete => _passwordController.text.isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    return ElixDialog(
+      title: 'Confirm your identity',
+      subtitle: 'Step 2 of 2 · Final security check',
+      icon: FluentIcons.lock,
+      iconColor: AppColors.error,
+      headerAccentColor: AppColors.error,
+      maxWidth: 440,
+      maxHeight: 560,
+      scrollableContent: true,
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.error.withValues(alpha: 0.22),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(
+                    FluentIcons.warning,
+                    size: 16,
+                    color: AppColors.error,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        const TextSpan(text: 'You are permanently deleting '),
+                        TextSpan(
+                          text: widget.email.trim(),
+                          style: TextStyle(
+                            color: context.elixTextPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const TextSpan(text: '.'),
+                      ],
+                    ),
+                    style: AppTheme.body.copyWith(
+                      fontSize: 13,
+                      color: context.elixTextSecondary,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Current password',
+            style: AppTheme.body.copyWith(
+              color: context.elixTextPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          TextBox(
+            key: const ValueKey('delete-password-field'),
+            controller: _passwordController,
+            placeholder: 'Enter your password',
+            obscureText: _obscured,
+            autofocus: true,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 11,
+            ),
+            suffix: IconButton(
+              icon: Icon(
+                _obscured ? FluentIcons.view : FluentIcons.hide,
+                size: 15,
+                color: context.elixTextSecondary,
+              ),
+              onPressed: () => setState(() => _obscured = !_obscured),
+            ),
+            onSubmitted: _canDelete
+                ? (_) => Navigator.of(context).pop(_passwordController.text)
+                : null,
+          ),
+          _DeleteInputStatus(
+            key: const ValueKey('delete-password-help'),
+            icon: _passwordController.text.isEmpty
+                ? FluentIcons.info
+                : FluentIcons.lock,
+            message: _passwordController.text.isEmpty
+                ? 'Required to verify that this is your account.'
+                : 'Your password will be verified securely.',
+            color: context.elixTextSecondary,
+          ),
+        ],
+      ),
+      actions: [
+        SizedBox(
+          width: 150,
+          height: 52,
+          child: Button(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ),
+        SizedBox(
+          width: 190,
+          height: 52,
+          child: ElixPrimaryButton(
+            label: 'Delete permanently',
+            dense: true,
+            expanded: false,
+            onPressed: _canDelete
                 ? () => Navigator.of(context).pop(_passwordController.text)
                 : null,
           ),

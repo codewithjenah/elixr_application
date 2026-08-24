@@ -10,15 +10,6 @@ abstract final class TeacherAuthMessages {
   static const missingProfile = MissingUserProfileException.message;
   static const emailNotVerifiedYet =
       'Email is not verified yet. Check your inbox and try again.';
-  static const accountDeletionRequiresVerifiedEmail =
-      accountDeletionRequiresVerifiedEmailMessage;
-  static const accountDeletionVerificationSent =
-      'We sent a verification link to confirm this delete request. '
-      'Open the newest email, click the link, then wait until the page says '
-      'Confirmed. Keep this window open.';
-  static const accountDeletionInvalidConfirmationCode =
-      'That delete confirmation is not complete yet. Click the verification '
-      'email link and wait for this window to detect it.';
   static const emailVerificationWaiting =
       'Open the verification email and click the link. This page will continue automatically.';
   static const passwordResetWaiting =

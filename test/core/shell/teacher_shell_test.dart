@@ -45,7 +45,10 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email, String? continueUrl}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<EmailChangeRequestResult> requestEmailChange({
@@ -58,12 +61,6 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
 
   @override
   Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
-
-  @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
 
   @override
   Future<User?> refreshAuthenticatedUser() async => null;
@@ -94,7 +91,10 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
   }) async {}
 
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 
   @override
   Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({

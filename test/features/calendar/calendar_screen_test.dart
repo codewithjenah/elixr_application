@@ -87,7 +87,10 @@ class _StubAuthRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> sendPasswordResetEmail({required String email, String? continueUrl}) async {}
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    String? continueUrl,
+  }) async {}
 
   @override
   Future<User?> loadPersistedUser() async => null;
@@ -109,12 +112,6 @@ class _StubAuthRepository implements AuthRepositoryBase {
   Future<void> requestCurrentEmailVerification({String? continueUrl}) async {}
 
   @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
-
-  @override
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
@@ -129,7 +126,10 @@ class _StubAuthRepository implements AuthRepositoryBase {
     required String newPassword,
   }) async {}
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 
   @override
   Future<User> updateProfileDetails({

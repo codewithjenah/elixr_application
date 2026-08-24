@@ -59,12 +59,13 @@ void main() {
     final service = JoinLinkService();
     addTearDown(service.dispose);
     expect(
-      service.acceptUri(
-        Uri.parse('elixr://auth?elixr_action=delete&token=123456'),
-      ),
+      service.acceptUri(Uri.parse('elixr://auth?elixr_action=reset')),
       isTrue,
     );
     expect(service.pendingCode, isNull);
-    expect(service.pendingAuthCallback?.queryParameters['token'], '123456');
+    expect(
+      service.pendingAuthCallback?.queryParameters['elixr_action'],
+      'reset',
+    );
   });
 }

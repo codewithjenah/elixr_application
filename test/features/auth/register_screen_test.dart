@@ -86,12 +86,6 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
-
-  @override
   Future<User?> refreshAuthenticatedUser() async => null;
 
   @override
@@ -119,7 +113,10 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
     required String newPassword,
   }) async {}
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 }
 
 Future<void> _setSurface(

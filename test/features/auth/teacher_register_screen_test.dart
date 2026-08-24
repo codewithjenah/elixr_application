@@ -40,12 +40,6 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
   }
 
   @override
-  Future<void> requestDeleteAccountEmailVerification({
-    String confirmationCode = '',
-    String? continueUrl,
-  }) async {}
-
-  @override
   Future<bool> isCurrentEmailVerified() async => false;
 
   @override
@@ -100,7 +94,10 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
   }) async {}
 
   @override
-  Future<void> deleteAccount({required String password}) async {}
+  Future<void> deleteAccount({
+    required String password,
+    required String expectedUserId,
+  }) async {}
 
   @override
   Future<PendingEmailChangeRecoveryResult> checkAndRecoverPendingEmailChange({

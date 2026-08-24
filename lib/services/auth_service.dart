@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -8,46 +7,18 @@ import 'package:flutter/foundation.dart';
 
 import '../core/auth/teacher_auth_messages.dart';
 import '../core/constants/app_constants.dart';
-import '../data/repositories/email_link_ack_store.dart';
 import '../data/repositories/leaderboard_repository.dart';
 import '../data/repositories/profile_image_repository.dart';
 import '../data/repositories/public_profile_repository.dart';
 import 'auth_email_callback_server.dart';
 import 'join_link_service.dart';
 
-/// Reads a delete/reset confirmation token from a code or Firebase continue URL.
-@visibleForTesting
-String? extractDeleteConfirmationCode(String input) {
-  final trimmed = input.trim();
-  if (trimmed.isEmpty) return null;
-  if (RegExp(r'^\d{6}$').hasMatch(trimmed)) return trimmed;
-
-  final fromUri = _actionTokenFromUri(Uri.tryParse(trimmed));
-  if (fromUri != null) return fromUri;
-
-  return RegExp(
-    r'(?:deleteCode|token)=([A-Za-z0-9]+)',
-  ).firstMatch(trimmed)?.group(1);
-}
-
-String? _actionTokenFromUri(Uri? uri) {
-  if (uri == null || !uri.hasScheme) return null;
-  for (final key in ['token', 'deleteCode']) {
-    final value = uri.queryParameters[key]?.trim() ?? '';
-    if (value.isNotEmpty) return value;
-  }
-
-  for (final key in ['continueUrl', 'continue_url']) {
-    final raw = uri.queryParameters[key];
-    if (raw == null || raw.isEmpty) continue;
-    final nested = _actionTokenFromUri(Uri.tryParse(raw));
-    if (nested != null) return nested;
-    final match = RegExp(
-      r'(?:deleteCode|token)=([A-Za-z0-9]+)',
-    ).firstMatch(raw);
-    if (match != null) return match.group(1);
-  }
-  return null;
+/// Account-scoped phrase used as a deliberate-action safeguard in the UI.
+///
+/// This is not authentication; Firebase password reauthentication remains the
+/// security boundary for account deletion.
+String accountDeletionConfirmationPhraseFor(String email) {
+  return 'delete ${email.trim().toLowerCase()}';
 }
 
 class _PendingEmailChangeState {
@@ -80,12 +51,9 @@ class AuthService extends ChangeNotifier {
     ProfileImageRepositoryBase? profileImageRepository,
     Duration? pendingEmailPollInterval,
     Duration? pendingEmailTimeout,
-    String Function()? generateDeleteVerificationCode,
     AuthEmailCallbackServer? emailCallbackServer,
     Duration? emailVerificationPollInterval,
     JoinLinkService? joinLinkService,
-    EmailLinkAckStore? emailLinkAckStore,
-    Duration? emailLinkAckPollInterval,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
   }) : _repository = repository ?? AuthRepository(createMissingProfile: false),
        _leaderboardRepository = leaderboardRepository,
@@ -94,16 +62,11 @@ class AuthService extends ChangeNotifier {
        _pendingEmailPollInterval =
            pendingEmailPollInterval ?? const Duration(seconds: 5),
        _pendingEmailTimeout = pendingEmailTimeout ?? const Duration(minutes: 2),
-       _generateDeleteVerificationCode =
-           generateDeleteVerificationCode ?? _randomDeleteVerificationCode,
        _emailCallbackServer =
            emailCallbackServer ?? LoopbackAuthEmailCallbackServer(),
        _emailVerificationPollInterval =
            emailVerificationPollInterval ?? const Duration(seconds: 1),
        _joinLinkService = joinLinkService,
-       _emailLinkAckStore = emailLinkAckStore,
-       _emailLinkAckPollInterval =
-           emailLinkAckPollInterval ?? const Duration(seconds: 2),
        _awaitInitialAuthState = awaitInitialAuthState {
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
   }
@@ -113,12 +76,9 @@ class AuthService extends ChangeNotifier {
   final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
   final Duration _pendingEmailTimeout;
-  final String Function() _generateDeleteVerificationCode;
   final AuthEmailCallbackServer _emailCallbackServer;
   final Duration _emailVerificationPollInterval;
   final JoinLinkService? _joinLinkService;
-  final EmailLinkAckStore? _emailLinkAckStore;
-  final Duration _emailLinkAckPollInterval;
   final Future<void> Function()? _awaitInitialAuthState;
 
   // Lazily constructed so tests that never touch profile-image upload do not
@@ -140,16 +100,12 @@ class AuthService extends ChangeNotifier {
   String? _teacherAuthInfoMessage;
   String? _teacherAuthErrorMessage;
   Future<void>? _pendingEmailCheckInFlight;
-  String? _pendingDeleteVerificationCode;
-  DateTime? _pendingDeleteVerificationExpiresAt;
-  bool _deleteVerificationConfirmed = false;
   StreamSubscription<Uri>? _emailCallbackSubscription;
   Uri? _emailCallbackBaseUri;
   Timer? _emailVerificationPollTimer;
   bool _emailVerificationWatchActive = false;
   bool _awaitingPasswordResetCallback = false;
   bool _passwordResetConfirmed = false;
-  Timer? _emailLinkAckPollTimer;
 
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
@@ -172,34 +128,7 @@ class AuthService extends ChangeNotifier {
     return message;
   }
 
-  bool get hasConfirmedDeleteEmailVerification => _deleteVerificationConfirmed;
   bool get hasConfirmedPasswordResetLink => _passwordResetConfirmed;
-
-  bool get _hasPendingDeleteVerification =>
-      _pendingDeleteVerificationCode != null &&
-      !_isPendingDeleteVerificationExpired;
-
-  static String _randomDeleteVerificationCode() {
-    final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
-    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
-  }
-
-  bool get _isPendingDeleteVerificationExpired {
-    final expiresAt = _pendingDeleteVerificationExpiresAt;
-    if (expiresAt == null) return true;
-    return DateTime.now().isAfter(expiresAt);
-  }
-
-  void _clearPendingDeleteVerification() {
-    final token = _pendingDeleteVerificationCode;
-    _stopEmailLinkAckPolling();
-    if (token != null) {
-      unawaited(_emailLinkAckStore?.delete(token));
-    }
-    _pendingDeleteVerificationCode = null;
-    _pendingDeleteVerificationExpiresAt = null;
-    _deleteVerificationConfirmed = false;
-  }
 
   String? takeAccountDeletedMessage() {
     final message = _accountDeletedMessage;
@@ -376,7 +305,7 @@ class AuthService extends ChangeNotifier {
 
   Future<void> endPasswordResetWatch() async {
     _awaitingPasswordResetCallback = false;
-    if (!_emailVerificationWatchActive && !_hasPendingDeleteVerification) {
+    if (!_emailVerificationWatchActive) {
       await _stopEmailCallbackServer();
     }
   }
@@ -418,7 +347,6 @@ class AuthService extends ChangeNotifier {
     _clearPendingEmailChange(clearError: true);
     _clearTeacherAuthMessages();
     _emailVerified = null;
-    _clearPendingDeleteVerification();
     _stopEmailVerificationPolling();
     _emailVerificationWatchActive = false;
     _awaitingPasswordResetCallback = false;
@@ -836,70 +764,9 @@ class AuthService extends ChangeNotifier {
   Future<void> endEmailVerificationWatch() async {
     _emailVerificationWatchActive = false;
     _stopEmailVerificationPolling();
-    if (!_awaitingPasswordResetCallback && !_hasPendingDeleteVerification) {
+    if (!_awaitingPasswordResetCallback) {
       await _stopEmailCallbackServer();
     }
-  }
-
-  /// Sends a verification email before account deletion.
-  ///
-  /// The confirmation token is attached to the email continue URL. After the
-  /// user clicks the link, the running app detects it automatically.
-  Future<void> requestDeleteAccountEmailVerification() async {
-    final code = _generateDeleteVerificationCode();
-    _pendingDeleteVerificationCode = code;
-    _pendingDeleteVerificationExpiresAt = DateTime.now().add(
-      const Duration(minutes: 15),
-    );
-    _deleteVerificationConfirmed = false;
-    try {
-      final uid = _currentUser?.id?.trim() ?? '';
-      var ackReady = false;
-      if (_emailLinkAckStore != null && uid.isNotEmpty) {
-        try {
-          await _emailLinkAckStore.createPending(token: code, uid: uid);
-          ackReady = true;
-        } catch (error) {
-          // Production rules/hosting may not be deployed yet. Keep the
-          // localhost continue URL so this PC can still detect the click.
-          if (kDebugMode) {
-            debugPrint('Email link ack pending create failed: $error');
-          }
-        }
-      }
-      if (ackReady) _startEmailLinkAckPolling();
-      final base = await _emailContinueBaseUri(preferPublicHost: ackReady);
-      final continueUrl = _continueUri(
-        base,
-        mode: 'delete',
-        token: code,
-      ).toString();
-      await _repository.requestDeleteAccountEmailVerification(
-        confirmationCode: code,
-        continueUrl: continueUrl,
-      );
-    } catch (_) {
-      _clearPendingDeleteVerification();
-      rethrow;
-    }
-    notifyListeners();
-  }
-
-  /// Returns true when [input] is the pending delete token or a Firebase link
-  /// that contains it.
-  bool confirmDeleteVerificationCode(String input) {
-    final pending = _pendingDeleteVerificationCode;
-    if (pending == null || _isPendingDeleteVerificationExpired) {
-      return false;
-    }
-    final extracted = extractDeleteConfirmationCode(input);
-    if (input.trim() != pending && extracted != pending) {
-      return false;
-    }
-    _deleteVerificationConfirmed = true;
-    _stopEmailLinkAckPolling();
-    notifyListeners();
-    return true;
   }
 
   /// Reloads Firebase email-verified state after the window is focused again.
@@ -917,22 +784,7 @@ class AuthService extends ChangeNotifier {
                 uri.queryParameters['mode'] ??
                 '')
             .toLowerCase();
-    final token =
-        uri.queryParameters['token'] ?? uri.queryParameters['deleteCode'] ?? '';
-
-    // Firebase overwrites `mode=` with verifyEmail/resetPassword on redirect.
-    // Confirm by pending intent + token, not by `mode` alone.
-    if (_hasPendingDeleteVerification) {
-      if (token.isEmpty) {
-        _deleteVerificationConfirmed = true;
-        _stopEmailLinkAckPolling();
-        if (!_disposed) notifyListeners();
-        return;
-      }
-      confirmDeleteVerificationCode(token);
-      return;
-    }
-
+    final token = uri.queryParameters['token'] ?? '';
     final isReset =
         action == 'reset' ||
         action == 'resetpassword' ||
@@ -964,53 +816,6 @@ class AuthService extends ChangeNotifier {
       handleEmailActionCallback,
     );
     return base;
-  }
-
-  Future<Uri> _emailContinueBaseUri({required bool preferPublicHost}) async {
-    if (preferPublicHost) {
-      try {
-        final options = fb.FirebaseAuth.instance.app.options;
-        final host = continueUrlHostForDeleteEmail(
-          authDomain: options.authDomain,
-          projectId: options.projectId,
-        );
-        return Uri.https(host, '/elixr-auth.html');
-      } catch (_) {}
-    }
-    return _ensureEmailCallbackServer();
-  }
-
-  void _startEmailLinkAckPolling() {
-    if (_emailLinkAckStore == null) return;
-    _emailLinkAckPollTimer?.cancel();
-    _emailLinkAckPollTimer = Timer.periodic(
-      _emailLinkAckPollInterval,
-      (_) => unawaited(_pollEmailLinkAck()),
-    );
-    unawaited(_pollEmailLinkAck());
-  }
-
-  void _stopEmailLinkAckPolling() {
-    _emailLinkAckPollTimer?.cancel();
-    _emailLinkAckPollTimer = null;
-  }
-
-  Future<void> _pollEmailLinkAck() async {
-    if (_disposed || !_hasPendingDeleteVerification) return;
-    final token = _pendingDeleteVerificationCode;
-    final store = _emailLinkAckStore;
-    if (token == null || store == null || _deleteVerificationConfirmed) return;
-    try {
-      if (await store.isClicked(token)) {
-        handleEmailActionCallback(
-          Uri.parse('elixr://auth?elixr_action=delete&token=$token'),
-        );
-      }
-    } catch (error) {
-      if (kDebugMode) {
-        debugPrint('Email link ack poll failed: $error');
-      }
-    }
   }
 
   Future<void> _stopEmailCallbackServer() async {
@@ -1064,16 +869,6 @@ class AuthService extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('Quiet email verification refresh failed: $error');
       }
-    }
-  }
-
-  void clearPendingDeleteVerification() {
-    _clearPendingDeleteVerification();
-    if (!_emailVerificationWatchActive && !_awaitingPasswordResetCallback) {
-      unawaited(_stopEmailCallbackServer());
-    }
-    if (!_disposed) {
-      notifyListeners();
     }
   }
 
@@ -1147,19 +942,23 @@ class AuthService extends ChangeNotifier {
   ///
   /// On success, clears local auth state the same way [logout] does and
   /// queues a one-shot message for [takeAccountDeletedMessage].
-  Future<void> deleteAccount({required String password}) async {
-    if (!_deleteVerificationConfirmed || _isPendingDeleteVerificationExpired) {
-      throw Exception(accountDeletionRequiresEmailConfirmationMessage);
+  Future<void> deleteAccount({
+    required String password,
+    required String confirmationPhrase,
+  }) async {
+    final user = _currentUser;
+    final userId = user?.id?.trim() ?? '';
+    if (user == null || userId.isEmpty) {
+      throw Exception('Not authenticated');
     }
-    final verified = await _repository.isCurrentEmailVerified();
-    if (!verified) {
-      throw Exception(accountDeletionRequiresVerifiedEmailMessage);
+    final expectedPhrase = accountDeletionConfirmationPhraseFor(user.email);
+    if (confirmationPhrase.trim() != expectedPhrase) {
+      throw Exception(accountDeletionRequiresTypedConfirmationMessage);
     }
-    await _repository.deleteAccount(password: password);
+    await _repository.deleteAccount(password: password, expectedUserId: userId);
     _accountDeletedMessage =
         'Your account and associated data have been permanently deleted.';
     _clearPendingEmailChange(clearError: true);
-    _clearPendingDeleteVerification();
     _currentUser = null;
     await _repository.clearCurrentUser();
     notifyListeners();
@@ -1312,7 +1111,6 @@ class AuthService extends ChangeNotifier {
       _joinLinkService?.authCallbackHandler = null;
     }
     _clearPendingEmailChange(clearError: true);
-    _clearPendingDeleteVerification();
     _stopEmailVerificationPolling();
     _emailVerificationWatchActive = false;
     _awaitingPasswordResetCallback = false;
