@@ -51,6 +51,8 @@ class FirebaseUserProfileStore implements UserProfileStore {
       'full_name': user.fullName,
       'email': user.email,
       'role': user.role,
+      if (user.teacherAccessCode != null)
+        'teacher_access_code': user.teacherAccessCode,
       'created_at': timestamp(),
       if (user.profilePictureUrl != null)
         'profile_picture_url': user.profilePictureUrl,
@@ -75,6 +77,7 @@ class FirebaseUserProfileStore implements UserProfileStore {
       'full_name': data['full_name'],
       'email': data['email'],
       'role': data['role'],
+      'teacher_access_code': data['teacher_access_code'],
       'created_at': readCreatedAt(data['created_at']),
       'profile_picture_path': data['profile_picture_path'],
       'profile_picture_url': data['profile_picture_url'],

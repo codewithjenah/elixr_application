@@ -22,6 +22,8 @@ abstract final class TeacherAuthMessages {
   static const verificationSent = 'Verification email sent.';
   static const unsupportedRole =
       'This account cannot access ELIXR. Sign in with a Trainee or Teacher account.';
+  static const googleRoleImmutable =
+      'This Google account is already a Trainee. Roles are immutable; use a different Google account for Teacher registration.';
   static const accessCodeRequired =
       'Enter the Teacher access code provided by an administrator or an existing Teacher.';
   static const accessCodeInvalid =

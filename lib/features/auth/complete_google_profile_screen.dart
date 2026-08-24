@@ -1,8 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:elixr_core/models/coach_code.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 
+import '../../core/auth/teacher_auth_messages.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/auth_scaffold.dart';
@@ -24,6 +28,8 @@ class _CompleteGoogleProfileScreenState
   late final TextEditingController _middleNameController;
   late final TextEditingController _lastNameController;
   late final TextEditingController _emailController;
+  late final TextEditingController _accessCodeController;
+  GoogleOnboardingIntent? _selectedIntent;
   bool _agreedToLegal = false;
   bool _isSaving = false;
   bool _isCancelling = false;
@@ -41,6 +47,14 @@ class _CompleteGoogleProfileScreenState
     );
     _lastNameController = TextEditingController(text: pending?.lastName ?? '');
     _emailController = TextEditingController(text: pending?.email ?? '');
+    _accessCodeController = TextEditingController(
+      text: pending?.teacherAccessCode ?? '',
+    );
+    _selectedIntent = switch (pending?.intent) {
+      GoogleOnboardingIntent.trainee => GoogleOnboardingIntent.trainee,
+      GoogleOnboardingIntent.teacher => GoogleOnboardingIntent.teacher,
+      _ => null,
+    };
   }
 
   @override
@@ -49,6 +63,7 @@ class _CompleteGoogleProfileScreenState
     _middleNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
+    _accessCodeController.dispose();
     super.dispose();
   }
 
@@ -58,11 +73,21 @@ class _CompleteGoogleProfileScreenState
       middleName: _middleNameController.text,
       lastName: _lastNameController.text,
     );
+    final selectedIntent = _selectedIntent;
+    final teacherCode = CoachCode.tryNormalize(_accessCodeController.text);
+    if (selectedIntent == null) {
+      setState(() => _error = 'Choose Trainee or Teacher to continue.');
+      return;
+    }
     if (nameError != null || !_agreedToLegal) {
       setState(() {
-        _error =
-            nameError ?? 'Accept the Privacy Policy and Terms to continue.';
+        _error = nameError ?? TeacherAuthMessages.legalConsentRequired;
       });
+      return;
+    }
+    if (selectedIntent == GoogleOnboardingIntent.teacher &&
+        teacherCode == null) {
+      setState(() => _error = TeacherAuthMessages.accessCodeInvalid);
       return;
     }
     final normalized = normalizeUserNameParts(
@@ -75,11 +100,21 @@ class _CompleteGoogleProfileScreenState
       _error = null;
     });
     try {
-      await context.read<AuthService>().completeGoogleProfile(
-        firstName: normalized.firstName,
-        middleName: normalized.middleName,
-        lastName: normalized.lastName,
-      );
+      final auth = context.read<AuthService>();
+      if (selectedIntent == GoogleOnboardingIntent.teacher) {
+        await auth.completeGoogleTeacherProfile(
+          firstName: normalized.firstName,
+          middleName: normalized.middleName,
+          lastName: normalized.lastName,
+          teacherAccessCode: teacherCode!,
+        );
+      } else {
+        await auth.completeGoogleProfile(
+          firstName: normalized.firstName,
+          middleName: normalized.middleName,
+          lastName: normalized.lastName,
+        );
+      }
     } catch (error) {
       if (mounted) {
         setState(
@@ -102,14 +137,64 @@ class _CompleteGoogleProfileScreenState
 
   @override
   Widget build(BuildContext context) {
+    final selectedIntent = _selectedIntent;
+    final choosingRole = selectedIntent == null;
+    final isTeacher = selectedIntent == GoogleOnboardingIntent.teacher;
     return AuthScaffold(
-      title: 'Complete your profile',
-      subtitle: 'One last step before training',
-      formTitle: 'Your ELIXR profile',
-      formSubtitle: 'Google verified your email. Add your preferred name.',
+      title: isTeacher
+          ? 'Create your Teacher profile'
+          : 'Complete your profile',
+      subtitle: choosingRole
+          ? 'Choose how to finish this Google sign-in'
+          : isTeacher
+          ? 'One last step before your Teacher dashboard'
+          : 'One last step before training',
+      formTitle: choosingRole ? 'Choose your ELIXR role' : 'Your ELIXR profile',
+      formSubtitle: choosingRole
+          ? 'This Google sign-in has no saved role selection. Teacher registration requires a new access code.'
+          : isTeacher
+          ? 'Google verified your email. Confirm your name and access code.'
+          : 'Google verified your email. Add your preferred name.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (choosingRole) ...[
+            RadioButton(
+              key: const Key('google_profile_trainee_role'),
+              checked: selectedIntent == GoogleOnboardingIntent.trainee,
+              onChanged: (checked) {
+                if (checked) {
+                  setState(
+                    () => _selectedIntent = GoogleOnboardingIntent.trainee,
+                  );
+                }
+              },
+              content: const Text('Trainee'),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            RadioButton(
+              key: const Key('google_profile_teacher_role'),
+              checked: selectedIntent == GoogleOnboardingIntent.teacher,
+              onChanged: (checked) {
+                if (checked) {
+                  setState(
+                    () => _selectedIntent = GoogleOnboardingIntent.teacher,
+                  );
+                }
+              },
+              content: const Text('Teacher'),
+            ),
+            if (selectedIntent == null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Select a role to continue. Your Google account will not be converted between roles.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+          ],
           AuthTextField(
             controller: _firstNameController,
             label: 'First name',
@@ -139,6 +224,24 @@ class _CompleteGoogleProfileScreenState
             readOnly: true,
             enabled: false,
           ),
+          if (isTeacher) ...[
+            const SizedBox(height: AppSpacing.md),
+            AuthTextField(
+              key: const Key('google_profile_teacher_access_code'),
+              controller: _accessCodeController,
+              label: 'Teacher access code',
+              placeholder: '7KPM-XR4D-Q2WT',
+              icon: FluentIcons.permissions,
+              helperText:
+                  'The code is consumed only when this profile is created.',
+              validationText:
+                  _accessCodeController.text.isEmpty ||
+                      CoachCode.tryNormalize(_accessCodeController.text) != null
+                  ? null
+                  : TeacherAuthMessages.accessCodeInvalid,
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -176,7 +279,11 @@ class _CompleteGoogleProfileScreenState
           ],
           const SizedBox(height: AppSpacing.lg),
           ElixPrimaryButton(
-            label: 'Create Trainee Profile',
+            label: choosingRole
+                ? 'Choose a role'
+                : isTeacher
+                ? 'Create Teacher Profile'
+                : 'Create Trainee Profile',
             isLoading: _isSaving,
             onPressed: _isCancelling ? null : _complete,
           ),

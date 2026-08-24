@@ -161,6 +161,15 @@ For the existing project:
    on the one-account-per-email setting. ELIXR relies on the Firebase UID to
    preserve an existing Trainee or Teacher profile when Google verifies the
    same email address.
+   Trainee registration can complete with Google after legal consent. Teacher
+   registration first validates a one-time Teacher access code, then offers
+   **Continue with Google** or the existing email/password path. Google must
+   return a verified email, but no school-domain restriction is applied. The
+   Teacher code is consumed only in the same Firestore transaction that creates
+   the `users/{uid}` Teacher profile, so cancelling Google or failing before
+   that transaction does not consume the code. An interrupted Google
+   onboarding is restored as role `unspecified` and requires an explicit role
+   choice; choosing Teacher requires entering the code again.
 3. Keep `localhost` in Authentication > Settings > Authorized domains. The
    Windows Google flow uses a short-lived, nonce-protected localhost callback
    opened in Microsoft Edge when available. Privacy-hardened browsers can block

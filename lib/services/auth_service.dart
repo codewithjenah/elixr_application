@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:elixr_core/models/coach_code.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
@@ -91,6 +92,14 @@ class AuthService extends ChangeNotifier {
   GoogleAuthRepositoryBase? get _googleRepository =>
       _repository is GoogleAuthRepositoryBase
       ? _repository as GoogleAuthRepositoryBase
+      : null;
+  TeacherGoogleAuthRepositoryBase? get _teacherGoogleRepository =>
+      _repository is TeacherGoogleAuthRepositoryBase
+      ? _repository as TeacherGoogleAuthRepositoryBase
+      : null;
+  TeacherRegistrationRepositoryBase? get _teacherRegistrationRepository =>
+      _repository is TeacherRegistrationRepositoryBase
+      ? _repository as TeacherRegistrationRepositoryBase
       : null;
   final LeaderboardRepository? _leaderboardRepository;
   final PublicProfileRepository? _publicProfileRepository;
@@ -210,7 +219,13 @@ class AuthService extends ChangeNotifier {
     }
     final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
     if (restoredGoogle is PendingGoogleSignIn) {
-      _pendingGoogleProfile = restoredGoogle.profile;
+      // The access code is deliberately not durable. A restored incomplete
+      // flow must make the user choose a role again and re-enter the code for
+      // Teacher completion.
+      _pendingGoogleProfile = restoredGoogle.profile.copyWith(
+        intent: GoogleOnboardingIntent.unspecified,
+        clearTeacherAccessCode: true,
+      );
       _currentUser = null;
       _providerKinds = const {AuthProviderKind.google};
       _isLoading = false;
@@ -345,7 +360,10 @@ class AuthService extends ChangeNotifier {
     final result = await googleRepository.signInWithGoogle();
     if (result is PendingGoogleSignIn) {
       _currentUser = null;
-      _pendingGoogleProfile = result.profile;
+      _pendingGoogleProfile = result.profile.copyWith(
+        intent: GoogleOnboardingIntent.trainee,
+        clearTeacherAccessCode: true,
+      );
       _providerKinds = const {AuthProviderKind.google};
       _emailVerified = true;
       notifyListeners();
@@ -365,6 +383,73 @@ class AuthService extends ChangeNotifier {
     _scheduleClaimedAchievementProjectionSync();
   }
 
+  /// Validates the shared Teacher registration gate before the user chooses
+  /// Google or email/password. The code is consumed only when the profile is
+  /// created, so final registration still validates it atomically.
+  Future<void> prevalidateTeacherAccessCode(String teacherAccessCode) async {
+    _clearTeacherAuthMessages();
+    final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
+    if (normalizedCode == null) {
+      throw Exception(TeacherAuthMessages.accessCodeInvalid);
+    }
+    final registrationRepository = _teacherRegistrationRepository;
+    if (registrationRepository == null) {
+      throw Exception('Teacher registration is unavailable.');
+    }
+    await registrationRepository.assertTeacherAccessCodeRedeemable(
+      normalizedCode,
+    );
+  }
+
+  /// Starts the Teacher Google registration path after validating the
+  /// one-time access code. The normalized code stays only in the pending
+  /// in-memory Google profile until final completion.
+  Future<void> signInWithGoogleTeacher({
+    required String teacherAccessCode,
+  }) async {
+    _clearTeacherAuthMessages();
+    final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
+    if (normalizedCode == null) {
+      throw Exception(TeacherAuthMessages.accessCodeInvalid);
+    }
+    final googleRepository = _teacherGoogleRepository;
+    if (googleRepository == null) {
+      throw Exception('Google sign-in is unavailable.');
+    }
+    await prevalidateTeacherAccessCode(normalizedCode);
+    final result = await googleRepository.signInWithGoogleTeacher(
+      teacherAccessCode: normalizedCode,
+    );
+    if (result is PendingGoogleSignIn) {
+      _currentUser = null;
+      _pendingGoogleProfile = result.profile.copyWith(
+        intent: GoogleOnboardingIntent.teacher,
+        teacherAccessCode: normalizedCode,
+      );
+      _providerKinds = const {AuthProviderKind.google};
+      _emailVerified = true;
+      notifyListeners();
+      return;
+    }
+
+    final user = (result as ExistingGoogleProfile).user;
+    if (user.isTrainee) {
+      await _repository.clearCurrentUser();
+      _providerKinds = const {};
+      throw Exception(TeacherAuthMessages.googleRoleImmutable);
+    }
+    if (!_hasSupportedProductRole(user) || !user.isTeacher) {
+      await _repository.clearCurrentUser();
+      _providerKinds = const {};
+      throw Exception(TeacherAuthMessages.unsupportedRole);
+    }
+    _pendingGoogleProfile = null;
+    _currentUser = user;
+    await _refreshProviderKinds();
+    await _refreshEmailVerificationState();
+    notifyListeners();
+  }
+
   Future<void> completeGoogleProfile({
     required String firstName,
     String? middleName,
@@ -373,6 +458,11 @@ class AuthService extends ChangeNotifier {
     final pending = _pendingGoogleProfile;
     if (pending == null) {
       throw Exception('No Google profile is waiting for completion.');
+    }
+    if (pending.intent == GoogleOnboardingIntent.teacher) {
+      throw Exception(
+        'Complete this Google account as a Teacher and provide the access code.',
+      );
     }
     final googleRepository = _googleRepository;
     if (googleRepository == null) {
@@ -396,6 +486,46 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     await _seedNewTraineePublicProfile(user);
     _scheduleClaimedAchievementProjectionSync();
+  }
+
+  /// Completes Google onboarding as a Teacher. The repository performs the
+  /// final atomic access-code consumption and profile creation; this service
+  /// deliberately does not seed Trainee-only public or gamification state.
+  Future<void> completeGoogleTeacherProfile({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    required String teacherAccessCode,
+  }) async {
+    final pending = _pendingGoogleProfile;
+    if (pending == null) {
+      throw Exception('No Google profile is waiting for completion.');
+    }
+    final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
+    if (normalizedCode == null) {
+      throw Exception(TeacherAuthMessages.accessCodeInvalid);
+    }
+    final googleRepository = _teacherGoogleRepository;
+    if (googleRepository == null) {
+      throw Exception('Google profile completion is unavailable.');
+    }
+    final user = await googleRepository.completeGoogleTeacherProfile(
+      pendingProfile: pending,
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+      teacherAccessCode: normalizedCode,
+    );
+    if (!user.isTeacher) {
+      await _repository.clearCurrentUser();
+      _pendingGoogleProfile = null;
+      throw Exception(TeacherAuthMessages.unsupportedRole);
+    }
+    _pendingGoogleProfile = null;
+    _currentUser = user;
+    _emailVerified = true;
+    await _refreshProviderKinds();
+    notifyListeners();
   }
 
   Future<void> cancelGoogleOnboarding() async {

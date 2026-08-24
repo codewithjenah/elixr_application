@@ -37,6 +37,13 @@ enum EmailChangeRequestResult { unchanged, verificationSent }
 /// Sign-in capabilities reported by Firebase for the active identity.
 enum AuthProviderKind { password, google }
 
+/// The product role the user selected before Google onboarding started.
+///
+/// [unspecified] is intentionally used when a Google identity is restored
+/// after an interrupted onboarding flow. It prevents the client from making
+/// a silent Trainee choice after an app restart.
+enum GoogleOnboardingIntent { trainee, teacher, unspecified }
+
 class PendingGoogleProfile {
   const PendingGoogleProfile({
     required this.uid,
@@ -45,6 +52,8 @@ class PendingGoogleProfile {
     this.middleName,
     required this.lastName,
     required this.isNewUser,
+    this.intent = GoogleOnboardingIntent.unspecified,
+    this.teacherAccessCode,
   });
 
   final String uid;
@@ -53,6 +62,27 @@ class PendingGoogleProfile {
   final String? middleName;
   final String lastName;
   final bool isNewUser;
+  final GoogleOnboardingIntent intent;
+  final String? teacherAccessCode;
+
+  PendingGoogleProfile copyWith({
+    GoogleOnboardingIntent? intent,
+    String? teacherAccessCode,
+    bool clearTeacherAccessCode = false,
+  }) {
+    return PendingGoogleProfile(
+      uid: uid,
+      email: email,
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+      isNewUser: isNewUser,
+      intent: intent ?? this.intent,
+      teacherAccessCode: clearTeacherAccessCode
+          ? null
+          : (teacherAccessCode ?? this.teacherAccessCode),
+    );
+  }
 }
 
 sealed class GoogleSignInResult {
@@ -271,6 +301,34 @@ abstract class GoogleAuthRepositoryBase {
   Future<void> deleteAccountWithReauthentication({
     required AccountReauthentication reauthentication,
     required String expectedUserId,
+  });
+}
+
+/// Optional contract for validating the bearer code that gates every Teacher
+/// registration method.
+abstract class TeacherRegistrationRepositoryBase {
+  Future<void> assertTeacherAccessCodeRedeemable(String code);
+}
+
+/// Optional extension of [GoogleAuthRepositoryBase] for the explicit Teacher
+/// registration flow. Keeping this separate preserves source compatibility
+/// for repositories that only support Trainee Google sign-in.
+abstract class TeacherGoogleAuthRepositoryBase {
+  /// Starts Google onboarding with an explicit Teacher intent. A valid code
+  /// is carried only in memory until the final profile transaction.
+  Future<GoogleSignInResult> signInWithGoogleTeacher({
+    required String teacherAccessCode,
+  });
+
+  /// Atomically consumes [teacherAccessCode] with creation of the Teacher
+  /// profile. Implementations must reconcile an uncertain transaction result
+  /// before reporting failure.
+  Future<User> completeGoogleTeacherProfile({
+    required PendingGoogleProfile pendingProfile,
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    required String teacherAccessCode,
   });
 }
 
@@ -593,7 +651,12 @@ class MissingUserProfileException implements Exception {
   String toString() => message;
 }
 
-class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
+class AuthRepository
+    implements
+        AuthRepositoryBase,
+        GoogleAuthRepositoryBase,
+        TeacherRegistrationRepositoryBase,
+        TeacherGoogleAuthRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
     UserProfileStore? db,
@@ -680,6 +743,11 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
         lastName: normalized.lastName,
         email: email,
         role: defaultRole,
+        teacherAccessCode: isTeacher
+            ? teacherAccessCode == null
+                  ? null
+                  : CoachCode.tryNormalize(teacherAccessCode)
+            : null,
       );
       if (isTeacher) {
         // TODO: After redemption, a Cloud Function should set a Teacher
@@ -735,6 +803,29 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
 
   @override
   Future<GoogleSignInResult> signInWithGoogle() async {
+    return _signInWithGoogle(intent: GoogleOnboardingIntent.trainee);
+  }
+
+  @override
+  Future<void> assertTeacherAccessCodeRedeemable(String code) {
+    return _teacherAccessCodes.assertRedeemable(code);
+  }
+
+  @override
+  Future<GoogleSignInResult> signInWithGoogleTeacher({
+    required String teacherAccessCode,
+  }) async {
+    await _teacherAccessCodes.assertRedeemable(teacherAccessCode);
+    return _signInWithGoogle(
+      intent: GoogleOnboardingIntent.teacher,
+      teacherAccessCode: CoachCode.tryNormalize(teacherAccessCode),
+    );
+  }
+
+  Future<GoogleSignInResult> _signInWithGoogle({
+    required GoogleOnboardingIntent intent,
+    String? teacherAccessCode,
+  }) async {
     try {
       final oauthCredential = await _acquireGoogleOAuthCredential();
       final credential = oauthCredential == null
@@ -752,6 +843,8 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
       return await _googleResultForCredential(
         credential,
         isNewUserOverride: oauthCredential?.isNewUser,
+        intent: intent,
+        teacherAccessCode: teacherAccessCode,
       );
     } on GoogleSignInCancelledException {
       rethrow;
@@ -793,7 +886,11 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
       final profile = await _loadExistingGoogleProfile(firebaseUser);
       if (profile != null) return ExistingGoogleProfile(profile);
       return PendingGoogleSignIn(
-        _pendingGoogleProfile(firebaseUser, isNewUser: false),
+        _pendingGoogleProfile(
+          firebaseUser,
+          isNewUser: false,
+          intent: GoogleOnboardingIntent.unspecified,
+        ),
       );
     } catch (error, stackTrace) {
       await _signOutIgnoringErrors();
@@ -884,6 +981,8 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
   Future<GoogleSignInResult> _googleResultForCredential(
     fb.UserCredential credential, {
     bool? isNewUserOverride,
+    GoogleOnboardingIntent intent = GoogleOnboardingIntent.trainee,
+    String? teacherAccessCode,
   }) async {
     final firebaseUser = credential.user;
     if (firebaseUser == null) {
@@ -897,6 +996,8 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
         isNewUser:
             isNewUserOverride ??
             credential.additionalUserInfo?.isNewUser == true,
+        intent: intent,
+        teacherAccessCode: teacherAccessCode,
       ),
     );
   }
@@ -930,6 +1031,8 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
   PendingGoogleProfile _pendingGoogleProfile(
     fb.User firebaseUser, {
     required bool isNewUser,
+    GoogleOnboardingIntent intent = GoogleOnboardingIntent.unspecified,
+    String? teacherAccessCode,
   }) {
     final email = firebaseUser.email?.trim() ?? '';
     if (email.isEmpty || !firebaseUser.emailVerified) {
@@ -945,6 +1048,8 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
       middleName: parsed.middleName,
       lastName: parsed.lastName,
       isNewUser: isNewUser,
+      intent: intent,
+      teacherAccessCode: teacherAccessCode,
     );
   }
 
@@ -1003,6 +1108,121 @@ class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
       );
     }
     return user;
+  }
+
+  @override
+  Future<User> completeGoogleTeacherProfile({
+    required PendingGoogleProfile pendingProfile,
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    required String teacherAccessCode,
+  }) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null || firebaseUser.uid != pendingProfile.uid) {
+      await _signOutIgnoringErrors();
+      throw Exception(
+        'The active Google account changed. Sign in with Google again.',
+      );
+    }
+    try {
+      await firebaseUser.reload().timeout(_authOperationTimeout);
+    } on fb.FirebaseAuthException catch (e) {
+      throw Exception(_messageForGoogleAuthError(e));
+    } on TimeoutException {
+      throw Exception(
+        'Google account verification timed out. Check your connection and retry.',
+      );
+    }
+
+    final activeUser = _auth.currentUser;
+    final activeEmail = activeUser?.email?.trim() ?? '';
+    if (activeUser == null ||
+        activeUser.uid != pendingProfile.uid ||
+        !activeUser.emailVerified ||
+        _emailsDiffer(activeEmail, pendingProfile.email)) {
+      await _signOutIgnoringErrors();
+      throw Exception(
+        'The active Google account no longer matches this profile. Sign in again.',
+      );
+    }
+
+    final normalizedCode = CoachCode.tryNormalize(teacherAccessCode);
+    if (normalizedCode == null) {
+      throw const TeacherAccessCodeException(
+        TeacherAccessCodeError.malformedCode,
+        'That Teacher access code is invalid or has already been used.',
+      );
+    }
+    final normalized = normalizeUserNameParts(
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+    );
+    final user = User(
+      id: activeUser.uid,
+      firstName: normalized.firstName,
+      middleName: normalized.middleName,
+      lastName: normalized.lastName,
+      email: activeEmail,
+      role: User.roleTeacher,
+      teacherAccessCode: normalizedCode,
+    );
+
+    try {
+      await _teacherAccessCodes.consumeAndCreateTeacherProfile(
+        code: normalizedCode,
+        user: user,
+        includePrivacyConsent: true,
+      );
+    } on Object catch (error, stackTrace) {
+      // Firestore transactions can commit successfully while the client sees
+      // a timeout or transport error. Read the UID-scoped profile before
+      // reporting failure so a retry cannot consume the code twice or display
+      // a false failure.
+      final reconciled = await _matchingTeacherProfileAfterGoogleAttempt(
+        user: user,
+        code: normalizedCode,
+      );
+      if (reconciled != null) return reconciled;
+      if (error is TeacherAccessCodeException) {
+        throw Exception(error.message ?? error.toString());
+      }
+      if (error is FirebaseException) {
+        throw Exception(
+          'ELIXR could not create your Teacher profile. Check your connection and retry.',
+        );
+      }
+      if (kDebugMode) {
+        debugPrint('Teacher Google profile creation failed: $error');
+        debugPrint('$stackTrace');
+      }
+      rethrow;
+    }
+    return user;
+  }
+
+  Future<User?> _matchingTeacherProfileAfterGoogleAttempt({
+    required User user,
+    required String code,
+  }) async {
+    try {
+      final profile = await _db.getUserById(user.id!);
+      if (profile == null ||
+          profile.id != user.id ||
+          !profile.isTeacher ||
+          _emailsDiffer(profile.email, user.email) ||
+          profile.teacherAccessCode != code) {
+        return null;
+      }
+      return profile;
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Teacher Google profile reconciliation failed: $error');
+        debugPrint('$stackTrace');
+      }
+      return null;
+    }
   }
 
   @override

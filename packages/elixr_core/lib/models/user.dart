@@ -12,6 +12,7 @@ class User {
     required this.lastName,
     required this.email,
     this.role = roleTrainee,
+    this.teacherAccessCode,
     this.createdAt,
     this.profilePicturePath,
     this.profilePictureUrl,
@@ -27,6 +28,12 @@ class User {
   final String lastName;
   final String email;
   final String role;
+
+  /// The normalized one-time code used to create a Teacher profile.
+  ///
+  /// This is read for post-transaction reconciliation and is not exposed as
+  /// an authorization decision by the client.
+  final String? teacherAccessCode;
   final String? createdAt;
 
   /// Legacy local-filesystem path from the pre-Cloud-Storage avatar flow.
@@ -69,6 +76,7 @@ class User {
     String? lastName,
     String? email,
     String? role,
+    String? teacherAccessCode,
     String? createdAt,
     String? profilePicturePath,
     String? profilePictureUrl,
@@ -84,6 +92,7 @@ class User {
       lastName: lastName ?? this.lastName,
       email: email ?? this.email,
       role: role ?? this.role,
+      teacherAccessCode: teacherAccessCode ?? this.teacherAccessCode,
       createdAt: createdAt ?? this.createdAt,
       profilePicturePath: profilePicturePath ?? this.profilePicturePath,
       profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
@@ -104,6 +113,7 @@ class User {
       'full_name': fullName,
       'email': email,
       'role': role,
+      if (teacherAccessCode != null) 'teacher_access_code': teacherAccessCode,
       if (middleName != null && middleName!.isNotEmpty)
         'middle_name': middleName,
       if (profilePictureUrl != null) 'profile_picture_url': profilePictureUrl,
@@ -150,6 +160,7 @@ class User {
         lastName: structuredLast,
         email: map['email'] as String,
         role: map['role'] as String? ?? roleTrainee,
+        teacherAccessCode: map['teacher_access_code'] as String?,
         createdAt: map['created_at'] as String?,
         profilePicturePath: map['profile_picture_path'] as String?,
         profilePictureUrl: map['profile_picture_url'] as String?,
@@ -171,6 +182,7 @@ class User {
       lastName: parsed.lastName,
       email: map['email'] as String,
       role: map['role'] as String? ?? roleTrainee,
+      teacherAccessCode: map['teacher_access_code'] as String?,
       createdAt: map['created_at'] as String?,
       profilePicturePath: map['profile_picture_path'] as String?,
       profilePictureUrl: map['profile_picture_url'] as String?,

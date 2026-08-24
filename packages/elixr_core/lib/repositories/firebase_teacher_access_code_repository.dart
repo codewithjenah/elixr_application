@@ -58,6 +58,13 @@ class FirebaseTeacherAccessCodeRepository
 
     await _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(codeRef);
+      final existingUser = await transaction.get(userRef);
+      if (existingUser.exists) {
+        throw const TeacherAccessCodeException(
+          TeacherAccessCodeError.forbidden,
+          'A profile already exists for this account.',
+        );
+      }
       final parsed = snapshot.exists
           ? TeacherAccessCode.tryFromMap(
               snapshot.data() ?? const {},

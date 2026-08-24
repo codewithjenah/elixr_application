@@ -1,4 +1,5 @@
 import 'package:elixr_core/models/coach_code.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +15,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
 import 'auth_validators.dart';
+import 'google_auth_button.dart';
 
 class TeacherRegisterScreen extends StatefulWidget {
   const TeacherRegisterScreen({super.key});
@@ -32,6 +34,9 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
   final _confirmController = TextEditingController();
   bool _agreedToLegal = false;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
+  bool _isCheckingAccess = false;
+  String? _prevalidatedAccessCode;
   String? _error;
   int _step = 0;
   final Set<String> _touched = <String>{};
@@ -58,32 +63,62 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
     return false;
   }
 
-  void _continue() {
-    if (_step == 0) {
-      setState(() => _touched.addAll(['first', 'last']));
-      if (!_validatePersonalDetails()) return;
-    } else {
-      setState(() => _touched.addAll(['email', 'code']));
-      if (validateAuthEmail(_emailController.text) != null ||
-          CoachCode.tryNormalize(_accessCodeController.text) == null) {
-        return;
-      }
-    }
+  Future<void> _continueFromAccess() async {
+    if (_isCheckingAccess) return;
+    setState(() => _touched.add('code'));
+    final accessCode = CoachCode.tryNormalize(_accessCodeController.text);
+    if (accessCode == null) return;
+
     setState(() {
-      _step++;
+      _isCheckingAccess = true;
+      _error = null;
+    });
+    try {
+      await context.read<AuthService>().prevalidateTeacherAccessCode(
+        accessCode,
+      );
+      if (!mounted) return;
+      setState(() {
+        _prevalidatedAccessCode = accessCode;
+        _step = 1;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isCheckingAccess = false);
+    }
+  }
+
+  void _chooseEmailAndPassword() {
+    setState(() {
+      _step = 2;
+      _error = null;
+    });
+  }
+
+  void _continueToSecurity() {
+    setState(() => _touched.addAll(['first', 'last']));
+    if (!_validatePersonalDetails()) return;
+    setState(() {
+      _step = 3;
       _error = null;
     });
   }
 
   Future<void> _register() async {
-    setState(() => _touched.addAll(['password', 'confirm', 'legal']));
+    if (_isGoogleLoading) return;
+    setState(() => _touched.addAll(['email', 'password', 'confirm', 'legal']));
     if (!_agreedToLegal) {
       setState(() => _error = TeacherAuthMessages.legalConsentRequired);
       return;
     }
     if (!_validatePersonalDetails()) return;
 
-    final accessCode = CoachCode.tryNormalize(_accessCodeController.text);
+    final accessCode = _usablePrevalidatedAccessCode;
     if (accessCode == null) {
       setState(() => _error = TeacherAuthMessages.accessCodeInvalid);
       return;
@@ -127,6 +162,41 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
     }
   }
 
+  Future<void> _registerWithGoogle() async {
+    if (_isLoading || _isGoogleLoading) return;
+    final accessCode = _usablePrevalidatedAccessCode;
+    if (accessCode == null) {
+      setState(() {
+        _touched.add('code');
+        _error = TeacherAuthMessages.accessCodeInvalid;
+        _step = 0;
+      });
+      return;
+    }
+    setState(() {
+      _isGoogleLoading = true;
+      _error = null;
+    });
+    try {
+      await context.read<AuthService>().signInWithGoogleTeacher(
+        teacherAccessCode: accessCode,
+      );
+      if (mounted && context.read<AuthService>().hasPendingGoogleProfile) {
+        context.go(AppRoutePaths.completeGoogleProfile);
+      }
+    } on GoogleSignInCancelledException {
+      // Keep the code and the rest of the form available for another try.
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AuthScaffold(
@@ -136,14 +206,17 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
       subtitle:
           'Teacher accounts require an access code from an administrator or an existing Teacher.',
       formTitle: switch (_step) {
-        0 => 'Create your profile',
-        1 => 'Teacher access',
+        0 => 'Teacher access',
+        1 => 'Choose how to register',
+        2 => 'Create your profile',
         _ => 'Secure your account',
       },
       formSubtitle: switch (_step) {
-        0 => 'Students will see this name in classroom contexts.',
-        1 => 'Enter your work email and Teacher access code.',
-        _ => 'Choose a strong password and accept the legal terms.',
+        0 => 'Enter your Teacher access code to get started.',
+        1 => 'Use Google, or create an account with email and password.',
+        2 => 'Students will see this name in classroom contexts.',
+        _ =>
+          'Enter your account email, choose a strong password, and accept the legal terms.',
       },
       child: Column(
         key: const Key('teacher_register_form_fields'),
@@ -152,6 +225,57 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
           _TeacherProgress(step: _step),
           const SizedBox(height: AppSpacing.md),
           if (_step == 0) ...[
+            AuthTextField(
+              key: const Key('teacher_register_access_code_field'),
+              controller: _accessCodeController,
+              label: 'Teacher access code',
+              placeholder: '7KPM-XR4D-Q2WT',
+              icon: FluentIcons.permissions,
+              helperText:
+                  'Ask an administrator or an existing Teacher for a code.',
+              isLoading: _isCheckingAccess,
+              validationText: _touched.contains('code') && !_teacherCodeValid
+                  ? TeacherAuthMessages.accessCodeInvalid
+                  : null,
+              status: _status(
+                'code',
+                _teacherCodeValid
+                    ? null
+                    : TeacherAuthMessages.accessCodeInvalid,
+              ),
+              onChanged: (_) {
+                _prevalidatedAccessCode = null;
+                _error = null;
+                _live('code');
+              },
+              onFocusChanged: (v) => _blur('code', v),
+              onSubmitted: (_) {
+                if (_teacherCodeValid) _continueFromAccess();
+              },
+            ),
+          ] else if (_step == 1) ...[
+            Text(
+              'Your access code is valid. Choose the sign-in method you want to use for this Teacher account.',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            GoogleAuthButton(
+              key: const Key('teacher_register_google_button'),
+              label: 'Continue with Google',
+              isLoading: _isGoogleLoading,
+              onPressed: _isLoading ? null : _registerWithGoogle,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            const AuthOrDivider(),
+            const SizedBox(height: AppSpacing.sm),
+            ElixPrimaryButton(
+              key: const Key('teacher_register_email_button'),
+              label: 'Use email and password',
+              onPressed: _isGoogleLoading ? null : _chooseEmailAndPassword,
+            ),
+          ] else if (_step == 2) ...[
             AuthTextField(
               controller: _firstNameController,
               label: 'First name',
@@ -181,11 +305,12 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               onChanged: (_) => _live('last'),
               onFocusChanged: (v) => _blur('last', v),
             ),
-          ] else if (_step == 1) ...[
+          ] else ...[
             AuthTextField(
+              key: const Key('teacher_register_email_field'),
               controller: _emailController,
-              label: 'Work email',
-              placeholder: 'Work email',
+              label: 'Email address',
+              placeholder: 'Email address',
               icon: FluentIcons.mail_solid,
               keyboardType: TextInputType.emailAddress,
               validationText: _touched.contains('email')
@@ -198,29 +323,6 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               onChanged: (_) => _live('email'),
               onFocusChanged: (v) => _blur('email', v),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            AuthTextField(
-              controller: _accessCodeController,
-              label: 'Teacher access code',
-              placeholder: '7KPM-XR4D-Q2WT',
-              icon: FluentIcons.permissions,
-              helperText:
-                  'Required. Ask an administrator or an existing Teacher for a code.',
-              validationText:
-                  _touched.contains('code') &&
-                      CoachCode.tryNormalize(_accessCodeController.text) == null
-                  ? TeacherAuthMessages.accessCodeInvalid
-                  : null,
-              status: _status(
-                'code',
-                CoachCode.tryNormalize(_accessCodeController.text) == null
-                    ? TeacherAuthMessages.accessCodeInvalid
-                    : null,
-              ),
-              onChanged: (_) => _live('code'),
-              onFocusChanged: (v) => _blur('code', v),
-            ),
-          ] else ...[
             const SizedBox(height: AppSpacing.sm),
             AuthTextField(
               controller: _passwordController,
@@ -264,15 +366,16 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               onChanged: (value) => setState(() => _agreedToLegal = value),
             ),
           ],
-          if ((_step < 2 && !_currentStepValid) ||
-              (_step == 2 && !_securityValid)) ...[
+          if ((_step == 0 && !_teacherCodeValid) ||
+              (_step == 2 && !_profileValid) ||
+              (_step == 3 && !_securityValid)) ...[
             const SizedBox(height: AppSpacing.xs),
             Text(
               switch (_step) {
-                0 => 'Enter your first and last name to continue.',
-                1 => 'Enter a valid work email and Teacher access code.',
+                0 => 'Enter a valid Teacher access code to continue.',
+                2 => 'Enter your first and last name to continue.',
                 _ =>
-                  'Complete the password, match, and legal consent requirements.',
+                  'Complete the email, password, match, and legal consent requirements.',
               },
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
@@ -284,20 +387,40 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             AuthErrorBanner(message: _error!),
           ],
           const SizedBox(height: AppSpacing.lg),
-          if (_step < 2)
+          if (_step == 0)
+            ElixPrimaryButton(
+              label: 'Continue',
+              isLoading: _isCheckingAccess,
+              onPressed: _continueFromAccess,
+            )
+          else if (_step == 1)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Button(
+                onPressed: _isGoogleLoading
+                    ? null
+                    : () => setState(() {
+                        _step = 0;
+                        _error = null;
+                      }),
+                child: const Text('Back'),
+              ),
+            )
+          else if (_step == 2)
             Row(
               children: [
-                if (_step > 0) ...[
-                  Button(
-                    onPressed: () => setState(() => _step--),
-                    child: const Text('Back'),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                ],
+                Button(
+                  onPressed: () => setState(() {
+                    _step = 1;
+                    _error = null;
+                  }),
+                  child: const Text('Back'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: ElixPrimaryButton(
                     label: 'Continue',
-                    onPressed: _currentStepValid ? _continue : null,
+                    onPressed: _profileValid ? _continueToSecurity : null,
                   ),
                 ),
               ],
@@ -309,7 +432,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
                   onPressed: _isLoading
                       ? null
                       : () => setState(() {
-                          _step = 1;
+                          _step = 2;
                           _error = null;
                         }),
                   child: const Text('Back'),
@@ -377,11 +500,16 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
       ) ==
       null;
 
-  bool get _teacherAccessValid =>
-      validateAuthEmail(_emailController.text) == null &&
+  String? get _usablePrevalidatedAccessCode {
+    final currentCode = CoachCode.tryNormalize(_accessCodeController.text);
+    return currentCode == _prevalidatedAccessCode ? currentCode : null;
+  }
+
+  bool get _teacherCodeValid =>
       CoachCode.tryNormalize(_accessCodeController.text) != null;
 
   bool get _securityValid =>
+      validateAuthEmail(_emailController.text) == null &&
       validateRegistrationPassword(_passwordController.text) == null &&
       validatePasswordConfirmation(
             _passwordController.text,
@@ -389,9 +517,6 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
           ) ==
           null &&
       _agreedToLegal;
-
-  bool get _currentStepValid =>
-      _step == 0 ? _profileValid : _teacherAccessValid;
 
   String? get _confirmationMessage {
     if (_confirmController.text.isEmpty && !_touched.contains('confirm')) {
@@ -424,23 +549,23 @@ class _TeacherProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['Profile', 'Teacher access', 'Security'];
+    const labels = ['Teacher access', 'Method', 'Profile', 'Security'];
     return Semantics(
-      label: 'Step ${step + 1} of 3: ${labels[step]}',
+      label: 'Step ${step + 1} of 4: ${labels[step]}',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Step ${step + 1} of 3',
+            'Step ${step + 1} of 4',
             style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: AppSpacing.xs),
           Row(
-            children: List.generate(3, (index) {
+            children: List.generate(4, (index) {
               return Expanded(
                 child: Container(
                   margin: EdgeInsets.only(
-                    right: index == 2 ? 0 : AppSpacing.xs,
+                    right: index == 3 ? 0 : AppSpacing.xs,
                   ),
                   height: 4,
                   decoration: BoxDecoration(
