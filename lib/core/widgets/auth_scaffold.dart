@@ -19,6 +19,7 @@ class AuthScaffold extends StatefulWidget {
     this.formOnLeft = false,
     this.formVerticalCompact = false,
     this.formVerticalTight = false,
+    this.noScrollForm = false,
   });
 
   final Widget child;
@@ -29,6 +30,7 @@ class AuthScaffold extends StatefulWidget {
   final bool formOnLeft;
   final bool formVerticalCompact;
   final bool formVerticalTight;
+  final bool noScrollForm;
 
   @override
   State<AuthScaffold> createState() => _AuthScaffoldState();
@@ -104,6 +106,7 @@ class _AuthScaffoldState extends State<AuthScaffold>
                 formSubtitle: widget.formSubtitle,
                 verticalCompact: widget.formVerticalCompact,
                 verticalTight: widget.formVerticalTight,
+                noScroll: widget.noScrollForm,
                 child: widget.child,
               ),
             );
@@ -119,6 +122,7 @@ class _AuthScaffoldState extends State<AuthScaffold>
             orbController: _orbController,
             title: widget.title,
             subtitle: widget.subtitle,
+            overlayOnly: widget.noScrollForm && constraints.maxHeight < 760,
             overlay: _FormPanel(
               fadeAnimation: _fadeAnimation,
               slideAnimation: _slideAnimation,
@@ -127,6 +131,7 @@ class _AuthScaffoldState extends State<AuthScaffold>
               compact: true,
               verticalCompact: widget.formVerticalCompact,
               verticalTight: widget.formVerticalTight,
+              noScroll: widget.noScrollForm,
               child: widget.child,
             ),
           );
@@ -142,12 +147,14 @@ class _BrandPanel extends StatelessWidget {
     this.title,
     this.subtitle,
     this.overlay,
+    this.overlayOnly = false,
   });
 
   final AnimationController orbController;
   final String? title;
   final String? subtitle;
   final Widget? overlay;
+  final bool overlayOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -190,6 +197,13 @@ class _BrandPanel extends StatelessWidget {
                   child: _BrandContent(title: title, subtitle: subtitle),
                 ),
               )
+            else if (overlayOnly)
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Center(child: overlay!),
+                ),
+              )
             else
               SafeArea(
                 child: Column(
@@ -230,6 +244,7 @@ class _FormPanel extends StatelessWidget {
     this.compact = false,
     this.verticalCompact = false,
     this.verticalTight = false,
+    this.noScroll = false,
   });
 
   final Animation<double> fadeAnimation;
@@ -240,6 +255,7 @@ class _FormPanel extends StatelessWidget {
   final bool compact;
   final bool verticalCompact;
   final bool verticalTight;
+  final bool noScroll;
 
   double get _headerGap {
     if (verticalTight) return AppSpacing.sm;
@@ -362,7 +378,9 @@ class _FormPanel extends StatelessWidget {
                           ? constraints.maxHeight
                           : 420,
                     ),
-                    child: _AuthFitScrollView(child: form),
+                    child: noScroll
+                        ? Center(child: form)
+                        : _AuthFitScrollView(child: form),
                   );
                 },
               ),
@@ -374,9 +392,13 @@ class _FormPanel extends StatelessWidget {
 
     return Padding(
       padding: _panelPadding,
-      child: _AuthFitScrollView(
-        child: AuthFormCard(padding: _cardPadding, child: form),
-      ),
+      child: noScroll
+          ? Center(
+              child: AuthFormCard(padding: _cardPadding, child: form),
+            )
+          : _AuthFitScrollView(
+              child: AuthFormCard(padding: _cardPadding, child: form),
+            ),
     );
   }
 }

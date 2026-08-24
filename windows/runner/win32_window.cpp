@@ -26,6 +26,11 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
+// Minimum Flutter client area required by the no-scroll authentication flow.
+// These are logical pixels and are scaled for the window's current monitor.
+constexpr int kMinimumClientWidth = 660;
+constexpr int kMinimumClientHeight = 680;
+
 /// Registry key for app theme preference.
 ///
 /// A value of 0 indicates apps should use dark mode. A non-zero or missing
@@ -187,6 +192,29 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      auto min_max_info = reinterpret_cast<MINMAXINFO*>(lparam);
+      const HMONITOR monitor =
+          MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      const double scale_factor = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+
+      RECT window_rect{};
+      RECT client_rect{};
+      GetWindowRect(hwnd, &window_rect);
+      GetClientRect(hwnd, &client_rect);
+      const LONG non_client_width =
+          (window_rect.right - window_rect.left) -
+          (client_rect.right - client_rect.left);
+      const LONG non_client_height =
+          (window_rect.bottom - window_rect.top) -
+          (client_rect.bottom - client_rect.top);
+
+      min_max_info->ptMinTrackSize.x =
+          Scale(kMinimumClientWidth, scale_factor) + non_client_width;
+      min_max_info->ptMinTrackSize.y =
+          Scale(kMinimumClientHeight, scale_factor) + non_client_height;
+      return 0;
+    }
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

@@ -9,6 +9,7 @@ import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
+import 'auth_validators.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,6 +23,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _error;
+  bool _emailTouched = false;
+  bool _passwordTouched = false;
+  final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
 
   @override
   void initState() {
@@ -39,10 +44,17 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   Future<void> _login() async {
+    setState(() {
+      _emailTouched = true;
+      _passwordTouched = true;
+    });
+    if (!_isValid) return;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -54,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = 'Email or password is incorrect.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -62,7 +74,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final emailError = _emailTouched
+        ? validateAuthEmail(_emailController.text)
+        : null;
+    final passwordError = _passwordTouched && _passwordController.text.isEmpty
+        ? 'Password is required.'
+        : null;
     return AuthScaffold(
+      noScrollForm: true,
       title: 'Welcome back',
       subtitle: 'Sign in to continue your flair training',
       formTitle: 'Sign In',
@@ -76,6 +95,19 @@ class _LoginScreenState extends State<LoginScreen> {
             placeholder: 'Email address',
             icon: FluentIcons.mail_solid,
             keyboardType: TextInputType.emailAddress,
+            focusNode: _emailFocus,
+            textInputAction: TextInputAction.next,
+            onSubmitted: (_) => _passwordFocus.requestFocus(),
+            onChanged: (_) {
+              if (_emailTouched) setState(() {});
+            },
+            onFocusChanged: (focused) {
+              if (!focused) setState(() => _emailTouched = true);
+            },
+            status: emailError == null
+                ? AuthFieldStatus.neutral
+                : AuthFieldStatus.error,
+            validationText: emailError,
           ),
           const SizedBox(height: AppSpacing.sm + 4),
           AuthTextField(
@@ -84,6 +116,18 @@ class _LoginScreenState extends State<LoginScreen> {
             placeholder: 'Password',
             icon: FluentIcons.lock_solid,
             obscureText: true,
+            focusNode: _passwordFocus,
+            textInputAction: TextInputAction.done,
+            onChanged: (_) {
+              if (_passwordTouched) setState(() {});
+            },
+            onFocusChanged: (focused) {
+              if (!focused) setState(() => _passwordTouched = true);
+            },
+            status: passwordError == null
+                ? AuthFieldStatus.neutral
+                : AuthFieldStatus.error,
+            validationText: passwordError,
             onSubmitted: (_) => _login(),
           ),
           Align(
@@ -124,4 +168,8 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+
+  bool get _isValid =>
+      validateAuthEmail(_emailController.text) == null &&
+      _passwordController.text.isNotEmpty;
 }

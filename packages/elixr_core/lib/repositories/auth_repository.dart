@@ -128,6 +128,7 @@ abstract class AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   });
 
   /// Reloads the Firebase user and returns whether the current email is verified.
@@ -761,6 +762,7 @@ class AuthRepository implements AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   }) async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) throw Exception('Not authenticated');
@@ -794,7 +796,10 @@ class AuthRepository implements AuthRepositoryBase {
       );
 
       await activeUser
-          .verifyBeforeUpdateEmail(trimmedEmail)
+          .verifyBeforeUpdateEmail(
+            trimmedEmail,
+            _actionCodeSettings(continueUrl: continueUrl),
+          )
           .timeout(_authOperationTimeout);
       return EmailChangeRequestResult.verificationSent;
     } on fb.FirebaseAuthException catch (e) {

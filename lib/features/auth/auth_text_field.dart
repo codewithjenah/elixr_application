@@ -3,6 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import 'auth_validators.dart';
+
+enum AuthFieldStatus { neutral, error, success, help }
 
 class AuthTextField extends StatefulWidget {
   const AuthTextField({
@@ -16,6 +19,14 @@ class AuthTextField extends StatefulWidget {
     this.onSubmitted,
     this.helperText,
     this.dense = false,
+    this.status = AuthFieldStatus.neutral,
+    this.validationText,
+    this.onChanged,
+    this.onFocusChanged,
+    this.focusNode,
+    this.enabled = true,
+    this.isLoading = false,
+    this.textInputAction,
   });
 
   final TextEditingController controller;
@@ -27,9 +38,41 @@ class AuthTextField extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final String? helperText;
   final bool dense;
+  final AuthFieldStatus status;
+  final String? validationText;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<bool>? onFocusChanged;
+  final FocusNode? focusNode;
+  final bool enabled;
+  final bool isLoading;
+  final TextInputAction? textInputAction;
 
   @override
   State<AuthTextField> createState() => _AuthTextFieldState();
+}
+
+class AuthPasswordChecklist extends StatelessWidget {
+  const AuthPasswordChecklist({super.key, required this.password});
+
+  final String password;
+
+  @override
+  Widget build(BuildContext context) {
+    final length = passwordHasMinimumLength(password);
+    final letter = passwordHasLetter(password);
+    final number = passwordHasNumber(password);
+    String item(bool met, String label) => '${met ? '✓' : '○'} $label';
+
+    return Semantics(
+      label:
+          'Password requirements: 8 or more characters ${length ? 'met' : 'not met'}, '
+          'letter ${letter ? 'met' : 'not met'}, number ${number ? 'met' : 'not met'}',
+      child: Text(
+        '${item(length, '8+ characters')}   ${item(letter, 'Letter')}   ${item(number, 'Number')}',
+        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+      ),
+    );
+  }
 }
 
 class _AuthTextFieldState extends State<AuthTextField> {
@@ -45,6 +88,19 @@ class _AuthTextFieldState extends State<AuthTextField> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
+    final statusColor = switch (widget.status) {
+      AuthFieldStatus.error => AppColors.error,
+      AuthFieldStatus.success => AppColors.success,
+      AuthFieldStatus.help ||
+      AuthFieldStatus.neutral => context.elixTextSecondary,
+    };
+    final statusIcon = switch (widget.status) {
+      AuthFieldStatus.error => FluentIcons.error_badge,
+      AuthFieldStatus.success => FluentIcons.completed_solid,
+      AuthFieldStatus.help => FluentIcons.info_solid,
+      AuthFieldStatus.neutral => null,
+    };
+    final supportingText = widget.validationText ?? widget.helperText;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -60,7 +116,10 @@ class _AuthTextFieldState extends State<AuthTextField> {
           const SizedBox(height: AppSpacing.xs),
         ],
         Focus(
-          onFocusChange: (v) => setState(() => _focused = v),
+          onFocusChange: (v) {
+            setState(() => _focused = v);
+            widget.onFocusChanged?.call(v);
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
@@ -70,7 +129,11 @@ class _AuthTextFieldState extends State<AuthTextField> {
                   ? Colors.white.withValues(alpha: _focused ? 0.05 : 0.025)
                   : Colors.black.withValues(alpha: _focused ? 0.025 : 0.015),
               border: Border.all(
-                color: _focused
+                color:
+                    widget.status == AuthFieldStatus.error ||
+                        widget.status == AuthFieldStatus.success
+                    ? statusColor.withValues(alpha: 0.75)
+                    : _focused
                     ? AppColors.primary.withValues(alpha: 0.55)
                     : context.elixBorder.withValues(alpha: isDark ? 0.55 : 0.8),
               ),
@@ -92,6 +155,10 @@ class _AuthTextFieldState extends State<AuthTextField> {
                 obscureText: _obscured,
                 keyboardType: widget.keyboardType,
                 onSubmitted: widget.onSubmitted,
+                onChanged: widget.onChanged,
+                focusNode: widget.focusNode,
+                enabled: widget.enabled && !widget.isLoading,
+                textInputAction: widget.textInputAction,
                 padding: EdgeInsets.symmetric(
                   horizontal: AppSpacing.md,
                   vertical: widget.dense ? 8 : 11,
@@ -106,7 +173,16 @@ class _AuthTextFieldState extends State<AuthTextField> {
                     size: 16,
                   ),
                 ),
-                suffix: widget.obscureText
+                suffix: widget.isLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: ProgressRing(strokeWidth: 2),
+                        ),
+                      )
+                    : widget.obscureText
                     ? Tooltip(
                         message: _obscured ? 'Show password' : 'Hide password',
                         child: IconButton(
@@ -128,18 +204,30 @@ class _AuthTextFieldState extends State<AuthTextField> {
             ),
           ),
         ),
-        if (widget.helperText != null) ...[
-          const SizedBox(height: AppSpacing.xs),
-          Padding(
-            padding: const EdgeInsets.only(left: 2),
-            child: Text(
-              widget.helperText!,
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ),
-        ],
+        SizedBox(
+          height: 22,
+          child: supportingText == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(left: 2, top: AppSpacing.xs),
+                  child: Row(
+                    children: [
+                      if (statusIcon != null) ...[
+                        Icon(statusIcon, size: 12, color: statusColor),
+                        const SizedBox(width: 5),
+                      ],
+                      Expanded(
+                        child: Text(
+                          supportingText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption.copyWith(color: statusColor),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+        ),
       ],
     );
   }

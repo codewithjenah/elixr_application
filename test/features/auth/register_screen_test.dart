@@ -78,6 +78,7 @@ class _RegisterTrackingRepository implements AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
@@ -141,6 +142,7 @@ Future<void> _enterAuthField(
   String value,
 ) async {
   await tester.enterText(_authField(placeholder), value);
+  await tester.pump();
 }
 
 const _registerFieldPlaceholders = [
@@ -236,8 +238,8 @@ void main() {
     await tester.tap(find.text('Continue'));
     await tester.pump();
     await _enterAuthField(tester, 'Email address', 'ada@example.com');
-    await _enterAuthField(tester, 'Password', 'secret1');
-    await _enterAuthField(tester, 'Confirm password', 'secret1');
+    await _enterAuthField(tester, 'Password', 'secret12');
+    await _enterAuthField(tester, 'Confirm password', 'secret12');
     await checkPrivacyConsent(tester);
   }
 
@@ -253,8 +255,8 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pump();
         await _enterAuthField(tester, 'Email address', 'ada@example.com');
-        await _enterAuthField(tester, 'Password', 'secret1');
-        await _enterAuthField(tester, 'Confirm password', 'secret1');
+        await _enterAuthField(tester, 'Password', 'secret12');
+        await _enterAuthField(tester, 'Confirm password', 'secret12');
         await tester.pump();
 
         final disabled = tester.widget<ElixPrimaryButton>(
@@ -290,12 +292,19 @@ void main() {
       await _setSurface(tester);
       await pumpRegisterScreen(tester);
 
-      await tester.tap(find.text('Continue'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
       expect(repository.registerCallCount, 0);
-      expect(find.text('First name is required.'), findsOneWidget);
+      expect(
+        tester
+            .widget<ElixPrimaryButton>(
+              find.widgetWithText(ElixPrimaryButton, 'Continue'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        find.text('Enter your first and last name to continue.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('accepts an empty middle name', (tester) async {
@@ -325,8 +334,8 @@ void main() {
         await tester.tap(find.text('Continue'));
         await tester.pump();
         await _enterAuthField(tester, 'Email address', ' ada@example.com ');
-        await _enterAuthField(tester, 'Password', 'secret1');
-        await _enterAuthField(tester, 'Confirm password', 'secret1');
+        await _enterAuthField(tester, 'Password', 'secret12');
+        await _enterAuthField(tester, 'Confirm password', 'secret12');
         await checkPrivacyConsent(tester);
         await tester.tap(
           find.widgetWithText(ElixPrimaryButton, 'Create Account'),
@@ -393,6 +402,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(RegisterScreen), findsOneWidget);
+      expect(find.byType(SingleChildScrollView), findsNothing);
       expect(find.byType(ElixPrimaryButton), findsOneWidget);
       expect(find.byType(AuthFooterLink), findsOneWidget);
     });

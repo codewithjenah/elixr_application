@@ -63,6 +63,7 @@ class _TeacherRegisterRepository implements AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
@@ -134,13 +135,18 @@ void main() {
 
     await tester.enterText(find.byType(TextBox).at(0), 'Jane');
     await tester.enterText(find.byType(TextBox).at(2), 'Doe');
+    await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pump();
 
     await tester.enterText(find.byType(TextBox).at(0), 'jane@school.edu');
     await tester.enterText(find.byType(TextBox).at(1), '7KPM-XR4D-Q2WT');
-    await tester.enterText(find.byType(TextBox).at(2), 'secret1');
-    await tester.enterText(find.byType(TextBox).at(3), 'secret1');
+    await tester.pump();
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextBox).at(0), 'secret12');
+    await tester.enterText(find.byType(TextBox).at(1), 'secret12');
     await tester.tap(find.byKey(const Key('teacher_register_privacy_consent')));
     await tester.pump();
     await tester.tap(find.text('Create Teacher account'));

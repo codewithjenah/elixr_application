@@ -67,6 +67,7 @@ class _TrackingDeleteAccountRepository implements AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   }) async => EmailChangeRequestResult.unchanged;
 
   @override

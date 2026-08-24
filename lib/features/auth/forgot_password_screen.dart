@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +11,7 @@ import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
+import 'auth_validators.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -23,20 +26,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool _emailSent = false;
   String? _error;
   AuthService? _auth;
+  bool _emailTouched = false;
+  int _cooldownSeconds = 0;
+  Timer? _cooldownTimer;
+  String _submittedEmail = '';
 
   @override
   void dispose() {
     _emailController.dispose();
+    _cooldownTimer?.cancel();
     _auth?.endPasswordResetWatch();
     super.dispose();
   }
 
   Future<void> _submit() async {
     final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      setState(() => _error = 'Email cannot be empty.');
-      return;
-    }
+    setState(() => _emailTouched = true);
+    if (validateAuthEmail(email) != null) return;
 
     setState(() {
       _isLoading = true;
@@ -48,13 +54,37 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _auth = auth;
       await auth.sendPasswordResetEmail(email: email);
       if (mounted) {
-        setState(() => _emailSent = true);
+        setState(() {
+          _emailSent = true;
+          _submittedEmail = email;
+        });
+        _startCooldown();
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _startCooldown() {
+    _cooldownTimer?.cancel();
+    setState(() => _cooldownSeconds = 60);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() => _cooldownSeconds--);
+      if (_cooldownSeconds <= 0) timer.cancel();
+    });
+  }
+
+  void _editEmail() {
+    _cooldownTimer?.cancel();
+    setState(() {
+      _emailSent = false;
+      _emailTouched = false;
+      _cooldownSeconds = 0;
+      _error = null;
+    });
   }
 
   @override
@@ -64,6 +94,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     );
 
     return AuthScaffold(
+      noScrollForm: true,
       title: 'Reset password',
       subtitle: 'We will email you a secure link to choose a new password',
       formTitle: 'Forgot password',
@@ -81,6 +112,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Widget _buildFormContent() {
+    final emailError = _emailTouched
+        ? validateAuthEmail(_emailController.text)
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -90,6 +124,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           icon: FluentIcons.mail_solid,
           keyboardType: TextInputType.emailAddress,
           onSubmitted: (_) => _submit(),
+          textInputAction: TextInputAction.done,
+          onChanged: (_) {
+            if (_emailTouched) setState(() {});
+          },
+          onFocusChanged: (focused) {
+            if (!focused) setState(() => _emailTouched = true);
+          },
+          status: emailError == null
+              ? AuthFieldStatus.neutral
+              : AuthFieldStatus.error,
+          validationText: emailError,
         ),
         if (_error != null) ...[
           const SizedBox(height: AppSpacing.md),
@@ -117,18 +162,41 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        InfoBar(
+          title: const Text('Check your email'),
+          content: Text(
+            'If an account exists for $_submittedEmail, a reset link is on its way.',
+          ),
+          severity: InfoBarSeverity.success,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          '1. Open the secure link in the email.\n'
+          '2. Choose your new password on Firebase’s page.\n'
+          '3. Return here to sign in.\n\n'
+          'Check your spam or junk folder if it does not arrive.',
+          style: AppTheme.body.copyWith(fontSize: 14, height: 1.4),
+        ),
+        const SizedBox(height: AppSpacing.md),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 2),
-              child: SizedBox(width: 18, height: 18, child: ProgressRing()),
+            Expanded(
+              child: Button(
+                key: const Key('forgot_edit_email'),
+                onPressed: _isLoading ? null : _editEmail,
+                child: const Text('Edit email'),
+              ),
             ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
-              child: Text(
-                TeacherAuthMessages.passwordResetWaiting,
-                style: AppTheme.body.copyWith(fontSize: 15, height: 1.45),
+              child: Button(
+                key: const Key('forgot_resend'),
+                onPressed: _isLoading || _cooldownSeconds > 0 ? null : _submit,
+                child: Text(
+                  _cooldownSeconds > 0
+                      ? 'Resend in ${_cooldownSeconds}s'
+                      : 'Resend email',
+                ),
               ),
             ),
           ],

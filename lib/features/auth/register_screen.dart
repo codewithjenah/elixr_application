@@ -11,6 +11,7 @@ import '../../core/widgets/auth_scaffold.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
+import 'auth_validators.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -30,6 +31,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   String? _error;
   int _step = 0;
+  final Set<String> _touched = <String>{};
 
   @override
   void dispose() {
@@ -49,11 +51,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       lastName: _lastNameController.text,
     );
     if (nameError == null) return true;
-    setState(() => _error = nameError);
     return false;
   }
 
   void _continueToAccount() {
+    setState(() => _touched.addAll(['first', 'last']));
     if (!_validatePersonalDetails()) return;
     setState(() {
       _step = 1;
@@ -62,15 +64,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    setState(() => _touched.addAll(['email', 'password', 'confirm', 'legal']));
     if (!_agreedToLegal) return;
     if (!_validatePersonalDetails()) return;
 
-    if (_passwordController.text != _confirmController.text) {
-      setState(() => _error = 'Passwords do not match');
-      return;
-    }
-    if (_passwordController.text.length < 6) {
-      setState(() => _error = 'Password must be at least 6 characters');
+    final emailError = validateAuthEmail(_emailController.text);
+    final passwordError = validateRegistrationPassword(
+      _passwordController.text,
+    );
+    final confirmError = validatePasswordConfirmation(
+      _passwordController.text,
+      _confirmController.text,
+    );
+    if (emailError != null || passwordError != null || confirmError != null) {
       return;
     }
 
@@ -111,6 +117,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final actionGap = verticalTight ? AppSpacing.sm : AppSpacing.md;
 
     return AuthScaffold(
+      noScrollForm: true,
       formOnLeft: true,
       title: 'Train with intention',
       subtitle: 'Start your flair training journey',
@@ -133,6 +140,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
               placeholder: 'First name',
               icon: FluentIcons.contact,
               dense: dense,
+              validationText: _nameError('first'),
+              status: _nameStatus('first'),
+              onChanged: (_) => _live('first'),
+              onFocusChanged: (v) => _blur('first', v),
             ),
             SizedBox(height: fieldGap),
             AuthTextField(
@@ -141,6 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               placeholder: 'Middle name (optional)',
               icon: FluentIcons.contact,
               dense: dense,
+              onChanged: (_) => _live('middle'),
             ),
             SizedBox(height: fieldGap),
             AuthTextField(
@@ -149,6 +161,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
               placeholder: 'Last name',
               icon: FluentIcons.contact,
               dense: dense,
+              validationText: _nameError('last'),
+              status: _nameStatus('last'),
+              onChanged: (_) => _live('last'),
+              onFocusChanged: (v) => _blur('last', v),
             ),
           ] else ...[
             AuthTextField(
@@ -158,6 +174,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
               icon: FluentIcons.mail_solid,
               keyboardType: TextInputType.emailAddress,
               dense: dense,
+              validationText: _touched.contains('email')
+                  ? validateAuthEmail(_emailController.text)
+                  : null,
+              status: _fieldStatus(
+                'email',
+                validateAuthEmail(_emailController.text),
+              ),
+              onChanged: (_) => _live('email'),
+              onFocusChanged: (v) => _blur('email', v),
             ),
             SizedBox(height: fieldGap),
             AuthTextField(
@@ -166,9 +191,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
               placeholder: 'Password',
               icon: FluentIcons.lock_solid,
               obscureText: true,
-              helperText: 'At least 6 characters',
+              helperText: '8+ characters, including a letter and a number',
               dense: dense,
+              validationText: _touched.contains('password')
+                  ? validateRegistrationPassword(_passwordController.text)
+                  : null,
+              status: _fieldStatus(
+                'password',
+                validateRegistrationPassword(_passwordController.text),
+              ),
+              onChanged: (_) {
+                _live('password');
+                if (_touched.contains('confirm')) setState(() {});
+              },
+              onFocusChanged: (v) => _blur('password', v),
             ),
+            AuthPasswordChecklist(password: _passwordController.text),
             SizedBox(height: fieldGap),
             AuthTextField(
               controller: _confirmController,
@@ -180,11 +218,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 if (_agreedToLegal) _register();
               },
               dense: dense,
+              validationText: _confirmationMessage,
+              status: _confirmationStatus,
+              onChanged: (_) => _live('confirm'),
+              onFocusChanged: (v) => _blur('confirm', v),
             ),
             SizedBox(height: fieldGap),
             _RegisterLegalConsent(
               agreed: _agreedToLegal,
               onChanged: (value) => setState(() => _agreedToLegal = value),
+            ),
+          ],
+          if ((_step == 0 && !_profileValid) ||
+              (_step == 1 && !_accountValid)) ...[
+            SizedBox(height: fieldGap),
+            Text(
+              _step == 0
+                  ? 'Enter your first and last name to continue.'
+                  : 'Complete the email, password, match, and legal consent requirements.',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
             ),
           ],
           if (_error != null) ...[
@@ -195,7 +249,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           if (_step == 0)
             ElixPrimaryButton(
               label: 'Continue',
-              onPressed: _continueToAccount,
+              onPressed: _profileValid ? _continueToAccount : null,
               dense: dense,
             )
           else ...[
@@ -215,7 +269,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: ElixPrimaryButton(
                     label: 'Create Account',
                     isLoading: _isLoading,
-                    onPressed: _agreedToLegal ? _register : null,
+                    onPressed: _accountValid ? _register : null,
                     dense: dense,
                   ),
                 ),
@@ -233,6 +287,74 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ],
       ),
     );
+  }
+
+  void _blur(String field, bool focused) {
+    if (!focused) setState(() => _touched.add(field));
+  }
+
+  void _live(String field) {
+    setState(() {});
+  }
+
+  String? _nameError(String field) {
+    if (!_touched.contains(field)) return null;
+    final value = field == 'first'
+        ? _firstNameController.text.trim()
+        : _lastNameController.text.trim();
+    return value.isEmpty
+        ? '${field == 'first' ? 'First' : 'Last'} name is required.'
+        : null;
+  }
+
+  AuthFieldStatus _nameStatus(String field) =>
+      _fieldStatus(field, _nameError(field));
+
+  AuthFieldStatus _fieldStatus(String field, String? error) {
+    if (!_touched.contains(field)) return AuthFieldStatus.neutral;
+    return error == null ? AuthFieldStatus.success : AuthFieldStatus.error;
+  }
+
+  bool get _profileValid =>
+      validateUserNameParts(
+        firstName: _firstNameController.text,
+        middleName: _middleNameController.text,
+        lastName: _lastNameController.text,
+      ) ==
+      null;
+
+  bool get _accountValid =>
+      validateAuthEmail(_emailController.text) == null &&
+      validateRegistrationPassword(_passwordController.text) == null &&
+      validatePasswordConfirmation(
+            _passwordController.text,
+            _confirmController.text,
+          ) ==
+          null &&
+      _agreedToLegal;
+
+  String? get _confirmationMessage {
+    if (_confirmController.text.isEmpty && !_touched.contains('confirm')) {
+      return null;
+    }
+    return validatePasswordConfirmation(
+          _passwordController.text,
+          _confirmController.text,
+        ) ??
+        'Passwords match.';
+  }
+
+  AuthFieldStatus get _confirmationStatus {
+    if (_confirmController.text.isEmpty && !_touched.contains('confirm')) {
+      return AuthFieldStatus.neutral;
+    }
+    return validatePasswordConfirmation(
+              _passwordController.text,
+              _confirmController.text,
+            ) ==
+            null
+        ? AuthFieldStatus.success
+        : AuthFieldStatus.error;
   }
 }
 
@@ -270,12 +392,25 @@ class _RegistrationProgress extends StatelessWidget {
       );
     }
 
-    return Row(
-      children: [
-        segment('Personal details', 0),
-        const SizedBox(width: AppSpacing.sm),
-        segment('Account & security', 1),
-      ],
+    return Semantics(
+      label: 'Step ${step + 1} of 2',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Step ${step + 1} of 2',
+            style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            children: [
+              segment('Personal details', 0),
+              const SizedBox(width: AppSpacing.sm),
+              segment('Account & security', 1),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

@@ -67,6 +67,7 @@ class _TrackingPasswordResetRepository implements AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   }) async => EmailChangeRequestResult.unchanged;
 
   @override
@@ -183,7 +184,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(repository.sendPasswordResetEmailCallCount, 0);
-      expect(find.text('Email cannot be empty.'), findsOneWidget);
+      expect(find.text('Email address is required.'), findsOneWidget);
     });
 
     testWidgets(
@@ -202,10 +203,8 @@ void main() {
 
         expect(repository.sendPasswordResetEmailCallCount, 1);
         expect(repository.lastEmail, 'trainee@example.com');
-        expect(
-          find.text(TeacherAuthMessages.passwordResetWaiting),
-          findsOneWidget,
-        );
+        expect(find.text('Check your email'), findsOneWidget);
+        expect(find.textContaining('trainee@example.com'), findsOneWidget);
         expect(find.byType(ElixPrimaryButton), findsNothing);
       },
     );

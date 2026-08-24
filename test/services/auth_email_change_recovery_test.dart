@@ -16,6 +16,7 @@ class FakeAuthRepository implements AuthRepositoryBase {
   EmailChangeRequestResult requestEmailChangeResult =
       EmailChangeRequestResult.verificationSent;
   bool clearCurrentUserCalled = false;
+  String? lastEmailChangeContinueUrl;
   Future<PendingEmailChangeRecoveryResult> Function({
     required String originalUid,
     required String pendingEmail,
@@ -83,8 +84,10 @@ class FakeAuthRepository implements AuthRepositoryBase {
   Future<EmailChangeRequestResult> requestEmailChange({
     required String newEmail,
     required String currentPassword,
+    String? continueUrl,
   }) async {
     requestEmailChangeCallCount++;
+    lastEmailChangeContinueUrl = continueUrl;
     return requestEmailChangeResult;
   }
 
@@ -148,6 +151,7 @@ void main() {
         leaderboardRepository: null,
         pendingEmailPollInterval: const Duration(milliseconds: 50),
         pendingEmailTimeout: const Duration(milliseconds: 200),
+        verificationResendCooldown: const Duration(milliseconds: 50),
       );
       authService.seedAuthenticatedUser(_testUser());
     });
@@ -173,6 +177,31 @@ void main() {
       await authService.checkPendingEmailChange();
 
       expect(authService.currentUser, same(before));
+      expect(authService.hasPendingEmailChange, isTrue);
+    });
+
+    test(
+      'email change forwards callback URL and owns resend cooldown',
+      () async {
+        await startPendingEmailChange();
+
+        expect(repository.lastEmailChangeContinueUrl, isNotNull);
+        expect(authService.canResendVerification, isFalse);
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        expect(authService.canResendVerification, isTrue);
+      },
+    );
+
+    test('verification callback checks pending email recovery first', () async {
+      await startPendingEmailChange();
+      final callsBeforeCallback = repository.recoveryCallCount;
+
+      authService.handleEmailActionCallback(
+        Uri.parse('http://localhost/elixr-auth?mode=verifyEmail'),
+      );
+      await authService.waitForPendingEmailCheckIdle();
+
+      expect(repository.recoveryCallCount, greaterThan(callsBeforeCallback));
       expect(authService.hasPendingEmailChange, isTrue);
     });
 

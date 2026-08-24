@@ -53,6 +53,7 @@ class AuthService extends ChangeNotifier {
     Duration? pendingEmailTimeout,
     AuthEmailCallbackServer? emailCallbackServer,
     Duration? emailVerificationPollInterval,
+    Duration? verificationResendCooldown,
     JoinLinkService? joinLinkService,
     @visibleForTesting Future<void> Function()? awaitInitialAuthState,
   }) : _repository = repository ?? AuthRepository(createMissingProfile: false),
@@ -66,6 +67,8 @@ class AuthService extends ChangeNotifier {
            emailCallbackServer ?? LoopbackAuthEmailCallbackServer(),
        _emailVerificationPollInterval =
            emailVerificationPollInterval ?? const Duration(seconds: 1),
+       _verificationResendCooldown =
+           verificationResendCooldown ?? const Duration(seconds: 60),
        _joinLinkService = joinLinkService,
        _awaitInitialAuthState = awaitInitialAuthState {
     _joinLinkService?.authCallbackHandler = handleEmailActionCallback;
@@ -78,6 +81,7 @@ class AuthService extends ChangeNotifier {
   final Duration _pendingEmailTimeout;
   final AuthEmailCallbackServer _emailCallbackServer;
   final Duration _emailVerificationPollInterval;
+  final Duration _verificationResendCooldown;
   final JoinLinkService? _joinLinkService;
   final Future<void> Function()? _awaitInitialAuthState;
 
@@ -106,6 +110,8 @@ class AuthService extends ChangeNotifier {
   bool _emailVerificationWatchActive = false;
   bool _awaitingPasswordResetCallback = false;
   bool _passwordResetConfirmed = false;
+  DateTime? _verificationResendAvailableAt;
+  Timer? _verificationCooldownTimer;
 
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
@@ -129,6 +135,17 @@ class AuthService extends ChangeNotifier {
   }
 
   bool get hasConfirmedPasswordResetLink => _passwordResetConfirmed;
+  int get verificationResendSecondsRemaining {
+    final availableAt = _verificationResendAvailableAt;
+    if (availableAt == null) return 0;
+    final remainingMilliseconds = availableAt
+        .difference(DateTime.now())
+        .inMilliseconds;
+    if (remainingMilliseconds <= 0) return 0;
+    return (remainingMilliseconds + 999) ~/ 1000;
+  }
+
+  bool get canResendVerification => verificationResendSecondsRemaining == 0;
 
   String? takeAccountDeletedMessage() {
     final message = _accountDeletedMessage;
@@ -351,6 +368,7 @@ class AuthService extends ChangeNotifier {
     _emailVerificationWatchActive = false;
     _awaitingPasswordResetCallback = false;
     _passwordResetConfirmed = false;
+    _clearVerificationResendCooldown();
     await _stopEmailCallbackServer();
     _currentUser = null;
     await _repository.clearCurrentUser();
@@ -360,6 +378,7 @@ class AuthService extends ChangeNotifier {
   Future<bool> resendVerificationEmail() async {
     final user = _currentUser;
     if (user == null || !_hasSupportedProductRole(user)) return false;
+    if (!canResendVerification) return false;
     _clearTeacherAuthMessages();
     try {
       await requestCurrentEmailVerification();
@@ -714,9 +733,15 @@ class AuthService extends ChangeNotifier {
     required String newEmail,
     required String currentPassword,
   }) async {
+    String? continueUrl;
+    try {
+      final base = await _ensureEmailCallbackServer();
+      continueUrl = _continueUri(base, mode: 'verify').toString();
+    } catch (_) {}
     final result = await _repository.requestEmailChange(
       newEmail: newEmail,
       currentPassword: currentPassword,
+      continueUrl: continueUrl,
     );
     if (result == EmailChangeRequestResult.verificationSent) {
       final uid = _currentUser?.id;
@@ -728,6 +753,7 @@ class AuthService extends ChangeNotifier {
           password: currentPassword,
         );
       }
+      _startVerificationResendCooldown();
       return true;
     }
     return false;
@@ -744,6 +770,18 @@ class AuthService extends ChangeNotifier {
       continueUrl = _continueUri(base, mode: 'verify').toString();
     } catch (_) {}
     await _repository.requestCurrentEmailVerification(continueUrl: continueUrl);
+    _startVerificationResendCooldown();
+  }
+
+  Future<bool> resendPendingEmailChange({
+    required String currentPassword,
+  }) async {
+    final email = pendingEmail;
+    if (email == null || !canResendVerification) return false;
+    return requestEmailChange(
+      newEmail: email,
+      currentPassword: currentPassword,
+    );
   }
 
   /// Starts polling Firebase and listening for the email continue URL so
@@ -789,6 +827,11 @@ class AuthService extends ChangeNotifier {
         action == 'reset' ||
         action == 'resetpassword' ||
         action == 'recoveremail';
+    if (hasPendingEmailChange &&
+        (action == 'verify' || action == 'verifyemail' || action.isEmpty)) {
+      unawaited(checkPendingEmailChange());
+      return;
+    }
     if (_awaitingPasswordResetCallback &&
         (token.isEmpty || isReset || action.isEmpty)) {
       _passwordResetConfirmed = true;
@@ -847,6 +890,29 @@ class AuthService extends ChangeNotifier {
   void _stopEmailVerificationPolling() {
     _emailVerificationPollTimer?.cancel();
     _emailVerificationPollTimer = null;
+  }
+
+  void _startVerificationResendCooldown() {
+    _verificationCooldownTimer?.cancel();
+    _verificationResendAvailableAt = DateTime.now().add(
+      _verificationResendCooldown,
+    );
+    _verificationCooldownTimer = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) {
+      if (_disposed || canResendVerification) {
+        timer.cancel();
+        _verificationCooldownTimer = null;
+      }
+      if (!_disposed) notifyListeners();
+    });
+    if (!_disposed) notifyListeners();
+  }
+
+  void _clearVerificationResendCooldown() {
+    _verificationCooldownTimer?.cancel();
+    _verificationCooldownTimer = null;
+    _verificationResendAvailableAt = null;
   }
 
   Future<void> _refreshEmailVerificationQuietly() async {
@@ -1112,6 +1178,7 @@ class AuthService extends ChangeNotifier {
     }
     _clearPendingEmailChange(clearError: true);
     _stopEmailVerificationPolling();
+    _clearVerificationResendCooldown();
     _emailVerificationWatchActive = false;
     _awaitingPasswordResetCallback = false;
     unawaited(_stopEmailCallbackServer());
