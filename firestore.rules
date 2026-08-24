@@ -2513,22 +2513,6 @@ service cloud.firestore {
         && get(groupMembershipPath(groupId, traineeId)).data.status == 'approved';
     }
 
-    // Assignment Submission Authorization is Phase 6 video access. Fail closed.
-    function hasAssignmentSubmissionAuthorization(
-      teacherId,
-      groupId,
-      traineeId,
-      assignmentId,
-      attemptId
-    ) {
-      return teacherId == request.auth.uid
-        && groupId is string
-        && traineeId is string
-        && assignmentId is string
-        && attemptId is string
-        && false;
-    }
-
     function validPendingMembershipCreate(data, membershipId) {
       return isSignedIn()
         && data.keys().hasOnly(membershipAllowedKeys())
@@ -3591,12 +3575,21 @@ service cloud.firestore {
         && data.participant_ids.size() == 2
         && request.auth.uid in data.participant_ids;
     }
+    function isChatInboxParticipant(data) {
+      return isSignedIn()
+        && (
+          data.participant_a == request.auth.uid
+          || data.participant_b == request.auth.uid
+        );
+    }
     function validChatPair(data, conversationId) {
       return data.participant_ids is list
         && data.participant_ids.size() == 2
         && isParticipantId(data.participant_ids[0])
         && isParticipantId(data.participant_ids[1])
         && data.participant_ids[0] < data.participant_ids[1]
+        && data.participant_a == data.participant_ids[0]
+        && data.participant_b == data.participant_ids[1]
         && conversationId
           == data.participant_ids[0] + '__' + data.participant_ids[1]
         && isSupportedChatAccount(data.participant_ids[0])
@@ -3637,13 +3630,15 @@ service cloud.firestore {
     }
     function validChatConversationKeys(data) {
       return data.keys().hasAll([
-          'participant_ids', 'participant_snapshots', 'last_message_id',
+          'participant_ids', 'participant_a', 'participant_b',
+          'participant_snapshots', 'last_message_id',
           'last_message_body', 'last_message_sender_id', 'last_message_at',
           'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
           'schema_version'
         ])
         && data.keys().hasOnly([
-          'participant_ids', 'participant_snapshots', 'last_message_id',
+          'participant_ids', 'participant_a', 'participant_b',
+          'participant_snapshots', 'last_message_id',
           'last_message_body', 'last_message_sender_id', 'last_message_at',
           'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
           'schema_version'
@@ -3772,7 +3767,8 @@ service cloud.firestore {
     }
 
     match /chat_conversations/{conversationId} {
-      allow get, list: if isChatParticipant(resource.data);
+      allow get: if isChatParticipant(resource.data);
+      allow list: if isChatInboxParticipant(resource.data);
       allow create: if validChatConversationCreate(
         request.resource.data,
         conversationId
@@ -3841,14 +3837,6 @@ service cloud.firestore {
 
     // Phase 3A asynchronous teacher recommendations. They intentionally carry
     // no session or assessment data, and progress sharing is not consulted.
-    function coachingKeys() {
-      return ['teacher_id', 'trainee_id', 'teacher_display_name', 'body',
-        'created_at', 'updated_at'];
-    }
-    function coachingAllowedKeys() {
-      return coachingKeys().concat(['movement_name', 'group_id',
-        'authorization_source']);
-    }
     // Group-backed notes are listed with teacher_id + trainee_id + group_id.
     // Legacy-link notes are listed with teacher_id + trainee_id +
     // authorization_source == 'legacy_link'. Firestore cannot prove
@@ -3909,14 +3897,6 @@ service cloud.firestore {
         && get(teacherStudentLinkPath(teacherId, traineeId)).data.trainee_id == traineeId
         && get(teacherStudentLinkPath(teacherId, traineeId)).data.status == 'approved';
     }
-    function validCoachingBody(value) {
-      return value is string && value.size() > 0 && value.size() <= 1000
-        && value.matches('.*[^[:space:]].*');
-    }
-    function validCoachingMovement(data) {
-      return !data.keys().hasAny(['movement_name'])
-        || (data.movement_name is string && data.movement_name in coachingMovementNames());
-    }
     function isErasingOwnCoaching(data) {
       return isSignedIn() && (data.teacher_id == request.auth.uid || data.trainee_id == request.auth.uid)
         && !exists(userPath(request.auth.uid));
@@ -3930,40 +3910,6 @@ service cloud.firestore {
               || isHistoricalLegacyCoachingNote(data))
             && approvedCoachingLink(data.teacher_id, data.trainee_id))
         );
-    }
-    function validCoachingCreate(data) {
-      return isSignedIn() && data.keys().hasOnly(coachingAllowedKeys())
-        && data.keys().hasAll(coachingKeys()) && data.teacher_id == request.auth.uid
-        && data.teacher_id != data.trainee_id && isParticipantId(data.teacher_id)
-        && isParticipantId(data.trainee_id)
-        && (
-          (isGroupBackedCoachingNote(data)
-            && !data.keys().hasAny(['authorization_source'])
-            && approvedClassroomCoaching(data))
-          || (!data.keys().hasAny(['group_id'])
-            && isLegacyLinkCoachingSource(data)
-            && approvedCoachingLink(data.teacher_id, data.trainee_id))
-        )
-        && exists(userPath(request.auth.uid)) && data.teacher_display_name == userFullName(request.auth.uid)
-        && isDisplayName(data.teacher_display_name) && validCoachingBody(data.body)
-        && validCoachingMovement(data) && data.created_at == request.time && data.updated_at == request.time;
-    }
-    function validCoachingUpdate() {
-      return isCoachingAuthor(resource.data)
-        && request.resource.data.keys().hasOnly(coachingAllowedKeys())
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'movement_name', 'updated_at'])
-        && request.resource.data.teacher_id == resource.data.teacher_id
-        && request.resource.data.trainee_id == resource.data.trainee_id
-        && request.resource.data.teacher_display_name == resource.data.teacher_display_name
-        && request.resource.data.created_at == resource.data.created_at
-        && (!resource.data.keys().hasAny(['group_id'])
-          || request.resource.data.group_id == resource.data.group_id)
-        && (!resource.data.keys().hasAny(['authorization_source'])
-          || request.resource.data.authorization_source
-            == resource.data.authorization_source)
-        && request.resource.data.updated_at == request.time
-        && request.resource.data.updated_at >= request.resource.data.created_at
-        && validCoachingBody(request.resource.data.body) && validCoachingMovement(request.resource.data);
     }
     match /teacher_coaching_notes/{noteId} {
       allow get: if isSignedIn() && resource.data.trainee_id == request.auth.uid;

@@ -12,6 +12,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  or,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -87,6 +89,8 @@ async function createConversation(senderDb, {
   });
   batch.set(conversation, {
     participant_ids: ['alice', 'bob'],
+    participant_a: 'alice',
+    participant_b: 'bob',
     participant_snapshots: participantSnapshots,
     last_message_id: 'message-1',
     last_message_body: 'Hello Bob',
@@ -136,6 +140,29 @@ describe('direct message rules', () => {
     await assertSucceeds(getDoc(refForBob));
     await assertSucceeds(getDocs(collection(refForBob, 'messages')));
     await assertFails(getDoc(doc(db('mallory'), 'chat_conversations', conversationId)));
+  });
+
+  test('participants can list their inbox with the production query shape', async () => {
+    await createConversation(db('alice'));
+    const inbox = query(
+      collection(db('bob'), 'chat_conversations'),
+      or(
+        where('participant_a', '==', 'bob'),
+        where('participant_b', '==', 'bob'),
+      ),
+      orderBy('updated_at', 'desc'),
+    );
+    await assertSucceeds(getDocs(inbox));
+
+    const unrelatedInbox = query(
+      collection(db('mallory'), 'chat_conversations'),
+      or(
+        where('participant_a', '==', 'alice'),
+        where('participant_b', '==', 'alice'),
+      ),
+      orderBy('updated_at', 'desc'),
+    );
+    await assertFails(getDocs(unrelatedInbox));
   });
 
   test('read-state update can reset only the caller fields', async () => {

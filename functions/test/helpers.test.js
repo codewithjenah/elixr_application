@@ -120,6 +120,8 @@ test('account erasure excludes deleting profiles and builds idempotent archives'
     archivedAt,
   });
   assert.deepEqual(archived.participant_ids, ['bob', 'deleted_user']);
+  assert.equal(archived.participant_a, 'bob');
+  assert.equal(archived.participant_b, 'deleted_user');
   assert.equal(archived.participant_snapshots.deleted_user.display_name, 'Deleted user');
   assert.equal(archived.last_message_sender_id, 'deleted_user');
   assert.deepEqual(archived.unread_counts, {bob: 2});

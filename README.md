@@ -359,6 +359,10 @@ Later sends update the last-message summary, increment only the recipient's
 unread count, and keep the sender count at zero. Opening a thread advances only
 the caller's read timestamp. Authors may edit or soft-delete their messages;
 blocks preserve readable history but prevent either participant from sending.
+`participant_ids` remains the canonical sorted pair; `participant_a` and
+`participant_b` mirror its two positions so Firestore rules can authorize the
+OR-filtered inbox query. Client creation, migration, and account-erasure
+archival keep all three fields synchronized.
 The sanitized directory is maintained by `projectChatUserDirectory` and is
 never listed directly by the client.
 

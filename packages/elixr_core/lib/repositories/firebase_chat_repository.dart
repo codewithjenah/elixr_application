@@ -103,7 +103,12 @@ class FirebaseChatRepository implements ChatRepository {
   @override
   Stream<List<ChatConversation>> watchInbox(String currentUserId) {
     return _conversations
-        .where('participant_ids', arrayContains: currentUserId)
+        .where(
+          Filter.or(
+            Filter('participant_a', isEqualTo: currentUserId),
+            Filter('participant_b', isEqualTo: currentUserId),
+          ),
+        )
         .orderBy('updated_at', descending: true)
         .limit(100)
         .snapshots(includeMetadataChanges: true)
@@ -238,6 +243,7 @@ class FirebaseChatRepository implements ChatRepository {
         final readAt = _dynamicMap(current?['read_at']);
         readAt.putIfAbsent(sender.id, () => FieldValue.serverTimestamp());
         readAt.putIfAbsent(recipient.id, () => null);
+        final participantIds = [sender.id, recipient.id]..sort();
 
         transaction.set(messageRef, {
           'sender_id': sender.id,
@@ -248,7 +254,9 @@ class FirebaseChatRepository implements ChatRepository {
         });
 
         final conversationData = <String, dynamic>{
-          'participant_ids': [sender.id, recipient.id]..sort(),
+          'participant_ids': participantIds,
+          'participant_a': participantIds[0],
+          'participant_b': participantIds[1],
           'participant_snapshots': {
             sender.id: _snapshotForProfile(sender.id, senderProfile.data()!),
             recipient.id: _snapshotForProfile(

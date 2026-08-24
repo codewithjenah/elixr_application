@@ -118,9 +118,12 @@ function buildArchivedConversationData({
     };
   }
   const activeIds = [...activeProfiles.keys()];
+  const participantIds = [...activeIds, 'deleted_user'].sort();
   const archivedData = {
     ...data,
-    participant_ids: [...activeIds, 'deleted_user'].sort(),
+    participant_ids: participantIds,
+    participant_a: participantIds[0],
+    participant_b: participantIds[1],
     participant_snapshots: participantSnapshots,
     last_message_sender_id: data.last_message_sender_id === deletedUid
       ? 'deleted_user'

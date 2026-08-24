@@ -89,6 +89,7 @@ for (const [id, pairNotes] of grouped) {
     const latest = pairNotes[pairNotes.length - 1];
     const teacher = userData.get(latest.teacher_id);
     const trainee = userData.get(latest.trainee_id);
+    const participantIds = [latest.teacher_id, latest.trainee_id].sort();
     const conversationRef = firestore.collection('chat_conversations').doc(id);
     const existing = await conversationRef.get();
     const shouldReplaceSummary = shouldReplaceConversationSummary(
@@ -109,9 +110,11 @@ for (const [id, pairNotes] of grouped) {
         }
         await messageBatch.commit();
       }
-      if (shouldReplaceSummary) {
-        await conversationRef.set({
-          participant_ids: [latest.teacher_id, latest.trainee_id].sort(),
+      await conversationRef.set({
+        participant_a: participantIds[0],
+        participant_b: participantIds[1],
+        ...(shouldReplaceSummary ? {
+          participant_ids: participantIds,
           participant_snapshots: {
             [latest.teacher_id]: {
               id: latest.teacher_id,
@@ -136,8 +139,8 @@ for (const [id, pairNotes] of grouped) {
           created_at: pairNotes[0].created_at,
           updated_at: latest.created_at,
           schema_version: 1,
-        }, {merge: true});
-      }
+        } : {}),
+      }, {merge: true});
     }
     counts.messages_migrated += pairNotes.length;
   } catch (error) {
