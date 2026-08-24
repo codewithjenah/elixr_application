@@ -3686,15 +3686,14 @@ service cloud.firestore {
         && isSupportedChatAccount(before.participant_ids[1])
         && chatPairIsUnblocked(sender, recipient)
         && after.diff(before).affectedKeys().hasOnly([
-          'participant_snapshots', 'last_message_id', 'last_message_body',
-          'last_message_sender_id', 'last_message_at', 'unread_counts',
-          'updated_at'
+          'last_message_id', 'last_message_body', 'last_message_sender_id',
+          'last_message_at', 'unread_counts', 'updated_at'
         ])
         && after.participant_ids == before.participant_ids
+        && after.participant_snapshots == before.participant_snapshots
         && after.status == before.status
         && after.created_at == before.created_at
         && after.schema_version == before.schema_version
-        && validChatSnapshots(after)
         && after.last_message_sender_id == sender
         && after.last_message_at == request.time
         && after.updated_at == request.time
@@ -3767,7 +3766,11 @@ service cloud.firestore {
     }
 
     match /chat_conversations/{conversationId} {
-      allow get: if isChatParticipant(resource.data);
+      // The first-send transaction must confirm that its deterministic
+      // conversation document does not exist yet. Missing documents expose no
+      // conversation data; existing documents remain participant-only.
+      allow get: if isSignedIn()
+        && (resource == null || isChatParticipant(resource.data));
       allow list: if isChatInboxParticipant(resource.data);
       allow create: if validChatConversationCreate(
         request.resource.data,

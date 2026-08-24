@@ -135,6 +135,10 @@ describe('direct message rules', () => {
   });
 
   test('participants can read history while an unrelated account cannot', async () => {
+    await assertFails(getDoc(doc(db('alice'), 'users', 'bob')));
+    await assertSucceeds(
+      getDoc(doc(db('alice'), 'chat_conversations', conversationId)),
+    );
     await createConversation(db('alice'));
     const refForBob = doc(db('bob'), 'chat_conversations', conversationId);
     await assertSucceeds(getDoc(refForBob));
@@ -173,6 +177,31 @@ describe('direct message rules', () => {
       read_at: {alice: (await getDoc(ref)).data().read_at.alice, bob: serverTimestamp()},
     }));
     await assertFails(updateDoc(ref, {unread_counts: {alice: 9, bob: 0}}));
+  });
+
+  test('participant snapshots are immutable after conversation creation', async () => {
+    await createConversation(db('alice'));
+    const alice = db('alice');
+    const conversation = doc(alice, 'chat_conversations', conversationId);
+    const message = doc(collection(conversation, 'messages'), 'message-2');
+    const batch = writeBatch(alice);
+    batch.set(message, {
+      sender_id: 'alice', body: 'Snapshot attack', created_at: serverTimestamp(),
+      edited_at: null, deleted_at: null,
+    });
+    batch.update(conversation, {
+      participant_snapshots: {
+        ...snapshots(),
+        bob: {id: 'bob', display_name: 'Forged Name', role: 'Teacher'},
+      },
+      last_message_id: 'message-2',
+      last_message_body: 'Snapshot attack',
+      last_message_sender_id: 'alice',
+      last_message_at: serverTimestamp(),
+      unread_counts: {alice: 0, bob: 2},
+      updated_at: serverTimestamp(),
+    });
+    await assertFails(batch.commit());
   });
 
   test('only the sender can edit or soft-delete a message', async () => {

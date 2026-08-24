@@ -355,6 +355,11 @@ flutter run -d windows --dart-define=ELIXR_CHAT_API_BASE_URL=http://127.0.0.1:50
 ```
 
 The first send atomically creates the deterministic conversation and message.
+It combines the sender's own profile with the sanitized search result, so the
+client never reads another account's private `users` document. Participant
+snapshots are validated at creation and remain immutable afterward. The
+transaction may read the missing deterministic conversation document before
+creating it; existing conversations remain readable only by their participants.
 Later sends update the last-message summary, increment only the recipient's
 unread count, and keep the sender count at zero. Opening a thread advances only
 the caller's read timestamp. Authors may edit or soft-delete their messages;

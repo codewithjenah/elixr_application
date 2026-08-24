@@ -213,20 +213,16 @@ class FirebaseChatRepository implements ChatRepository {
         final senderProfileRef = _firestore
             .collection(FirestoreCollections.users)
             .doc(sender.id);
-        final recipientProfileRef = _firestore
-            .collection(FirestoreCollections.users)
-            .doc(recipient.id);
         final outgoingBlockRef = _blockRef(sender.id, recipient.id);
         final incomingBlockRef = _blockRef(recipient.id, sender.id);
 
         final senderProfile = await transaction.get(senderProfileRef);
-        final recipientProfile = await transaction.get(recipientProfileRef);
         final outgoingBlock = await transaction.get(outgoingBlockRef);
         final incomingBlock = await transaction.get(incomingBlockRef);
         final existing = await transaction.get(conversationRef);
 
         if (!_isSupportedProfile(senderProfile.data()) ||
-            !_isSupportedProfile(recipientProfile.data())) {
+            !_isSupportedChatUser(recipient)) {
           throw const ChatException(ChatError.permissionDenied);
         }
         if (outgoingBlock.exists || incomingBlock.exists) {
@@ -244,6 +240,15 @@ class FirebaseChatRepository implements ChatRepository {
         readAt.putIfAbsent(sender.id, () => FieldValue.serverTimestamp());
         readAt.putIfAbsent(recipient.id, () => null);
         final participantIds = [sender.id, recipient.id]..sort();
+        final participantSnapshots = current == null
+            ? <String, dynamic>{
+                sender.id: _snapshotForProfile(
+                  sender.id,
+                  senderProfile.data()!,
+                ),
+                recipient.id: recipient.toMap(),
+              }
+            : _dynamicMap(current['participant_snapshots']);
 
         transaction.set(messageRef, {
           'sender_id': sender.id,
@@ -257,13 +262,7 @@ class FirebaseChatRepository implements ChatRepository {
           'participant_ids': participantIds,
           'participant_a': participantIds[0],
           'participant_b': participantIds[1],
-          'participant_snapshots': {
-            sender.id: _snapshotForProfile(sender.id, senderProfile.data()!),
-            recipient.id: _snapshotForProfile(
-              recipient.id,
-              recipientProfile.data()!,
-            ),
-          },
+          'participant_snapshots': participantSnapshots,
           'last_message_id': messageRef.id,
           'last_message_body': trimmedBody,
           'last_message_sender_id': sender.id,
@@ -475,6 +474,9 @@ class FirebaseChatRepository implements ChatRepository {
 
   static bool _isSupportedProfile(Map<String, dynamic>? data) =>
       data != null && (data['role'] == 'Teacher' || data['role'] == 'Trainee');
+
+  static bool _isSupportedChatUser(ChatUser user) =>
+      user.isTeacher || user.isTrainee;
 
   static Map<String, dynamic> _snapshotForProfile(
     String id,
