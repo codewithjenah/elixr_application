@@ -6,6 +6,7 @@ abstract final class AppRoutePaths {
   static const registerTeacher = '/register/teacher';
   static const forgotPassword = '/forgot-password';
   static const verifyEmail = '/verify-email';
+  static const completeGoogleProfile = '/complete-google-profile';
 
   // Legal
   static const privacyPolicy = '/privacy-policy';
@@ -41,7 +42,13 @@ abstract final class AppRoutePaths {
   static const teacherMovements = '/teacher/movements';
   static const teacherSettings = '/teacher/settings';
 
-  static const authRoutes = {login, register, registerTeacher, forgotPassword};
+  static const authRoutes = {
+    login,
+    register,
+    registerTeacher,
+    forgotPassword,
+    completeGoogleProfile,
+  };
 
   static const legalRoutes = {privacyPolicy, termsOfService};
 

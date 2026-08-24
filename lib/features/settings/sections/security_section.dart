@@ -120,13 +120,16 @@ class SecuritySectionState extends State<SecuritySection> {
     final confirmed = await _DeleteAccountConfirm.show(
       context,
       email: authService.currentUser?.email ?? '',
+      googleOnly: authService.isGoogleOnly,
     );
     if (confirmed == null || !mounted) return;
 
     setState(() => _deletingAccount = true);
     try {
       await authService.deleteAccount(
-        password: confirmed.password,
+        reauthentication: authService.isGoogleOnly
+            ? const AccountReauthentication.google()
+            : AccountReauthentication.password(confirmed.password),
         confirmationPhrase: confirmed.phrase,
       );
       if (!mounted) return;
@@ -163,6 +166,7 @@ class SecuritySectionState extends State<SecuritySection> {
 
   @override
   Widget build(BuildContext context) {
+    final googleOnly = context.watch<AuthService>().isGoogleOnly;
     final newPass = _newPasswordController.text;
     final confirm = _confirmPasswordController.text;
 
@@ -189,140 +193,150 @@ class SecuritySectionState extends State<SecuritySection> {
         children: [
           const _SecurityIntroBanner(),
           const SizedBox(height: AppSpacing.lg),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: SettingsGroup(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(
-                              settingsRadiusSm,
+          if (googleOnly)
+            const InfoBar(
+              key: Key('google_managed_security_notice'),
+              title: Text('Sign-in is managed by Google'),
+              content: Text(
+                'Password changes are unavailable for this Google-only account.',
+              ),
+            ),
+          if (googleOnly) const SizedBox(height: AppSpacing.lg),
+          if (!googleOnly)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: SettingsGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(
+                                settingsRadiusSm,
+                              ),
+                            ),
+                            child: const Icon(
+                              FluentIcons.lock_solid,
+                              size: 16,
+                              color: AppColors.primary,
                             ),
                           ),
-                          child: const Icon(
-                            FluentIcons.lock_solid,
-                            size: 16,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.sm + 4),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Change password',
-                                style: AppTheme.body.copyWith(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: context.elixTextPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Enter your current password, then choose a new password.',
-                                style: AppTheme.caption.copyWith(
-                                  color: context.elixTextSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _PasswordField(
-                      label: 'Current password',
-                      controller: _currentPasswordController,
-                      icon: FluentIcons.lock,
-                      onSubmitted: (_) {
-                        if (_canSubmitPassword && !_savingPassword) {
-                          _savePassword();
-                        }
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    _PasswordField(
-                      label: 'New password',
-                      controller: _newPasswordController,
-                      icon: FluentIcons.lock_solid,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Wrap(
-                      spacing: AppSpacing.md,
-                      runSpacing: AppSpacing.xs,
-                      children: [
-                        _PasswordRequirement(
-                          label: 'At least 6 characters',
-                          met: hasMinLength,
-                        ),
-                        _PasswordRequirement(
-                          label: 'Passwords must match',
-                          met: passwordsMatch,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    _PasswordField(
-                      label: 'Confirm new password',
-                      controller: _confirmPasswordController,
-                      icon: FluentIcons.lock_solid,
-                      statusText: confirmStatus,
-                      statusIsSuccess: confirmSuccess,
-                      onSubmitted: (_) {
-                        if (_canSubmitPassword && !_savingPassword) {
-                          _savePassword();
-                        }
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    FilledButton(
-                      onPressed: _savingPassword || !_canSubmitPassword
-                          ? null
-                          : _savePassword,
-                      child: _savingPassword
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
+                          const SizedBox(width: AppSpacing.sm + 4),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const ProgressRing(strokeWidth: 2),
-                                const SizedBox(width: AppSpacing.sm),
                                 Text(
-                                  'Updating password...',
-                                  style: AppTheme.body.copyWith(fontSize: 14),
+                                  'Change password',
+                                  style: AppTheme.body.copyWith(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.elixTextPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Enter your current password, then choose a new password.',
+                                  style: AppTheme.caption.copyWith(
+                                    color: context.elixTextSecondary,
+                                  ),
                                 ),
                               ],
-                            )
-                          : const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(FluentIcons.accept, size: 14),
-                                SizedBox(width: AppSpacing.sm),
-                                Text('Update password'),
-                              ],
                             ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'After updating, use your new password the next time you sign in.',
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.lg),
+                      _PasswordField(
+                        label: 'Current password',
+                        controller: _currentPasswordController,
+                        icon: FluentIcons.lock,
+                        onSubmitted: (_) {
+                          if (_canSubmitPassword && !_savingPassword) {
+                            _savePassword();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _PasswordField(
+                        label: 'New password',
+                        controller: _newPasswordController,
+                        icon: FluentIcons.lock_solid,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Wrap(
+                        spacing: AppSpacing.md,
+                        runSpacing: AppSpacing.xs,
+                        children: [
+                          _PasswordRequirement(
+                            label: 'At least 6 characters',
+                            met: hasMinLength,
+                          ),
+                          _PasswordRequirement(
+                            label: 'Passwords must match',
+                            met: passwordsMatch,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _PasswordField(
+                        label: 'Confirm new password',
+                        controller: _confirmPasswordController,
+                        icon: FluentIcons.lock_solid,
+                        statusText: confirmStatus,
+                        statusIsSuccess: confirmSuccess,
+                        onSubmitted: (_) {
+                          if (_canSubmitPassword && !_savingPassword) {
+                            _savePassword();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      FilledButton(
+                        onPressed: _savingPassword || !_canSubmitPassword
+                            ? null
+                            : _savePassword,
+                        child: _savingPassword
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const ProgressRing(strokeWidth: 2),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Text(
+                                    'Updating password...',
+                                    style: AppTheme.body.copyWith(fontSize: 14),
+                                  ),
+                                ],
+                              )
+                            : const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(FluentIcons.accept, size: 14),
+                                  SizedBox(width: AppSpacing.sm),
+                                  Text('Update password'),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        'After updating, use your new password the next time you sign in.',
+                        style: AppTheme.caption.copyWith(
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
           const SizedBox(height: AppSpacing.lg),
           Align(
             alignment: Alignment.centerLeft,
@@ -651,6 +665,7 @@ class _DeleteAccountConfirm {
   static Future<_DeleteAccountConfirmation?> show(
     BuildContext context, {
     required String email,
+    bool googleOnly = false,
   }) async {
     final phrase = await showDialog<String>(
       context: context,
@@ -659,6 +674,10 @@ class _DeleteAccountConfirm {
       builder: (ctx) => Center(child: _DeleteAccountDialog(email: email)),
     );
     if (phrase == null || !context.mounted) return null;
+
+    if (googleOnly) {
+      return _DeleteAccountConfirmation(password: '', phrase: phrase);
+    }
 
     final password = await showDialog<String>(
       context: context,

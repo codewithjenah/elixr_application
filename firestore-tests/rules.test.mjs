@@ -82,6 +82,31 @@ before(async () => {
   });
 });
 
+describe('Google Trainee profile onboarding', () => {
+  const profileData = (overrides = {}) => ({
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    full_name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    role: ROLE_TRAINEE,
+    created_at: serverTimestamp(),
+    privacy_consent_at: serverTimestamp(),
+    privacy_policy_version: 'v4',
+    ...overrides,
+  });
+
+  test('authenticated user may create only their own consented Trainee profile', async () => {
+    const ada = testEnv.authenticatedContext('ada', {
+      email: 'ada@example.com',
+      email_verified: true,
+    }).firestore();
+
+    await assertSucceeds(setDoc(doc(ada, 'users', 'ada'), profileData()));
+    await assertFails(setDoc(doc(ada, 'users', 'someone-else'), profileData()));
+    await assertFails(setDoc(doc(ada, 'users', 'teacher'), profileData({ role: ROLE_TEACHER })));
+  });
+});
+
 // Phase 3A coaching-note policy.  These tests intentionally use direct client
 // writes/queries: repository validation is defense in depth, while these rules
 // are the authoritative boundary for a modified client.

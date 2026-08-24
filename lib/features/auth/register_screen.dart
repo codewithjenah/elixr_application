@@ -12,6 +12,8 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
 import 'auth_validators.dart';
+import 'google_auth_button.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -29,6 +31,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmController = TextEditingController();
   bool _agreedToLegal = false;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   String? _error;
   int _step = 0;
   final Set<String> _touched = <String>{};
@@ -64,6 +67,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    if (_isGoogleLoading) return;
     setState(() => _touched.addAll(['email', 'password', 'confirm', 'legal']));
     if (!_agreedToLegal) return;
     if (!_validatePersonalDetails()) return;
@@ -106,6 +110,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  Future<void> _googleRegister() async {
+    if (_isLoading || _isGoogleLoading) return;
+    setState(() {
+      _isGoogleLoading = true;
+      _error = null;
+    });
+    try {
+      await context.read<AuthService>().signInWithGoogle();
+    } on GoogleSignInCancelledException {
+      // Closing the provider browser leaves the registration form untouched.
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final viewportHeight = MediaQuery.sizeOf(context).height;
@@ -117,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final actionGap = verticalTight ? AppSpacing.sm : AppSpacing.md;
 
     return AuthScaffold(
-      noScrollForm: true,
+      noScrollForm: viewportHeight >= 600,
       formOnLeft: true,
       title: 'Train with intention',
       subtitle: 'Start your flair training journey',
@@ -247,10 +272,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ],
           SizedBox(height: actionGap),
           if (_step == 0)
-            ElixPrimaryButton(
-              label: 'Continue',
-              onPressed: _profileValid ? _continueToAccount : null,
-              dense: dense,
+            Row(
+              children: [
+                Expanded(
+                  child: ElixPrimaryButton(
+                    label: 'Continue',
+                    onPressed: _profileValid && !_isGoogleLoading
+                        ? _continueToAccount
+                        : null,
+                    dense: dense,
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+                  child: Text('or'),
+                ),
+                Expanded(
+                  child: GoogleAuthButton(
+                    key: const Key('register_google_button'),
+                    label: 'Sign up with Google',
+                    isLoading: _isGoogleLoading,
+                    onPressed: _isLoading ? null : _googleRegister,
+                  ),
+                ),
+              ],
             )
           else ...[
             Row(
@@ -269,7 +314,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: ElixPrimaryButton(
                     label: 'Create Account',
                     isLoading: _isLoading,
-                    onPressed: _accountValid ? _register : null,
+                    onPressed: _accountValid && !_isGoogleLoading
+                        ? _register
+                        : null,
                     dense: dense,
                   ),
                 ),

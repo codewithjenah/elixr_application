@@ -6,7 +6,7 @@ ELIXR is a development-stage **Windows desktop bottle-flair training application
 
 ## What the application currently does
 
-- Email/password authentication with Firebase Authentication.
+- Email/password and Google authentication with Firebase Authentication.
 - User profiles, completed sessions, and feedback history stored in Cloud Firestore.
 - Guided practice with a pre-practice readiness check, countdown, live annotated video, movement feedback, Assessment V2 rubric, combo tracking, hold confirmation, music, and an optional session save flow.
 - Free-practice camera mode with live detection overlays and no rubric assessment or saved session.
@@ -156,9 +156,13 @@ The repository is currently configured for the Firebase project `elixr-app-2026`
 
 For the existing project:
 
-1. Enable Firebase Authentication with Email/Password.
-2. Create Cloud Firestore.
-3. Deploy the repository's rules and indexes when they change:
+1. Enable Firebase Authentication with Email/Password and Google.
+2. Configure the Google provider support email and keep Firebase Authentication
+   on the one-account-per-email setting. ELIXR relies on the Firebase UID to
+   preserve an existing Trainee or Teacher profile when Google verifies the
+   same email address.
+3. Create Cloud Firestore.
+4. Deploy the repository's rules and indexes when they change:
 
 ```powershell
 firebase deploy --only firestore

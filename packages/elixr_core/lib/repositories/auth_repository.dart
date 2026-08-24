@@ -34,6 +34,62 @@ class ProfilePictureUpdate {
 
 enum EmailChangeRequestResult { unchanged, verificationSent }
 
+/// Sign-in capabilities reported by Firebase for the active identity.
+enum AuthProviderKind { password, google }
+
+class PendingGoogleProfile {
+  const PendingGoogleProfile({
+    required this.uid,
+    required this.email,
+    required this.firstName,
+    this.middleName,
+    required this.lastName,
+    required this.isNewUser,
+  });
+
+  final String uid;
+  final String email;
+  final String firstName;
+  final String? middleName;
+  final String lastName;
+  final bool isNewUser;
+}
+
+sealed class GoogleSignInResult {
+  const GoogleSignInResult();
+}
+
+class ExistingGoogleProfile extends GoogleSignInResult {
+  const ExistingGoogleProfile(this.user);
+
+  final User user;
+}
+
+class PendingGoogleSignIn extends GoogleSignInResult {
+  const PendingGoogleSignIn(this.profile);
+
+  final PendingGoogleProfile profile;
+}
+
+class GoogleSignInCancelledException implements Exception {
+  const GoogleSignInCancelledException();
+
+  @override
+  String toString() => 'Google sign-in was cancelled.';
+}
+
+class AccountReauthentication {
+  const AccountReauthentication.password(this.password)
+    : kind = AuthProviderKind.password;
+
+  const AccountReauthentication.google()
+    : kind = AuthProviderKind.google,
+      password = null;
+
+  final AuthProviderKind kind;
+  final String? password;
+}
+
 enum PendingEmailChangeRecoveryStatus {
   pending,
   completed,
@@ -161,6 +217,30 @@ abstract class AuthRepositoryBase {
     required String pendingEmail,
     required String recoveryPassword,
     String? originalEmail,
+  });
+}
+
+/// Optional provider-aware contract kept separate so existing password-only
+/// clients and test doubles remain source compatible.
+abstract class GoogleAuthRepositoryBase {
+  Future<GoogleSignInResult> signInWithGoogle();
+
+  Future<GoogleSignInResult?> restoreGoogleSignIn();
+
+  Future<User> completeGoogleProfile({
+    required PendingGoogleProfile pendingProfile,
+    required String firstName,
+    String? middleName,
+    required String lastName,
+  });
+
+  Future<void> cancelGoogleOnboarding(PendingGoogleProfile pendingProfile);
+
+  Future<Set<AuthProviderKind>> currentProviderKinds();
+
+  Future<void> deleteAccountWithReauthentication({
+    required AccountReauthentication reauthentication,
+    required String expectedUserId,
   });
 }
 
@@ -483,7 +563,7 @@ class MissingUserProfileException implements Exception {
   String toString() => message;
 }
 
-class AuthRepository implements AuthRepositoryBase {
+class AuthRepository implements AuthRepositoryBase, GoogleAuthRepositoryBase {
   AuthRepository({
     fb.FirebaseAuth? auth,
     UserProfileStore? db,
@@ -618,6 +698,274 @@ class AuthRepository implements AuthRepositoryBase {
       await _signOutIgnoringErrors();
       rethrow;
     }
+  }
+
+  @override
+  Future<GoogleSignInResult> signInWithGoogle() async {
+    try {
+      final credential = await _auth
+          .signInWithProvider(fb.GoogleAuthProvider())
+          .timeout(_authOperationTimeout);
+      return await _googleResultForCredential(credential);
+    } on fb.FirebaseAuthException catch (e) {
+      if (_isGoogleCancellation(e.code)) {
+        throw const GoogleSignInCancelledException();
+      }
+      throw Exception(_messageForGoogleAuthError(e));
+    } on FirebaseException {
+      await _signOutIgnoringErrors();
+      throw Exception(
+        'Your Google account was verified, but ELIXR could not load your profile. Check your connection and try again.',
+      );
+    } on TimeoutException {
+      throw Exception(
+        'Google sign-in timed out. Check your internet connection and try again.',
+      );
+    } catch (error, stackTrace) {
+      await _signOutIgnoringErrors();
+      if (kDebugMode) {
+        debugPrint('Google profile load failed: $error');
+        debugPrint('$stackTrace');
+      }
+      throw Exception(
+        'ELIXR could not validate this account profile. Please try again.',
+      );
+    }
+  }
+
+  @override
+  Future<GoogleSignInResult?> restoreGoogleSignIn() async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null || !_hasProvider(firebaseUser, 'google.com')) {
+      return null;
+    }
+    try {
+      final profile = await _loadExistingGoogleProfile(firebaseUser);
+      if (profile != null) return ExistingGoogleProfile(profile);
+      return PendingGoogleSignIn(
+        _pendingGoogleProfile(firebaseUser, isNewUser: false),
+      );
+    } catch (error, stackTrace) {
+      await _signOutIgnoringErrors();
+      if (kDebugMode) {
+        debugPrint('Google session restore failed: $error');
+        debugPrint('$stackTrace');
+      }
+      return null;
+    }
+  }
+
+  @override
+  Future<void> deleteAccountWithReauthentication({
+    required AccountReauthentication reauthentication,
+    required String expectedUserId,
+  }) async {
+    if (reauthentication.kind == AuthProviderKind.password) {
+      final password = reauthentication.password;
+      if (password == null || password.isEmpty) {
+        throw Exception('Current password is required.');
+      }
+      return deleteAccount(password: password, expectedUserId: expectedUserId);
+    }
+
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null || firebaseUser.uid != expectedUserId) {
+      throw Exception(
+        'The active sign-in does not match this account. Sign in again.',
+      );
+    }
+
+    fb.UserCredential credential;
+    try {
+      credential = await _auth
+          .signInWithProvider(fb.GoogleAuthProvider())
+          .timeout(_authOperationTimeout);
+    } on fb.FirebaseAuthException catch (e) {
+      if (_isGoogleCancellation(e.code)) {
+        throw const GoogleSignInCancelledException();
+      }
+      throw Exception(_messageForGoogleAuthError(e));
+    } on TimeoutException {
+      throw Exception(
+        'Google verification timed out. No account data was deleted.',
+      );
+    }
+
+    final activeUser = credential.user;
+    if (activeUser == null || activeUser.uid != expectedUserId) {
+      await _signOutIgnoringErrors();
+      throw Exception(
+        'Google verified a different account. No account data was deleted.',
+      );
+    }
+    await finishAccountDeletionAfterPurge(
+      purgeUserData: () => _purgeUserData(expectedUserId),
+      deleteAuthUser: () async {
+        try {
+          await activeUser.delete().timeout(_authOperationTimeout);
+        } on fb.FirebaseAuthException catch (e) {
+          throw Exception(
+            'Your data was removed, but deleting the Google sign-in account failed: '
+            '${_messageForGoogleAuthError(e)} Try signing in again or contact support.',
+          );
+        } on TimeoutException {
+          throw Exception(
+            'Your data was removed, but deleting the Google sign-in account timed out. Try signing in again or contact support.',
+          );
+        }
+      },
+    );
+  }
+
+  Future<GoogleSignInResult> _googleResultForCredential(
+    fb.UserCredential credential,
+  ) async {
+    final firebaseUser = credential.user;
+    if (firebaseUser == null) {
+      throw Exception('Google did not return an authenticated account.');
+    }
+    final profile = await _loadExistingGoogleProfile(firebaseUser);
+    if (profile != null) return ExistingGoogleProfile(profile);
+    return PendingGoogleSignIn(
+      _pendingGoogleProfile(
+        firebaseUser,
+        isNewUser: credential.additionalUserInfo?.isNewUser == true,
+      ),
+    );
+  }
+
+  Future<User?> _loadExistingGoogleProfile(fb.User firebaseUser) async {
+    var profile = await _db.getUserById(firebaseUser.uid);
+    final authEmail = firebaseUser.email?.trim() ?? '';
+    if (profile != null &&
+        authEmail.isNotEmpty &&
+        _emailsDiffer(authEmail, profile.email)) {
+      await _db.updateUserProfileField(firebaseUser.uid, {'email': authEmail});
+      profile = profile.copyWith(email: authEmail);
+    }
+    return profile;
+  }
+
+  PendingGoogleProfile _pendingGoogleProfile(
+    fb.User firebaseUser, {
+    required bool isNewUser,
+  }) {
+    final email = firebaseUser.email?.trim() ?? '';
+    if (email.isEmpty || !firebaseUser.emailVerified) {
+      throw Exception(
+        'Google must provide a verified email address to continue.',
+      );
+    }
+    final parsed = parseLegacyFullName(firebaseUser.displayName ?? '');
+    return PendingGoogleProfile(
+      uid: firebaseUser.uid,
+      email: email,
+      firstName: parsed.firstName,
+      middleName: parsed.middleName,
+      lastName: parsed.lastName,
+      isNewUser: isNewUser,
+    );
+  }
+
+  @override
+  Future<User> completeGoogleProfile({
+    required PendingGoogleProfile pendingProfile,
+    required String firstName,
+    String? middleName,
+    required String lastName,
+  }) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null || firebaseUser.uid != pendingProfile.uid) {
+      await _signOutIgnoringErrors();
+      throw Exception(
+        'The active Google account changed. Sign in with Google again.',
+      );
+    }
+    try {
+      await firebaseUser.reload().timeout(_authOperationTimeout);
+    } on fb.FirebaseAuthException catch (e) {
+      throw Exception(_messageForGoogleAuthError(e));
+    } on TimeoutException {
+      throw Exception(
+        'Google account verification timed out. Check your connection and retry.',
+      );
+    }
+    final activeUser = _auth.currentUser;
+    final activeEmail = activeUser?.email?.trim() ?? '';
+    if (activeUser == null ||
+        activeUser.uid != pendingProfile.uid ||
+        !activeUser.emailVerified ||
+        _emailsDiffer(activeEmail, pendingProfile.email)) {
+      await _signOutIgnoringErrors();
+      throw Exception(
+        'The active Google account no longer matches this profile. Sign in again.',
+      );
+    }
+    final normalized = normalizeUserNameParts(
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+    );
+    final user = User(
+      id: activeUser.uid,
+      firstName: normalized.firstName,
+      middleName: normalized.middleName,
+      lastName: normalized.lastName,
+      email: activeEmail,
+      role: User.roleTrainee,
+    );
+    try {
+      await _db.upsertUserProfile(user, includePrivacyConsent: true);
+    } on FirebaseException {
+      throw Exception(
+        'ELIXR could not create your profile. Check your connection and retry.',
+      );
+    }
+    return user;
+  }
+
+  @override
+  Future<void> cancelGoogleOnboarding(
+    PendingGoogleProfile pendingProfile,
+  ) async {
+    final activeUser = _auth.currentUser;
+    try {
+      if (pendingProfile.isNewUser &&
+          activeUser != null &&
+          activeUser.uid == pendingProfile.uid &&
+          !_emailsDiffer(activeUser.email ?? '', pendingProfile.email)) {
+        await activeUser.delete().timeout(_authOperationTimeout);
+      }
+    } on Object catch (error, stackTrace) {
+      // Cancellation must always clear local onboarding and sign out. A failed
+      // best-effort deletion leaves the Firebase identity intact for recovery.
+      if (kDebugMode) {
+        debugPrint('New Google identity cleanup failed: $error');
+        debugPrint('$stackTrace');
+      }
+    } finally {
+      await _signOutIgnoringErrors();
+    }
+  }
+
+  @override
+  Future<Set<AuthProviderKind>> currentProviderKinds() async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) return const {};
+    final kinds = <AuthProviderKind>{};
+    if (_hasProvider(firebaseUser, 'password')) {
+      kinds.add(AuthProviderKind.password);
+    }
+    if (_hasProvider(firebaseUser, 'google.com')) {
+      kinds.add(AuthProviderKind.google);
+    }
+    return kinds;
+  }
+
+  static bool _hasProvider(fb.User user, String providerId) {
+    return user.providerData.any(
+      (provider) => provider.providerId == providerId,
+    );
   }
 
   @override
@@ -1548,6 +1896,30 @@ class AuthRepository implements AuthRepositoryBase {
           return 'Network error. Check your connection and try again.';
         }
         return error.message ?? 'Authentication failed';
+    }
+  }
+
+  static bool _isGoogleCancellation(String code) {
+    return code == 'web-context-cancelled' ||
+        code == 'popup-closed-by-user' ||
+        code == 'cancelled-popup-request' ||
+        code == 'canceled';
+  }
+
+  String _messageForGoogleAuthError(fb.FirebaseAuthException error) {
+    switch (error.code) {
+      case 'account-exists-with-different-credential':
+      case 'credential-already-in-use':
+      case 'email-already-in-use':
+        return 'This email already uses another sign-in method. Sign in with your existing method first.';
+      case 'network-request-failed':
+        return 'Could not reach Google. Check your internet connection and try again.';
+      case 'operation-not-allowed':
+        return 'Google sign-in is not enabled for this Firebase project.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      default:
+        return 'Google sign-in could not be completed. Please try again.';
     }
   }
 }

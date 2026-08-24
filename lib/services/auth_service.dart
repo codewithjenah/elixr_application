@@ -75,6 +75,10 @@ class AuthService extends ChangeNotifier {
   }
 
   final AuthRepositoryBase _repository;
+  GoogleAuthRepositoryBase? get _googleRepository =>
+      _repository is GoogleAuthRepositoryBase
+      ? _repository as GoogleAuthRepositoryBase
+      : null;
   final LeaderboardRepository? _leaderboardRepository;
   final PublicProfileRepository? _publicProfileRepository;
   final Duration _pendingEmailPollInterval;
@@ -92,6 +96,8 @@ class AuthService extends ChangeNotifier {
       _explicitProfileImageRepository ??= ProfileImageRepository();
 
   User? _currentUser;
+  PendingGoogleProfile? _pendingGoogleProfile;
+  Set<AuthProviderKind> _providerKinds = const {};
   bool _isLoading = true;
   bool? _emailVerified;
   bool _disposed = false;
@@ -115,6 +121,13 @@ class AuthService extends ChangeNotifier {
 
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _currentUser != null;
+  PendingGoogleProfile? get pendingGoogleProfile => _pendingGoogleProfile;
+  bool get hasPendingGoogleProfile => _pendingGoogleProfile != null;
+  Set<AuthProviderKind> get providerKinds => Set.unmodifiable(_providerKinds);
+  bool get hasPasswordProvider =>
+      _providerKinds.contains(AuthProviderKind.password);
+  bool get isGoogleOnly =>
+      _providerKinds.contains(AuthProviderKind.google) && !hasPasswordProvider;
   bool get isLoading => _isLoading;
   bool get needsEmailVerification =>
       _currentUser != null &&
@@ -169,6 +182,7 @@ class AuthService extends ChangeNotifier {
   @visibleForTesting
   void seedAuthenticatedUser(User user) {
     _currentUser = user;
+    _providerKinds = const {AuthProviderKind.password};
     _isLoading = false;
   }
 
@@ -181,7 +195,18 @@ class AuthService extends ChangeNotifier {
     } else {
       await fb.FirebaseAuth.instance.authStateChanges().first;
     }
-    final loadedUser = await _repository.loadPersistedUser();
+    final restoredGoogle = await _googleRepository?.restoreGoogleSignIn();
+    if (restoredGoogle is PendingGoogleSignIn) {
+      _pendingGoogleProfile = restoredGoogle.profile;
+      _currentUser = null;
+      _providerKinds = const {AuthProviderKind.google};
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+    final loadedUser = restoredGoogle is ExistingGoogleProfile
+        ? restoredGoogle.user
+        : await _repository.loadPersistedUser();
     if (loadedUser != null && !_hasSupportedProductRole(loadedUser)) {
       await logout();
       _isLoading = false;
@@ -189,6 +214,7 @@ class AuthService extends ChangeNotifier {
       return;
     }
     _currentUser = loadedUser;
+    await _refreshProviderKinds();
     await _refreshEmailVerificationState();
     _isLoading = false;
     notifyListeners();
@@ -212,6 +238,8 @@ class AuthService extends ChangeNotifier {
       defaultRole: AppConstants.defaultRole,
     );
     _currentUser = user;
+    _pendingGoogleProfile = null;
+    await _refreshProviderKinds();
     try {
       await _repository.requestCurrentEmailVerification();
       _teacherAuthInfoMessage = TeacherAuthMessages.verificationSent;
@@ -288,9 +316,123 @@ class AuthService extends ChangeNotifier {
       throw Exception(TeacherAuthMessages.unsupportedRole);
     }
     _currentUser = user;
+    _pendingGoogleProfile = null;
+    await _refreshProviderKinds();
     await _refreshEmailVerificationState();
     notifyListeners();
     _scheduleClaimedAchievementProjectionSync();
+  }
+
+  Future<void> signInWithGoogle() async {
+    _clearTeacherAuthMessages();
+    final googleRepository = _googleRepository;
+    if (googleRepository == null) {
+      throw Exception('Google sign-in is unavailable.');
+    }
+    final result = await googleRepository.signInWithGoogle();
+    if (result is PendingGoogleSignIn) {
+      _currentUser = null;
+      _pendingGoogleProfile = result.profile;
+      _providerKinds = const {AuthProviderKind.google};
+      _emailVerified = true;
+      notifyListeners();
+      return;
+    }
+    final user = (result as ExistingGoogleProfile).user;
+    if (!_hasSupportedProductRole(user)) {
+      await _repository.clearCurrentUser();
+      _providerKinds = const {};
+      throw Exception(TeacherAuthMessages.unsupportedRole);
+    }
+    _pendingGoogleProfile = null;
+    _currentUser = user;
+    await _refreshProviderKinds();
+    await _refreshEmailVerificationState();
+    notifyListeners();
+    _scheduleClaimedAchievementProjectionSync();
+  }
+
+  Future<void> completeGoogleProfile({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+  }) async {
+    final pending = _pendingGoogleProfile;
+    if (pending == null) {
+      throw Exception('No Google profile is waiting for completion.');
+    }
+    final googleRepository = _googleRepository;
+    if (googleRepository == null) {
+      throw Exception('Google profile completion is unavailable.');
+    }
+    final user = await googleRepository.completeGoogleProfile(
+      pendingProfile: pending,
+      firstName: firstName,
+      middleName: middleName,
+      lastName: lastName,
+    );
+    if (!user.isTrainee) {
+      await _repository.clearCurrentUser();
+      _pendingGoogleProfile = null;
+      throw Exception(TeacherAuthMessages.unsupportedRole);
+    }
+    _pendingGoogleProfile = null;
+    _currentUser = user;
+    _emailVerified = true;
+    await _refreshProviderKinds();
+    notifyListeners();
+    await _seedNewTraineePublicProfile(user);
+    _scheduleClaimedAchievementProjectionSync();
+  }
+
+  Future<void> cancelGoogleOnboarding() async {
+    final pending = _pendingGoogleProfile;
+    _pendingGoogleProfile = null;
+    _currentUser = null;
+    _emailVerified = null;
+    _providerKinds = const {};
+    try {
+      if (pending != null) {
+        final googleRepository = _googleRepository;
+        if (googleRepository != null) {
+          await googleRepository.cancelGoogleOnboarding(pending);
+        } else {
+          await _repository.clearCurrentUser();
+        }
+      } else {
+        await _repository.clearCurrentUser();
+      }
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _refreshProviderKinds() async {
+    if (_currentUser == null) {
+      _providerKinds = const {};
+      return;
+    }
+    _providerKinds =
+        await _googleRepository?.currentProviderKinds() ??
+        const {AuthProviderKind.password};
+  }
+
+  Future<void> _seedNewTraineePublicProfile(User user) async {
+    final repository = _publicProfileRepository;
+    final userId = user.id?.trim();
+    if (repository == null || userId == null || userId.isEmpty) return;
+    try {
+      await repository.seedNewAccountPublicProfile(
+        userId: userId,
+        displayName: user.fullName,
+        profilePictureUrl: user.profilePictureUrl,
+      );
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Public profile seed failed: userId=$userId error=$error');
+        debugPrint('$stackTrace');
+      }
+    }
   }
 
   /// Requests a Firebase Auth password-reset email for [email].
@@ -371,6 +513,8 @@ class AuthService extends ChangeNotifier {
     _clearVerificationResendCooldown();
     await _stopEmailCallbackServer();
     _currentUser = null;
+    _pendingGoogleProfile = null;
+    _providerKinds = const {};
     await _repository.clearCurrentUser();
     notifyListeners();
   }
@@ -1009,7 +1153,8 @@ class AuthService extends ChangeNotifier {
   /// On success, clears local auth state the same way [logout] does and
   /// queues a one-shot message for [takeAccountDeletedMessage].
   Future<void> deleteAccount({
-    required String password,
+    String? password,
+    AccountReauthentication? reauthentication,
     required String confirmationPhrase,
   }) async {
     final user = _currentUser;
@@ -1021,11 +1166,28 @@ class AuthService extends ChangeNotifier {
     if (confirmationPhrase.trim() != expectedPhrase) {
       throw Exception(accountDeletionRequiresTypedConfirmationMessage);
     }
-    await _repository.deleteAccount(password: password, expectedUserId: userId);
+    final auth =
+        reauthentication ?? AccountReauthentication.password(password ?? '');
+    if (auth.kind == AuthProviderKind.google) {
+      final googleRepository = _googleRepository;
+      if (googleRepository == null) {
+        throw Exception('Google verification is unavailable.');
+      }
+      await googleRepository.deleteAccountWithReauthentication(
+        reauthentication: auth,
+        expectedUserId: userId,
+      );
+    } else {
+      await _repository.deleteAccount(
+        password: auth.password ?? '',
+        expectedUserId: userId,
+      );
+    }
     _accountDeletedMessage =
         'Your account and associated data have been permanently deleted.';
     _clearPendingEmailChange(clearError: true);
     _currentUser = null;
+    _providerKinds = const {};
     await _repository.clearCurrentUser();
     notifyListeners();
   }

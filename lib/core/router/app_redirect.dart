@@ -16,6 +16,7 @@ class AppRedirectState {
     required this.practiceDifficulty,
     required this.practiceProp,
     required this.hasCompletedLesson,
+    this.hasPendingGoogleProfile = false,
   });
 
   final bool isLoading;
@@ -29,6 +30,7 @@ class AppRedirectState {
   final String practiceDifficulty;
   final String practiceProp;
   final bool Function(String movement) hasCompletedLesson;
+  final bool hasPendingGoogleProfile;
 }
 
 /// Returns a redirect location, or null when [state.location] is already valid.
@@ -40,6 +42,13 @@ String? resolveAppRedirect(AppRedirectState state) {
   final isLegalRoute = AppRoutePaths.legalRoutes.contains(location);
   final isVerifyRoute = location == AppRoutePaths.verifyEmail;
   final isPublicRoute = isAuthRoute || isLegalRoute;
+
+  if (state.hasPendingGoogleProfile) {
+    if (location == AppRoutePaths.completeGoogleProfile || isLegalRoute) {
+      return null;
+    }
+    return AppRoutePaths.completeGoogleProfile;
+  }
 
   if (!state.isAuthenticated) {
     if (isPublicRoute) return null;

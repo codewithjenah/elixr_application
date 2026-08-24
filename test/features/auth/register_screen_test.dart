@@ -244,6 +244,13 @@ void main() {
   }
 
   group('RegisterScreen', () {
+    testWidgets('shows the Google registration action', (tester) async {
+      await _setSurface(tester);
+      await pumpRegisterScreen(tester);
+
+      expect(find.text('Sign up with Google'), findsOneWidget);
+    });
+
     testWidgets(
       'disables Create Account until privacy consent checkbox is checked',
       (tester) async {

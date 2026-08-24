@@ -1014,7 +1014,9 @@ class AccountProfileSectionState extends State<AccountProfileSection>
 
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<AuthService>().currentUser;
+    final authService = context.watch<AuthService>();
+    final user = authService.currentUser;
+    final googleOnly = authService.isGoogleOnly;
     final stackLayout =
         MediaQuery.sizeOf(context).width < settingsWideBreakpoint;
 
@@ -1030,7 +1032,16 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           controller: _emailController,
           icon: FluentIcons.mail,
           keyboardType: TextInputType.emailAddress,
+          enabled: !googleOnly,
         ),
+        if (googleOnly) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Your sign-in email is managed by Google.',
+            key: const Key('google_managed_email_notice'),
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
         if (context.watch<AuthService>().hasPendingEmailChange) ...[
           const SizedBox(height: AppSpacing.md),
           _buildPendingEmailNotice(),

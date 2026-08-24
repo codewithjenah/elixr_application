@@ -44,6 +44,7 @@ AppRedirectState _state({
   bool hasPendingJoinCode = false,
   bool tutorialInitialized = true,
   bool hasCompletedLesson = true,
+  bool hasPendingGoogleProfile = false,
 }) {
   return AppRedirectState(
     isLoading: isLoading,
@@ -57,6 +58,7 @@ AppRedirectState _state({
     practiceDifficulty: 'Easy',
     practiceProp: 'bottle',
     hasCompletedLesson: (_) => hasCompletedLesson,
+    hasPendingGoogleProfile: hasPendingGoogleProfile,
   );
 }
 
@@ -82,6 +84,45 @@ void main() {
       AppRoutePaths.login,
     );
   });
+
+  test(
+    'pending Google profile is restricted to completion and legal routes',
+    () {
+      expect(
+        resolveAppRedirect(
+          _state(
+            isAuthenticated: false,
+            user: null,
+            hasPendingGoogleProfile: true,
+            location: AppRoutePaths.dashboard,
+          ),
+        ),
+        AppRoutePaths.completeGoogleProfile,
+      );
+      expect(
+        resolveAppRedirect(
+          _state(
+            isAuthenticated: false,
+            user: null,
+            hasPendingGoogleProfile: true,
+            location: AppRoutePaths.completeGoogleProfile,
+          ),
+        ),
+        isNull,
+      );
+      expect(
+        resolveAppRedirect(
+          _state(
+            isAuthenticated: false,
+            user: null,
+            hasPendingGoogleProfile: true,
+            location: AppRoutePaths.privacyPolicy,
+          ),
+        ),
+        isNull,
+      );
+    },
+  );
 
   test('unauthenticated legal routes stay reachable', () {
     expect(

@@ -10,6 +10,8 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../services/auth_service.dart';
 import 'auth_text_field.dart';
 import 'auth_validators.dart';
+import 'google_auth_button.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   String? _error;
   bool _emailTouched = false;
   bool _passwordTouched = false;
@@ -50,6 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
+    if (_isGoogleLoading) return;
     setState(() {
       _emailTouched = true;
       _passwordTouched = true;
@@ -69,6 +73,27 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = 'Email or password is incorrect.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _googleLogin() async {
+    if (_isLoading || _isGoogleLoading) return;
+    setState(() {
+      _isGoogleLoading = true;
+      _error = null;
+    });
+    try {
+      await context.read<AuthService>().signInWithGoogle();
+    } on GoogleSignInCancelledException {
+      // Browser closure is an intentional no-op, not a failed login.
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
@@ -146,7 +171,16 @@ class _LoginScreenState extends State<LoginScreen> {
           ElixPrimaryButton(
             label: 'Sign In',
             isLoading: _isLoading,
-            onPressed: _login,
+            onPressed: _isGoogleLoading ? null : _login,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const AuthOrDivider(),
+          const SizedBox(height: AppSpacing.sm),
+          GoogleAuthButton(
+            key: const Key('login_google_button'),
+            label: 'Continue with Google',
+            isLoading: _isGoogleLoading,
+            onPressed: _isLoading ? null : _googleLogin,
           ),
           const SizedBox(height: AppSpacing.xs),
           Center(

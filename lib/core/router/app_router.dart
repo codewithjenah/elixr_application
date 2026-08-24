@@ -6,6 +6,7 @@ import '../../features/achievements/achievements_screen.dart';
 import '../../features/assigned_movements/assigned_movements_screen.dart';
 import '../../features/assigned_movements/assigned_practice_screen.dart';
 import '../../features/auth/forgot_password_screen.dart';
+import '../../features/auth/complete_google_profile_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/auth/teacher_register_screen.dart';
@@ -74,6 +75,7 @@ class AppRouter {
               state.uri.queryParameters['prop'],
             ).protocolValue,
             hasCompletedLesson: tutorialProgress.hasCompletedLesson,
+            hasPendingGoogleProfile: authService.hasPendingGoogleProfile,
           ),
         );
       },
@@ -97,6 +99,13 @@ class AppRouter {
           pageBuilder: (context, state) => fadeTransitionPage(
             key: state.pageKey,
             child: const TeacherRegisterScreen(),
+          ),
+        ),
+        GoRoute(
+          path: AppRoutePaths.completeGoogleProfile,
+          pageBuilder: (context, state) => fadeTransitionPage(
+            key: state.pageKey,
+            child: const CompleteGoogleProfileScreen(),
           ),
         ),
         GoRoute(
