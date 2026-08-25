@@ -2875,6 +2875,41 @@ async function seedViewerRole(role) {
   });
 }
 
+async function seedTeacherOwnedPublicProfile({
+  visibility = 'public',
+  viewerRole = ROLE_TEACHER,
+} = {}) {
+  await seedBypassingRules(async (adminDb) => {
+    await setDoc(doc(adminDb, 'users', 'alice'), { role: ROLE_TEACHER });
+    await setDoc(
+      doc(adminDb, 'users', 'bob'),
+      viewerRole == null ? {} : { role: viewerRole },
+    );
+    await setDoc(
+      doc(adminDb, 'public_profiles', 'alice'),
+      publicProfileRoot('alice', { visibility }),
+    );
+    await setDoc(
+      doc(adminDb, 'public_profiles', 'alice', 'details', 'summary'),
+      publicProfileSummary(),
+    );
+    await setDoc(doc(adminDb, 'sessions', 'alice-session'), { user_id: 'alice' });
+    await setDoc(
+      doc(adminDb, 'public_profiles', 'alice', 'sessions', 'alice-session'),
+      publicProfileSession('alice', 'alice-session'),
+    );
+    await setDoc(
+      doc(adminDb, 'public_profiles', 'alice', 'achievements', 'first_steps'),
+      {
+        user_id: 'alice',
+        achievement_id: 'first_steps',
+        claimed_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      },
+    );
+  });
+}
+
 async function seedProtectedProgressScenario({
   visibility = 'public',
   viewerRole = ROLE_TEACHER,
@@ -3133,12 +3168,15 @@ describe('public_profiles', () => {
     await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 's1')));
   });
 
-  test('Teacher cannot use a public profile to read protected summary or sessions', async () => {
+  test('Teacher can read a public Trainee profile summary, sessions, and achievements', async () => {
     await seedProtectedProgressScenario();
     const bob = bobDb();
-    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
-    await assertFails(
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertSucceeds(
       getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+    await assertSucceeds(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
     );
   });
 
@@ -3180,6 +3218,54 @@ describe('public_profiles', () => {
     await assertFails(
       getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
     );
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+  });
+
+  test('non-participant Moderator role fails closed for public profile details', async () => {
+    await seedProtectedProgressScenario({ viewerRole: 'Moderator' });
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+  });
+
+  test('Teacher can read another Teacher public summary, sessions, and achievements', async () => {
+    await seedTeacherOwnedPublicProfile({ visibility: 'public' });
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertSucceeds(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+    await assertSucceeds(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+  });
+
+  test('Teacher cannot read another Teacher locked summary, sessions, or achievements', async () => {
+    await seedTeacherOwnedPublicProfile({ visibility: 'private' });
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+  });
+
+  test('Trainee can read a public Teacher profile summary', async () => {
+    await seedTeacherOwnedPublicProfile({
+      visibility: 'public',
+      viewerRole: ROLE_TRAINEE,
+    });
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
   });
 
   test('missing legacy role remains Trainee-compatible for public profile data', async () => {
@@ -3265,6 +3351,31 @@ describe('profile_visits', () => {
       setDoc(
         doc(bob, 'profile_visits', 'alice', 'visitors', 'bob'),
         profileVisit('alice', 'bob'),
+      ),
+    );
+  });
+
+  test('Teacher can create and update their own visit row on another profile', async () => {
+    await seedViewerRole(ROLE_TEACHER);
+    const firstViewedAt = Timestamp.fromDate(new Date('2026-01-01T00:00:00Z'));
+    const lastViewedAt = Timestamp.fromDate(new Date('2026-01-02T00:00:00Z'));
+    const bob = bobDb();
+    await assertSucceeds(
+      setDoc(
+        doc(bob, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob', {
+          first_viewed_at: firstViewedAt,
+          last_viewed_at: firstViewedAt,
+        }),
+      ),
+    );
+    await assertSucceeds(
+      setDoc(
+        doc(bob, 'profile_visits', 'alice', 'visitors', 'bob'),
+        profileVisit('alice', 'bob', {
+          first_viewed_at: firstViewedAt,
+          last_viewed_at: lastViewedAt,
+        }),
       ),
     );
   });

@@ -299,8 +299,9 @@ class AuthService extends ChangeNotifier {
     _scheduleClaimedAchievementProjectionSync();
   }
 
-  /// Explicit Teacher registration. Does not seed trainee social/gamification
-  /// documents and requests email verification before shell access.
+  /// Explicit Teacher registration. Seeds the public-profile identity root
+  /// (same default as Trainees) but does not seed trainee gamification docs.
+  /// Requests email verification before shell access.
   Future<void> registerTeacher({
     required String firstName,
     String? middleName,
@@ -334,6 +335,8 @@ class AuthService extends ChangeNotifier {
     }
     await _refreshEmailVerificationState();
     notifyListeners();
+
+    await _seedNewAccountPublicProfile(user);
   }
 
   Future<void> login({required String email, required String password}) async {
@@ -497,13 +500,14 @@ class AuthService extends ChangeNotifier {
       await _refreshEmailVerificationState();
     }
     notifyListeners();
-    await _seedNewTraineePublicProfile(user);
+    await _seedNewAccountPublicProfile(user);
     _scheduleClaimedAchievementProjectionSync();
   }
 
   /// Completes Google onboarding as a Teacher. The repository performs the
-  /// final atomic access-code consumption and profile creation; this service
-  /// deliberately does not seed Trainee-only public or gamification state.
+  /// final atomic access-code consumption and profile creation. Seeds the
+  /// public-profile identity root (same default as Trainees) but does not
+  /// seed trainee gamification documents.
   Future<void> completeGoogleTeacherProfile({
     required String firstName,
     String? middleName,
@@ -545,6 +549,7 @@ class AuthService extends ChangeNotifier {
       await _refreshEmailVerificationState();
     }
     notifyListeners();
+    await _seedNewAccountPublicProfile(user);
   }
 
   Future<void> cancelGoogleOnboarding() async {
@@ -579,7 +584,7 @@ class AuthService extends ChangeNotifier {
         const {AuthProviderKind.password};
   }
 
-  Future<void> _seedNewTraineePublicProfile(User user) async {
+  Future<void> _seedNewAccountPublicProfile(User user) async {
     final repository = _publicProfileRepository;
     final userId = user.id?.trim();
     if (repository == null || userId == null || userId.isEmpty) return;

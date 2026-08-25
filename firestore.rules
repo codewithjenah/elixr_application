@@ -1801,8 +1801,20 @@ service cloud.firestore {
         && get(userPath(request.auth.uid)).data.get('role', 'Trainee') == 'Trainee';
     }
 
+    // Signed-in Trainee or Teacher. Missing legacy roles stay Trainee-compatible
+    // via isOrdinaryPlayer(). Admin and unknown roles fail closed. Do not fold
+    // Teachers into isOrdinaryPlayer(); that helper remains the Trainee social gate.
+    function isProductParticipant() {
+      return isOrdinaryPlayer()
+        || (isSignedIn()
+          && exists(userPath(request.auth.uid))
+          && get(userPath(request.auth.uid)).data.get('role', 'Trainee')
+            == 'Teacher');
+    }
+
     function canReadProtectedPublicProfile(userId) {
-      return isOwner(userId) || (isOrdinaryPlayer() && isPublicProfile(userId));
+      return isOwner(userId)
+        || (isProductParticipant() && isPublicProfile(userId));
     }
 
     function validPublicProfileRoot(data, userId) {

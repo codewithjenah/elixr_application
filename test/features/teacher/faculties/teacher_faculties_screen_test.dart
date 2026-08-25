@@ -58,6 +58,11 @@ void main() {
           path: AppRoutePaths.teacherFaculties,
           builder: (context, state) => const TeacherFacultiesScreen(),
         ),
+        GoRoute(
+          path: '/teacher/profile/:userId',
+          builder: (context, state) =>
+              Text('profile:${state.pathParameters['userId']}'),
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -131,6 +136,31 @@ void main() {
     expect(find.text('Zoe Faculty'), findsOneWidget);
     expect(find.text('Teacher'), findsWidgets);
     expect(find.byKey(const Key('teacher_faculty_tile_teacher')), findsNothing);
+  });
+
+  testWidgets('tapping another faculty member opens their public profile', (
+    tester,
+  ) async {
+    directory.seed(
+      const ChatUser(
+        id: 'teacher',
+        displayName: 'Grace Hopper',
+        role: User.roleTeacher,
+      ),
+    );
+    directory.seed(
+      const ChatUser(
+        id: 'zoe',
+        displayName: 'Zoe Faculty',
+        role: User.roleTeacher,
+      ),
+    );
+    await pumpFaculties(tester);
+
+    await tester.tap(find.byKey(const Key('teacher_faculty_tile_zoe')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('profile:zoe'), findsOneWidget);
   });
 
   testWidgets('shows a pending unused code with Copy and Revoke', (

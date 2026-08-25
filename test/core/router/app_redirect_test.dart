@@ -348,6 +348,37 @@ void main() {
     );
   });
 
+  test('verified teacher can stay on teacher public profile', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _teacher(),
+          location: AppRoutePaths.teacherProfile('alice'),
+        ),
+      ),
+      isNull,
+    );
+  });
+
+  test('teacher on trainee profile route redirects to teacher dashboard', () {
+    expect(
+      resolveAppRedirect(_state(user: _teacher(), location: '/profile/alice')),
+      AppRoutePaths.teacherDashboard,
+    );
+  });
+
+  test('trainee on teacher profile route redirects to trainee dashboard', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.teacherProfile('alice'),
+        ),
+      ),
+      AppRoutePaths.dashboard,
+    );
+  });
+
   test('trainee with pending join code redirects to join-coach', () {
     expect(
       resolveAppRedirect(

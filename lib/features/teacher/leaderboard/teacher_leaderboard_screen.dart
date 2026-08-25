@@ -12,6 +12,7 @@ import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
+import '../../profile/profile_route_args.dart';
 import '../../leaderboard/widgets/leaderboard_header.dart';
 import '../../leaderboard/widgets/leaderboard_podium.dart';
 import '../../leaderboard/widgets/leaderboard_rankings_section.dart';
@@ -64,15 +65,9 @@ class _TeacherLeaderboardScreenState extends State<TeacherLeaderboardScreen> {
   }
 
   void _onTapPlayer(LeaderboardEntry entry) {
-    final controller = _controller;
-    if (controller == null || !controller.canOpenStudentDetail(entry.userId)) {
-      return;
-    }
-    context.go(
-      AppRoutePaths.teacherStudentDetail(
-        entry.userId,
-        groupId: controller.drillDownGroupId(entry.userId),
-      ),
+    context.push(
+      AppRoutePaths.teacherProfile(entry.userId),
+      extra: ProfileRouteArgs(entry: entry),
     );
   }
 

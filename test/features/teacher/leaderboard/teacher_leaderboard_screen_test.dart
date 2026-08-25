@@ -87,6 +87,11 @@ void main() {
             'detail:${state.pathParameters['traineeId']}:${state.uri.queryParameters['groupId'] ?? ''}',
           ),
         ),
+        GoRoute(
+          path: '/teacher/profile/:userId',
+          builder: (context, state) =>
+              Text('profile:${state.pathParameters['userId']}'),
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -106,7 +111,7 @@ void main() {
   }
 
   testWidgets(
-    'global stranger is visible but cannot open Teacher student detail',
+    'global stranger opens the public profile instead of student detail',
     (tester) async {
       groups.seedGroup(activeGroup());
       groups.seedMembership(
@@ -127,12 +132,12 @@ void main() {
       await tester.tap(find.text('Global Stranger').first);
       await tester.pumpAndSettle();
 
+      expect(find.text('profile:stranger'), findsOneWidget);
       expect(find.textContaining('detail:'), findsNothing);
-      expect(find.text('Leaderboard'), findsWidgets);
     },
   );
 
-  testWidgets('authorized classroom member opens Teacher student detail', (
+  testWidgets('authorized classroom member opens the public profile', (
     tester,
   ) async {
     groups.seedGroup(activeGroup());
@@ -149,7 +154,8 @@ void main() {
     await tester.tap(find.text('Ada Lovelace').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('detail:t1:group-1'), findsOneWidget);
+    expect(find.text('profile:t1'), findsOneWidget);
+    expect(find.textContaining('detail:'), findsNothing);
   });
 
   testWidgets('group picker shows classroom names and empty state', (

@@ -370,6 +370,19 @@ class AppRouter {
               ),
             ),
             GoRoute(
+              path: '${AppRoutePaths.teacherProfilePrefix}/:userId',
+              pageBuilder: (context, state) {
+                final userId = state.pathParameters['userId'] ?? '';
+                final args = state.extra is ProfileRouteArgs
+                    ? state.extra! as ProfileRouteArgs
+                    : null;
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: UserProfileScreen(userId: userId, initialArgs: args),
+                );
+              },
+            ),
+            GoRoute(
               path: AppRoutePaths.teacherMovements,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,

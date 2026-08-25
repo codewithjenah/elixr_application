@@ -39,6 +39,8 @@ void main() {
       expect(text, contains('completed movements'));
       expect(text, contains('Settings > Privacy'));
       expect(text, contains('leaderboard identity'));
+      expect(text, contains('other signed-in Trainees and Teachers'));
+      expect(text, contains('including other faculty'));
       expect(text, contains('Settings > Security'));
       expect(text, contains('Delete Account'));
       expect(text, contains('Teacher Access'));

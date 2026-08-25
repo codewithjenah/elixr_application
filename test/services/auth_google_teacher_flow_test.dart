@@ -1,3 +1,4 @@
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
@@ -108,14 +109,32 @@ class _TeacherGoogleRepository extends Fake
   }
 }
 
+class _RecordingPublicProfileRepository extends PublicProfileRepository {
+  int seedCalls = 0;
+  final seededUserIds = <String>[];
+
+  @override
+  Future<void> seedNewAccountPublicProfile({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {
+    seedCalls++;
+    seededUserIds.add(userId);
+  }
+}
+
 void main() {
   late _TeacherGoogleRepository repository;
+  late _RecordingPublicProfileRepository profiles;
   late AuthService auth;
 
   setUp(() {
     repository = _TeacherGoogleRepository();
+    profiles = _RecordingPublicProfileRepository();
     auth = AuthService(
       repository: repository,
+      publicProfileRepository: profiles,
       awaitInitialAuthState: () async {},
     );
   });
@@ -148,6 +167,8 @@ void main() {
     expect(repository.completedCode, _code);
     expect(auth.currentUser?.isTeacher, isTrue);
     expect(auth.hasPendingGoogleProfile, isFalse);
+    expect(profiles.seedCalls, 1);
+    expect(profiles.seededUserIds, ['google-teacher']);
   });
 
   test('an existing Trainee is signed out and is never converted', () async {

@@ -1,9 +1,25 @@
 import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/services/auth_email_callback_server.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _RecordingPublicProfileRepository extends PublicProfileRepository {
+  int seedCalls = 0;
+  final seededUserIds = <String>[];
+
+  @override
+  Future<void> seedNewAccountPublicProfile({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {
+    seedCalls++;
+    seededUserIds.add(userId);
+  }
+}
 
 class _TeacherFlowRepository implements AuthRepositoryBase {
   _TeacherFlowRepository({
@@ -153,8 +169,10 @@ void main() {
     () async {
       final repository = _TeacherFlowRepository();
       repository.emailVerified = false;
+      final profiles = _RecordingPublicProfileRepository();
       final auth = AuthService(
         repository: repository,
+        publicProfileRepository: profiles,
         emailCallbackServer: MemoryAuthEmailCallbackServer(),
         awaitInitialAuthState: () async {},
       );
@@ -174,6 +192,8 @@ void main() {
       expect(repository.verificationRequested, isTrue);
       expect(auth.currentUser?.isTeacher, isTrue);
       expect(auth.needsEmailVerification, isTrue);
+      expect(profiles.seedCalls, 1);
+      expect(profiles.seededUserIds, ['teacher-new']);
     },
   );
 

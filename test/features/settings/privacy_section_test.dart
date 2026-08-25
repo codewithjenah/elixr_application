@@ -214,6 +214,10 @@ void main() {
 
     expect(find.text('Lock profile'), findsOneWidget);
     expect(find.text('Public profile'), findsNothing);
+    expect(
+      find.textContaining('other signed-in Trainees and Teachers'),
+      findsOneWidget,
+    );
 
     final toggle = tester.widget<ToggleSwitch>(
       find.byKey(const Key('privacy_profile_lock_toggle')),

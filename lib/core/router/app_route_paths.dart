@@ -44,6 +44,7 @@ abstract final class AppRoutePaths {
   static const teacherMovements = '/teacher/movements';
   static const teacherMessages = '/teacher/messages';
   static const teacherSettings = '/teacher/settings';
+  static const teacherProfilePrefix = '/teacher/profile';
 
   static const authRoutes = {
     login,
@@ -117,6 +118,10 @@ abstract final class AppRoutePaths {
     final base = '/teacher/students/$traineeId';
     if (groupId == null || groupId.isEmpty) return base;
     return '$base?groupId=$groupId';
+  }
+
+  static String teacherProfile(String userId) {
+    return '$teacherProfilePrefix/${Uri.encodeComponent(userId)}';
   }
 
   static bool isTraineeShellRoute(String location) {

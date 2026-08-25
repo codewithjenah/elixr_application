@@ -76,6 +76,15 @@ class _TeacherStudentDetailScreenState
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
                 CommandBarButton(
+                  icon: const Icon(FluentIcons.contact),
+                  label: const Text('View public profile'),
+                  onPressed: () {
+                    context.push(
+                      AppRoutePaths.teacherProfile(controller.traineeId),
+                    );
+                  },
+                ),
+                CommandBarButton(
                   icon: const Icon(FluentIcons.chat),
                   label: const Text('Message student'),
                   onPressed:

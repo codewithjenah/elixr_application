@@ -1,0 +1,179 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
+import '../../core/theme/app_theme.dart';
+import '../../data/models/public_profile.dart';
+import '../../data/repositories/public_profile_repository.dart';
+import '../../services/auth_service.dart';
+
+/// Teacher-only Privacy controls: lock profile and preview the public page.
+///
+/// Does not mount Trainee [PrivacySection] (session-image saving stays
+/// Trainee-only). Missing roots are seeded public and existing private roots
+/// are never rewritten.
+class TeacherPrivacySection extends StatefulWidget {
+  const TeacherPrivacySection({super.key, this.publicProfileRepository});
+
+  final PublicProfileRepository? publicProfileRepository;
+
+  @override
+  State<TeacherPrivacySection> createState() => TeacherPrivacySectionState();
+}
+
+class TeacherPrivacySectionState extends State<TeacherPrivacySection> {
+  PublicProfileRepository? _repository;
+  ProfileVisibility _visibility = ProfileVisibility.private;
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    _repository =
+        widget.publicProfileRepository ??
+        context.read<PublicProfileRepository>();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final user = context.read<AuthService>().currentUser;
+    final userId = user?.id?.trim();
+    final repository = _repository;
+    if (user == null ||
+        userId == null ||
+        userId.isEmpty ||
+        repository == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+
+    try {
+      await repository.seedNewAccountPublicProfile(
+        userId: userId,
+        displayName: user.fullName,
+        profilePictureUrl: user.profilePictureUrl,
+      );
+      final profile = await repository.getProfileRoot(userId);
+      if (!mounted) return;
+      setState(() {
+        _visibility = profile?.visibility ?? ProfileVisibility.private;
+        _loading = false;
+        _error = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not load privacy settings.';
+      });
+    }
+  }
+
+  Future<void> _setLocked(bool isLocked) async {
+    final userId = context.read<AuthService>().currentUser?.id?.trim();
+    final repository = _repository;
+    if (userId == null || userId.isEmpty || repository == null || _saving) {
+      return;
+    }
+
+    final next = isLocked
+        ? ProfileVisibility.private
+        : ProfileVisibility.public;
+    final previous = _visibility;
+    setState(() {
+      _visibility = next;
+      _saving = true;
+      _error = null;
+    });
+
+    try {
+      await repository.updateVisibility(userId: userId, visibility: next);
+      if (!mounted) return;
+      setState(() => _saving = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _visibility = previous;
+        _saving = false;
+        _error = 'Could not save privacy setting. Please try again.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: ProgressRing(),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Lock profile',
+                    style: AppTheme.body.copyWith(
+                      color: context.elixTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'When locked, other signed-in Trainees and Teachers, '
+                    'including other faculty, cannot see your detailed stats, '
+                    'claimed achievements, completed movements, practice '
+                    'history, or visitors. Name and avatar stay visible either '
+                    'way. Detailed stats are usually empty for Teachers.',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ToggleSwitch(
+              key: const Key('teacher_privacy_profile_lock_toggle'),
+              checked: _visibility == ProfileVisibility.private,
+              onChanged: _saving ? null : _setLocked,
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Button(
+          key: const Key('teacher_view_my_public_profile'),
+          onPressed: () {
+            final userId = context.read<AuthService>().currentUser?.id?.trim();
+            if (userId == null || userId.isEmpty) return;
+            context.push(AppRoutePaths.teacherProfile(userId));
+          },
+          child: const Text('View my public profile'),
+        ),
+        if (_saving)
+          const Padding(
+            padding: EdgeInsets.only(top: AppSpacing.sm),
+            child: Text('Saving...'),
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Text(_error!),
+          ),
+      ],
+    );
+  }
+}

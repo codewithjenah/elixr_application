@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/leaderboard_award_plan.dart';
@@ -1238,5 +1239,220 @@ void main() {
       expect(env.router.canPop(), isTrue);
       expect(find.text('Achievements page'), findsOneWidget);
     });
+  });
+
+  group('teacher-shell public profile navigation', () {
+    AuthService teacherAuth() {
+      return AuthService(
+        repository: _NavFakeAuthRepository(),
+        awaitInitialAuthState: () async {},
+      )..seedAuthenticatedUser(
+        const User(
+          id: 'viewer',
+          firstName: 'Viewer',
+          lastName: 'User',
+          email: 'viewer@example.com',
+          role: User.roleTeacher,
+        ),
+      );
+    }
+
+    testWidgets(
+      'directly opened teacher profile falls back to teacher leaderboard',
+      (tester) async {
+        await _setSurface(tester);
+        final auth = teacherAuth();
+        final profileController = _SeededProfileController(
+          userId: 'p1',
+          currentUserId: 'viewer',
+          seedState: ProfileLoadState.loaded,
+          entry: _entry('p1', 'Alice', 300),
+          root: PublicProfile(
+            userId: 'p1',
+            displayName: 'Alice',
+            visibility: ProfileVisibility.public,
+          ),
+        );
+
+        final router = GoRouter(
+          initialLocation: AppRoutePaths.teacherProfile('p1'),
+          routes: [
+            GoRoute(
+              path: '/teacher/profile/:userId',
+              builder: (context, state) => UserProfileScreen(
+                userId: state.pathParameters['userId']!,
+                controller: profileController,
+              ),
+            ),
+            GoRoute(
+              path: AppRoutePaths.teacherLeaderboard,
+              builder: (context, state) =>
+                  const ScaffoldPage(content: Text('Teacher leaderboard')),
+            ),
+            GoRoute(
+              path: AppRoutePaths.leaderboard,
+              builder: (context, state) =>
+                  const ScaffoldPage(content: Text('Trainee leaderboard')),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthService>.value(
+            value: auth,
+            child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(router.canPop(), isFalse);
+        await tester.tap(_backButton());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Teacher leaderboard'), findsOneWidget);
+        expect(router.state.uri.path, AppRoutePaths.teacherLeaderboard);
+        expect(find.text('Trainee leaderboard'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'teacher self-view visitor taps stay on teacher profile routes',
+      (tester) async {
+        await _setSurface(tester);
+        final auth = teacherAuth();
+        final ownerController = _SeededProfileController(
+          userId: 'viewer',
+          currentUserId: 'viewer',
+          seedState: ProfileLoadState.loaded,
+          entry: _entry('viewer', 'Viewer User', 100),
+          root: PublicProfile(
+            userId: 'viewer',
+            displayName: 'Viewer User',
+            visibility: ProfileVisibility.public,
+          ),
+          summary: const PublicProfileSummary(
+            totalDurationSeconds: 30,
+            completedMovementNames: ['Hand Stall'],
+          ),
+          visitorsState: ProfileVisitorsState.loaded,
+          visitors: [
+            _visitor(viewerId: 'alice-id', displayName: 'Alice Visitor'),
+          ],
+          rank: 2,
+        );
+
+        final router = GoRouter(
+          initialLocation: AppRoutePaths.teacherProfile('viewer'),
+          routes: [
+            GoRoute(
+              path: '/teacher/profile/:userId',
+              builder: (context, state) {
+                final userId = state.pathParameters['userId']!;
+                if (userId == 'viewer') {
+                  return UserProfileScreen(
+                    userId: userId,
+                    controller: ownerController,
+                  );
+                }
+                return UserProfileScreen(
+                  userId: userId,
+                  controller: _SeededProfileController(
+                    userId: userId,
+                    currentUserId: 'viewer',
+                    seedState: ProfileLoadState.loaded,
+                    entry: _entry(userId, 'Opened Visitor', 50),
+                    root: PublicProfile(
+                      userId: userId,
+                      displayName: 'Opened Visitor',
+                      visibility: ProfileVisibility.public,
+                    ),
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/profile/:userId',
+              builder: (context, state) =>
+                  const ScaffoldPage(content: Text('Trainee profile chrome')),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthService>.value(
+            value: auth,
+            child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final row = find.bySemanticsLabel("View Alice Visitor's profile");
+        await tester.ensureVisible(row);
+        await tester.pumpAndSettle();
+        await tester.tap(row);
+        await tester.pumpAndSettle();
+
+        expect(router.state.uri.path, AppRoutePaths.teacherProfile('alice-id'));
+        expect(find.text('Trainee profile chrome'), findsNothing);
+        expect(find.text('Opened Visitor'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'teacher self-view Privacy opens Teacher Settings, not trainee overlay',
+      (tester) async {
+        await _setSurface(tester);
+        final auth = teacherAuth();
+        final controller = _SeededProfileController(
+          userId: 'viewer',
+          currentUserId: 'viewer',
+          seedState: ProfileLoadState.loaded,
+          entry: _entry('viewer', 'Viewer User', 100),
+          root: PublicProfile(
+            userId: 'viewer',
+            displayName: 'Viewer User',
+            visibility: ProfileVisibility.public,
+          ),
+          summary: const PublicProfileSummary(
+            totalDurationSeconds: 30,
+            completedMovementNames: ['Hand Stall'],
+          ),
+          visitorsState: ProfileVisitorsState.loaded,
+          visitors: const [],
+          rank: 2,
+        );
+
+        final router = GoRouter(
+          initialLocation: AppRoutePaths.teacherProfile('viewer'),
+          routes: [
+            GoRoute(
+              path: '/teacher/profile/:userId',
+              builder: (context, state) =>
+                  UserProfileScreen(userId: 'viewer', controller: controller),
+            ),
+            GoRoute(
+              path: AppRoutePaths.teacherSettings,
+              builder: (context, state) =>
+                  const ScaffoldPage(content: Text('Teacher settings page')),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthService>.value(
+            value: auth,
+            child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Privacy'));
+        await tester.pumpAndSettle();
+
+        expect(router.state.uri.path, AppRoutePaths.teacherSettings);
+        expect(find.text('Teacher settings page'), findsOneWidget);
+        expect(find.text('Save confirmed movement images'), findsNothing);
+      },
+    );
   });
 }

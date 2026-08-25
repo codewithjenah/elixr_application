@@ -4,10 +4,12 @@ import 'package:elixr_core/repositories/teacher_access_code_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/auth_service.dart';
@@ -184,6 +186,8 @@ class _FacultyList extends StatelessWidget {
                 color: context.elixTextSecondary,
               ),
             ),
+            onPressed: () =>
+                context.push(AppRoutePaths.teacherProfile(teacher.id)),
           );
         },
       ),

@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/profile_visit.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_section.dart';
@@ -73,6 +77,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         displayName: user?.fullName ?? 'Trainee',
         profilePictureUrl: user?.profilePictureUrl,
       );
+      if (_controller!.isSelf && (user?.isTeacher ?? false)) {
+        _seedOwnTeacherPublicProfileIfPossible();
+      }
     }
   }
 
@@ -84,11 +91,47 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     super.dispose();
   }
 
+  void _seedOwnTeacherPublicProfileIfPossible() {
+    final user = context.read<AuthService>().currentUser;
+    final userId = user?.id?.trim();
+    if (user == null || userId == null || userId.isEmpty) return;
+    PublicProfileRepository? repository;
+    try {
+      repository = context.read<PublicProfileRepository>();
+    } on ProviderNotFoundException {
+      repository = null;
+    }
+    if (repository == null) return;
+    final seedRepository = repository;
+    unawaited(() async {
+      try {
+        await seedRepository.seedNewAccountPublicProfile(
+          userId: userId,
+          displayName: user.fullName,
+          profilePictureUrl: user.profilePictureUrl,
+        );
+      } catch (_) {}
+    }());
+  }
+
+  bool get _isTeacherViewer =>
+      context.read<AuthService>().currentUser?.isTeacher ?? false;
+
+  String _profilePath(String userId) {
+    return _isTeacherViewer
+        ? AppRoutePaths.teacherProfile(userId)
+        : '/profile/$userId';
+  }
+
+  String get _backFallbackPath => _isTeacherViewer
+      ? AppRoutePaths.teacherLeaderboard
+      : AppRoutePaths.leaderboard;
+
   void _handleBack() {
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go('/leaderboard');
+      context.go(_backFallbackPath);
     }
   }
 
@@ -96,10 +139,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final visitorId = visitor.visit.viewerId.trim();
     if (visitorId.isEmpty) return;
     if (visitorId == widget.userId) return;
-    context.push('/profile/$visitorId');
+    context.push(_profilePath(visitorId));
+  }
+
+  void _openTeacherSettings() {
+    context.go(AppRoutePaths.teacherSettings);
   }
 
   void _openAccountProfileSettings() {
+    if (_isTeacherViewer) {
+      _openTeacherSettings();
+      return;
+    }
     SettingsScreen.show(
       context,
       initialSection: SettingsSection.accountProfile,
@@ -107,6 +158,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   void _openPrivacySettings() {
+    if (_isTeacherViewer) {
+      _openTeacherSettings();
+      return;
+    }
     SettingsScreen.show(context, initialSection: SettingsSection.privacy);
   }
 

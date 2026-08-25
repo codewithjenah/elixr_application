@@ -7,7 +7,9 @@ import '../../core/router/app_route_paths.dart';
 import '../../core/shell/teacher_shell.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_primary_button.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
+import 'teacher_privacy_section.dart';
 
 class TeacherSettingsScreen extends StatelessWidget {
   const TeacherSettingsScreen({super.key});
@@ -32,6 +34,16 @@ class TeacherSettingsScreen extends StatelessWidget {
                     _ReadOnlyField(label: 'Email', value: user.email),
                     const SizedBox(height: AppSpacing.sm),
                     _ReadOnlyField(label: 'Role', value: user.role),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _SettingsSection(
+                  title: 'Privacy',
+                  children: [
+                    TeacherPrivacySection(
+                      publicProfileRepository: context
+                          .read<PublicProfileRepository>(),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),

@@ -323,10 +323,10 @@ class PrivacySectionState extends State<PrivacySection> {
               toggleKey: const Key('privacy_profile_lock_toggle'),
               label: 'Lock profile',
               description:
-                  'When locked, other players cannot see your detailed stats, '
-                  'claimed achievements, completed movements, or practice history. '
-                  'Your basic leaderboard identity remains visible either way. '
-                  'Profile owners can see recent profile visitors.',
+                  'When locked, other signed-in Trainees and Teachers cannot see '
+                  'your detailed stats, claimed achievements, completed movements, '
+                  'or practice history. Your basic leaderboard identity remains '
+                  'visible either way. Profile owners can see recent profile visitors.',
               checked: _visibility == ProfileVisibility.private,
               onChanged: _saving || _reconciling ? null : _setLocked,
             ),
