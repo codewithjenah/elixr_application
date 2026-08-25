@@ -3,23 +3,23 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'sidebar has one Training destination and no Calendar or History items',
+    'sidebar has one Sessions destination and no Calendar or History items',
     () {
       final labels = elixSidebarItems.map((item) => item.label).toList();
-      expect(labels.where((label) => label == 'Training'), ['Training']);
+      expect(labels.where((label) => label == 'Sessions'), ['Sessions']);
       expect(labels.contains('Calendar'), isFalse);
       expect(labels.contains('History'), isFalse);
       expect(labels.contains('Assigned Movements'), isTrue);
       expect(labels.contains('Movements'), isTrue);
 
-      final training = elixSidebarItems.singleWhere(
-        (item) => item.label == 'Training',
+      final sessions = elixSidebarItems.singleWhere(
+        (item) => item.label == 'Sessions',
       );
-      expect(training.route, '/training');
+      expect(sessions.route, '/training');
     },
   );
 
-  test('Training stays selected for planner and history paths', () {
+  test('Sessions stays selected for planner and history paths', () {
     expect(isElixSidebarRouteActive('/training', '/training'), isTrue);
     expect(isElixSidebarRouteActive('/dashboard', '/training'), isFalse);
     expect(isElixSidebarRouteActive('/learn', '/training'), isFalse);

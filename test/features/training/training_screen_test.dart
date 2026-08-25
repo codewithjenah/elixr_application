@@ -95,7 +95,7 @@ void main() {
   group('Training routing', () {
     testWidgets('/training opens Planner', (tester) async {
       await _pumpTraining(tester, location: '/training');
-      expect(find.text('Training'), findsWidgets);
+      expect(find.text('Sessions'), findsWidgets);
       expect(find.text('Planner pane'), findsOneWidget);
       expect(find.text('History pane'), findsNothing);
     });

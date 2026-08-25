@@ -55,7 +55,7 @@ const elixSidebarItems = [
     group: SidebarGroup.overview,
   ),
   SidebarItem(
-    label: 'Training',
+    label: 'Sessions',
     icon: FluentIcons.calendar_agenda,
     route: '/training',
     group: SidebarGroup.training,

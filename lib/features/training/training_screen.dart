@@ -107,7 +107,7 @@ class _TrainingHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Training',
+                'Sessions',
                 style: AppTheme.headingLarge.copyWith(color: _pink),
               ),
               const SizedBox(height: 2),
