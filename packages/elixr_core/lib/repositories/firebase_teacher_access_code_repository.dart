@@ -174,6 +174,59 @@ class FirebaseTeacherAccessCodeRepository
     );
   }
 
+  @override
+  Stream<List<TeacherAccessCode>> watchCreatedBy(String teacherId) {
+    return _codes
+        .where('created_by', isEqualTo: teacherId)
+        .snapshots()
+        .map(
+          (snapshot) => [
+            for (final doc in snapshot.docs)
+              ?TeacherAccessCode.tryFromMap(doc.data(), id: doc.id),
+          ],
+        );
+  }
+
+  @override
+  Future<void> deleteUnused({
+    required String createdBy,
+    required String normalizedCode,
+  }) async {
+    final normalized = CoachCode.tryNormalize(normalizedCode);
+    if (normalized == null) {
+      throw const TeacherAccessCodeException(
+        TeacherAccessCodeError.malformedCode,
+        'A valid Teacher access code is required.',
+      );
+    }
+    final snapshot = await _codes.doc(normalized).get();
+    final parsed = snapshot.exists
+        ? TeacherAccessCode.tryFromMap(
+            snapshot.data() ?? const {},
+            id: snapshot.id,
+          )
+        : null;
+    if (parsed == null) {
+      throw const TeacherAccessCodeException(
+        TeacherAccessCodeError.notFound,
+        'That Teacher access code is invalid or has already been used.',
+      );
+    }
+    if (parsed.consumed) {
+      throw const TeacherAccessCodeException(
+        TeacherAccessCodeError.alreadyConsumed,
+        'That Teacher access code is invalid or has already been used.',
+      );
+    }
+    if (parsed.createdBy != createdBy) {
+      throw const TeacherAccessCodeException(
+        TeacherAccessCodeError.forbidden,
+        'Only the Teacher who created this code can revoke it.',
+      );
+    }
+    await _codes.doc(normalized).delete();
+  }
+
   Future<TeacherAccessCode> _loadUnconsumed(String? code) async {
     final normalized = CoachCode.tryNormalize(code ?? '');
     if (normalized == null) {

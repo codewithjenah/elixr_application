@@ -334,7 +334,7 @@ assignment, public-profile, and other feature collections described below):
 - `daily_quest_claims` — idempotency markers for quest-XP claims (`daily_quest_claims/{userId}_{dayKey}_{questId}`).
 - `achievement_claims` — immutable achievement claim markers (`achievement_claims/{userId}_{achievementId}`).
 - `user_cosmetics` — private unlock inventory for profile borders (`user_cosmetics/{userId}`).
-- `chat_user_directory` — server-owned sanitized name/role/avatar search rows; clients cannot read it directly.
+- `chat_user_directory` — Function-owned sanitized name/role/avatar search rows; verified Teachers may list Teacher rows only. Clients cannot list Trainee rows or write the collection.
 - `chat_conversations` — deterministic one-to-one conversation summaries, unread counters, read timestamps, and participant snapshots.
 - `chat_blocks/{blockerId}/blocked_users` — one-way block records checked in both directions before a send.
 - `teacher_coaching_notes` — immutable legacy migration/audit input; the app no longer creates or displays coaching notes.

@@ -28,4 +28,14 @@ abstract class TeacherAccessCodeRepository {
 
   /// Mints a fresh unconsumed code for an existing Teacher to share.
   Future<TeacherAccessCode> mint({required String createdBy, String? note});
+
+  /// Unused and consumed codes this Teacher minted.
+  Stream<List<TeacherAccessCode>> watchCreatedBy(String teacherId);
+
+  /// Deletes an unused code minted by [createdBy]. Consumed or foreign codes
+  /// are rejected.
+  Future<void> deleteUnused({
+    required String createdBy,
+    required String normalizedCode,
+  });
 }

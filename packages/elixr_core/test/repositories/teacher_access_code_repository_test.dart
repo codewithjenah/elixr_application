@@ -123,6 +123,70 @@ void main() {
         ),
       );
     });
+
+    test('watchCreatedBy and deleteUnused are owner unused only', () async {
+      repository.codes.clear();
+      repository.seed(
+        const TeacherAccessCode(
+          normalizedCode: validCode,
+          consumed: false,
+          createdBy: 'teacher-1',
+        ),
+      );
+      repository.seed(
+        const TeacherAccessCode(
+          normalizedCode: 'ABCD2345EFGH',
+          consumed: false,
+          createdBy: 'teacher-2',
+        ),
+      );
+      repository.seed(
+        const TeacherAccessCode(
+          normalizedCode: '23456789ABCD',
+          consumed: true,
+          createdBy: 'teacher-1',
+        ),
+      );
+
+      final mine = await repository.watchCreatedBy('teacher-1').first;
+      expect(mine.map((code) => code.normalizedCode).toSet(), {
+        validCode,
+        '23456789ABCD',
+      });
+
+      await repository.deleteUnused(
+        createdBy: 'teacher-1',
+        normalizedCode: validCode,
+      );
+      expect(repository.codes.containsKey(validCode), isFalse);
+
+      await expectLater(
+        repository.deleteUnused(
+          createdBy: 'teacher-1',
+          normalizedCode: 'ABCD2345EFGH',
+        ),
+        throwsA(
+          isA<TeacherAccessCodeException>().having(
+            (e) => e.code,
+            'code',
+            TeacherAccessCodeError.forbidden,
+          ),
+        ),
+      );
+      await expectLater(
+        repository.deleteUnused(
+          createdBy: 'teacher-1',
+          normalizedCode: '23456789ABCD',
+        ),
+        throwsA(
+          isA<TeacherAccessCodeException>().having(
+            (e) => e.code,
+            'code',
+            TeacherAccessCodeError.alreadyConsumed,
+          ),
+        ),
+      );
+    });
   });
 
   group('FirebaseTeacherAccessCodeRepository', () {
@@ -213,6 +277,74 @@ void main() {
           .get();
       expect(snap.data()?['consumed'], isFalse);
       expect(snap.data()?['created_by'], 'teacher-1');
+    });
+
+    test('watchCreatedBy returns only that Teacher\'s codes', () async {
+      await firestore
+          .collection(FirestoreCollections.teacherAccessCodes)
+          .doc(validCode)
+          .set({
+            'consumed': false,
+            'created_at': DateTime.utc(2026, 8, 1),
+            'created_by': 'teacher-1',
+          });
+      await firestore
+          .collection(FirestoreCollections.teacherAccessCodes)
+          .doc('ABCD2345EFGH')
+          .set({
+            'consumed': false,
+            'created_at': DateTime.utc(2026, 8, 2),
+            'created_by': 'teacher-2',
+          });
+
+      final mine = await repository.watchCreatedBy('teacher-1').first;
+      expect(mine.map((code) => code.normalizedCode), [validCode]);
+    });
+
+    test('deleteUnused removes an owned unused code only', () async {
+      await firestore
+          .collection(FirestoreCollections.teacherAccessCodes)
+          .doc(validCode)
+          .set({
+            'consumed': false,
+            'created_at': DateTime.utc(2026, 8, 1),
+            'created_by': 'teacher-1',
+          });
+
+      await repository.deleteUnused(
+        createdBy: 'teacher-1',
+        normalizedCode: validCode,
+      );
+      expect(
+        (await firestore
+                .collection(FirestoreCollections.teacherAccessCodes)
+                .doc(validCode)
+                .get())
+            .exists,
+        isFalse,
+      );
+
+      await firestore
+          .collection(FirestoreCollections.teacherAccessCodes)
+          .doc(validCode)
+          .set({
+            'consumed': true,
+            'created_at': DateTime.utc(2026, 8, 1),
+            'created_by': 'teacher-1',
+          });
+      await expectLater(
+        repository.deleteUnused(
+          createdBy: 'teacher-1',
+          normalizedCode: validCode,
+        ),
+        throwsA(
+          isA<TeacherAccessCodeException>().having(
+            (e) => e.code,
+            'code',
+            TeacherAccessCodeError.alreadyConsumed,
+          ),
+        ),
+      );
     });
   });
 }

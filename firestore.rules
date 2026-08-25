@@ -3545,9 +3545,11 @@ service cloud.firestore {
         );
     }
 
-    // Direct Messages v1. The Functions/Admin SDK owns the sanitized user
-    // directory and account-erasure archival; clients own participant-scoped
-    // conversations, messages, read state, and one-way block records.
+    // Direct Messages v1. The Functions/Admin SDK owns directory writes and
+    // account-erasure archival. Verified Teachers may list/get Teacher-role
+    // directory rows for Faculties; Trainees cannot read the collection.
+    // Clients own participant-scoped conversations, messages, read state,
+    // and one-way block records.
     function chatConversationPath(conversationId) {
       return /databases/$(database)/documents/chat_conversations/$(conversationId);
     }
@@ -3773,7 +3775,9 @@ service cloud.firestore {
     }
 
     match /chat_user_directory/{userId} {
-      allow read, write: if false;
+      allow write: if false;
+      allow get, list: if isVerifiedTeacher()
+        && resource.data.role == 'Teacher';
     }
 
     match /chat_search_rate_limits/{userId} {

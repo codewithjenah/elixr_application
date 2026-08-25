@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../models/coach_code.dart';
 import '../models/teacher_access_code.dart';
 import '../models/teacher_access_code_exception.dart';
@@ -21,11 +23,21 @@ class InMemoryTeacherAccessCodeRepository
 
   final Map<String, TeacherAccessCode> codes = {};
   final Map<String, User> users = {};
+  final _createdByControllers =
+      <String, StreamController<List<TeacherAccessCode>>>{};
 
   DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
 
   void seed(TeacherAccessCode code) {
     codes[code.normalizedCode] = code;
+    _emitCreatedBy();
+  }
+
+  void dispose() {
+    for (final controller in _createdByControllers.values) {
+      controller.close();
+    }
+    _createdByControllers.clear();
   }
 
   @override
@@ -66,6 +78,7 @@ class InMemoryTeacherAccessCodeRepository
       consumedAt: now,
     );
     users[userId] = user;
+    _emitCreatedBy();
   }
 
   @override
@@ -110,12 +123,56 @@ class InMemoryTeacherAccessCodeRepository
         createdBy: createdBy,
       );
       codes[normalized] = minted;
+      _emitCreatedBy();
       return minted;
     }
     throw const TeacherAccessCodeException(
       TeacherAccessCodeError.collisionExhausted,
       'Could not allocate a unique Teacher access code.',
     );
+  }
+
+  @override
+  Stream<List<TeacherAccessCode>> watchCreatedBy(String teacherId) {
+    final existing = _createdByControllers[teacherId];
+    if (existing != null && !existing.isClosed) return existing.stream;
+    late final StreamController<List<TeacherAccessCode>> controller;
+    controller = StreamController<List<TeacherAccessCode>>.broadcast(
+      onListen: () => controller.add(_codesCreatedBy(teacherId)),
+    );
+    _createdByControllers[teacherId] = controller;
+    return controller.stream;
+  }
+
+  @override
+  Future<void> deleteUnused({
+    required String createdBy,
+    required String normalizedCode,
+  }) async {
+    final parsed = _requireUnconsumed(normalizedCode);
+    if (parsed.createdBy != createdBy) {
+      throw const TeacherAccessCodeException(
+        TeacherAccessCodeError.forbidden,
+        'Only the Teacher who created this code can revoke it.',
+      );
+    }
+    codes.remove(parsed.normalizedCode);
+    _emitCreatedBy();
+  }
+
+  List<TeacherAccessCode> _codesCreatedBy(String teacherId) {
+    return [
+      for (final code in codes.values)
+        if (code.createdBy == teacherId) code,
+    ];
+  }
+
+  void _emitCreatedBy() {
+    for (final entry in _createdByControllers.entries) {
+      if (!entry.value.isClosed) {
+        entry.value.add(_codesCreatedBy(entry.key));
+      }
+    }
   }
 
   TeacherAccessCode _requireUnconsumed(String? code) {

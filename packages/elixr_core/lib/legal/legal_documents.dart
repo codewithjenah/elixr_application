@@ -47,6 +47,9 @@ abstract final class ElixrLegalDocuments {
         'token. An exact email address may also be used privately to locate an '
         'account, but search results never reveal email addresses. Results show '
         'only display name, role, and profile avatar.',
+    'Verified Teachers can open Faculties and see every active Teacher\'s '
+        'display name, role, and avatar. Emails and users documents stay '
+        'private.',
     'Direct messages are stored in Cloud Firestore and are readable only by '
         'the two conversation participants. Messages may be edited by their '
         'author or soft-deleted into a Message deleted tombstone. The app stores '

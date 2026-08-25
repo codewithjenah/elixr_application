@@ -17,6 +17,14 @@ void main() {
       expect(text, contains('email verification'));
       expect(text, contains('password reset'));
       expect(text, contains('Philippine Data Privacy Act (RA 10173)'));
+      expect(text, contains('Faculties'));
+      expect(
+        text,
+        contains(
+          'Verified Teachers can open Faculties and see every active Teacher\'s display name, role, and avatar.',
+        ),
+      );
+      expect(text, contains('Emails and users documents stay private'));
     });
 
     test('retains Trainee-specific webcam, session, and profile copy', () {

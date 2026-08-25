@@ -24,6 +24,6 @@ Share the grouped `display` value (for example `7KPM-XR4D-Q2WT`) with the person
 
 ## After the first Teacher
 
-Signed-in Teachers can mint additional codes in **Settings → Invite a co-teacher**. Those writes go to the same collection with `created_by` set to the minting Teacher's uid.
+Signed-in Teachers can mint additional codes in **Faculties → Invite a faculty member**. Those writes go to the same collection with `created_by` set to the minting Teacher's uid.
 
 Codes are single-use. Consuming a code and creating `users/{uid}` with `role: Teacher` must happen in the same Firestore transaction.

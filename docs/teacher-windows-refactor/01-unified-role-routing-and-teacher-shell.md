@@ -103,7 +103,7 @@ flowchart TD
 Recommended router sketch:
 
 - Public: `/login`, `/register`, `/register/teacher`, `/forgot-password`, legal.
-- Teacher-only: `/verify-email` (or `/teacher/verify-email`), then shell routes `/teacher/dashboard`, `/teacher/groups`, `/teacher/students`, `/teacher/leaderboard`, `/teacher/movements`, `/teacher/settings`.
+- Teacher-only: `/verify-email` (or `/teacher/verify-email`), then shell routes `/teacher/dashboard`, `/teacher/groups`, `/teacher/faculties`, `/teacher/students`, `/teacher/leaderboard`, `/teacher/movements`, `/teacher/messages`, `/teacher/settings`.
 - Trainee-only: existing `/dashboard`, `/practice`, `/join-coach`, etc.
 - Redirect: if `isTeacher` and location is a trainee shell/practice path → Teacher home. If `isTrainee` and location is `/teacher/...` → trainee dashboard.
 - `JoinLinkService` pending codes: **Trainees only**. Teachers with a pending join code should not be sent to `/join-coach`.

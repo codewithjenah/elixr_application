@@ -16,7 +16,7 @@
 //
 // Do not invent a different code alphabet. These values use CoachCode.
 //
-// Existing Teachers can also mint codes in Settings → Invite a co-teacher.
+// Existing Teachers can also mint codes in Faculties → Invite a faculty member.
 // This script remains the admin bootstrap path until the first Teacher exists.
 //
 // ignore_for_file: avoid_print

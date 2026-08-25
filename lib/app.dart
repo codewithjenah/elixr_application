@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:elixr_core/repositories/firebase_teacher_access_code_repository.dart';
 import 'package:elixr_core/repositories/teacher_access_code_repository.dart';
+import 'package:elixr_core/repositories/faculty_directory_repository.dart';
+import 'package:elixr_core/repositories/firebase_faculty_directory_repository.dart';
 import 'package:elixr_core/repositories/firebase_group_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
@@ -39,10 +41,14 @@ class ElixrApp extends StatefulWidget {
   ElixrApp({
     super.key,
     TeacherAccessCodeRepository? teacherAccessCodeRepository,
+    FacultyDirectoryRepository? facultyDirectoryRepository,
   }) : teacherAccessCodeRepository =
-           teacherAccessCodeRepository ?? FirebaseTeacherAccessCodeRepository();
+           teacherAccessCodeRepository ?? FirebaseTeacherAccessCodeRepository(),
+       facultyDirectoryRepository =
+           facultyDirectoryRepository ?? FirebaseFacultyDirectoryRepository();
 
   final TeacherAccessCodeRepository teacherAccessCodeRepository;
+  final FacultyDirectoryRepository facultyDirectoryRepository;
 
   @override
   State<ElixrApp> createState() => _ElixrAppState();
@@ -144,6 +150,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<TeacherAccessCodeRepository>.value(
           value: widget.teacherAccessCodeRepository,
+        ),
+        Provider<FacultyDirectoryRepository>.value(
+          value: widget.facultyDirectoryRepository,
         ),
         Provider<GroupRepository>.value(value: _groupRepository),
         Provider<JoinCodeResolver>.value(value: _joinCodeResolver),

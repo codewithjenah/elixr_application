@@ -355,7 +355,7 @@ describe('direct message rules', () => {
     await assertFails(send.commit());
   });
 
-  test('directory is server-only and legacy coaching writes are retired', async () => {
+  test('trainees cannot list the directory and legacy coaching writes are retired', async () => {
     await assertFails(getDocs(query(
       collection(db('alice'), 'chat_user_directory'),
       where('search_prefixes', 'array-contains', 'al'),

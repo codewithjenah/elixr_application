@@ -331,6 +331,21 @@ void main() {
       ),
       AppRoutePaths.dashboard,
     );
+    expect(
+      resolveAppRedirect(
+        _state(user: _trainee(), location: AppRoutePaths.teacherFaculties),
+      ),
+      AppRoutePaths.dashboard,
+    );
+  });
+
+  test('verified teacher can stay on faculties', () {
+    expect(
+      resolveAppRedirect(
+        _state(user: _teacher(), location: AppRoutePaths.teacherFaculties),
+      ),
+      isNull,
+    );
   });
 
   test('trainee with pending join code redirects to join-coach', () {
@@ -389,6 +404,7 @@ void main() {
       AppRoutePaths.livePractice,
       AppRoutePaths.joinCoach,
       AppRoutePaths.teacherDashboard,
+      AppRoutePaths.teacherFaculties,
       AppRoutePaths.teacherSettings,
       AppRoutePaths.verifyEmail,
     ]) {

@@ -37,6 +37,11 @@ const teacherSidebarItems = [
     route: AppRoutePaths.teacherGroups,
   ),
   TeacherSidebarItem(
+    label: 'Faculties',
+    icon: FluentIcons.education,
+    route: AppRoutePaths.teacherFaculties,
+  ),
+  TeacherSidebarItem(
     label: 'Students',
     icon: FluentIcons.contact,
     route: AppRoutePaths.teacherStudents,
