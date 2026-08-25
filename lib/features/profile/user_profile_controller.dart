@@ -21,11 +21,15 @@ class UserProfileController extends ChangeNotifier {
     required String? currentUserId,
     LeaderboardEntry? initialEntry,
     int? initialRank,
+    String? initialDisplayName,
+    String? initialProfilePictureUrl,
     LeaderboardRepository? leaderboardRepository,
     PublicProfileRepository? publicProfileRepository,
     ProfileVisitRepository? profileVisitRepository,
   }) : _userId = userId,
        _currentUserId = currentUserId,
+       _fallbackDisplayName = initialDisplayName,
+       _fallbackProfilePictureUrl = initialProfilePictureUrl,
        _leaderboardRepository =
            leaderboardRepository ?? LeaderboardRepository(),
        _publicProfileRepository =
@@ -38,6 +42,8 @@ class UserProfileController extends ChangeNotifier {
 
   final String _userId;
   final String? _currentUserId;
+  final String? _fallbackDisplayName;
+  final String? _fallbackProfilePictureUrl;
   final LeaderboardRepository _leaderboardRepository;
   final PublicProfileRepository _publicProfileRepository;
   final ProfileVisitRepository _profileVisitRepository;
@@ -47,6 +53,8 @@ class UserProfileController extends ChangeNotifier {
   bool _disposed = false;
   bool _visitRecorded = false;
   bool _backfillStarted = false;
+  bool _receivedProfileRoot = false;
+  bool _receivedLeaderboard = false;
 
   ProfileLoadState loadState = ProfileLoadState.loading;
   Object? loadError;
@@ -76,7 +84,9 @@ class UserProfileController extends ChangeNotifier {
       entry,
     ) {
       if (_disposed) return;
+      _receivedLeaderboard = true;
       _leaderboardEntry = entry;
+      _refreshIdentityLoadState();
       _safeNotify();
     });
 
@@ -85,11 +95,12 @@ class UserProfileController extends ChangeNotifier {
         .listen(
           (profile) async {
             if (_disposed) return;
+            _receivedProfileRoot = true;
             profileRoot = profile;
-            if (profile == null && loadState == ProfileLoadState.loading) {
-              // Wait for first emission before deciding not-found.
-            }
             await _reloadProtectedContent();
+            if (loadState != ProfileLoadState.error) {
+              _refreshIdentityLoadState();
+            }
             _safeNotify();
           },
           onError: (Object error) {
@@ -135,10 +146,38 @@ class UserProfileController extends ChangeNotifier {
 
     await _reloadProtectedContent();
     if (!_disposed) {
-      loadState = profileRoot == null && _leaderboardEntry == null
-          ? ProfileLoadState.notFound
-          : ProfileLoadState.loaded;
+      if (loadState != ProfileLoadState.error) {
+        _refreshIdentityLoadState();
+      }
       _safeNotify();
+    }
+  }
+
+  /// Teachers often have no leaderboard row, and Faculties does not pass one.
+  /// Do not treat that as missing until both identity streams have emitted.
+  void _refreshIdentityLoadState() {
+    if (_disposed || loadState == ProfileLoadState.error) return;
+    if (profileRoot != null || _leaderboardEntry != null) {
+      loadState = ProfileLoadState.loaded;
+      return;
+    }
+    if (_receivedProfileRoot && _receivedLeaderboard) {
+      final fallbackName = _fallbackDisplayName?.trim();
+      if (fallbackName != null && fallbackName.isNotEmpty) {
+        final fallbackPicture = _fallbackProfilePictureUrl?.trim();
+        profileRoot = PublicProfile(
+          userId: _userId,
+          displayName: fallbackName,
+          visibility: ProfileVisibility.private,
+          profilePictureUrl:
+              (fallbackPicture == null || fallbackPicture.isEmpty)
+              ? null
+              : fallbackPicture,
+        );
+        loadState = ProfileLoadState.loaded;
+        return;
+      }
+      loadState = ProfileLoadState.notFound;
     }
   }
 

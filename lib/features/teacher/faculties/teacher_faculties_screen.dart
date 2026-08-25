@@ -13,6 +13,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/auth_service.dart';
+import '../../profile/profile_route_args.dart';
 import 'teacher_faculties_controller.dart';
 
 class TeacherFacultiesScreen extends StatefulWidget {
@@ -186,8 +187,14 @@ class _FacultyList extends StatelessWidget {
                 color: context.elixTextSecondary,
               ),
             ),
-            onPressed: () =>
-                context.push(AppRoutePaths.teacherProfile(teacher.id)),
+            onPressed: () => context.push(
+              AppRoutePaths.teacherProfile(teacher.id),
+              extra: ProfileRouteArgs(
+                displayName: teacher.displayName,
+                profilePictureUrl: teacher.avatarUrl,
+                role: teacher.role,
+              ),
+            ),
           );
         },
       ),

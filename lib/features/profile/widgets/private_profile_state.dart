@@ -5,10 +5,18 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 
 class PrivateProfileState extends StatelessWidget {
-  const PrivateProfileState({super.key});
+  const PrivateProfileState({super.key, this.ownerIsTeacher = false});
+
+  final bool ownerIsTeacher;
 
   @override
   Widget build(BuildContext context) {
+    final body = ownerIsTeacher
+        ? 'This teacher has locked their detailed activity. '
+              'Name and avatar remain visible.'
+        : 'This player has locked their detailed activity. '
+              'Basic leaderboard identity remains visible.';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.xl),
@@ -37,8 +45,7 @@ class PrivateProfileState extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'This player has locked their detailed activity. '
-            'Basic leaderboard identity remains visible.',
+            body,
             textAlign: TextAlign.center,
             style: AppTheme.bodySecondary.copyWith(
               color: context.elixTextSecondary,

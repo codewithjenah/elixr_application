@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:elixr_core/models/user.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -68,6 +69,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             currentUserId: currentUserId,
             initialEntry: widget.initialArgs?.entry,
             initialRank: widget.initialArgs?.rank,
+            initialDisplayName: widget.initialArgs?.displayName,
+            initialProfilePictureUrl: widget.initialArgs?.profilePictureUrl,
           );
     }
     if (!_initialized) {
@@ -116,6 +119,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   bool get _isTeacherViewer =>
       context.read<AuthService>().currentUser?.isTeacher ?? false;
+
+  bool get _ownerIsTeacher {
+    if (_controller?.isSelf ?? false) return _isTeacherViewer;
+    return widget.initialArgs?.role == User.roleTeacher;
+  }
 
   String _profilePath(String userId) {
     return _isTeacherViewer
@@ -190,7 +198,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget build(BuildContext context) {
     final authUser = context.watch<AuthService>().currentUser;
     final controller = _controller!;
-    final pageTitle = controller.isSelf ? 'My Profile' : 'Player Profile';
+    final pageTitle = controller.isSelf
+        ? 'My Profile'
+        : (_isTeacherViewer ? 'Profile' : 'Player Profile');
 
     return ElixScaffoldPage(
       content: SafeArea(
@@ -214,7 +224,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       _ProfilePageHeader(title: pageTitle, onBack: _handleBack),
                       if (controller.isSelf && _previewAsVisitor) ...[
                         const SizedBox(height: AppSpacing.md),
-                        _PreviewBanner(onExit: _exitPreviewAsVisitor),
+                        _PreviewBanner(
+                          onExit: _exitPreviewAsVisitor,
+                          viewerIsTeacher: _isTeacherViewer,
+                        ),
                       ],
                       const SizedBox(height: AppSpacing.lg),
                       Expanded(
@@ -290,7 +303,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               if (canViewDetails && entry != null)
                 const SizedBox(height: AppSpacing.lg),
               if (!canViewDetails)
-                const PrivateProfileState()
+                PrivateProfileState(ownerIsTeacher: _ownerIsTeacher)
               else
                 _ProfileContentLayout(
                   wide: wide,
@@ -384,9 +397,10 @@ class _ProfileContentLayout extends StatelessWidget {
 }
 
 class _PreviewBanner extends StatelessWidget {
-  const _PreviewBanner({required this.onExit});
+  const _PreviewBanner({required this.onExit, this.viewerIsTeacher = false});
 
   final VoidCallback onExit;
+  final bool viewerIsTeacher;
 
   @override
   Widget build(BuildContext context) {
@@ -411,7 +425,9 @@ class _PreviewBanner extends StatelessWidget {
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
-              'Previewing your profile as other players',
+              viewerIsTeacher
+                  ? 'Previewing your profile as students would see it'
+                  : 'Previewing your profile as other players',
               style: AppTheme.caption.copyWith(
                 color: context.elixTextPrimary,
                 fontWeight: FontWeight.w600,
@@ -478,7 +494,7 @@ class _NotFoundState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Player not found.',
+            'Profile not found.',
             style: AppTheme.bodySecondary.copyWith(
               color: context.elixTextSecondary,
             ),

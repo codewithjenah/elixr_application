@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/features/profile/profile_route_args.dart';
 import 'package:elixr_application/features/teacher/faculties/teacher_faculties_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
@@ -26,6 +27,7 @@ void main() {
   late InMemoryFacultyDirectoryRepository directory;
   late InMemoryTeacherAccessCodeRepository accessCodes;
   late AuthService auth;
+  late List<Object?> openedProfileExtras;
 
   setUp(() {
     directory = InMemoryFacultyDirectoryRepository();
@@ -34,6 +36,7 @@ void main() {
       now: () => DateTime.utc(2026, 8, 25, 4),
     );
     auth = phase3TeacherAuth();
+    openedProfileExtras = [];
   });
 
   tearDown(() {
@@ -60,8 +63,10 @@ void main() {
         ),
         GoRoute(
           path: '/teacher/profile/:userId',
-          builder: (context, state) =>
-              Text('profile:${state.pathParameters['userId']}'),
+          builder: (context, state) {
+            openedProfileExtras.add(state.extra);
+            return Text('profile:${state.pathParameters['userId']}');
+          },
         ),
       ],
     );
@@ -161,6 +166,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('profile:zoe'), findsOneWidget);
+    expect(openedProfileExtras, hasLength(1));
+    final args = openedProfileExtras.single;
+    expect(args, isA<ProfileRouteArgs>());
+    expect((args! as ProfileRouteArgs).displayName, 'Zoe Faculty');
+    expect((args as ProfileRouteArgs).role, User.roleTeacher);
   });
 
   testWidgets('shows a pending unused code with Copy and Revoke', (

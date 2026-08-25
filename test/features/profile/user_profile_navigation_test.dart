@@ -623,7 +623,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Player not found.'), findsOneWidget);
+      expect(find.text('Profile not found.'), findsOneWidget);
       await tester.tap(find.text('Go Back'));
       await tester.pumpAndSettle();
 
@@ -722,7 +722,7 @@ void main() {
     testWidgets('visible when not found', (tester) async {
       await pumpProfile(tester, state: ProfileLoadState.notFound);
       expect(_backButton(), findsOneWidget);
-      expect(find.text('Player not found.'), findsOneWidget);
+      expect(find.text('Profile not found.'), findsOneWidget);
     });
   });
 
@@ -1452,6 +1452,60 @@ void main() {
         expect(router.state.uri.path, AppRoutePaths.teacherSettings);
         expect(find.text('Teacher settings page'), findsOneWidget);
         expect(find.text('Save confirmed movement images'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'locked teacher profile uses faculty copy instead of player copy',
+      (tester) async {
+        await _setSurface(tester);
+        final auth = teacherAuth();
+        final controller = _SeededProfileController(
+          userId: 'nicole',
+          currentUserId: 'viewer',
+          seedState: ProfileLoadState.loaded,
+          root: PublicProfile(
+            userId: 'nicole',
+            displayName: 'Nicole Manaloto',
+            visibility: ProfileVisibility.private,
+          ),
+        );
+
+        final router = GoRouter(
+          initialLocation: AppRoutePaths.teacherProfile('nicole'),
+          routes: [
+            GoRoute(
+              path: '/teacher/profile/:userId',
+              builder: (context, state) => UserProfileScreen(
+                userId: 'nicole',
+                initialArgs: const ProfileRouteArgs(
+                  displayName: 'Nicole Manaloto',
+                  role: User.roleTeacher,
+                ),
+                controller: controller,
+              ),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthService>.value(
+            value: auth,
+            child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('This profile is locked'), findsOneWidget);
+        expect(
+          find.text(
+            'This teacher has locked their detailed activity. '
+            'Name and avatar remain visible.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('This player has locked'), findsNothing);
+        expect(find.textContaining('leaderboard identity'), findsNothing);
       },
     );
   });
