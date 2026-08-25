@@ -3,11 +3,12 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
@@ -69,7 +70,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Movements')),
         content: Center(child: ProgressRing()),
       );
@@ -78,7 +79,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: PageHeader(
             title: const Text('Movements'),
             commandBar: controller.tab == TeacherMovementsTab.mine
@@ -157,10 +158,11 @@ class _TabBody extends StatelessWidget {
         controller.myMovements.isEmpty &&
         controller.assignments.isEmpty &&
         controller.groups.isEmpty) {
-      return _StatusCard(
+      return ElixStatusPanel(
         message: controller.errorMessage!,
         isError: true,
-        onRetry: controller.retry,
+        actionLabel: 'Retry',
+        onAction: controller.retry,
       );
     }
     return switch (controller.tab) {
@@ -187,47 +189,44 @@ class _OfficialList extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final movement = controller.officialCatalog[index];
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(movement.name, style: AppTheme.headingMedium),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${movement.difficulty} · Official ELIXR guided assessment · '
-                        '${movement.supportedProps.map((prop) => prop.displayLabel).join(', ')}',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
+        return ElixPanelCard(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(movement.name, style: AppTheme.headingMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${movement.difficulty} · Official ELIXR guided assessment · '
+                      '${movement.supportedProps.map((prop) => prop.displayLabel).join(', ')}',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        movement.description,
-                        style: AppTheme.body.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      movement.description,
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextSecondary,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Button(
-                  onPressed: controller.busy
-                      ? null
-                      : () => _showAssignDialog(
-                          context,
-                          controller,
-                          official: movement,
-                        ),
-                  child: const Text('Assign'),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Button(
+                onPressed: controller.busy
+                    ? null
+                    : () => _showAssignDialog(
+                        context,
+                        controller,
+                        official: movement,
+                      ),
+                child: const Text('Assign'),
+              ),
+            ],
           ),
         );
       },
@@ -243,7 +242,7 @@ class _MyMovementsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.myMovements.isEmpty) {
-      return const _StatusCard(
+      return const ElixStatusPanel(
         message:
             'No Teacher-created movements yet. Create one to assign a teacher-reviewed exercise.',
       );
@@ -254,63 +253,60 @@ class _MyMovementsList extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final movement = controller.myMovements[index];
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(movement.title, style: AppTheme.headingMedium),
-                      const SizedBox(height: 4),
-                      Text(
-                        controller.movementModeLabel(movement),
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
+        return ElixPanelCard(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(movement.title, style: AppTheme.headingMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      controller.movementModeLabel(movement),
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              if (movement.isActive) ...[
+                Button(
+                  onPressed: controller.busy
+                      ? null
+                      : () => _showCreateOrEditMovement(
+                          context,
+                          controller,
+                          existing: movement,
+                        ),
+                  child: const Text('Edit'),
                 ),
                 const SizedBox(width: AppSpacing.sm),
-                if (movement.isActive) ...[
-                  Button(
-                    onPressed: controller.busy
-                        ? null
-                        : () => _showCreateOrEditMovement(
-                            context,
-                            controller,
-                            existing: movement,
-                          ),
-                    child: const Text('Edit'),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Button(
-                    onPressed: controller.busy
-                        ? null
-                        : () => _showAssignDialog(
-                            context,
-                            controller,
-                            custom: movement,
-                          ),
-                    child: const Text('Assign'),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Button(
-                    onPressed: controller.busy
-                        ? null
-                        : () => _confirmArchiveMovement(
-                            context,
-                            controller,
-                            movement,
-                          ),
-                    child: const Text('Archive'),
-                  ),
-                ],
+                Button(
+                  onPressed: controller.busy
+                      ? null
+                      : () => _showAssignDialog(
+                          context,
+                          controller,
+                          custom: movement,
+                        ),
+                  child: const Text('Assign'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Button(
+                  onPressed: controller.busy
+                      ? null
+                      : () => _confirmArchiveMovement(
+                          context,
+                          controller,
+                          movement,
+                        ),
+                  child: const Text('Archive'),
+                ),
               ],
-            ),
+            ],
           ),
         );
       },
@@ -326,7 +322,7 @@ class _AssignmentsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.assignments.isEmpty) {
-      return const _StatusCard(
+      return const ElixStatusPanel(
         message:
             'No assignments yet. Assign an Official ELIXR or My Movement item to a class.',
       );
@@ -346,45 +342,42 @@ class _AssignmentsList extends StatelessWidget {
             )
             .length;
         final inProgress = attempts.length - submitted;
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(assignment.displayTitle, style: AppTheme.headingMedium),
-                const SizedBox(height: 4),
-                Text(
-                  '${controller.groupName(assignment.groupId)} · '
-                  '${assignment.origin.displayLabel} · '
-                  '${assignment.isActive ? 'Active' : 'Archived'}'
-                  '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
+        return ElixPanelCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(assignment.displayTitle, style: AppTheme.headingMedium),
+              const SizedBox(height: 4),
+              Text(
+                '${controller.groupName(assignment.groupId)} · '
+                '${assignment.origin.displayLabel} · '
+                '${assignment.isActive ? 'Active' : 'Archived'}'
+                '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  assignment.isOfficial
-                      ? 'Classroom results: $submitted completed'
-                      : 'Classroom attempts: $inProgress in progress, $submitted submitted',
-                  style: AppTheme.body,
-                ),
-                if (attempts.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  for (final attempt in attempts.take(8))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        _attemptLine(attempt),
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                assignment.isOfficial
+                    ? 'Classroom results: $submitted completed'
+                    : 'Classroom attempts: $inProgress in progress, $submitted submitted',
+                style: AppTheme.body,
+              ),
+              if (attempts.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                for (final attempt in attempts.take(8))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      _attemptLine(attempt),
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
                       ),
                     ),
-                ],
+                  ),
               ],
-            ),
+            ],
           ),
         );
       },
@@ -415,43 +408,6 @@ class _AssignmentsList extends StatelessWidget {
     final m = local.month.toString().padLeft(2, '0');
     final d = local.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({
-    required this.message,
-    this.isError = false,
-    this.onRetry,
-  });
-
-  final String message;
-  final bool isError;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppTheme.body.copyWith(
-                color: isError ? AppColors.error : context.elixTextSecondary,
-              ),
-            ),
-            if (onRetry != null) ...[
-              const SizedBox(height: AppSpacing.md),
-              Button(onPressed: onRetry, child: const Text('Retry')),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }
 

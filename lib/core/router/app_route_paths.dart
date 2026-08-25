@@ -44,6 +44,7 @@ abstract final class AppRoutePaths {
   static const teacherMovements = '/teacher/movements';
   static const teacherMessages = '/teacher/messages';
   static const teacherSettings = '/teacher/settings';
+  static const teacherSettingsSectionQuery = 'section';
   static const teacherProfilePrefix = '/teacher/profile';
 
   static const authRoutes = {
@@ -122,6 +123,12 @@ abstract final class AppRoutePaths {
 
   static String teacherProfile(String userId) {
     return '$teacherProfilePrefix/${Uri.encodeComponent(userId)}';
+  }
+
+  /// Teacher Settings with a `?section=` pane (`accountProfile`, `privacy`, ...).
+  static String teacherSettingsWithSection(String sectionName) {
+    return '$teacherSettings?$teacherSettingsSectionQuery='
+        '${Uri.encodeComponent(sectionName)}';
   }
 
   static bool isTraineeShellRoute(String location) {

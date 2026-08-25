@@ -1,8 +1,16 @@
+import 'dart:io';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/data/models/achievement_claim.dart';
+import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
+import 'package:elixr_application/features/settings/settings_section.dart';
+import 'package:elixr_application/features/settings/widgets/profile_frame_selector.dart';
 import 'package:elixr_application/features/teacher/teacher_settings_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_application/services/settings_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -63,17 +71,30 @@ void main() {
 
   late AuthService auth;
   late _RecordingPublicProfileRepository profiles;
+  late Directory tempDir;
+  late SettingsService settingsService;
 
-  setUp(() {
+  setUp(() async {
     auth = phase3TeacherAuth();
     profiles = _RecordingPublicProfileRepository();
+    tempDir = await Directory.systemTemp.createTemp('elixr_teacher_settings_');
+    settingsService = SettingsService(
+      settingsFile: File('${tempDir.path}/settings.json'),
+    );
+    await settingsService.initialize();
   });
 
-  tearDown(() {
+  tearDown(() async {
     auth.dispose();
+    if (await tempDir.exists()) {
+      await tempDir.delete(recursive: true);
+    }
   });
 
-  Future<GoRouter> pumpSettings(WidgetTester tester) async {
+  Future<GoRouter> pumpSettings(
+    WidgetTester tester, {
+    SettingsSection? initialSection,
+  }) async {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.view.devicePixelRatio = 1;
@@ -84,7 +105,18 @@ void main() {
       routes: [
         GoRoute(
           path: AppRoutePaths.teacherSettings,
-          builder: (context, state) => const TeacherSettingsScreen(),
+          builder: (context, state) => TeacherSettingsScreen(
+            initialSection: initialSection,
+            publicProfileRepository: profiles,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
+          ),
+        ),
+        GoRoute(
+          path: AppRoutePaths.teacherDashboard,
+          builder: (context, state) => const Text('teacher-dashboard'),
         ),
         GoRoute(
           path: '/teacher/profile/:userId',
@@ -99,6 +131,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
+          ChangeNotifierProvider<SettingsService>.value(value: settingsService),
           Provider<PublicProfileRepository>.value(value: profiles),
         ],
         child: FluentApp.router(routerConfig: router),
@@ -109,12 +142,31 @@ void main() {
     return router;
   }
 
+  testWidgets('Account & Profile is editable and Legal stays on the page', (
+    tester,
+  ) async {
+    await pumpSettings(tester);
+
+    expect(find.text('Account & Profile'), findsWidgets);
+    expect(find.text('Save changes'), findsOneWidget);
+    expect(find.text('Privacy Policy'), findsOneWidget);
+    expect(find.text('Terms of Service'), findsOneWidget);
+    expect(find.text('Manage your Elixr experience'), findsOneWidget);
+    expect(find.text('Practice'), findsNothing);
+    expect(find.text('Teacher Access'), findsNothing);
+    expect(find.byType(ProfileFrameSelector), findsNothing);
+    expect(find.text('Avatar Frame'), findsNothing);
+    expect(find.text('No Frame · Default'), findsNothing);
+    expect(find.textContaining('practice session'), findsNothing);
+    expect(find.byIcon(FluentIcons.cancel), findsOneWidget);
+  });
+
   testWidgets(
     'Privacy section seeds a missing root as public and can lock it',
     (tester) async {
-      await pumpSettings(tester);
+      await pumpSettings(tester, initialSection: SettingsSection.privacy);
 
-      expect(find.text('Privacy'), findsOneWidget);
+      expect(find.text('Privacy'), findsWidgets);
       expect(find.text('Lock profile'), findsOneWidget);
       expect(find.textContaining('including other faculty'), findsOneWidget);
       expect(find.text('Save confirmed movement images'), findsNothing);
@@ -144,7 +196,7 @@ void main() {
       displayName: 'Grace Hopper',
       visibility: ProfileVisibility.private,
     );
-    await pumpSettings(tester);
+    await pumpSettings(tester, initialSection: SettingsSection.privacy);
 
     expect(profiles.seedCalls, 1);
     expect(profiles.root?.visibility, ProfileVisibility.private);
@@ -155,10 +207,20 @@ void main() {
     expect(toggle.checked, isTrue);
   });
 
+  testWidgets('close returns to the Teacher dashboard', (tester) async {
+    final router = await pumpSettings(tester);
+
+    await tester.tap(find.byIcon(FluentIcons.cancel));
+    await tester.pumpAndSettle();
+
+    expect(router.state.uri.path, AppRoutePaths.teacherDashboard);
+    expect(find.text('teacher-dashboard'), findsOneWidget);
+  });
+
   testWidgets('View my public profile opens the teacher-shell profile page', (
     tester,
   ) async {
-    await pumpSettings(tester);
+    await pumpSettings(tester, initialSection: SettingsSection.privacy);
 
     await tester.tap(find.byKey(const Key('teacher_view_my_public_profile')));
     await tester.pumpAndSettle();

@@ -8,8 +8,10 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
+import '../../profile/widgets/profile_section_card.dart';
 import 'teacher_student_detail_controller.dart';
 import 'teacher_student_models.dart';
 
@@ -60,7 +62,7 @@ class _TeacherStudentDetailScreenState
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Student')),
         content: Center(child: ProgressRing()),
       );
@@ -69,7 +71,7 @@ class _TeacherStudentDetailScreenState
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: PageHeader(
             title: Text(controller.displayName),
             commandBar: CommandBar(
@@ -223,24 +225,27 @@ class _ClassroomStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Classroom status', style: AppTheme.headingMedium),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Approved member in ${controller.approvedMemberships.length} group(s).',
-          style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: AppSpacing.xs,
-          children: [
-            for (final membership in controller.approvedMemberships)
-              _StatusBadge(label: teacherStudentStatusLabel(membership.status)),
-          ],
-        ),
-      ],
+    return ProfileSectionCard(
+      title: 'Classroom status',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Approved member in ${controller.approvedMemberships.length} group(s).',
+            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.xs,
+            children: [
+              for (final membership in controller.approvedMemberships)
+                _StatusBadge(
+                  label: teacherStudentStatusLabel(membership.status),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -252,38 +257,32 @@ class _ProgressSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Practice progress', style: AppTheme.headingMedium),
-        const SizedBox(height: AppSpacing.md),
-        switch (controller.state) {
-          TeacherStudentDetailState.waitingForAccess => _MessagePanel(
-            title: 'Waiting for progress access',
-            body:
-                'This student is in your classroom but has not shared official practice progress yet. They can grant Progress Access from their ELIXR settings.',
-            icon: FluentIcons.hour_glass,
-          ),
-          TeacherStudentDetailState.accessWithdrawn => _MessagePanel(
-            title: 'Progress access withdrawn',
-            body:
-                'This student previously shared progress but has withdrawn access. Classroom membership is unchanged.',
-            icon: FluentIcons.remove_filter,
-          ),
-          TeacherStudentDetailState.loadingProgress => const Center(
-            child: ProgressRing(),
-          ),
-          TeacherStudentDetailState.empty => _MessagePanel(
-            title: 'No practice history yet',
-            body: 'Shared progress is empty so far.',
-          ),
-          TeacherStudentDetailState.ready => _ProgressReady(
-            controller: controller,
-          ),
-          _ => const SizedBox.shrink(),
-        },
-      ],
-    );
+    return switch (controller.state) {
+      TeacherStudentDetailState.waitingForAccess => const _MessagePanel(
+        title: 'Waiting for progress access',
+        body:
+            'This student is in your classroom but has not shared official practice progress yet. They can grant Progress Access from their ELIXR settings.',
+        icon: FluentIcons.hour_glass,
+      ),
+      TeacherStudentDetailState.accessWithdrawn => const _MessagePanel(
+        title: 'Progress access withdrawn',
+        body:
+            'This student previously shared progress but has withdrawn access. Classroom membership is unchanged.',
+        icon: FluentIcons.remove_filter,
+      ),
+      TeacherStudentDetailState.loadingProgress => const Center(
+        child: ProgressRing(),
+      ),
+      TeacherStudentDetailState.empty => const _MessagePanel(
+        title: 'No practice history yet',
+        body: 'Shared progress is empty so far.',
+      ),
+      TeacherStudentDetailState.ready => ProfileSectionCard(
+        title: 'Practice progress',
+        child: _ProgressReady(controller: controller),
+      ),
+      _ => const SizedBox.shrink(),
+    };
   }
 }
 
@@ -400,33 +399,12 @@ class _MessagePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.elixBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, color: AppColors.primary),
-            const SizedBox(height: AppSpacing.sm),
-          ],
-          Text(title, style: AppTheme.headingMedium),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            body,
-            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
-        ],
-      ),
+    return ElixStatusPanel(
+      title: title,
+      message: body,
+      icon: icon,
+      actionLabel: actionLabel,
+      onAction: onAction,
     );
   }
 }

@@ -31,6 +31,7 @@ import '../../features/teacher/leaderboard/teacher_leaderboard_screen.dart';
 import '../../features/teacher/movements/teacher_movements_screen.dart';
 import '../../features/teacher/students/teacher_student_detail_screen.dart';
 import '../../features/teacher/students/teacher_students_screen.dart';
+import '../../features/settings/settings_section.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
 import '../../features/teacher_access/join_teacher_screen.dart';
 import '../../features/training/training_screen.dart';
@@ -398,10 +399,16 @@ class AppRouter {
             ),
             GoRoute(
               path: AppRoutePaths.teacherSettings,
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: const TeacherSettingsScreen(),
-              ),
+              pageBuilder: (context, state) {
+                final section = tryParseSettingsSection(
+                  state.uri.queryParameters[AppRoutePaths
+                      .teacherSettingsSectionQuery],
+                );
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: TeacherSettingsScreen(initialSection: section),
+                );
+              },
             ),
           ],
         ),

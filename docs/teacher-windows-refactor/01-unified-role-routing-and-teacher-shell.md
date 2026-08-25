@@ -29,7 +29,7 @@ Introduce role-aware routing in the existing Windows Flutter application so one 
 - Shared `/login` for both roles.
 - `/register` remains Trainee registration.
 - A dedicated Teacher registration route (recommended: `/register/teacher`) creates `users.role = Teacher` only.
-- After login, Teachers see a Teacher shell (Dashboard / Groups / Students / Leaderboard / Movements / Settings-Profile). Destinations beyond routing/shell chrome are **placeholders** (“Coming soon”) except Settings/Profile basics needed to log out, view role, and open legal docs.
+- After login, Teachers see a Teacher shell (Dashboard / Groups / Students / Leaderboard / Movements / Settings-Profile). Destinations beyond routing/shell chrome are **placeholders** (“Coming soon”) except Settings, which hosts account/security/appearance/privacy plus legal and log out. Practice and camera stay trainee-only.
 - Teachers never see trainee practice onboarding, `/practice` lesson gates, Live Practice, or the trainee sidebar catalog.
 - Non-Teacher accounts cannot enter the Teacher shell. Non-Teacher login on a Teacher-only action is rejected with a clear message (reuse teacher_app copy: “This account is not registered as a Teacher.”).
 - Teachers must verify email before the Teacher shell (parity with teacher_app). Trainees keep current Windows login (no new email gate).
@@ -62,7 +62,7 @@ Re-verify line numbers at implementation time.
 - Explicit Teacher registration UI/route in the Windows app.
 - Teacher email-verification screen/gate before Teacher shell.
 - Teacher Fluent shell with six destinations; later features stubbed.
-- Teacher Settings/Profile: account identity, role (read-only), legal links, log out. Do not mount trainee Practice preferences / camera settings as if the Teacher were about to train.
+- Teacher Settings: account/security/appearance (editable name, photo, email, password) with role remaining read-only; teacher Privacy; legal links; log out. Do not mount trainee Practice preferences / camera settings as if the Teacher were about to train.
 - Guard: Teacher `AuthRepository` sessions must **not** auto-create a Trainee profile (`createMissingProfile: false` or equivalent role-aware path).
 - Tests for routing, registration role, non-Teacher rejection, onboarding skip, missing-profile fail-closed.
 - Keep `teacher_app` compiling and behavior-compatible.

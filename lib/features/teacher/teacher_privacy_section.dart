@@ -4,10 +4,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
-import '../../core/theme/app_theme.dart';
 import '../../data/models/public_profile.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
+import '../settings/widgets/settings_components.dart';
 
 /// Teacher-only Privacy controls: lock profile and preview the public page.
 ///
@@ -116,64 +116,47 @@ class TeacherPrivacySectionState extends State<TeacherPrivacySection> {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: settingsMaxBodyWidth),
+      child: SettingsGroup(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Lock profile',
-                    style: AppTheme.body.copyWith(
-                      color: context.elixTextPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'When locked, other signed-in Trainees and Teachers, '
-                    'including other faculty, cannot see your detailed stats, '
-                    'claimed achievements, completed movements, practice '
-                    'history, or visitors. Name and avatar stay visible either '
-                    'way. Detailed stats are usually empty for Teachers.',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            ToggleSwitch(
-              key: const Key('teacher_privacy_profile_lock_toggle'),
+            SettingsToggleRow(
+              toggleKey: const Key('teacher_privacy_profile_lock_toggle'),
+              label: 'Lock profile',
+              description:
+                  'When locked, other signed-in Trainees and Teachers, '
+                  'including other faculty, cannot see your detailed stats, '
+                  'claimed achievements, completed movements, practice '
+                  'history, or visitors. Name and avatar stay visible either '
+                  'way. Detailed stats are usually empty for Teachers.',
               checked: _visibility == ProfileVisibility.private,
               onChanged: _saving ? null : _setLocked,
             ),
+            const SizedBox(height: AppSpacing.md),
+            Button(
+              key: const Key('teacher_view_my_public_profile'),
+              onPressed: () {
+                final userId = context
+                    .read<AuthService>()
+                    .currentUser
+                    ?.id
+                    ?.trim();
+                if (userId == null || userId.isEmpty) return;
+                context.push(AppRoutePaths.teacherProfile(userId));
+              },
+              child: const Text('View my public profile'),
+            ),
+            if (_saving)
+              const Padding(
+                padding: EdgeInsets.only(top: AppSpacing.sm),
+                child: Text('Saving...'),
+              ),
+            if (_error != null) SettingsStatusBanner(message: _error!),
           ],
         ),
-        const SizedBox(height: AppSpacing.md),
-        Button(
-          key: const Key('teacher_view_my_public_profile'),
-          onPressed: () {
-            final userId = context.read<AuthService>().currentUser?.id?.trim();
-            if (userId == null || userId.isEmpty) return;
-            context.push(AppRoutePaths.teacherProfile(userId));
-          },
-          child: const Text('View my public profile'),
-        ),
-        if (_saving)
-          const Padding(
-            padding: EdgeInsets.only(top: AppSpacing.sm),
-            child: Text('Saving...'),
-          ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.sm),
-            child: Text(_error!),
-          ),
-      ],
+      ),
     );
   }
 }

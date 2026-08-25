@@ -5,6 +5,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
@@ -109,10 +111,12 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
     }
     final queue = controller.reviewQueue;
     if (queue.isEmpty) {
-      return const Center(
-        child: Text(
-          'No Teacher-reviewed submissions yet.',
-          textAlign: TextAlign.center,
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: const ElixStatusPanel(
+            message: 'No Teacher-reviewed submissions yet.',
+          ),
         ),
       );
     }
@@ -128,49 +132,46 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
             : attempt.videoExpired
             ? 'Video expired'
             : 'Video available';
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        controller.traineeName(attempt.traineeId),
-                        style: AppTheme.headingMedium,
+        return ElixPanelCard(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      controller.traineeName(attempt.traineeId),
+                      style: AppTheme.headingMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${assignment?.displayTitle ?? 'Assignment'} · '
+                      '${controller.groupName(attempt.groupId)} · '
+                      '${attempt.status.wireValue} · $videoLabel',
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
                       ),
-                      const SizedBox(height: 4),
+                    ),
+                    if (attempt.submittedAt != null)
                       Text(
-                        '${assignment?.displayTitle ?? 'Assignment'} · '
-                        '${controller.groupName(attempt.groupId)} · '
-                        '${attempt.status.wireValue} · $videoLabel',
+                        'Submitted ${attempt.submittedAt!.toLocal().toIso8601String().split('T').first}',
                         style: AppTheme.caption.copyWith(
                           color: context.elixTextSecondary,
                         ),
                       ),
-                      if (attempt.submittedAt != null)
-                        Text(
-                          'Submitted ${attempt.submittedAt!.toLocal().toIso8601String().split('T').first}',
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
-                      if (attempt.supersedesAttemptId != null)
-                        Text(
-                          'Replacement for a previous needs-retry clip',
-                          style: AppTheme.caption,
-                        ),
-                    ],
-                  ),
+                    if (attempt.supersedesAttemptId != null)
+                      Text(
+                        'Replacement for a previous needs-retry clip',
+                        style: AppTheme.caption,
+                      ),
+                  ],
                 ),
-                Button(
-                  onPressed: () => _openReview(attempt),
-                  child: const Text('Open'),
-                ),
-              ],
-            ),
+              ),
+              Button(
+                onPressed: () => _openReview(attempt),
+                child: const Text('Open'),
+              ),
+            ],
           ),
         );
       },

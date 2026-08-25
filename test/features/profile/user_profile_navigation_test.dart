@@ -18,6 +18,7 @@ import 'package:elixr_application/features/leaderboard/leaderboard_screen.dart';
 import 'package:elixr_application/features/profile/profile_route_args.dart';
 import 'package:elixr_application/features/profile/user_profile_controller.dart';
 import 'package:elixr_application/features/profile/user_profile_screen.dart';
+import 'package:elixr_application/features/settings/settings_section.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -189,6 +190,40 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
   @override
   Stream<PublicProfile?> watchProfileRoot(String userId) {
     return Stream.value(root);
+  }
+
+  @override
+  Future<PublicProfile?> getProfileRoot(
+    String userId, {
+    bool forceServer = false,
+  }) async => root;
+
+  @override
+  Future<void> seedNewAccountPublicProfile({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {
+    root ??= PublicProfile(
+      userId: userId,
+      displayName: displayName,
+      visibility: ProfileVisibility.public,
+      profilePictureUrl: profilePictureUrl,
+    );
+  }
+
+  @override
+  Future<void> updateVisibility({
+    required String userId,
+    required ProfileVisibility visibility,
+  }) async {
+    final existing = root;
+    root = PublicProfile(
+      userId: userId,
+      displayName: existing?.displayName ?? 'User',
+      visibility: visibility,
+      profilePictureUrl: existing?.profilePictureUrl,
+    );
   }
 
   @override
@@ -1399,10 +1434,11 @@ void main() {
     );
 
     testWidgets(
-      'teacher self-view Privacy opens Teacher Settings, not trainee overlay',
+      'teacher self-view Privacy opens Settings overlay, not a settings route',
       (tester) async {
         await _setSurface(tester);
         final auth = teacherAuth();
+        SettingsSection? opened;
         final controller = _SeededProfileController(
           userId: 'viewer',
           currentUserId: 'viewer',
@@ -1427,13 +1463,11 @@ void main() {
           routes: [
             GoRoute(
               path: '/teacher/profile/:userId',
-              builder: (context, state) =>
-                  UserProfileScreen(userId: 'viewer', controller: controller),
-            ),
-            GoRoute(
-              path: AppRoutePaths.teacherSettings,
-              builder: (context, state) =>
-                  const ScaffoldPage(content: Text('Teacher settings page')),
+              builder: (context, state) => UserProfileScreen(
+                userId: 'viewer',
+                controller: controller,
+                onOpenSettings: (section) => opened = section,
+              ),
             ),
           ],
         );
@@ -1447,11 +1481,67 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.tap(find.text('Privacy'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+
+        expect(opened, SettingsSection.privacy);
+        expect(router.state.uri.path, AppRoutePaths.teacherProfile('viewer'));
+      },
+    );
+
+    testWidgets(
+      'teacher self-view Edit Profile opens Settings overlay account section',
+      (tester) async {
+        await _setSurface(tester);
+        final auth = teacherAuth();
+        SettingsSection? opened;
+        final controller = _SeededProfileController(
+          userId: 'viewer',
+          currentUserId: 'viewer',
+          seedState: ProfileLoadState.loaded,
+          entry: _entry('viewer', 'Viewer User', 100),
+          root: PublicProfile(
+            userId: 'viewer',
+            displayName: 'Viewer User',
+            visibility: ProfileVisibility.public,
+          ),
+          summary: const PublicProfileSummary(
+            totalDurationSeconds: 30,
+            completedMovementNames: ['Hand Stall'],
+          ),
+          visitorsState: ProfileVisitorsState.loaded,
+          visitors: const [],
+          rank: 2,
+        );
+
+        final router = GoRouter(
+          initialLocation: AppRoutePaths.teacherProfile('viewer'),
+          routes: [
+            GoRoute(
+              path: '/teacher/profile/:userId',
+              builder: (context, state) => UserProfileScreen(
+                userId: 'viewer',
+                controller: controller,
+                onOpenSettings: (section) => opened = section,
+              ),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AuthService>.value(
+            value: auth,
+            child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+          ),
+        );
         await tester.pumpAndSettle();
 
-        expect(router.state.uri.path, AppRoutePaths.teacherSettings);
-        expect(find.text('Teacher settings page'), findsOneWidget);
-        expect(find.text('Save confirmed movement images'), findsNothing);
+        await tester.tap(find.text('Edit Profile'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+
+        expect(opened, SettingsSection.accountProfile);
+        expect(router.state.uri.path, AppRoutePaths.teacherProfile('viewer'));
       },
     );
 

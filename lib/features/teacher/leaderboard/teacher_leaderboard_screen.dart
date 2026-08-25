@@ -8,10 +8,12 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
+import '../../leaderboard/leaderboard_screen.dart';
 import '../../profile/profile_route_args.dart';
 import '../../leaderboard/widgets/leaderboard_header.dart';
 import '../../leaderboard/widgets/leaderboard_podium.dart';
@@ -75,7 +77,7 @@ class _TeacherLeaderboardScreenState extends State<TeacherLeaderboardScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Leaderboard')),
         content: Center(child: ProgressRing()),
       );
@@ -84,26 +86,40 @@ class _TeacherLeaderboardScreenState extends State<TeacherLeaderboardScreen> {
     return AnimatedBuilder(
       animation: Listenable.merge([controller, controller.globalList]),
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: const PageHeader(title: Text('Leaderboard')),
           scrollable: false,
-          content: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _Toolbar(controller: controller),
-              const SizedBox(height: AppSpacing.lg),
-              Expanded(
-                child: controller.loading
-                    ? const Center(child: ProgressRing())
-                    : controller.errorMessage != null
-                    ? _MessageState(
-                        message: controller.errorMessage!,
-                        actionLabel: 'Retry',
-                        onAction: controller.retry,
-                      )
-                    : _Board(controller: controller, onTapPlayer: _onTapPlayer),
-              ),
-            ],
+          content: LayoutBuilder(
+            builder: (context, constraints) {
+              final horizontalPadding =
+                  LeaderboardScreenLayout.horizontalPaddingFor(
+                    constraints.maxWidth,
+                  );
+              return Padding(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Toolbar(controller: controller),
+                    const SizedBox(height: AppSpacing.lg),
+                    Expanded(
+                      child: controller.loading
+                          ? const Center(child: ProgressRing())
+                          : controller.errorMessage != null
+                          ? _MessageState(
+                              message: controller.errorMessage!,
+                              actionLabel: 'Retry',
+                              onAction: controller.retry,
+                            )
+                          : _Board(
+                              controller: controller,
+                              onTapPlayer: _onTapPlayer,
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         );
       },
@@ -334,21 +350,13 @@ class _MessageState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            message,
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
-        ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: ElixStatusPanel(
+          message: message,
+          actionLabel: actionLabel,
+          onAction: onAction,
+        ),
       ),
     );
   }

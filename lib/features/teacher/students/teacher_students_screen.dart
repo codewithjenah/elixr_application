@@ -7,6 +7,8 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_student_models.dart';
 import 'teacher_students_controller.dart';
@@ -45,7 +47,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Students')),
         scrollable: false,
         content: Center(child: ProgressRing()),
@@ -55,7 +57,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: const PageHeader(title: Text('Students')),
           scrollable: false,
           content: controller.loading
@@ -202,15 +204,7 @@ class _StudentRow extends StatelessWidget {
     return HoverButton(
       onPressed: onOpen,
       builder: (context, states) {
-        return Container(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: states.isHovered
-                ? context.elixCardSurface.withValues(alpha: 0.9)
-                : context.elixCardSurface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: context.elixBorder),
-          ),
+        return ElixPanelCard(
           child: Row(
             children: [
               Expanded(
@@ -299,12 +293,13 @@ class _EmptyStudents extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Text(
-        controller.allEntries.isEmpty
-            ? 'No students yet. Approve join requests in Groups.'
-            : 'No students match the current filters.',
-        style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-        textAlign: TextAlign.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: ElixStatusPanel(
+          message: controller.allEntries.isEmpty
+              ? 'No students yet. Approve join requests in Groups.'
+              : 'No students match the current filters.',
+        ),
       ),
     );
   }
@@ -319,13 +314,14 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(message, style: AppTheme.body),
-          const SizedBox(height: AppSpacing.md),
-          FilledButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: ElixStatusPanel(
+          isError: true,
+          message: message,
+          actionLabel: 'Retry',
+          onAction: onRetry,
+        ),
       ),
     );
   }

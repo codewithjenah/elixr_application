@@ -7,6 +7,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../router/app_route_paths.dart';
+import '../widgets/elix_scaffold_page.dart';
 import 'teacher_sidebar.dart';
 
 /// Dedicated Fluent shell for Teacher accounts. Does not mount trainee
@@ -81,7 +82,7 @@ class TeacherPlaceholderScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElixScaffoldPage(
+    return TeacherScaffoldPage(
       header: PageHeader(title: Text(title)),
       content: Center(
         child: ConstrainedBox(
@@ -116,13 +117,14 @@ class TeacherPlaceholderScreen extends StatelessWidget {
   }
 }
 
-/// Minimal scaffold page wrapper used by Teacher shell destinations.
+/// Teacher destination page: ambient Trainee surface plus the Teacher
+/// header / padding / scroll API.
 ///
 /// Defaults to a document-style [SingleChildScrollView]. Pass [scrollable]
 /// `false` for viewport pages whose child owns scrolling (for example a
 /// `Column` with an `Expanded` `ListView`).
-class ElixScaffoldPage extends StatelessWidget {
-  const ElixScaffoldPage({
+class TeacherScaffoldPage extends StatelessWidget {
+  const TeacherScaffoldPage({
     super.key,
     required this.header,
     required this.content,
@@ -133,8 +135,8 @@ class ElixScaffoldPage extends StatelessWidget {
   final Widget content;
 
   /// When true, content is wrapped in [SingleChildScrollView] with page
-  /// padding. When false, content receives bounded [ScaffoldPage] height and
-  /// the same padding, without an outer vertical scroll view.
+  /// padding. When false, content receives bounded height and the same
+  /// padding, without an outer vertical scroll view.
   final bool scrollable;
 
   static const EdgeInsets _pagePadding = EdgeInsets.all(AppSpacing.lg);
@@ -142,7 +144,7 @@ class ElixScaffoldPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final paddedContent = Padding(padding: _pagePadding, child: content);
-    return ScaffoldPage(
+    return ElixScaffoldPage(
       header: header,
       content: scrollable
           ? SingleChildScrollView(padding: _pagePadding, child: content)

@@ -42,11 +42,16 @@ class UserProfileScreen extends StatefulWidget {
     required this.userId,
     this.initialArgs,
     this.controller,
+    this.onOpenSettings,
   });
 
   final String userId;
   final ProfileRouteArgs? initialArgs;
   final UserProfileController? controller;
+
+  /// Test seam so overlay Settings does not have to mount in widget tests.
+  @visibleForTesting
+  final void Function(SettingsSection section)? onOpenSettings;
 
   @override
   State<UserProfileScreen> createState() => _UserProfileScreenState();
@@ -150,13 +155,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     context.push(_profilePath(visitorId));
   }
 
-  void _openTeacherSettings() {
-    context.go(AppRoutePaths.teacherSettings);
-  }
-
   void _openAccountProfileSettings() {
-    if (_isTeacherViewer) {
-      _openTeacherSettings();
+    final override = widget.onOpenSettings;
+    if (override != null) {
+      override(SettingsSection.accountProfile);
       return;
     }
     SettingsScreen.show(
@@ -166,8 +168,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   void _openPrivacySettings() {
-    if (_isTeacherViewer) {
-      _openTeacherSettings();
+    final override = widget.onOpenSettings;
+    if (override != null) {
+      override(SettingsSection.privacy);
       return;
     }
     SettingsScreen.show(context, initialSection: SettingsSection.privacy);

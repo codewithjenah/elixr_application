@@ -8,6 +8,8 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../services/auth_service.dart';
 import '../students/teacher_student_models.dart';
 import 'teacher_dashboard_controller.dart';
@@ -45,7 +47,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Dashboard')),
         content: Center(child: ProgressRing()),
       );
@@ -54,7 +56,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: const PageHeader(title: Text('Dashboard')),
           content: controller.loading
               ? const Center(child: ProgressRing())
@@ -187,38 +189,36 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return ConstrainedBox(
       constraints: const BoxConstraints(minWidth: 200),
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.elixCardSurface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.elixBorder),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 28, color: AppColors.primary),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: AppTheme.headingLarge.copyWith(
-                    color: context.elixTextPrimary,
+      child: ElixPanelCard(
+        expand: false,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Row(
+          children: [
+            Icon(icon, size: 28, color: AppColors.primary),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: AppTheme.headingLarge.copyWith(
+                      color: context.elixTextPrimary,
+                    ),
                   ),
-                ),
-                Text(
-                  label,
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
+                  Text(
+                    label,
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -233,14 +233,16 @@ class _GroupOverviewRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: ListTile(
-        title: Text(summary.group.name),
-        subtitle: Text(
-          '${summary.approvedCount} approved · ${summary.pendingCount} pending',
-        ),
-        trailing: Button(
-          onPressed: () => context.go(AppRoutePaths.teacherGroups),
-          child: const Text('Manage'),
+      child: ElixPanelCard(
+        child: ListTile(
+          title: Text(summary.group.name),
+          subtitle: Text(
+            '${summary.approvedCount} approved · ${summary.pendingCount} pending',
+          ),
+          trailing: Button(
+            onPressed: () => context.go(AppRoutePaths.teacherGroups),
+            child: const Text('Manage'),
+          ),
         ),
       ),
     );
@@ -256,12 +258,14 @@ class _PendingRequestRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: ListTile(
-        title: Text(membership.traineeDisplayName),
-        subtitle: Text('Requested group membership'),
-        trailing: Button(
-          onPressed: () => context.go(AppRoutePaths.teacherGroups),
-          child: const Text('Review in Groups'),
+      child: ElixPanelCard(
+        child: ListTile(
+          title: Text(membership.traineeDisplayName),
+          subtitle: const Text('Requested group membership'),
+          trailing: Button(
+            onPressed: () => context.go(AppRoutePaths.teacherGroups),
+            child: const Text('Review in Groups'),
+          ),
         ),
       ),
     );
@@ -278,34 +282,13 @@ class _EmptyDashboard extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              FluentIcons.people,
-              size: 48,
-              color: AppColors.primary.withValues(alpha: 0.85),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Your classroom is ready',
-              style: AppTheme.headingLarge.copyWith(
-                color: context.elixTextPrimary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
+        child: ElixStatusPanel(
+          icon: FluentIcons.people,
+          title: 'Your classroom is ready',
+          message:
               'Create a group and share an invite code to start building your roster.',
-              style: AppTheme.body.copyWith(color: context.elixTextSecondary),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            FilledButton(
-              onPressed: onOpenGroups,
-              child: const Text('Open Groups'),
-            ),
-          ],
+          actionLabel: 'Open Groups',
+          onAction: onOpenGroups,
         ),
       ),
     );
@@ -321,13 +304,14 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(message, style: AppTheme.body),
-          const SizedBox(height: AppSpacing.md),
-          FilledButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: ElixStatusPanel(
+          isError: true,
+          message: message,
+          actionLabel: 'Retry',
+          onAction: onRetry,
+        ),
       ),
     );
   }

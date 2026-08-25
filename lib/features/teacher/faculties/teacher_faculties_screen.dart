@@ -12,6 +12,8 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../services/auth_service.dart';
 import '../../profile/profile_route_args.dart';
 import 'teacher_faculties_controller.dart';
@@ -50,7 +52,7 @@ class _TeacherFacultiesScreenState extends State<TeacherFacultiesScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Faculties')),
         content: Center(child: ProgressRing()),
       );
@@ -59,7 +61,7 @@ class _TeacherFacultiesScreenState extends State<TeacherFacultiesScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: PageHeader(
             title: const Text('Faculties'),
             commandBar: CommandBar(
@@ -81,7 +83,7 @@ class _TeacherFacultiesScreenState extends State<TeacherFacultiesScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (controller.errorMessage != null) ...[
-                      _StatusCard(
+                      ElixStatusPanel(
                         key: const Key('teacher_faculties_error'),
                         message: controller.errorMessage!,
                         isError: true,
@@ -163,13 +165,14 @@ class _FacultyList extends StatelessWidget {
       return const SizedBox.shrink();
     }
     if (controller.teachers.isEmpty) {
-      return const _StatusCard(
+      return const ElixStatusPanel(
         key: Key('teacher_faculties_empty'),
         message: 'No other faculty members yet.',
       );
     }
 
-    return Card(
+    return ElixPanelCard(
+      padding: EdgeInsets.zero,
       child: ListView.separated(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
@@ -219,7 +222,8 @@ class _PendingCodes extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Card(
+        ElixPanelCard(
+          padding: EdgeInsets.zero,
           child: ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -299,28 +303,6 @@ class _FacultyAvatar extends StatelessWidget {
                   color: AppColors.accent,
                 ),
               ),
-      ),
-    );
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({super.key, required this.message, this.isError = false});
-
-  final String message;
-  final bool isError;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Text(
-          message,
-          style: AppTheme.body.copyWith(
-            color: isError ? AppColors.error : context.elixTextSecondary,
-          ),
-        ),
       ),
     );
   }

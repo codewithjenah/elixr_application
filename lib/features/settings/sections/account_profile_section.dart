@@ -55,6 +55,19 @@ typedef AccountProfileEquipBorder =
       required String borderId,
     });
 
+/// Optional Account & Profile Firestore stand-ins for overlay Settings.
+class SettingsAccountHooks {
+  const SettingsAccountHooks({
+    this.watchPlayer,
+    this.watchUserCosmetics,
+    this.equipBorder,
+  });
+
+  final AccountProfileWatchPlayer? watchPlayer;
+  final AccountProfileWatchCosmetics? watchUserCosmetics;
+  final AccountProfileEquipBorder? equipBorder;
+}
+
 /// Wider body so the avatar customization column and form can sit side by side.
 const double _accountProfileMaxBodyWidth = 960;
 const double _avatarCustomizationColumnWidth = 300;
@@ -72,6 +85,7 @@ class AccountProfileSection extends StatefulWidget {
     this.onDirtyChanged,
     this.pickProfileImage,
     this.cropProfileImage,
+    this.showAvatarFrames = true,
   });
 
   /// Optional override for tests (avoids constructing Firestore).
@@ -91,6 +105,9 @@ class AccountProfileSection extends StatefulWidget {
 
   /// Optional crop-dialog override (defaults to [ProfileImageCropDialog.show]).
   final AccountProfileImageCropper? cropProfileImage;
+
+  /// Trainee-only cosmetic frames. Teachers keep photo upload without XP frames.
+  final bool showAvatarFrames;
 
   @override
   AccountProfileSectionState createState() => AccountProfileSectionState();
@@ -154,10 +171,28 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!widget.showAvatarFrames) {
+      if (_boundUserId != null ||
+          _leaderboardSub != null ||
+          _cosmeticsSub != null) {
+        _boundUserId = null;
+        _bindCosmeticStreams(null);
+      }
+      return;
+    }
     final userId = _authService.currentUser?.id;
     if (userId != _boundUserId) {
       _boundUserId = userId;
       _bindCosmeticStreams(userId);
+    }
+  }
+
+  @override
+  void didUpdateWidget(AccountProfileSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.showAvatarFrames && !widget.showAvatarFrames) {
+      _boundUserId = null;
+      _bindCosmeticStreams(null);
     }
   }
 
@@ -178,6 +213,14 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     super.dispose();
   }
 
+  SettingsAccountHooks? _hooksFromContext() {
+    try {
+      return context.read<SettingsAccountHooks>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
   void _bindCosmeticStreams(String? userId) {
     _leaderboardSub?.cancel();
     _cosmeticsSub?.cancel();
@@ -196,7 +239,9 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     }
 
     final watchPlayer =
-        widget.watchPlayer ?? LeaderboardRepository().watchPlayer;
+        widget.watchPlayer ??
+        _hooksFromContext()?.watchPlayer ??
+        LeaderboardRepository().watchPlayer;
     _leaderboardSub = watchPlayer(userId).listen((entry) {
       if (!mounted) return;
       setState(() {
@@ -207,6 +252,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
 
     final watchCosmetics =
         widget.watchUserCosmetics ??
+        _hooksFromContext()?.watchUserCosmetics ??
         ((id) {
           _achievementRepo ??= AchievementRepository(
             publicProfileRepository: context.read<PublicProfileRepository>(),
@@ -222,6 +268,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
   }
 
   Future<void> _equipOrClearBorder(String borderId) async {
+    if (!widget.showAvatarFrames) return;
     final userId = _boundUserId;
     if (userId == null || _busyBorderId != null) return;
 
@@ -809,7 +856,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
     final avatarDisabled = _savingProfile || avatarBusy;
     final hasPhoto = _hasProfilePicture(user);
     final avatarDiameter = _avatarPreviewRadius * 2;
-    final ornament = ProfileBorderFrame.ornamentPaddingFor(_equippedBorderId);
+    final equippedBorderId = widget.showAvatarFrames ? _equippedBorderId : null;
+    final ornament = ProfileBorderFrame.ornamentPaddingFor(equippedBorderId);
     final outer = avatarDiameter + ornament * 2;
 
     return Column(
@@ -849,8 +897,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                       legacyLocalPath: user?.profilePicturePath,
                       radius: _avatarPreviewRadius,
                       initials: userInitials(_composedDisplayName()),
-                      equippedBorderId: _equippedBorderId,
-                      animateBorder: true,
+                      equippedBorderId: equippedBorderId,
+                      animateBorder: widget.showAvatarFrames,
                     ),
                     if (avatarBusy)
                       Container(
@@ -919,50 +967,52 @@ class AccountProfileSectionState extends State<AccountProfileSection>
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.md),
-        Text(
-          'Avatar Frame',
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 4),
-        _buildSelectedFrameMeta(),
-        const SizedBox(height: AppSpacing.sm),
-        if (_leaderboardMissing)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Text(
-              'Complete a practice session to create your leaderboard profile '
-              'before equipping frames.',
-              style: AppTheme.caption.copyWith(color: AppColors.warning),
+        if (widget.showAvatarFrames) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Avatar Frame',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w700,
             ),
           ),
-        if (_frameError != null && !_leaderboardMissing)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Text(
-              _frameError!,
-              style: AppTheme.caption.copyWith(color: AppColors.error),
+          const SizedBox(height: 4),
+          _buildSelectedFrameMeta(),
+          const SizedBox(height: AppSpacing.sm),
+          if (_leaderboardMissing)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text(
+                'Complete a practice session to create your leaderboard profile '
+                'before equipping frames.',
+                style: AppTheme.caption.copyWith(color: AppColors.warning),
+              ),
+            ),
+          if (_frameError != null && !_leaderboardMissing)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text(
+                _frameError!,
+                style: AppTheme.caption.copyWith(color: AppColors.error),
+              ),
+            ),
+          ProfileFrameSelector(
+            unlockedBorderIds: _unlockedBorderIds,
+            equippedBorderId: _equippedBorderId,
+            busyBorderId: _busyBorderId,
+            actionsDisabled: _busyBorderId != null || _leaderboardMissing,
+            onSelectBorder: _equipOrClearBorder,
+            onClearBorder: () => _equipOrClearBorder(''),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Frames are unlocked by claiming achievements.',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontSize: 11,
             ),
           ),
-        ProfileFrameSelector(
-          unlockedBorderIds: _unlockedBorderIds,
-          equippedBorderId: _equippedBorderId,
-          busyBorderId: _busyBorderId,
-          actionsDisabled: _busyBorderId != null || _leaderboardMissing,
-          onSelectBorder: _equipOrClearBorder,
-          onClearBorder: () => _equipOrClearBorder(''),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Frames are unlocked by claiming achievements.',
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
-            fontSize: 11,
-          ),
-        ),
+        ],
       ],
     );
   }

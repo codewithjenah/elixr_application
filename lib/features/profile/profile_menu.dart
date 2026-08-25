@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
@@ -21,9 +22,19 @@ class ProfileMenu {
 
   static const double menuWidth = 312;
 
+  @visibleForTesting
+  static String profilePathFor(User user) {
+    final userId = user.id?.trim() ?? '';
+    if (user.isTeacher) return AppRoutePaths.teacherProfile(userId);
+    return '/profile/$userId';
+  }
+
   static void show(
     BuildContext anchorContext, {
     required VoidCallback onLogout,
+
+    /// When set (tests), skip [SettingsScreen.show] and invoke this instead.
+    VoidCallback? onOpenSettings,
   }) {
     final box = anchorContext.findRenderObject() as RenderBox?;
     if (box == null || !anchorContext.mounted) return;
@@ -62,7 +73,9 @@ class ProfileMenu {
                 child: Opacity(opacity: value, child: child),
               ),
               child: _ProfileMenuCard(
+                hostContext: anchorContext,
                 onDismiss: dismiss,
+                onOpenSettings: onOpenSettings,
                 onLogout: () {
                   dismiss();
                   onLogout();
@@ -79,10 +92,18 @@ class ProfileMenu {
 }
 
 class _ProfileMenuCard extends StatefulWidget {
-  const _ProfileMenuCard({required this.onDismiss, required this.onLogout});
+  const _ProfileMenuCard({
+    required this.hostContext,
+    required this.onDismiss,
+    required this.onLogout,
+    this.onOpenSettings,
+  });
 
+  /// Sidebar/profile tile that opened the menu. Still mounted after dismiss.
+  final BuildContext hostContext;
   final VoidCallback onDismiss;
   final VoidCallback onLogout;
+  final VoidCallback? onOpenSettings;
 
   @override
   State<_ProfileMenuCard> createState() => _ProfileMenuCardState();
@@ -97,12 +118,13 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final userId = context.watch<AuthService>().currentUser?.id;
+    final user = context.watch<AuthService>().currentUser;
+    final userId = user?.id;
     if (userId != _subscribedUserId) {
       _subscribedUserId = userId;
       _sub?.cancel();
       _sub = null;
-      if (userId == null) {
+      if (userId == null || user?.isTeacher == true) {
         _equippedBorderId = null;
         return;
       }
@@ -119,16 +141,29 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     super.dispose();
   }
 
-  void _openSettings(BuildContext context) {
+  void _openSettings() {
     widget.onDismiss();
-    SettingsScreen.show(context, initialSection: SettingsSection.appearance);
+    final custom = widget.onOpenSettings;
+    if (custom != null) {
+      custom();
+      return;
+    }
+    final host = widget.hostContext;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!host.mounted) return;
+      SettingsScreen.show(host, initialSection: SettingsSection.appearance);
+    });
   }
 
-  void _openMyProfile(BuildContext context) {
-    final userId = context.read<AuthService>().currentUser?.id;
-    if (userId == null || userId.isEmpty) return;
+  void _openMyProfile() {
+    final host = widget.hostContext;
+    if (!host.mounted) return;
+    final user = host.read<AuthService>().currentUser;
+    final userId = user?.id?.trim();
+    if (user == null || userId == null || userId.isEmpty) return;
     widget.onDismiss();
-    context.go('/profile/$userId');
+    if (!host.mounted) return;
+    host.go(ProfileMenu.profilePathFor(user));
   }
 
   @override
@@ -164,7 +199,7 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
             initials: initials,
             user: user,
             equippedBorderId: _equippedBorderId,
-            onTap: () => _openMyProfile(context),
+            onTap: _openMyProfile,
           ),
           const _MenuDivider(),
           Padding(
@@ -178,7 +213,7 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
               icon: FluentIcons.settings,
               label: 'Settings',
               description: 'Account, privacy & preferences',
-              onTap: () => _openSettings(context),
+              onTap: _openSettings,
             ),
           ),
           const _MenuDivider(),

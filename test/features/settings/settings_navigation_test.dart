@@ -4,13 +4,16 @@ import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_core/models/user.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
 import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:elixr_application/data/repositories/profile_image_repository.dart';
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/settings/settings_screen.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
 import 'package:elixr_application/features/settings/widgets/practice_preferences_controller.dart';
+import 'package:elixr_application/features/settings/widgets/profile_frame_selector.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
@@ -103,6 +106,27 @@ class _StubAuthRepository implements AuthRepositoryBase {
   Future<void> deleteAccount({
     required String password,
     required String expectedUserId,
+  }) async {}
+}
+
+class _StubPublicProfiles extends PublicProfileRepository {
+  @override
+  Future<PublicProfile?> getProfileRoot(
+    String userId, {
+    bool forceServer = false,
+  }) async => null;
+
+  @override
+  Future<void> seedNewAccountPublicProfile({
+    required String userId,
+    required String displayName,
+    String? profilePictureUrl,
+  }) async {}
+
+  @override
+  Future<void> updateVisibility({
+    required String userId,
+    required ProfileVisibility visibility,
   }) async {}
 }
 
@@ -263,6 +287,63 @@ void main() {
     expect(find.text('Current password'), findsOneWidget);
     expect(find.text('Update password'), findsOneWidget);
   });
+
+  test('teacher audience omits Practice and Teacher Access', () {
+    expect(settingsSectionsFor(SettingsAudience.teacher), [
+      SettingsSection.accountProfile,
+      SettingsSection.security,
+      SettingsSection.appearance,
+      SettingsSection.privacy,
+    ]);
+    expect(
+      settingsSectionsFor(SettingsAudience.trainee),
+      SettingsSection.values,
+    );
+    expect(
+      resolveSettingsSection(
+        audience: SettingsAudience.teacher,
+        requested: SettingsSection.practice,
+      ),
+      SettingsSection.accountProfile,
+    );
+    expect(tryParseSettingsSection('privacy'), SettingsSection.privacy);
+    expect(tryParseSettingsSection('nope'), isNull);
+  });
+
+  testWidgets(
+    'teacher audience shows Account, Security, Appearance, Privacy only',
+    (tester) async {
+      await setSurface(tester, const Size(1400, 900));
+
+      await tester.pumpWidget(
+        wrap(
+          SettingsScreen(
+            audience: SettingsAudience.teacher,
+            embedded: true,
+            initialSection: SettingsSection.accountProfile,
+            watchPlayer: (_) => Stream<LeaderboardEntry?>.value(null),
+            watchUserCosmetics: (_) => Stream<UserCosmetics?>.value(null),
+            equipBorder: ({required userId, required borderId}) async =>
+                const EquipBorderResult.alreadyEquipped(),
+            publicProfileRepository: _StubPublicProfiles(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Account & Profile'), findsWidgets);
+      expect(find.text('Security'), findsWidgets);
+      expect(find.text('Appearance'), findsWidgets);
+      expect(find.text('Privacy'), findsWidgets);
+      expect(find.text('Practice'), findsNothing);
+      expect(find.text('Teacher Access'), findsNothing);
+      expect(find.text('Save confirmed movement images'), findsNothing);
+      expect(find.byType(ProfileFrameSelector), findsNothing);
+      expect(find.text('Avatar Frame'), findsNothing);
+      expect(find.textContaining('practice session'), findsNothing);
+    },
+  );
 
   test('practice controller dirty and save round-trip', () async {
     final controller = PracticePreferencesController(settingsService);

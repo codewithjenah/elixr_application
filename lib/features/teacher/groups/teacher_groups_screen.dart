@@ -5,11 +5,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
+import '../../../core/widgets/elix_status_panel.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_groups_controller.dart';
 
@@ -49,7 +50,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) {
-      return const ElixScaffoldPage(
+      return const TeacherScaffoldPage(
         header: PageHeader(title: Text('Groups')),
         content: Center(child: ProgressRing()),
       );
@@ -58,7 +59,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return ElixScaffoldPage(
+        return TeacherScaffoldPage(
           header: PageHeader(
             title: const Text('Groups'),
             commandBar: CommandBar(
@@ -108,21 +109,22 @@ class _GroupsListPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.errorMessage != null && controller.groups.isEmpty) {
-      return _StatusCard(
+      return ElixStatusPanel(
         key: const Key('teacher_groups_error'),
         message: controller.errorMessage!,
         isError: true,
       );
     }
     if (controller.groups.isEmpty) {
-      return _StatusCard(
-        key: const Key('teacher_groups_empty'),
+      return const ElixStatusPanel(
+        key: Key('teacher_groups_empty'),
         message:
             'No groups yet. Create a class such as BSHM 4A to share a group invite code.',
       );
     }
 
-    return Card(
+    return ElixPanelCard(
+      padding: EdgeInsets.zero,
       child: ListView.separated(
         shrinkWrap: true,
         itemCount: controller.groups.length,
@@ -155,7 +157,7 @@ class _EmptyDetailPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatusCard(
+    return ElixStatusPanel(
       message: hasGroups
           ? 'Select a group to manage invite codes and membership.'
           : 'Create your first group to get started.',
@@ -176,93 +178,91 @@ class _GroupDetailPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (controller.errorMessage != null) ...[
-          _StatusCard(message: controller.errorMessage!, isError: true),
+          ElixStatusPanel(message: controller.errorMessage!, isError: true),
           const SizedBox(height: AppSpacing.md),
         ],
         if (controller.actionMessage != null) ...[
-          _StatusCard(message: controller.actionMessage!),
+          ElixStatusPanel(message: controller.actionMessage!),
           const SizedBox(height: AppSpacing.md),
         ],
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        ElixPanelCard(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                group.name,
+                style: AppTheme.headingLarge.copyWith(
+                  color: context.elixTextPrimary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  Button(
+                    onPressed: controller.busy
+                        ? null
+                        : () => _showRenameDialog(context, controller, group),
+                    child: const Text('Rename'),
+                  ),
+                  Button(
+                    onPressed: controller.busy || !group.isActive
+                        ? null
+                        : () => _confirmArchive(context, controller),
+                    child: const Text('Archive'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Group invite code',
+                style: AppTheme.headingMedium.copyWith(
+                  fontSize: 16,
+                  color: context.elixTextPrimary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (invite == null)
                 Text(
-                  group.name,
-                  style: AppTheme.headingLarge.copyWith(
+                  'No active invite code.',
+                  style: AppTheme.bodySecondary.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                )
+              else ...[
+                SelectableText(
+                  invite.displayCode,
+                  key: const Key('teacher_group_invite_code'),
+                  style: AppTheme.headingMedium.copyWith(
                     color: context.elixTextPrimary,
+                    letterSpacing: 1.2,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 Wrap(
                   spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
                   children: [
+                    Button(
+                      key: const Key('teacher_group_copy_code'),
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: invite.displayCode),
+                        );
+                      },
+                      child: const Text('Copy code'),
+                    ),
                     Button(
                       onPressed: controller.busy
                           ? null
-                          : () => _showRenameDialog(context, controller, group),
-                      child: const Text('Rename'),
-                    ),
-                    Button(
-                      onPressed: controller.busy || !group.isActive
-                          ? null
-                          : () => _confirmArchive(context, controller),
-                      child: const Text('Archive'),
+                          : () => _confirmRotateInvite(context, controller),
+                      child: const Text('Rotate code'),
                     ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Group invite code',
-                  style: AppTheme.headingMedium.copyWith(
-                    fontSize: 16,
-                    color: context.elixTextPrimary,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                if (invite == null)
-                  Text(
-                    'No active invite code.',
-                    style: AppTheme.bodySecondary.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  )
-                else ...[
-                  SelectableText(
-                    invite.displayCode,
-                    key: const Key('teacher_group_invite_code'),
-                    style: AppTheme.headingMedium.copyWith(
-                      color: context.elixTextPrimary,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    children: [
-                      Button(
-                        key: const Key('teacher_group_copy_code'),
-                        onPressed: () async {
-                          await Clipboard.setData(
-                            ClipboardData(text: invite.displayCode),
-                          );
-                        },
-                        child: const Text('Copy code'),
-                      ),
-                      Button(
-                        onPressed: controller.busy
-                            ? null
-                            : () => _confirmRotateInvite(context, controller),
-                        child: const Text('Rotate code'),
-                      ),
-                    ],
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -328,84 +328,60 @@ class _MembershipSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: AppTheme.headingMedium.copyWith(
-                fontSize: 16,
-                color: context.elixTextPrimary,
-              ),
+    return ElixPanelCard(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTheme.headingMedium.copyWith(
+              fontSize: 16,
+              color: context.elixTextPrimary,
             ),
-            const SizedBox(height: AppSpacing.sm),
-            if (memberships.isEmpty)
-              Text(
-                emptyMessage,
-                style: AppTheme.bodySecondary.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              )
-            else
-              for (final membership in memberships) ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            membership.traineeDisplayName,
-                            style: AppTheme.body.copyWith(
-                              color: context.elixTextPrimary,
-                            ),
-                          ),
-                          Text(
-                            membership.status.name,
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    builder(membership),
-                  ],
-                ),
-                if (membership != memberships.last)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                    child: Divider(),
-                  ),
-              ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({super.key, required this.message, this.isError = false});
-
-  final String message;
-  final bool isError;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Text(
-          message,
-          style: AppTheme.body.copyWith(
-            color: isError ? AppColors.error : context.elixTextSecondary,
           ),
-        ),
+          const SizedBox(height: AppSpacing.sm),
+          if (memberships.isEmpty)
+            Text(
+              emptyMessage,
+              style: AppTheme.bodySecondary.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            )
+          else
+            for (final membership in memberships) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          membership.traineeDisplayName,
+                          style: AppTheme.body.copyWith(
+                            color: context.elixTextPrimary,
+                          ),
+                        ),
+                        Text(
+                          membership.status.name,
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  builder(membership),
+                ],
+              ),
+              if (membership != memberships.last)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Divider(),
+                ),
+            ],
+        ],
       ),
     );
   }
