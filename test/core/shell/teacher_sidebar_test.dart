@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/shell/teacher_sidebar.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
@@ -104,7 +105,10 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('E'), findsOneWidget);
+    expect(
+      find.image(const AssetImage(AppConstants.appLogoAsset)),
+      findsOneWidget,
+    );
     expect(find.text('Teacher'), findsWidgets);
     expect(find.text('CLASSROOM'), findsOneWidget);
     expect(find.text('INSIGHTS'), findsOneWidget);

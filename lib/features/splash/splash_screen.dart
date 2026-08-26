@@ -6,8 +6,8 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_app_logo.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
-import '../../core/widgets/auth_scaffold.dart' show BottleFlairMark;
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({
@@ -245,29 +245,22 @@ class _SplashScreenState extends State<SplashScreen>
   Widget _buildLogoMark() {
     final glow = 0.5 + math.sin(_shimmerController.value * 2 * math.pi) * 0.25;
     return Container(
-      width: 96,
-      height: 96,
+      width: 128,
+      height: 128,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.primary, AppColors.primarySoft],
-        ),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.18),
-          width: 1.2,
-        ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: glow.clamp(0.0, 1.0)),
+            color: AppColors.primary.withValues(
+              alpha: (glow * 0.7).clamp(0.0, 1.0),
+            ),
             blurRadius: 40,
             spreadRadius: 2,
             offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: const Center(child: BottleFlairMark(size: 76, glow: false)),
+      child: const ElixAppLogo(size: 128, borderRadius: 28),
     );
   }
 

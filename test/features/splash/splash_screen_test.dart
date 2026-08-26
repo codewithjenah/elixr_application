@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/features/splash/splash_screen.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -48,6 +49,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 2200));
     expect(completionCount, 0);
     expect(find.text('Preparing your session…'), findsOneWidget);
+    expect(
+      find.image(const AssetImage(AppConstants.appLogoAsset)),
+      findsOneWidget,
+    );
 
     key.currentState!.setAuthReady(true);
     await tester.pump();

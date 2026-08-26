@@ -250,6 +250,10 @@ void main() {
       await pumpRegisterScreen(tester);
 
       expect(find.text('Sign up with Google'), findsOneWidget);
+      expect(
+        find.image(const AssetImage(AppConstants.appLogoAsset)),
+        findsOneWidget,
+      );
     });
 
     testWidgets(

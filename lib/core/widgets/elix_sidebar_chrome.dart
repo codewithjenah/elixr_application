@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import 'elix_app_logo.dart';
 import 'message_unread_badge.dart';
 
 const _pink = AppColors.primary;
@@ -80,12 +81,11 @@ class ElixBrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(size * 0.3);
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: radius,
+        borderRadius: BorderRadius.circular(size * 0.3),
         boxShadow: [
           BoxShadow(
             color: _pink.withValues(alpha: 0.28),
@@ -94,32 +94,7 @@ class ElixBrandMark extends StatelessWidget {
           ),
         ],
       ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [_pink, _purple],
-          ),
-          borderRadius: radius,
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.22),
-            width: 1,
-          ),
-        ),
-        child: Center(
-          child: Text(
-            'E',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: size * 0.48,
-              fontWeight: FontWeight.w800,
-              height: 1,
-              letterSpacing: -0.5,
-            ),
-          ),
-        ),
-      ),
+      child: ElixAppLogo(size: size, borderRadius: size * 0.3),
     );
   }
 }
