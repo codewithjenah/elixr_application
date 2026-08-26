@@ -1,7 +1,10 @@
 import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_controller.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'teacher_phase3_test_support.dart';
 
 class _SpyGroupRepository implements GroupRepository {
   _SpyGroupRepository(this.inner);
@@ -215,6 +218,7 @@ class _SpyGroupRepository implements GroupRepository {
 void main() {
   late InMemoryGroupRepository memory;
   late _SpyGroupRepository repository;
+  late FakePublicProfileRepository profiles;
   late TeacherGroupsController controller;
   late bool authorizationOk;
   Object? authorizationError;
@@ -240,11 +244,13 @@ void main() {
       now: () => DateTime.utc(2026, 8, 19),
     );
     repository = _SpyGroupRepository(memory);
+    profiles = FakePublicProfileRepository();
     controller = TeacherGroupsController(
       repository: repository,
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
       ensureTeacherAuthorization: ensureTeacherAuthorization,
+      publicProfileRepository: profiles,
     );
   });
 
@@ -599,4 +605,60 @@ void main() {
     expect(controller.errorMessage, 'Could not load pending requests.');
     expect(controller.errorMessage, isNot(contains('cloud_firestore')));
   });
+
+  test('maps member public profile pictures and drops them on clear', () async {
+    final membership = await seedPendingMembership();
+    await controller.approveMembership(membership);
+    await pumpEventQueue();
+
+    expect(profiles.watchedUserIds, contains('trainee-1'));
+    expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+
+    profiles.emitProfile(
+      'trainee-1',
+      const PublicProfile(
+        userId: 'trainee-1',
+        displayName: 'Ada Lovelace',
+        visibility: ProfileVisibility.public,
+        profilePictureUrl: 'https://example.test/ada.png',
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(
+      controller.profilePictureUrlFor('trainee-1'),
+      'https://example.test/ada.png',
+    );
+
+    controller.clearSelection();
+    await pumpEventQueue();
+
+    expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+  });
+
+  test(
+    'stops watching profiles for members who leave the selected group',
+    () async {
+      final membership = await seedPendingMembership();
+      await controller.approveMembership(membership);
+      await pumpEventQueue();
+      profiles.emitProfile(
+        'trainee-1',
+        const PublicProfile(
+          userId: 'trainee-1',
+          displayName: 'Ada Lovelace',
+          visibility: ProfileVisibility.public,
+          profilePictureUrl: 'https://example.test/ada.png',
+        ),
+      );
+      await pumpEventQueue();
+      expect(controller.profilePictureUrlFor('trainee-1'), isNotNull);
+
+      await controller.removeMembership(memory.memberships[membership.id]!);
+      await pumpEventQueue();
+
+      expect(controller.approvedMemberships, isEmpty);
+      expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+    },
+  );
 }

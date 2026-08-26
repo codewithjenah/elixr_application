@@ -1,6 +1,7 @@
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +12,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/profile_avatar.dart';
+import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_groups_controller.dart';
 
@@ -37,6 +40,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
       teacherId: userId,
       teacherDisplayName: user.fullName,
       ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
+      publicProfileRepository: context.read<PublicProfileRepository>(),
     )..start();
   }
 
@@ -271,6 +275,7 @@ class _GroupDetailPanel extends StatelessWidget {
           title: 'Pending join requests',
           emptyMessage: 'No pending requests.',
           memberships: controller.pendingMemberships,
+          profilePictureUrlFor: controller.profilePictureUrlFor,
           builder: (membership) => Wrap(
             spacing: AppSpacing.sm,
             children: [
@@ -299,6 +304,7 @@ class _GroupDetailPanel extends StatelessWidget {
           title: 'Approved members',
           emptyMessage: 'No approved members yet.',
           memberships: controller.approvedMemberships,
+          profilePictureUrlFor: controller.profilePictureUrlFor,
           builder: (membership) => Button(
             key: Key('teacher_group_remove_${membership.id}'),
             onPressed: controller.busy
@@ -318,12 +324,14 @@ class _MembershipSection extends StatelessWidget {
     required this.title,
     required this.emptyMessage,
     required this.memberships,
+    required this.profilePictureUrlFor,
     required this.builder,
   });
 
   final String title;
   final String emptyMessage;
   final List<GroupMembership> memberships;
+  final String? Function(String traineeId) profilePictureUrlFor;
   final Widget Function(GroupMembership membership) builder;
 
   @override
@@ -351,8 +359,16 @@ class _MembershipSection extends StatelessWidget {
           else
             for (final membership in memberships) ...[
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  ProfileAvatarWidget(
+                    key: Key('teacher_group_member_avatar_${membership.id}'),
+                    radius: 18,
+                    showBorder: false,
+                    initials: userInitials(membership.traineeDisplayName),
+                    networkImageUrl: profilePictureUrlFor(membership.traineeId),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

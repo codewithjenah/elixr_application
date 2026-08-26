@@ -8,6 +8,8 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/auth/teacher_auth_messages.dart';
+import '../../../data/models/public_profile.dart';
+import '../../../data/repositories/public_profile_repository.dart';
 
 class TeacherGroupsController extends ChangeNotifier {
   TeacherGroupsController({
@@ -15,12 +17,14 @@ class TeacherGroupsController extends ChangeNotifier {
     required this.teacherId,
     required this.teacherDisplayName,
     this.ensureTeacherAuthorization,
+    this.publicProfileRepository,
   });
 
   final GroupRepository repository;
   final String teacherId;
   final String teacherDisplayName;
   final Future<bool> Function()? ensureTeacherAuthorization;
+  final PublicProfileRepository? publicProfileRepository;
 
   List<ElixrGroup> groups = const [];
   ElixrGroup? selectedGroup;
@@ -35,6 +39,14 @@ class TeacherGroupsController extends ChangeNotifier {
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<GroupMembership>>? _pendingSub;
   StreamSubscription<List<GroupMembership>>? _approvedSub;
+  final Map<String, StreamSubscription<PublicProfile?>> _profileSubs = {};
+  final Map<String, String> _profilePictureUrls = {};
+
+  String? profilePictureUrlFor(String traineeId) {
+    final url = _profilePictureUrls[traineeId]?.trim();
+    if (url == null || url.isEmpty) return null;
+    return url;
+  }
 
   Future<void> start() async {
     loading = true;
@@ -95,6 +107,7 @@ class TeacherGroupsController extends ChangeNotifier {
     activeInvite = null;
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());
+    _syncMemberProfileWatches();
     notifyListeners();
   }
 
@@ -207,6 +220,7 @@ class TeacherGroupsController extends ChangeNotifier {
         .listen(
           (value) {
             pendingMemberships = value;
+            _syncMemberProfileWatches();
             if (!pendingFirst.isCompleted) pendingFirst.complete();
             notifyListeners();
           },
@@ -226,6 +240,7 @@ class TeacherGroupsController extends ChangeNotifier {
         .listen(
           (value) {
             approvedMemberships = value;
+            _syncMemberProfileWatches();
             if (!approvedFirst.isCompleted) approvedFirst.complete();
             notifyListeners();
           },
@@ -299,11 +314,70 @@ class TeacherGroupsController extends ChangeNotifier {
     );
   }
 
+  void _syncMemberProfileWatches() {
+    final ids = <String>{
+      for (final membership in pendingMemberships) membership.traineeId,
+      for (final membership in approvedMemberships) membership.traineeId,
+    };
+    final repository = publicProfileRepository;
+    if (repository == null) {
+      _cancelMemberProfileWatches();
+      return;
+    }
+
+    final staleIds = _profileSubs.keys
+        .where((id) => !ids.contains(id))
+        .toList(growable: false);
+    for (final id in staleIds) {
+      unawaited(_profileSubs.remove(id)?.cancel());
+      _profilePictureUrls.remove(id);
+    }
+
+    for (final traineeId in ids) {
+      if (_profileSubs.containsKey(traineeId)) continue;
+      _profileSubs[traineeId] = repository
+          .watchProfileRoot(traineeId)
+          .listen(
+            (profile) {
+              final trimmed = profile?.profilePictureUrl?.trim();
+              final next = (trimmed == null || trimmed.isEmpty)
+                  ? null
+                  : trimmed;
+              final previous = _profilePictureUrls[traineeId];
+              if (previous == next) return;
+              if (next == null) {
+                _profilePictureUrls.remove(traineeId);
+              } else {
+                _profilePictureUrls[traineeId] = next;
+              }
+              if (!hasListeners) return;
+              notifyListeners();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!kDebugMode) return;
+              debugPrint(
+                '[TeacherGroups] profile watch failed for $traineeId: '
+                '$error\n$stackTrace',
+              );
+            },
+          );
+    }
+  }
+
+  void _cancelMemberProfileWatches() {
+    for (final subscription in _profileSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _profileSubs.clear();
+    _profilePictureUrls.clear();
+  }
+
   @override
   void dispose() {
     unawaited(_groupsSub?.cancel());
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());
+    _cancelMemberProfileWatches();
     super.dispose();
   }
 }

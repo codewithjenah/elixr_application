@@ -222,17 +222,24 @@ class FakeTeacherLinksRepository implements TeacherRelationshipRepository {
 
 class FakePublicProfileRepository extends PublicProfileRepository {
   final _controllers = <String, StreamController<PublicProfile?>>{};
+  final _latest = <String, PublicProfile?>{};
+  final watchedUserIds = <String>[];
 
   @override
-  Stream<PublicProfile?> watchProfileRoot(String userId) {
+  Stream<PublicProfile?> watchProfileRoot(String userId) async* {
+    watchedUserIds.add(userId);
     final controller = _controllers.putIfAbsent(
       userId,
       () => StreamController<PublicProfile?>.broadcast(),
     );
-    return controller.stream;
+    if (_latest.containsKey(userId)) {
+      yield _latest[userId];
+    }
+    yield* controller.stream;
   }
 
   void emitProfile(String userId, PublicProfile? profile) {
+    _latest[userId] = profile;
     _controllers[userId]?.add(profile);
   }
 }
