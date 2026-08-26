@@ -3,18 +3,21 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
+import '../../movements/movements_presentation.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_movement_builder_dialog.dart';
 import 'teacher_movements_controller.dart';
@@ -182,14 +185,23 @@ class _OfficialList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
+      clipBehavior: Clip.none,
+      padding: const EdgeInsets.only(top: 4, bottom: 12),
       itemCount: controller.officialCatalog.length,
       separatorBuilder: (context, index) =>
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
       itemBuilder: (context, index) {
         final movement = controller.officialCatalog[index];
-        return ElixPanelCard(
+        final accent = difficultyAccentColor(movement.difficulty);
+        return _TeacherMovementHoverCard(
+          accent: accent,
           child: Row(
             children: [
+              _TeacherMovementThumb(
+                movementName: movement.name,
+                accent: accent,
+              ),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,14 +258,22 @@ class _MyMovementsList extends StatelessWidget {
       );
     }
     return ListView.separated(
+      clipBehavior: Clip.none,
+      padding: const EdgeInsets.only(top: 4, bottom: 12),
       itemCount: controller.myMovements.length,
       separatorBuilder: (context, index) =>
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
       itemBuilder: (context, index) {
         final movement = controller.myMovements[index];
-        return ElixPanelCard(
+        return _TeacherMovementHoverCard(
+          accent: AppColors.accent,
           child: Row(
             children: [
+              _TeacherMovementThumb(
+                movementName: movement.title,
+                accent: AppColors.accent,
+              ),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -620,4 +640,187 @@ Future<void> _showAssignDialog(
       );
     },
   );
+}
+
+class _TeacherMovementHoverCard extends StatefulWidget {
+  const _TeacherMovementHoverCard({required this.accent, required this.child});
+
+  final Color accent;
+  final Widget child;
+
+  @override
+  State<_TeacherMovementHoverCard> createState() =>
+      _TeacherMovementHoverCardState();
+}
+
+class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
+    with SingleTickerProviderStateMixin {
+  static const _radius = 16.0;
+
+  late final AnimationController _interactionController;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _interactionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+      reverseDuration: const Duration(milliseconds: 180),
+    );
+  }
+
+  @override
+  void dispose() {
+    _interactionController.dispose();
+    super.dispose();
+  }
+
+  bool get _reduceMotion =>
+      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+  void _syncInteraction() {
+    if (_reduceMotion) {
+      _interactionController.value = _hovered ? 1 : 0;
+    } else if (_hovered) {
+      _interactionController.forward();
+    } else {
+      _interactionController.reverse();
+    }
+  }
+
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    _hovered = value;
+    _syncInteraction();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    final reduceMotion = _reduceMotion;
+    final baseSurface = isDark
+        ? AppColors.panelSurface
+        : context.elixCardSurface;
+
+    return MouseRegion(
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
+      child: AnimatedBuilder(
+        animation: _interactionController,
+        builder: (context, child) {
+          final t = Curves.easeOutCubic.transform(
+            _interactionController.value,
+          );
+          final lift = reduceMotion ? 0.0 : 6 * t;
+          final scale = reduceMotion ? 1.0 : 1 + (0.008 * t);
+          final highContrastSurface = Color.alphaBlend(
+            widget.accent.withValues(alpha: isDark ? 0.20 : 0.14),
+            baseSurface,
+          );
+          return AnimatedContainer(
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 90),
+            curve: Curves.easeOut,
+            transformAlignment: Alignment.center,
+            transform: Matrix4.identity()
+              ..translateByDouble(0, -lift, 0, 1)
+              ..scaleByDouble(scale, scale, scale, 1),
+            decoration: BoxDecoration(
+              color: highContrast ? highContrastSurface : null,
+              gradient: highContrast
+                  ? null
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color.alphaBlend(
+                          widget.accent.withValues(
+                            alpha: (isDark ? 0.18 : 0.11) + (0.04 * t),
+                          ),
+                          baseSurface,
+                        ),
+                        Color.alphaBlend(
+                          AppColors.accent.withValues(
+                            alpha: isDark ? 0.08 : 0.045,
+                          ),
+                          baseSurface,
+                        ),
+                        Color.alphaBlend(
+                          widget.accent.withValues(
+                            alpha: isDark ? 0.10 : 0.06,
+                          ),
+                          baseSurface,
+                        ),
+                      ],
+                      stops: const [0, 0.55, 1],
+                    ),
+              borderRadius: BorderRadius.circular(_radius),
+              border: Border.all(
+                color: highContrast
+                    ? context.elixBorder
+                    : Color.lerp(
+                        context.elixBorder,
+                        widget.accent,
+                        0.22 + (0.48 * t),
+                      )!,
+                width: highContrast ? 2 : 1,
+              ),
+              boxShadow: highContrast
+                  ? const []
+                  : [
+                      BoxShadow(
+                        color: const Color(
+                          0xFF000000,
+                        ).withValues(alpha: isDark ? 0.42 : 0.12),
+                        blurRadius: 14 + (10 * t),
+                        offset: Offset(0, 7 + (4 * t)),
+                      ),
+                      BoxShadow(
+                        color: widget.accent.withValues(
+                          alpha: (isDark ? 0.22 : 0.13) * t,
+                        ),
+                        blurRadius: 28,
+                        spreadRadius: -6,
+                      ),
+                    ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(_radius),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: child,
+              ),
+            ),
+          );
+        },
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _TeacherMovementThumb extends StatelessWidget {
+  const _TeacherMovementThumb({required this.movementName, required this.accent});
+
+  final String movementName;
+  final Color accent;
+  static const double _size = 72;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: _size,
+      height: _size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: accent.withValues(alpha: context.isDarkTheme ? 0.18 : 0.1),
+        border: Border.all(color: context.elixBorder),
+      ),
+      child: MovementImage(movementName: movementName, size: _size),
+    );
+  }
 }

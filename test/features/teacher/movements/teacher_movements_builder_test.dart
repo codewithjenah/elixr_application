@@ -1,4 +1,7 @@
+import 'dart:ui';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
@@ -136,7 +139,10 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(
+    WidgetTester tester, {
+    bool disableAnimations = false,
+  }) async {
     await controller.start();
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1280, 900);
@@ -148,6 +154,12 @@ void main() {
         providers: [Provider<GroupRepository>.value(value: groups)],
         child: FluentApp(
           theme: AppTheme.dark,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(disableAnimations: disableAnimations),
+            child: child!,
+          ),
           home: TeacherMovementsScreen(controller: controller),
         ),
       ),
@@ -220,6 +232,51 @@ void main() {
     );
   });
 
+  testWidgets('Official ELIXR list shows catalog movement images', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    expect(find.text('Normal Grip'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MovementImage && widget.movementName == 'Normal Grip',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Official ELIXR card lifts on hover', (tester) async {
+    await pumpScreen(tester);
+    final title = find.text('Normal Grip');
+    final before = tester.getTopLeft(title);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(title));
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(title).dy, lessThan(before.dy));
+  });
+
+  testWidgets('Official ELIXR hover does not lift when motion is reduced', (
+    tester,
+  ) async {
+    await pumpScreen(tester, disableAnimations: true);
+    final title = find.text('Normal Grip');
+    final before = tester.getTopLeft(title);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(title));
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(title).dy, before.dy);
+  });
+
   testWidgets('My Movements labels persisted items as teacher reviewed', (
     tester,
   ) async {
@@ -244,6 +301,13 @@ void main() {
     expect(find.text('Tin Balance'), findsOneWidget);
     expect(
       find.text('Teacher reviewed · No automatic ELIXR score'),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MovementImage && widget.movementName == 'Tin Balance',
+      ),
       findsOneWidget,
     );
     expect(find.text('Template scored'), findsNothing);
