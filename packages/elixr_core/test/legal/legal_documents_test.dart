@@ -4,6 +4,61 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   String joined(List<String> paragraphs) => paragraphs.join('\n');
+  List<String> flatten(List<ElixrLegalSection> sections) {
+    return [for (final section in sections) ...section.paragraphs];
+  }
+
+  void expectValidSections(List<ElixrLegalSection> sections) {
+    expect(sections, isNotEmpty);
+    final ids = <String>{};
+    for (final section in sections) {
+      expect(section.id.trim(), isNotEmpty);
+      expect(ids.add(section.id), isTrue);
+      expect(section.title.trim(), isNotEmpty);
+      expect(section.paragraphs, isNotEmpty);
+      for (final paragraph in section.paragraphs) {
+        expect(paragraph.trim(), isNotEmpty);
+      }
+    }
+  }
+
+  for (final client in ElixrLegalClient.values) {
+    test(
+      'privacy sections preserve flat paragraph order for ${client.name}',
+      () {
+        final sections = ElixrLegalDocuments.privacyPolicySectionsFor(client);
+        expect(
+          flatten(sections),
+          orderedEquals(ElixrLegalDocuments.privacyPolicyParagraphsFor(client)),
+        );
+      },
+    );
+
+    test('terms sections preserve flat paragraph order for ${client.name}', () {
+      final sections = ElixrLegalDocuments.termsOfServiceSectionsFor(client);
+      expect(
+        flatten(sections),
+        orderedEquals(ElixrLegalDocuments.termsOfServiceParagraphsFor(client)),
+      );
+    });
+
+    test('privacy sections have valid unique metadata for ${client.name}', () {
+      expectValidSections(ElixrLegalDocuments.privacyPolicySectionsFor(client));
+    });
+
+    test('terms sections have valid unique metadata for ${client.name}', () {
+      expectValidSections(
+        ElixrLegalDocuments.termsOfServiceSectionsFor(client),
+      );
+    });
+  }
+
+  test('legal documents expose non-empty last-updated labels', () {
+    expect(ElixrLegalDocuments.privacyPolicyLastUpdated, 'September 2026');
+    expect(ElixrLegalDocuments.privacyPolicyLastUpdated.trim(), isNotEmpty);
+    expect(ElixrLegalDocuments.termsOfServiceLastUpdated, 'September 2026');
+    expect(ElixrLegalDocuments.termsOfServiceLastUpdated.trim(), isNotEmpty);
+  });
 
   group('Trainee Windows privacy', () {
     final text = joined(

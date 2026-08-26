@@ -152,6 +152,10 @@ class _AuthTextFieldState extends State<AuthTextField> {
               child: TextBox(
                 controller: widget.controller,
                 placeholder: widget.placeholder,
+                placeholderStyle: AppTheme.body.copyWith(
+                  color: context.elixTextSecondary.withValues(alpha: 0.72),
+                  fontSize: 14,
+                ),
                 obscureText: _obscured,
                 keyboardType: widget.keyboardType,
                 onSubmitted: widget.onSubmitted,

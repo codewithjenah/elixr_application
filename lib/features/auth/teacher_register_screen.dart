@@ -232,7 +232,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               key: const Key('teacher_register_access_code_field'),
               controller: _accessCodeController,
               label: 'Teacher access code',
-              placeholder: '7KPM-XR4D-Q2WT',
+              placeholder: 'XXXX-XXXX-XXXX',
               icon: FluentIcons.permissions,
               helperText:
                   'Ask an administrator or an existing Teacher for a code.',
@@ -282,7 +282,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             AuthTextField(
               controller: _firstNameController,
               label: 'First name',
-              placeholder: 'First name',
+              placeholder: 'e.g. Jane',
               icon: FluentIcons.contact,
               validationText: _nameError('first'),
               status: _status('first', _nameError('first')),
@@ -293,7 +293,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             AuthTextField(
               controller: _middleNameController,
               label: 'Middle name (optional)',
-              placeholder: 'Middle name (optional)',
+              placeholder: 'e.g. Marie',
               icon: FluentIcons.contact,
               onChanged: (_) => _live('middle'),
             ),
@@ -301,7 +301,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             AuthTextField(
               controller: _lastNameController,
               label: 'Last name',
-              placeholder: 'Last name',
+              placeholder: 'e.g. Santos',
               icon: FluentIcons.contact,
               validationText: _nameError('last'),
               status: _status('last', _nameError('last')),
@@ -313,7 +313,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
               key: const Key('teacher_register_email_field'),
               controller: _emailController,
               label: 'Email address',
-              placeholder: 'Email address',
+              placeholder: 'you@school.edu',
               icon: FluentIcons.mail_solid,
               keyboardType: TextInputType.emailAddress,
               validationText: _touched.contains('email')
@@ -330,7 +330,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             AuthTextField(
               controller: _passwordController,
               label: 'Password',
-              placeholder: 'Password',
+              placeholder: 'Create a password',
               icon: FluentIcons.lock_solid,
               obscureText: true,
               helperText: '8+ characters, including a letter and a number',
@@ -352,7 +352,7 @@ class _TeacherRegisterScreenState extends State<TeacherRegisterScreen> {
             AuthTextField(
               controller: _confirmController,
               label: 'Confirm password',
-              placeholder: 'Confirm password',
+              placeholder: 'Re-enter your password',
               icon: FluentIcons.shield_solid,
               obscureText: true,
               onSubmitted: (_) {

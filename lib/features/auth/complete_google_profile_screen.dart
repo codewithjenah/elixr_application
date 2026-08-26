@@ -239,7 +239,7 @@ class _CompleteGoogleProfileScreenState
               key: const Key('google_profile_teacher_access_code'),
               controller: _accessCodeController,
               label: 'Teacher access code',
-              placeholder: '7KPM-XR4D-Q2WT',
+              placeholder: 'XXXX-XXXX-XXXX',
               icon: FluentIcons.permissions,
               helperText:
                   'The code is consumed only when this profile is created.',

@@ -154,6 +154,12 @@ void main() {
 
     expect(find.text('Step 1 of 4'), findsOneWidget);
     expect(find.text('Teacher access code'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == 'XXXX-XXXX-XXXX',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Email address'), findsNothing);
     expect(find.text('Continue with Google'), findsNothing);
 
@@ -215,6 +221,24 @@ void main() {
 
     expect(find.text('Step 3 of 4'), findsOneWidget);
     expect(find.byKey(const Key('teacher_register_email_field')), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == 'e.g. Jane',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == 'e.g. Marie',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == 'e.g. Santos',
+      ),
+      findsOneWidget,
+    );
     await tester.enterText(find.byType(TextBox).at(0), 'Jane');
     await tester.enterText(find.byType(TextBox).at(2), 'Doe');
     await tester.pump();
@@ -224,6 +248,26 @@ void main() {
     expect(find.text('Step 4 of 4'), findsOneWidget);
     expect(
       find.byKey(const Key('teacher_register_email_field')),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is TextBox && widget.placeholder == 'you@school.edu',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextBox && widget.placeholder == 'Create a password',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextBox && widget.placeholder == 'Re-enter your password',
+      ),
       findsOneWidget,
     );
     await tester.enterText(find.byType(TextBox).at(0), 'jane@school.edu');
