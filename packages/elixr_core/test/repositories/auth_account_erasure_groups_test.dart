@@ -151,6 +151,46 @@ void main() {
     },
   );
 
+  test(
+    'account erasure removes classroom access contexts for either participant',
+    () async {
+      final contexts = firestore.collection(
+        FirestoreCollections.classroomTeacherAccess,
+      );
+      await contexts.doc('teacher-1_trainee-1').set({
+        'teacher_id': 'teacher-1',
+        'trainee_id': 'trainee-1',
+        'group_id': 'g1',
+        'schema_version': 1,
+        'updated_at': DateTime.utc(2026, 8, 16),
+      });
+      await contexts.doc('teacher-2_trainee-1').set({
+        'teacher_id': 'teacher-2',
+        'trainee_id': 'trainee-1',
+        'group_id': 'g2',
+        'schema_version': 1,
+        'updated_at': DateTime.utc(2026, 8, 16),
+      });
+      await contexts.doc('teacher-2_trainee-2').set({
+        'teacher_id': 'teacher-2',
+        'trainee_id': 'trainee-2',
+        'group_id': 'g2',
+        'schema_version': 1,
+        'updated_at': DateTime.utc(2026, 8, 16),
+      });
+
+      await purgeClassroomTeacherAccessForAccountErasure(
+        firestore: firestore,
+        uid: 'trainee-1',
+        commitDeletes: (refs) => _commitDeletes(firestore, refs),
+      );
+
+      expect((await contexts.doc('teacher-1_trainee-1').get()).exists, isFalse);
+      expect((await contexts.doc('teacher-2_trainee-1').get()).exists, isFalse);
+      expect((await contexts.doc('teacher-2_trainee-2').get()).exists, isTrue);
+    },
+  );
+
   test('purge failure still prevents Auth deletion', () async {
     var authDeleteCalls = 0;
 

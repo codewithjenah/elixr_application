@@ -488,6 +488,31 @@ Future<void> purgePhase2GroupDataForAccountErasure({
   await commitDeletes(refs.values.toList());
 }
 
+/// Purges the private classroom authorization pointer for every relationship
+/// in which [uid] is either participant. This runs while the user's profile
+/// still exists so the participant-scoped Firestore rules can authorize both
+/// queries and deletes.
+@visibleForTesting
+Future<void> purgeClassroomTeacherAccessForAccountErasure({
+  required FirebaseFirestore firestore,
+  required Future<void> Function(List<DocumentReference>) commitDeletes,
+  required String uid,
+}) async {
+  final refs = <String, DocumentReference>{};
+  final asTeacher = await firestore
+      .collection(FirestoreCollections.classroomTeacherAccess)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  final asTrainee = await firestore
+      .collection(FirestoreCollections.classroomTeacherAccess)
+      .where('trainee_id', isEqualTo: uid)
+      .get();
+  for (final doc in [...asTeacher.docs, ...asTrainee.docs]) {
+    refs[doc.reference.path] = doc.reference;
+  }
+  await commitDeletes(refs.values.toList());
+}
+
 /// Purges Teacher-owned Phase 5 classroom definitions before the users
 /// document is removed. Ordinary Teachers keep delete permission on their
 /// own movement/assignment documents while verified; this path also works
@@ -2103,6 +2128,14 @@ class AuthRepository
         ...asTrainee.docs.map((d) => d.reference),
         ...asTeacher.docs.map((d) => d.reference),
       ]);
+    });
+
+    await _runPurgeStage('classroom teacher access purge', () {
+      return purgeClassroomTeacherAccessForAccountErasure(
+        firestore: _firestore,
+        commitDeletes: _commitDeletes,
+        uid: uid,
+      );
     });
 
     await _runPurgeStage('teacher access-code personal data purge', () async {

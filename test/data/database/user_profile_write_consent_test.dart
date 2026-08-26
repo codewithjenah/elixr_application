@@ -20,9 +20,9 @@ void main() {
       );
 
       expect(data['privacy_consent_at'], 'SERVER_TS');
-      expect(data['privacy_policy_version'], 'v5');
+      expect(data['privacy_policy_version'], 'v6');
       expect(data['terms_consent_at'], 'SERVER_TS');
-      expect(data['terms_of_service_version'], 'v2');
+      expect(data['terms_of_service_version'], 'v3');
       expect(data['first_name'], 'Ada');
       expect(data['email'], 'ada@example.com');
     });

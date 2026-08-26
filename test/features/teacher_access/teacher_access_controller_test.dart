@@ -74,6 +74,43 @@ void main() {
     expect(relationshipRepository.links, isEmpty);
   });
 
+  test(
+    'classroom-backed Teachers are omitted from legacy-only links',
+    () async {
+      final group = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+      final legacyLink = await relationshipRepository.requestTeacherJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: '7KPMXR4DQ2WT',
+      );
+      await relationshipRepository.approveJoin(
+        linkId: legacyLink.id,
+        teacherId: 'teacher-1',
+      );
+
+      await controller.start();
+
+      expect(controller.classroomTeacherIds, contains('teacher-1'));
+      expect(controller.legacyOnlyApproved, isEmpty);
+    },
+  );
+
   test('Trainee can cancel a pending request', () async {
     await controller.start();
     controller.setCodeInput('7KPMXR4DQ2WT');

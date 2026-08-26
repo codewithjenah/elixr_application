@@ -335,7 +335,7 @@ class PrivacySectionState extends State<PrivacySection> {
               toggleKey: const Key('privacy_evidence_toggle'),
               label: 'Save confirmed movement images',
               description:
-                  'Save one private annotated image from each successfully confirmed Guided Practice movement. Turning this off deletes saved images and their session references.',
+                  'Save one private annotated image from each successfully confirmed Guided Practice movement. Approved classroom Teachers can read available retained images while membership remains approved. Turning this off denies Teacher image reads and deletes saved images and their session references.',
               checked: _evidenceEnabled ?? false,
               onChanged: _saving || _reconciling || _updatingEvidence
                   ? null

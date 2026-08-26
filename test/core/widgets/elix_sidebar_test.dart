@@ -12,6 +12,12 @@ void main() {
       expect(labels.contains('Assigned Movements'), isTrue);
       expect(labels.contains('Movements'), isTrue);
 
+      final teacherAccessIndex = labels.indexOf('Teacher Access');
+      expect(teacherAccessIndex, greaterThan(0));
+      expect(labels[teacherAccessIndex - 1], 'Dashboard');
+      final teacherAccess = elixSidebarItems[teacherAccessIndex];
+      expect(teacherAccess.route, '/teacher-access');
+
       final sessions = elixSidebarItems.singleWhere(
         (item) => item.label == 'Sessions',
       );
@@ -25,6 +31,10 @@ void main() {
     expect(isElixSidebarRouteActive('/learn', '/training'), isFalse);
     expect(
       isElixSidebarRouteActive('/learn/movement/Hand%20Stall', '/learn'),
+      isTrue,
+    );
+    expect(
+      isElixSidebarRouteActive('/teacher-access', '/teacher-access'),
       isTrue,
     );
   });

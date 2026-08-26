@@ -146,6 +146,73 @@ void main() {
   });
 
   test(
+    'approving membership atomically writes classroom access context',
+    () async {
+      await _seedMembership(
+        firestore,
+        status: GroupMembershipStatus.pending,
+        createdAt: originalCreatedAt,
+      );
+
+      await repository.approveMembership(
+        membershipId: membershipId,
+        teacherId: teacherId,
+      );
+
+      final membership = await firestore
+          .collection(FirestoreCollections.groupMemberships)
+          .doc(membershipId)
+          .get();
+      final context = await firestore
+          .collection(FirestoreCollections.classroomTeacherAccess)
+          .doc(
+            ClassroomTeacherAccessContext.documentId(
+              teacherId: teacherId,
+              traineeId: traineeId,
+            ),
+          )
+          .get();
+      expect(membership.data()?['status'], GroupMembershipStatus.approved.name);
+      expect(context.data()?['teacher_id'], teacherId);
+      expect(context.data()?['trainee_id'], traineeId);
+      expect(context.data()?['group_id'], groupId);
+      expect(
+        context.data()?['schema_version'],
+        ClassroomTeacherAccessContext.currentSchemaVersion,
+      );
+    },
+  );
+
+  test(
+    'approved membership can repair a missing classroom access context',
+    () async {
+      await _seedMembership(
+        firestore,
+        status: GroupMembershipStatus.approved,
+        createdAt: originalCreatedAt,
+      );
+
+      await repository.prepareClassroomAccessContext(
+        teacherId: teacherId,
+        traineeId: traineeId,
+        groupId: groupId,
+      );
+
+      final context = await firestore
+          .collection(FirestoreCollections.classroomTeacherAccess)
+          .doc(
+            ClassroomTeacherAccessContext.documentId(
+              teacherId: teacherId,
+              traineeId: traineeId,
+            ),
+          )
+          .get();
+      expect(context.exists, isTrue);
+      expect(context.data()?['group_id'], groupId);
+    },
+  );
+
+  test(
     'own-membership lookup does not confuse another group membership',
     () async {
       await firestore

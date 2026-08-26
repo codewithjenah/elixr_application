@@ -91,9 +91,9 @@ describe('Google Trainee profile onboarding', () => {
     role: ROLE_TRAINEE,
     created_at: serverTimestamp(),
     privacy_consent_at: serverTimestamp(),
-    privacy_policy_version: 'v5',
+    privacy_policy_version: 'v6',
     terms_consent_at: serverTimestamp(),
-    terms_of_service_version: 'v2',
+    terms_of_service_version: 'v3',
     ...overrides,
   });
 
@@ -2914,6 +2914,7 @@ async function seedProtectedProgressScenario({
   visibility = 'public',
   viewerRole = ROLE_TEACHER,
   link = null,
+  classroomGroupId = null,
 } = {}) {
   await seedBypassingRules(async (adminDb) => {
     await setDoc(doc(adminDb, 'users', 'bob'),
@@ -2953,6 +2954,29 @@ async function seedProtectedProgressScenario({
               progress_access_granted_at: Timestamp.now(),
             }
           : {}),
+      });
+    }
+    if (classroomGroupId != null) {
+      await setDoc(doc(adminDb, 'groups', classroomGroupId), {
+        teacher_id: 'bob',
+        name: 'Classroom',
+        status: 'active',
+        schema_version: 1,
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+      await setDoc(doc(adminDb, 'group_memberships', `${classroomGroupId}_alice`), {
+        group_id: classroomGroupId,
+        teacher_id: 'bob',
+        trainee_id: 'alice',
+        status: 'approved',
+      });
+      await setDoc(doc(adminDb, 'classroom_teacher_access', 'bob_alice'), {
+        teacher_id: 'bob',
+        trainee_id: 'alice',
+        group_id: classroomGroupId,
+        schema_version: 1,
+        updated_at: Timestamp.now(),
       });
     }
   });
@@ -3208,6 +3232,55 @@ describe('public_profiles', () => {
     await assertFails(getDoc(doc(bob, 'sessions', 'alice-session')));
     await assertFails(
       getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+  });
+
+  test('approved classroom membership reads private sanitized progress without legacy consent', async () => {
+    await seedProtectedProgressScenario({
+      visibility: 'private',
+      classroomGroupId: 'classroom-1',
+    });
+    const bob = bobDb();
+    await assertSucceeds(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertSucceeds(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'achievements', 'first_steps')),
+    );
+  });
+
+  test('removed classroom membership immediately blocks classroom progress reads', async () => {
+    await seedProtectedProgressScenario({
+      visibility: 'private',
+      classroomGroupId: 'classroom-1',
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'group_memberships', 'classroom-1_alice'), {
+        status: 'removed',
+      }, { merge: true });
+    });
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
+    );
+  });
+
+  test('classroom context pointing to another Teacher group does not grant progress', async () => {
+    await seedProtectedProgressScenario({
+      visibility: 'private',
+      classroomGroupId: 'classroom-1',
+    });
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'classroom_teacher_access', 'bob_alice'), {
+        group_id: 'other-group',
+      }, { merge: true });
+    });
+    const bob = bobDb();
+    await assertFails(getDoc(doc(bob, 'public_profiles', 'alice', 'details', 'summary')));
+    await assertFails(
+      getDoc(doc(bob, 'public_profiles', 'alice', 'sessions', 'alice-session')),
     );
   });
 
@@ -3722,9 +3795,9 @@ describe('users role constraints', () => {
       role,
       created_at: serverTimestamp(),
       privacy_consent_at: serverTimestamp(),
-      privacy_policy_version: 'v5',
+      privacy_policy_version: 'v6',
       terms_consent_at: serverTimestamp(),
-      terms_of_service_version: 'v2',
+      terms_of_service_version: 'v3',
       ...overrides,
     };
   }
@@ -3786,6 +3859,21 @@ describe('users role constraints', () => {
       updateDoc(doc(alice, 'users', 'alice'), {
         first_name: 'Augusta',
         full_name: 'Augusta Lovelace',
+      }),
+    );
+  });
+
+  test('owner can update the session image setting with its server audit fields', async () => {
+    await seedBypassingRules(async (adminDb) => {
+      await setDoc(doc(adminDb, 'users', 'alice'), userProfile(ROLE_TRAINEE));
+    });
+
+    const alice = aliceDb();
+    await assertSucceeds(
+      updateDoc(doc(alice, 'users', 'alice'), {
+        session_evidence_enabled: false,
+        session_evidence_policy_version: 'v1',
+        session_evidence_decision_at: serverTimestamp(),
       }),
     );
   });

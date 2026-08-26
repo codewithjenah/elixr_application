@@ -1,4 +1,3 @@
-import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
@@ -10,7 +9,6 @@ import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/settings_service.dart';
 import '../teacher/teacher_privacy_section.dart';
-import '../teacher_access/teacher_access_section.dart';
 import 'sections/account_profile_section.dart';
 import 'sections/appearance_section.dart';
 import 'sections/practice_section.dart';
@@ -37,13 +35,12 @@ class SettingsScreen extends StatefulWidget {
     this.pickProfileImage,
     this.cropProfileImage,
     this.publicProfileRepository,
-    this.teacherRelationshipRepository,
     this.embeddedFooter,
   });
 
   final SettingsSection initialSection;
 
-  /// Trainee sees all panes; teacher omits Practice and Teacher Access.
+  /// Trainee sees the training panes; teacher omits Practice.
   final SettingsAudience audience;
 
   /// When true, fill the parent with no dialog card, header, or close button.
@@ -72,9 +69,6 @@ class SettingsScreen extends StatefulWidget {
   /// Optional public profile repository override for [PrivacySection].
   final PublicProfileRepository? publicProfileRepository;
 
-  /// Optional relationship repository override for [TeacherAccessSection].
-  final TeacherRelationshipRepository? teacherRelationshipRepository;
-
   /// Optional rail/page footer (Legal links on the teacher host).
   final Widget? embeddedFooter;
 
@@ -95,8 +89,6 @@ class SettingsScreen extends StatefulWidget {
     final publicProfileRepository = _maybeRead<PublicProfileRepository>(
       context,
     );
-    final teacherRelationshipRepository =
-        _maybeRead<TeacherRelationshipRepository>(context);
     final accountHooks = _maybeRead<SettingsAccountHooks>(context);
     return showDialog<void>(
       context: context,
@@ -108,7 +100,6 @@ class SettingsScreen extends StatefulWidget {
             ? SettingsAudience.teacher
             : SettingsAudience.trainee,
         publicProfileRepository: publicProfileRepository,
-        teacherRelationshipRepository: teacherRelationshipRepository,
         watchPlayer: accountHooks?.watchPlayer,
         watchUserCosmetics: accountHooks?.watchUserCosmetics,
         equipBorder: accountHooks?.equipBorder,
@@ -513,11 +504,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return PrivacySection(
           isActive: _section == SettingsSection.privacy,
           publicProfileRepository: widget.publicProfileRepository,
-        );
-      case SettingsSection.teacherAccess:
-        return TeacherAccessSection(
-          isActive: _section == SettingsSection.teacherAccess,
-          repository: widget.teacherRelationshipRepository,
         );
     }
   }

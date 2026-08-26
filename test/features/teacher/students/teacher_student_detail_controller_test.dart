@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/features/teacher/students/teacher_student_detail_controller.dart';
 import 'package:elixr_core/elixr_core.dart';
@@ -9,6 +11,7 @@ void main() {
   late InMemoryGroupRepository groups;
   late FakeTeacherLinksRepository links;
   late TrackingTeacherProgressRepository progress;
+  late TrackingTeacherEvidenceRepository evidence;
   late FakePublicProfileRepository profiles;
   late TeacherStudentDetailController controller;
 
@@ -16,11 +19,13 @@ void main() {
     groups = InMemoryGroupRepository(now: () => DateTime.utc(2026, 8, 19));
     links = FakeTeacherLinksRepository();
     progress = TrackingTeacherProgressRepository();
+    evidence = TrackingTeacherEvidenceRepository();
     profiles = FakePublicProfileRepository();
     controller = TeacherStudentDetailController(
       groupRepository: groups,
       relationshipRepository: links,
       progressRepository: progress,
+      evidenceRepository: evidence,
       publicProfileRepository: profiles,
       teacherId: 'teacher',
       traineeId: 'trainee',
@@ -91,32 +96,23 @@ void main() {
     expect(progress.summaryWatches, isEmpty);
   });
 
-  test('approved membership without legacy link waits for access', () async {
-    seedApprovedMembership();
-    await boot();
-    links.emit(const []);
-    await pumpEventQueue();
-    expect(controller.state, TeacherStudentDetailState.waitingForAccess);
-    expect(progress.summaryWatches, isEmpty);
-  });
+  test(
+    'approved membership without legacy link loads classroom progress',
+    () async {
+      seedApprovedMembership();
+      await boot();
+      await pumpEventQueue();
+      expect(controller.state, TeacherStudentDetailState.empty);
+      expect(progress.summaryWatches, ['trainee']);
+    },
+  );
 
-  test('approved link without progress access waits for access', () async {
+  test('approved membership does not require a legacy link', () async {
     seedApprovedMembership();
     await boot();
-    links.emit([
-      TeacherStudentLink(
-        id: 'teacher_trainee',
-        teacherId: 'teacher',
-        traineeId: 'trainee',
-        teacherDisplayName: 'Teacher',
-        traineeDisplayName: 'Trainee',
-        status: TeacherStudentLinkStatus.approved,
-        createdAt: DateTime.utc(2026, 8, 19),
-        updatedAt: DateTime.utc(2026, 8, 19),
-      ),
-    ]);
     await pumpEventQueue();
-    expect(controller.state, TeacherStudentDetailState.waitingForAccess);
+    expect(controller.state, TeacherStudentDetailState.empty);
+    expect(progress.summaryWatches, ['trainee']);
   });
 
   test('effective progress access loads summary and sessions', () async {
@@ -124,7 +120,6 @@ void main() {
     progress.inner.setSummary('trainee', sampleSummary());
     progress.inner.sessions['trainee'] = [sampleSession()];
     await boot();
-    links.emit([approvedProgressLink()]);
     await pumpEventQueue();
     expect(controller.state, TeacherStudentDetailState.ready);
     expect(progress.summaryWatches, ['trainee']);
@@ -135,29 +130,51 @@ void main() {
     seedApprovedMembership();
     progress.inner.setSummary('trainee', null);
     await boot();
-    links.emit([approvedProgressLink()]);
     await pumpEventQueue();
     expect(controller.state, TeacherStudentDetailState.empty);
   });
 
-  test('progress access withdrawn clears protected data', () async {
+  test('saved images are loaded only on demand and are cached', () async {
     seedApprovedMembership();
-    progress.inner.setSummary('trainee', sampleSummary());
-    progress.inner.sessions['trainee'] = [sampleSession()];
+    final session = sampleSession(evidenceAvailable: true);
+    progress.inner.sessions['trainee'] = [session];
+    evidence.responses[session.sessionId] = Uint8List.fromList([1, 2, 3]);
     await boot();
-    links.emit([approvedProgressLink()]);
     await pumpEventQueue();
-    expect(controller.state, TeacherStudentDetailState.ready);
 
-    links.emit([
-      approvedProgressLink().copyWith(
-        progressAccess: TeacherProgressAccess.none,
-      ),
-    ]);
+    expect(evidence.downloads, isEmpty);
+    await controller.loadEvidence(session);
+    expect(
+      controller.evidenceStateFor(session.sessionId),
+      TeacherEvidenceState.loaded,
+    );
+    expect(controller.evidenceFor(session.sessionId), orderedEquals([1, 2, 3]));
+    expect(evidence.downloads, ['trainee:session-1']);
+
+    await controller.loadEvidence(session);
+    expect(evidence.downloads, ['trainee:session-1']);
+  });
+
+  test('saved image unavailable state can be retried', () async {
+    seedApprovedMembership();
+    final session = sampleSession(evidenceAvailable: true);
+    progress.inner.sessions['trainee'] = [session];
+    await boot();
     await pumpEventQueue();
-    expect(controller.state, TeacherStudentDetailState.accessWithdrawn);
-    expect(controller.summary, isNull);
-    expect(controller.sessions, isEmpty);
+
+    await controller.loadEvidence(session);
+    expect(
+      controller.evidenceStateFor(session.sessionId),
+      TeacherEvidenceState.unavailable,
+    );
+
+    evidence.responses[session.sessionId] = Uint8List.fromList([4, 5]);
+    await controller.retryEvidence(session);
+    expect(
+      controller.evidenceStateFor(session.sessionId),
+      TeacherEvidenceState.loaded,
+    );
+    expect(evidence.downloads, ['trainee:session-1', 'trainee:session-1']);
   });
 
   test('classroom membership removed clears visible progress', () async {
@@ -165,7 +182,6 @@ void main() {
     progress.inner.setSummary('trainee', sampleSummary());
     progress.inner.sessions['trainee'] = [sampleSession()];
     await boot();
-    links.emit([approvedProgressLink()]);
     await pumpEventQueue();
 
     groups.seedMembership(
@@ -194,7 +210,6 @@ void main() {
         visibility: ProfileVisibility.private,
       ),
     );
-    links.emit([approvedProgressLink()]);
     await pumpEventQueue();
     expect(controller.isPrivateProfile, isTrue);
     expect(controller.state, TeacherStudentDetailState.ready);
@@ -208,7 +223,6 @@ void main() {
       sampleSession(id: 'two'),
     ];
     await boot();
-    links.emit([approvedProgressLink()]);
     await pumpEventQueue();
     await controller.loadMore();
     await pumpEventQueue();
@@ -257,7 +271,6 @@ void main() {
         ),
       );
       await boot();
-      links.emit(const []);
       await pumpEventQueue();
 
       expect(controller.selectedGroupId, 'group-1');
@@ -269,7 +282,7 @@ void main() {
         'Group name unavailable',
       );
       expect(controller.hasClassroomAuthorization, isTrue);
-      expect(controller.state, TeacherStudentDetailState.waitingForAccess);
+      expect(controller.state, TeacherStudentDetailState.connectionRequired);
     },
   );
 
@@ -295,19 +308,14 @@ void main() {
       );
       await controller.start();
       await pumpEventQueue();
-      links.emit(const []);
       await pumpEventQueue();
 
       expect(controller.selectedGroupId, 'group-1');
       expect(controller.selectedGroupName, isNull);
       expect(controller.classroomGroupCaption, 'Group name unavailable');
       expect(controller.hasClassroomAuthorization, isTrue);
-      expect(controller.state, TeacherStudentDetailState.waitingForAccess);
+      expect(controller.state, TeacherStudentDetailState.connectionRequired);
       expect(controller.state, isNot(TeacherStudentDetailState.unauthorized));
-      expect(
-        controller.state,
-        isNot(TeacherStudentDetailState.connectionRequired),
-      );
     },
   );
 }
@@ -377,6 +385,17 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
   Stream<List<GroupMembership>> watchTraineeMemberships({
     required String traineeId,
   }) => throw UnimplementedError();
+
+  @override
+  Future<void> prepareClassroomAccessContext({
+    required String teacherId,
+    required String traineeId,
+    required String groupId,
+  }) => inner.prepareClassroomAccessContext(
+    teacherId: teacherId,
+    traineeId: traineeId,
+    groupId: groupId,
+  );
 
   @override
   Future<GroupMembership> requestGroupJoin({

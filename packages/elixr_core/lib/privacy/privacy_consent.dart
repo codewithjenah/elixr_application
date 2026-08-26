@@ -9,8 +9,8 @@ class RegistrationLegalConsent {
     required this.termsOfServiceVersion,
   });
 
-  static const currentPrivacyPolicyVersion = 'v5';
-  static const currentTermsOfServiceVersion = 'v2';
+  static const currentPrivacyPolicyVersion = 'v6';
+  static const currentTermsOfServiceVersion = 'v3';
 
   final String privacyPolicyVersion;
   final String termsOfServiceVersion;

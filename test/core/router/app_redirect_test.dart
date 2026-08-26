@@ -379,7 +379,7 @@ void main() {
     );
   });
 
-  test('trainee with pending join code redirects to join-coach', () {
+  test('trainee with pending join code redirects to Teacher Access', () {
     expect(
       resolveAppRedirect(
         _state(
@@ -388,7 +388,7 @@ void main() {
           location: AppRoutePaths.dashboard,
         ),
       ),
-      AppRoutePaths.joinCoach,
+      AppRoutePaths.teacherAccess,
     );
   });
 

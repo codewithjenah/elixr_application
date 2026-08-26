@@ -11,30 +11,35 @@ enum TeacherStudentDetailState {
   unauthorized,
   pending,
   relationshipRemoved,
-  waitingForAccess,
   loadingProgress,
   ready,
   empty,
-  accessWithdrawn,
   connectionRequired,
   error,
 }
 
+enum TeacherEvidenceState { idle, loading, loaded, unavailable, error }
+
 class TeacherStudentDetailController extends ChangeNotifier {
   TeacherStudentDetailController({
     required this.groupRepository,
-    required this.relationshipRepository,
+    this.relationshipRepository,
     required this.progressRepository,
     required this.publicProfileRepository,
     required this.teacherId,
     required this.traineeId,
     this.preferredGroupId,
+    this.evidenceRepository,
   });
 
   final GroupRepository groupRepository;
-  final TeacherRelationshipRepository relationshipRepository;
+
+  /// Retained as an optional compatibility seam for older callers. Classroom
+  /// detail authorization no longer depends on teacher_student_links.
+  final TeacherRelationshipRepository? relationshipRepository;
   final TeacherProgressRepository progressRepository;
   final PublicProfileRepository publicProfileRepository;
+  final TeacherEvidenceRepository? evidenceRepository;
   final String teacherId;
   final String traineeId;
   final String? preferredGroupId;
@@ -44,7 +49,6 @@ class TeacherStudentDetailController extends ChangeNotifier {
   List<GroupMembership> approvedMemberships = const [];
   List<ElixrGroup> teacherGroups = const [];
   String? selectedGroupId;
-  TeacherStudentLink? link;
   PublicProfile? profileRoot;
   PublicProfileSummary? summary;
   List<PublicProfileSession> sessions = const [];
@@ -54,9 +58,12 @@ class TeacherStudentDetailController extends ChangeNotifier {
   Object? paginationError;
   String? errorMessage;
 
+  final Map<String, TeacherEvidenceState> _evidenceStates = {};
+  final Map<String, Uint8List> _evidenceBySessionId = {};
+  final Map<String, Object> _evidenceErrors = {};
+
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
-  StreamSubscription<List<TeacherStudentLink>>? _linksSub;
   StreamSubscription<PublicProfile?>? _profileSub;
   StreamSubscription<PublicProfileSummary?>? _summarySub;
 
@@ -64,13 +71,21 @@ class TeacherStudentDetailController extends ChangeNotifier {
   int _accessEpoch = 0;
   int _dataEpoch = 0;
   int _pageEpoch = 0;
-  bool _hadEffectiveAccess = false;
+  String? _preparingContextKey;
+  String? _preparedContextKey;
   bool _firstSummarySettled = false;
   bool _firstPageSettled = false;
   bool _teacherGroupsLoaded = false;
   bool _disposed = false;
 
   bool get hasClassroomAuthorization => approvedMemberships.isNotEmpty;
+
+  TeacherEvidenceState evidenceStateFor(String sessionId) =>
+      _evidenceStates[sessionId] ?? TeacherEvidenceState.idle;
+
+  Uint8List? evidenceFor(String sessionId) => _evidenceBySessionId[sessionId];
+
+  Object? evidenceErrorFor(String sessionId) => _evidenceErrors[sessionId];
 
   /// Human-readable group name from Teacher group metadata, never the document ID.
   String? groupNameForId(String groupId) {
@@ -129,9 +144,10 @@ class TeacherStudentDetailController extends ChangeNotifier {
     approvedMemberships = const [];
     teacherGroups = const [];
     _teacherGroupsLoaded = false;
-    link = null;
     profileRoot = null;
     selectedGroupId = preferredGroupId;
+    _preparingContextKey = null;
+    _preparedContextKey = null;
     if (_disposed || epoch != _classroomEpoch) return;
 
     _groupsSub = groupRepository
@@ -180,7 +196,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
 
     _ensureSelectedGroup();
     _watchProfile(epoch);
-    _watchLinks(epoch);
+    unawaited(_prepareClassroomAccessAndBegin(epoch));
   }
 
   void _ensureSelectedGroup() {
@@ -193,7 +209,10 @@ class TeacherStudentDetailController extends ChangeNotifier {
 
   void setSelectedGroupId(String groupId) {
     if (!approvedMemberships.any((m) => m.groupId == groupId)) return;
+    if (selectedGroupId == groupId) return;
     selectedGroupId = groupId;
+    _preparedContextKey = null;
+    unawaited(_prepareClassroomAccessAndBegin(_classroomEpoch));
     notifyListeners();
   }
 
@@ -208,58 +227,46 @@ class TeacherStudentDetailController extends ChangeNotifier {
     }, onError: (_) {});
   }
 
-  void _watchLinks(int classroomEpoch) {
-    final accessEpoch = ++_accessEpoch;
-    _linksSub?.cancel();
-    _summarySub?.cancel();
-    _summarySub = null;
-    link = null;
-    _hadEffectiveAccess = false;
-    _linksSub = relationshipRepository
-        .watchTeacherLinks(teacherId: teacherId)
-        .listen(
-          (links) => _onLinks(links, classroomEpoch, accessEpoch),
-          onError: (_) {
-            if (!_isCurrentClassroom(classroomEpoch)) return;
-            _resetProtected(TeacherStudentDetailState.connectionRequired);
-          },
-        );
-  }
-
-  void _onLinks(
-    List<TeacherStudentLink> links,
-    int classroomEpoch,
-    int accessEpoch,
-  ) {
-    if (!_isCurrentClassroom(classroomEpoch) || accessEpoch != _accessEpoch) {
+  Future<void> _prepareClassroomAccessAndBegin(int classroomEpoch) async {
+    if (!_isCurrentClassroom(classroomEpoch) || !hasClassroomAuthorization) {
       return;
     }
-    TeacherStudentLink? current;
-    for (final item in links) {
-      if (item.traineeId == traineeId) {
-        current = item;
-        break;
-      }
+    final groupId = selectedGroupId;
+    if (groupId == null || groupId.isEmpty) {
+      _resetProtected(TeacherStudentDetailState.connectionRequired);
+      return;
     }
-    link = current;
-    if (!hasClassroomAuthorization) {
-      return _resetProtected(TeacherStudentDetailState.unauthorized);
+    final contextKey = '$teacherId::$traineeId::$groupId';
+    if (_preparingContextKey == contextKey ||
+        (_preparedContextKey == contextKey && _summarySub != null)) {
+      return;
     }
-    if (current == null ||
-        !current.isApproved ||
-        !current.hasEffectiveProgressAccess) {
-      return _clearProgress(
-        current != null &&
-                current.isApproved &&
-                _hadEffectiveAccess &&
-                !current.hasEffectiveProgressAccess
-            ? TeacherStudentDetailState.accessWithdrawn
-            : TeacherStudentDetailState.waitingForAccess,
+
+    final accessEpoch = ++_accessEpoch;
+    _preparingContextKey = contextKey;
+    _preparedContextKey = null;
+    _clearProgressData(TeacherStudentDetailState.loadingProgress);
+    try {
+      await groupRepository.prepareClassroomAccessContext(
+        teacherId: teacherId,
+        traineeId: traineeId,
+        groupId: groupId,
       );
-    }
-    _hadEffectiveAccess = true;
-    if (_summarySub == null) {
+      if (!_isCurrentClassroom(classroomEpoch) ||
+          accessEpoch != _accessEpoch ||
+          _preparingContextKey != contextKey) {
+        return;
+      }
+      _preparedContextKey = contextKey;
       _beginProgress(classroomEpoch, accessEpoch);
+    } catch (_) {
+      if (_isCurrentClassroom(classroomEpoch) &&
+          accessEpoch == _accessEpoch &&
+          _preparingContextKey == contextKey) {
+        _clearProgressData(TeacherStudentDetailState.connectionRequired);
+      }
+    } finally {
+      if (_preparingContextKey == contextKey) _preparingContextKey = null;
     }
   }
 
@@ -277,6 +284,8 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _cursor = null;
     hasMore = false;
     paginationError = null;
+    _summarySub?.cancel();
+    _summarySub = null;
     notifyListeners();
 
     _summarySub = progressRepository
@@ -293,7 +302,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
             final next =
                 error is TeacherProgressException &&
                     error.code == TeacherProgressError.accessWithdrawn
-                ? TeacherStudentDetailState.accessWithdrawn
+                ? TeacherStudentDetailState.relationshipRemoved
                 : TeacherStudentDetailState.error;
             _clearProgress(next);
           },
@@ -311,7 +320,6 @@ class TeacherStudentDetailController extends ChangeNotifier {
     if (loadingMore ||
         !hasMore ||
         state == TeacherStudentDetailState.loadingProgress ||
-        link?.hasEffectiveProgressAccess != true ||
         !hasClassroomAuthorization) {
       return;
     }
@@ -337,8 +345,9 @@ class TeacherStudentDetailController extends ChangeNotifier {
         traineeId: traineeId,
         startAfter: _cursor,
       );
-      if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch))
+      if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch)) {
         return;
+      }
       final known = sessions.map((item) => item.sessionId).toSet();
       sessions = [
         ...sessions,
@@ -349,18 +358,20 @@ class TeacherStudentDetailController extends ChangeNotifier {
       _firstPageSettled = true;
       _setStateFromData();
     } on TeacherProgressException catch (error) {
-      if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch))
+      if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch)) {
         return;
+      }
       if (error.code == TeacherProgressError.accessWithdrawn) {
-        _clearProgress(TeacherStudentDetailState.accessWithdrawn);
+        _clearProgress(TeacherStudentDetailState.relationshipRemoved);
       } else if (firstPage) {
         _clearProgress(TeacherStudentDetailState.error);
       } else {
         paginationError = error;
       }
     } catch (error) {
-      if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch))
+      if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch)) {
         return;
+      }
       if (firstPage) {
         _clearProgress(TeacherStudentDetailState.error);
       } else {
@@ -401,6 +412,10 @@ class TeacherStudentDetailController extends ChangeNotifier {
   }
 
   void _clearProgress(TeacherStudentDetailState next) {
+    _clearProgressData(next);
+  }
+
+  void _clearProgressData(TeacherStudentDetailState next) {
     _dataEpoch++;
     _pageEpoch++;
     _summarySub?.cancel();
@@ -413,6 +428,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     paginationError = null;
     _firstSummarySettled = false;
     _firstPageSettled = false;
+    _clearEvidence();
     state = next;
     if (!_disposed) notifyListeners();
   }
@@ -423,9 +439,11 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _pageEpoch++;
     _summarySub?.cancel();
     _summarySub = null;
-    _linksSub?.cancel();
-    _linksSub = null;
-    link = null;
+    _profileSub?.cancel();
+    _profileSub = null;
+    profileRoot = null;
+    _preparingContextKey = null;
+    _preparedContextKey = null;
     summary = null;
     sessions = const [];
     _cursor = null;
@@ -434,6 +452,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     paginationError = null;
     _firstSummarySettled = false;
     _firstPageSettled = false;
+    _clearEvidence();
     state = next;
     if (!_disposed) notifyListeners();
   }
@@ -441,14 +460,71 @@ class TeacherStudentDetailController extends ChangeNotifier {
   Future<void> _cancelAll() async {
     await _membershipsSub?.cancel();
     await _groupsSub?.cancel();
-    await _linksSub?.cancel();
     await _profileSub?.cancel();
     await _summarySub?.cancel();
     _membershipsSub = null;
     _groupsSub = null;
-    _linksSub = null;
     _profileSub = null;
     _summarySub = null;
+  }
+
+  Future<void> loadEvidence(PublicProfileSession session) async {
+    if (session.evidenceAvailable != true ||
+        !hasClassroomAuthorization ||
+        !sessions.any((item) => item.sessionId == session.sessionId)) {
+      return;
+    }
+    final sessionId = session.sessionId;
+    final currentState = evidenceStateFor(sessionId);
+    if (currentState == TeacherEvidenceState.loading ||
+        currentState == TeacherEvidenceState.loaded) {
+      return;
+    }
+    final classroomEpoch = _classroomEpoch;
+    final accessEpoch = _accessEpoch;
+    final dataEpoch = _dataEpoch;
+    _evidenceStates[sessionId] = TeacherEvidenceState.loading;
+    _evidenceErrors.remove(sessionId);
+    _evidenceBySessionId.remove(sessionId);
+    notifyListeners();
+    try {
+      final repository = evidenceRepository;
+      if (repository == null) {
+        throw StateError('Saved-image repository is unavailable.');
+      }
+      final bytes = await repository.downloadEvidence(
+        traineeId: traineeId,
+        sessionId: sessionId,
+      );
+      if (!_isCurrentData(classroomEpoch, accessEpoch, dataEpoch)) return;
+      if (bytes == null || bytes.isEmpty) {
+        _evidenceStates[sessionId] = TeacherEvidenceState.unavailable;
+      } else if (bytes.lengthInBytes > TeacherEvidenceRepository.maximumBytes) {
+        _evidenceStates[sessionId] = TeacherEvidenceState.error;
+        _evidenceErrors[sessionId] = StateError(
+          'Saved image exceeds the maximum supported size.',
+        );
+      } else {
+        _evidenceBySessionId[sessionId] = bytes;
+        _evidenceStates[sessionId] = TeacherEvidenceState.loaded;
+      }
+    } catch (error) {
+      if (!_isCurrentData(classroomEpoch, accessEpoch, dataEpoch)) return;
+      _evidenceStates[sessionId] = TeacherEvidenceState.error;
+      _evidenceErrors[sessionId] = error;
+    }
+    if (_isCurrentData(classroomEpoch, accessEpoch, dataEpoch)) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> retryEvidence(PublicProfileSession session) =>
+      loadEvidence(session);
+
+  void _clearEvidence() {
+    _evidenceStates.clear();
+    _evidenceBySessionId.clear();
+    _evidenceErrors.clear();
   }
 
   @override

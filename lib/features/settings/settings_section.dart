@@ -1,14 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 /// Top-level Settings navigation sections.
-enum SettingsSection {
-  accountProfile,
-  security,
-  appearance,
-  practice,
-  privacy,
-  teacherAccess,
-}
+enum SettingsSection { accountProfile, security, appearance, practice, privacy }
 
 /// Which role the Settings surface is being shown for.
 enum SettingsAudience { trainee, teacher }
@@ -56,7 +49,6 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => 'Appearance',
     SettingsSection.practice => 'Practice',
     SettingsSection.privacy => 'Privacy',
-    SettingsSection.teacherAccess => 'Teacher Access',
   };
 
   String get description => switch (this) {
@@ -69,8 +61,6 @@ extension SettingsSectionX on SettingsSection {
       'Camera, mirroring, Live Practice setlist, pace, and music.',
     SettingsSection.privacy =>
       'Control who can see your detailed player profile activity.',
-    SettingsSection.teacherAccess =>
-      'Join a Teacher roster and manage what linked Teachers can access.',
   };
 
   IconData get icon => switch (this) {
@@ -79,6 +69,5 @@ extension SettingsSectionX on SettingsSection {
     SettingsSection.appearance => FluentIcons.color,
     SettingsSection.practice => FluentIcons.video,
     SettingsSection.privacy => FluentIcons.shield,
-    SettingsSection.teacherAccess => FluentIcons.people,
   };
 }

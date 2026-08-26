@@ -81,7 +81,7 @@ void main() {
   }
 
   testWidgets(
-    'waiting for progress access shows classroom copy without unauthorized lock',
+    'approved classroom membership loads progress without legacy consent',
     (tester) async {
       groups.seedGroup(activeGroup());
       groups.seedMembership(
@@ -92,13 +92,12 @@ void main() {
         ),
       );
       await pumpDetail(tester);
-      links.emit(const []);
       await tester.pump();
 
-      expect(find.text('Waiting for progress access'), findsOneWidget);
+      expect(find.text('No practice history yet'), findsOneWidget);
       expect(
-        find.textContaining('has not shared official practice progress'),
-        findsOneWidget,
+        find.textContaining('Classroom membership is required'),
+        findsNothing,
       );
       expect(find.text('Not authorized'), findsNothing);
       expect(find.textContaining('Private public profile'), findsNothing);
@@ -129,7 +128,6 @@ void main() {
           visibility: ProfileVisibility.private,
         ),
       );
-      links.emit([approvedProgressLink()]);
       await tester.pump();
 
       expect(find.text('Ada Lovelace'), findsWidgets);
@@ -154,7 +152,9 @@ void main() {
     },
   );
 
-  testWidgets('progress ready, empty, and withdrawn states', (tester) async {
+  testWidgets('progress ready and classroom data remain available', (
+    tester,
+  ) async {
     groups.seedGroup(activeGroup());
     groups.seedMembership(
       membership(
@@ -166,18 +166,8 @@ void main() {
     progress.inner.setSummary('trainee', sampleSummary());
     progress.inner.sessions['trainee'] = [sampleSession()];
     await pumpDetail(tester);
-    links.emit([approvedProgressLink()]);
     await tester.pump();
     expect(find.text('Hand Stall'), findsWidgets);
-
-    links.emit([
-      approvedProgressLink().copyWith(
-        progressAccess: TeacherProgressAccess.none,
-      ),
-    ]);
-    await tester.pump();
-    expect(find.text('Progress access withdrawn'), findsOneWidget);
-    expect(find.text('Hand Stall'), findsNothing);
   });
 
   testWidgets('empty progress history shows empty copy', (tester) async {
@@ -191,7 +181,6 @@ void main() {
     );
     progress.inner.setSummary('trainee', null);
     await pumpDetail(tester);
-    links.emit([approvedProgressLink()]);
     await tester.pump();
 
     expect(find.text('No practice history yet'), findsOneWidget);
@@ -211,7 +200,6 @@ void main() {
       ),
     );
     await pumpDetail(tester);
-    links.emit([approvedProgressLink()]);
     await tester.pump();
 
     expect(find.text('View public profile'), findsOneWidget);

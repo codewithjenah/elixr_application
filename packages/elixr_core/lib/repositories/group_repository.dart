@@ -58,6 +58,15 @@ abstract class GroupRepository {
     required String traineeId,
   });
 
+  /// Idempotently prepares the protected-read pointer for an approved
+  /// Teacher/Trainee classroom relationship. Implementations must validate the
+  /// current membership before writing the pointer.
+  Future<void> prepareClassroomAccessContext({
+    required String teacherId,
+    required String traineeId,
+    required String groupId,
+  });
+
   Future<GroupMembership> requestGroupJoin({
     required String traineeId,
     required String traineeDisplayName,

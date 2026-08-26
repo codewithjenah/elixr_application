@@ -64,35 +64,48 @@ void main() {
     );
   });
 
-  test('membership lifecycle grants Classroom Authorization only', () async {
-    final group = await groupRepository.createGroup(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-      name: 'BSHM 4A',
-    );
-    final invite = await groupRepository.getActiveGroupInvite(
-      groupId: group.id,
-    );
-    expect(invite, isNotNull);
+  test(
+    'membership lifecycle prepares classroom protected-read context',
+    () async {
+      final group = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final invite = await groupRepository.getActiveGroupInvite(
+        groupId: group.id,
+      );
+      expect(invite, isNotNull);
 
-    final membership = await groupRepository.requestGroupJoin(
-      traineeId: 'trainee-1',
-      traineeDisplayName: 'Ada Lovelace',
-      code: invite!.normalizedCode,
-    );
-    expect(membership.isPending, isTrue);
-    expect(membership.hasClassroomAuthorization, isFalse);
+      final membership = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: invite!.normalizedCode,
+      );
+      expect(membership.isPending, isTrue);
+      expect(membership.hasClassroomAuthorization, isFalse);
 
-    await groupRepository.approveMembership(
-      membershipId: membership.id,
-      teacherId: 'teacher-1',
-    );
-    final approved = groupRepository.memberships[membership.id]!;
-    expect(approved.hasClassroomAuthorization, isTrue);
-    expect(approved.status, GroupMembershipStatus.approved);
+      await groupRepository.approveMembership(
+        membershipId: membership.id,
+        teacherId: 'teacher-1',
+      );
+      final approved = groupRepository.memberships[membership.id]!;
+      expect(approved.hasClassroomAuthorization, isTrue);
+      expect(approved.status, GroupMembershipStatus.approved);
 
-    expect(relationshipRepository.links, isEmpty);
-  });
+      final context =
+          groupRepository
+              .classroomAccessContexts[ClassroomTeacherAccessContext.documentId(
+            teacherId: 'teacher-1',
+            traineeId: 'trainee-1',
+          )];
+      expect(context?.teacherId, 'teacher-1');
+      expect(context?.traineeId, 'trainee-1');
+      expect(context?.groupId, group.id);
+
+      expect(relationshipRepository.links, isEmpty);
+    },
+  );
 
   test('duplicate pending membership is prevented', () async {
     final group = await groupRepository.createGroup(

@@ -99,8 +99,12 @@ void main() {
       expect(text, contains('Settings > Security'));
       expect(text, contains('Delete Account'));
       expect(text, contains('Teacher Access'));
-      expect(text, contains('durable roster code'));
-      expect(text, contains('Linking alone does not share progress'));
+      expect(text, contains('durable group or legacy roster code'));
+      expect(
+        text,
+        contains('approved classroom membership automatically shares'),
+      );
+      expect(text, contains('there is no separate classroom opt-out'));
       expect(text, contains('Share Progress and Share Saved Images'));
     });
   });
@@ -120,10 +124,10 @@ void main() {
         expect(text, contains('email verification'));
         expect(text, contains('password reset'));
         expect(text, contains('Teacher↔Trainee relationship records'));
-        expect(text, contains('approve each request'));
-        expect(text, contains('saved-image access'));
-        expect(text, contains('revoke'));
-        expect(text, contains('sanitized, read-only progress summary'));
+        expect(text, contains('approve each group request'));
+        expect(text, contains('available retained stills'));
+        expect(text, contains('Legacy-only relationships'));
+        expect(text, contains('sanitized progress'));
         expect(
           text,
           contains('cannot create or edit Trainee sessions or scores'),
@@ -162,13 +166,13 @@ void main() {
           ),
         );
         expect(text, contains('Teacher approves'));
-        expect(text, contains('read-only when separately authorized'));
+        expect(text, contains('read-only and is automatic'));
         expect(text, isNot(contains('Leaderboard scores')));
       },
     );
   });
 
-  test('registration privacy consent version is v5', () {
-    expect(RegistrationPrivacyConsent.policyVersion, 'v5');
+  test('registration privacy consent version is v6', () {
+    expect(RegistrationPrivacyConsent.policyVersion, 'v6');
   });
 }

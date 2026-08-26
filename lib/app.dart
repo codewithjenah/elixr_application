@@ -10,6 +10,8 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_core/repositories/firebase_teacher_progress_repository.dart';
 import 'package:elixr_core/repositories/teacher_progress_repository.dart';
+import 'package:elixr_core/repositories/firebase_teacher_evidence_repository.dart';
+import 'package:elixr_core/repositories/teacher_evidence_repository.dart';
 import 'package:elixr_core/repositories/chat_repository.dart';
 import 'package:elixr_core/repositories/firebase_chat_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -62,6 +64,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final PublicProfileRepository _publicProfileRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
   late final GroupRepository _groupRepository;
+  late final TeacherEvidenceRepository _teacherEvidenceRepository;
   late final JoinCodeResolver _joinCodeResolver;
   late final JoinLinkService _joinLinkService;
   late final ChatRepository _chatRepository;
@@ -74,6 +77,7 @@ class _ElixrAppState extends State<ElixrApp> {
     _publicProfileRepository = PublicProfileRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
     _groupRepository = FirebaseGroupRepository();
+    _teacherEvidenceRepository = FirebaseTeacherEvidenceRepository();
     _joinCodeResolver = JoinCodeResolver(
       groupRepository: _groupRepository,
       relationshipRepository: _teacherRelationshipRepository,
@@ -172,6 +176,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<TeacherProgressRepository>(
           create: (_) => FirebaseTeacherProgressRepository(),
+        ),
+        Provider<TeacherEvidenceRepository>.value(
+          value: _teacherEvidenceRepository,
         ),
       ],
       child: Consumer<SettingsService>(

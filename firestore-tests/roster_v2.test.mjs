@@ -68,6 +68,7 @@ async function seedUsers() {
     await setDoc(doc(admin.firestore(), 'users', 'trainee'), {
       full_name: 'Ada Lovelace',
       role: 'Trainee',
+      session_evidence_enabled: true,
     });
     await setDoc(doc(admin.firestore(), 'users', 'other'), {
       full_name: 'Other Teacher',
@@ -408,5 +409,28 @@ describe('per-Teacher evidence Storage access', () => {
       });
     });
     await assertFails(getBytes(teacherImage));
+  });
+
+  test('legacy Teacher evidence read is denied when image saving is disabled', async () => {
+    await seedUsers();
+    const ownerStorage = context('trainee').storage();
+    const imageRef = ref(
+      ownerStorage,
+      'users/trainee/session_evidence/session-1.jpg',
+    );
+    await assertSucceeds(uploadBytes(
+      imageRef,
+      new Uint8Array(1024),
+      { contentType: 'image/jpeg' },
+    ));
+    await seedApproved({ progress: true, evidence: true });
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(admin.firestore(), 'users', 'trainee'), {
+        session_evidence_enabled: false,
+      });
+    });
+    await assertFails(getBytes(
+      ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+    ));
   });
 });

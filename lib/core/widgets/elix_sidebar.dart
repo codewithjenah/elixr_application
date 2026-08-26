@@ -47,6 +47,12 @@ const elixSidebarItems = [
     group: SidebarGroup.overview,
   ),
   SidebarItem(
+    label: 'Teacher Access',
+    icon: FluentIcons.people,
+    route: '/teacher-access',
+    group: SidebarGroup.overview,
+  ),
+  SidebarItem(
     label: 'Leaderboard',
     icon: FluentIcons.trophy2_solid,
     route: '/leaderboard',

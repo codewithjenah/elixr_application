@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../database/firestore_collections.dart';
 import '../models/coach_code.dart';
+import '../models/classroom_teacher_access_context.dart';
 import '../models/elixr_group.dart';
 import '../models/group_exception.dart';
 import '../models/group_invite.dart';
@@ -29,6 +30,8 @@ class FirebaseGroupRepository implements GroupRepository {
       _firestore.collection(FirestoreCollections.teacherInvites);
   CollectionReference<Map<String, dynamic>> get _memberships =>
       _firestore.collection(FirestoreCollections.groupMemberships);
+  CollectionReference<Map<String, dynamic>> get _classroomAccess =>
+      _firestore.collection(FirestoreCollections.classroomTeacherAccess);
 
   @override
   Future<ElixrGroup> createGroup({
@@ -290,6 +293,59 @@ class FirebaseGroupRepository implements GroupRepository {
   }
 
   @override
+  Future<void> prepareClassroomAccessContext({
+    required String teacherId,
+    required String traineeId,
+    required String groupId,
+  }) async {
+    final membershipRef = _memberships.doc(
+      GroupMembership.documentId(groupId: groupId, traineeId: traineeId),
+    );
+    final groupRef = _groups.doc(groupId);
+    final contextRef = _classroomAccess.doc(
+      ClassroomTeacherAccessContext.documentId(
+        teacherId: teacherId,
+        traineeId: traineeId,
+      ),
+    );
+
+    await _firestore.runTransaction((transaction) async {
+      final membershipSnapshot = await transaction.get(membershipRef);
+      final membership = membershipSnapshot.exists
+          ? GroupMembership.tryFromMap(
+              membershipSnapshot.data() ?? const {},
+              id: membershipSnapshot.id,
+            )
+          : null;
+      final groupSnapshot = await transaction.get(groupRef);
+      final group = groupSnapshot.exists
+          ? ElixrGroup.tryFromMap(
+              groupSnapshot.data() ?? const {},
+              id: groupSnapshot.id,
+            )
+          : null;
+      if (membership == null ||
+          !membership.isApproved ||
+          membership.teacherId != teacherId ||
+          membership.traineeId != traineeId ||
+          membership.groupId != groupId ||
+          group == null ||
+          group.teacherId != teacherId) {
+        throw const GroupException(GroupError.notFound);
+      }
+      transaction.set(
+        contextRef,
+        ClassroomTeacherAccessContext.firestoreFields(
+          teacherId: teacherId,
+          traineeId: traineeId,
+          groupId: groupId,
+          updatedAt: FieldValue.serverTimestamp(),
+        ),
+      );
+    });
+  }
+
+  @override
   Future<GroupMembership> requestGroupJoin({
     required String traineeId,
     required String traineeDisplayName,
@@ -369,12 +425,57 @@ class FirebaseGroupRepository implements GroupRepository {
   Future<void> approveMembership({
     required String membershipId,
     required String teacherId,
-  }) => _updateStatus(
-    membershipId: membershipId,
-    teacherId: teacherId,
-    from: GroupMembershipStatus.pending,
-    to: GroupMembershipStatus.approved,
-  );
+  }) async {
+    final membershipRef = _memberships.doc(membershipId);
+
+    await _firestore.runTransaction((transaction) async {
+      final membershipSnapshot = await transaction.get(membershipRef);
+      final membership = membershipSnapshot.exists
+          ? GroupMembership.tryFromMap(
+              membershipSnapshot.data() ?? const {},
+              id: membershipSnapshot.id,
+            )
+          : null;
+      if (membership == null ||
+          membership.teacherId != teacherId ||
+          membership.status != GroupMembershipStatus.pending) {
+        throw const GroupException(GroupError.notFound);
+      }
+
+      final groupSnapshot = await transaction.get(
+        _groups.doc(membership.groupId),
+      );
+      final group = groupSnapshot.exists
+          ? ElixrGroup.tryFromMap(
+              groupSnapshot.data() ?? const {},
+              id: groupSnapshot.id,
+            )
+          : null;
+      if (group == null || group.teacherId != teacherId) {
+        throw const GroupException(GroupError.notFound);
+      }
+
+      final actualContextRef = _classroomAccess.doc(
+        ClassroomTeacherAccessContext.documentId(
+          teacherId: membership.teacherId,
+          traineeId: membership.traineeId,
+        ),
+      );
+      transaction.update(membershipRef, {
+        'status': GroupMembershipStatus.approved.name,
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+      transaction.set(
+        actualContextRef,
+        ClassroomTeacherAccessContext.firestoreFields(
+          teacherId: membership.teacherId,
+          traineeId: membership.traineeId,
+          groupId: membership.groupId,
+          updatedAt: FieldValue.serverTimestamp(),
+        ),
+      );
+    });
+  }
 
   @override
   Future<void> rejectMembership({

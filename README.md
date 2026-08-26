@@ -170,8 +170,8 @@ For the existing project:
    that transaction does not consume the code. An interrupted Google
    onboarding is restored as role `unspecified` and requires an explicit role
    choice; choosing Teacher requires entering the code again.
-   New profiles record both `privacy_consent_at` / `privacy_policy_version: v5`
-   and `terms_consent_at` / `terms_of_service_version: v2`. Existing profiles
+   New profiles record both `privacy_consent_at` / `privacy_policy_version: v6`
+   and `terms_consent_at` / `terms_of_service_version: v3`. Existing profiles
    without the Terms fields remain compatible and are not bulk-backfilled.
 3. Keep `localhost` in Authentication > Settings > Authorized domains. The
    Windows Google flow uses a short-lived, nonce-protected localhost callback
@@ -338,8 +338,19 @@ assignment, public-profile, and other feature collections described below):
 - `chat_conversations` — deterministic one-to-one conversation summaries, unread counters, read timestamps, and participant snapshots.
 - `chat_blocks/{blockerId}/blocked_users` — one-way block records checked in both directions before a send.
 - `teacher_coaching_notes` — immutable legacy migration/audit input; the app no longer creates or displays coaching notes.
+- `classroom_teacher_access` — private, repairable Teacher/Trainee-to-group
+  pointers written with approved classroom membership. Protected progress and
+  saved-image reads re-check the current group owner and membership; this
+  pointer is not trusted by itself.
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
+
+Approved classroom membership automatically gives the owning Teacher
+read-only access to the Trainee's sanitized practice summary/history and
+available retained movement stills while that membership remains approved.
+Legacy-only Teacher links retain their explicit per-Teacher sharing controls.
+Turning off the Trainee's saved-image setting denies Teacher image reads before
+retained evidence is deleted.
 
 ### Direct Messages
 

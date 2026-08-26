@@ -166,13 +166,14 @@ abstract final class ElixrLegalDocuments {
         'Profile photos are stored in Cloud Storage for display across the app.',
         'Confirmed movement images: if you opt in, ELIXR stores one private, '
             'annotated still image from the camera frame that confirmed a Guided '
-            'Practice movement. It is not video, is not shared to public profiles, '
-            'leaderboards, and is accessible only to your account unless you '
-            'separately grant one linked Teacher saved-image access. That '
-            'per-Teacher permission covers retained historical and future stills '
-            'while progress sharing remains active, and can be revoked at any time. '
-            'You can disable this in Settings > Privacy to delete saved images and '
-            'their session references; account deletion also removes them.',
+            'Practice movement. It is not video and is not shared to public profiles '
+            'or leaderboards. While you are an approved member of a classroom, the '
+            'owning Teacher automatically receives read-only access to sanitized '
+            'progress and available retained stills; Teacher reads of stills also '
+            'require your session-evidence setting to remain enabled. Legacy-only '
+            'linked Teachers use separate per-Teacher saved-image permission. You '
+            'can disable image saving in Settings > Privacy to delete saved images '
+            'and their session references; account deletion also removes them.',
       ],
     ),
     ElixrLegalSection(
@@ -200,21 +201,17 @@ abstract final class ElixrLegalDocuments {
       id: 'teacher-access-and-sharing',
       title: 'Teacher Access and Sharing',
       paragraphs: [
-        'Teacher Access: a Teacher can create a durable roster code. You may enter '
-            'that exact code to request to join, and the Teacher may approve or '
-            'reject the request. Linking alone does not share progress. You can separately '
-            'enable sanitized, read-only summary and practice/assessment history '
-            'for each linked Teacher. Messaging is separate from classroom and '
-            'progress permissions: any registered Teacher or Trainee may send text '
-            'messages, including users who are not linked through a classroom. '
-            'Messages exclude raw video and protected assessment internals. Assignment '
-            'submission clips are a separate classroom authorization for the assigning '
-            'Teacher only; they are not shared through Public Profile, Progress Access, '
-            'or General Evidence Access. You can stop sharing or revoke that Teacher at '
-            'any time. Credentials, private settings, feedback internals, '
-            'achievements, and unrestricted account data are never shared. Each '
-            'per-relationship Share Progress and Share Saved Images confirmations '
-            'are independent consent events.',
+        'Teacher Access: a Teacher can create a durable group or legacy roster code. '
+            'You can enter that exact code to request to join, and the Teacher may '
+            'approve or reject the request. An approved classroom membership '
+            'automatically shares sanitized, read-only summary and practice/assessment '
+            'history plus available retained movement stills while the membership '
+            'remains approved; there is no separate classroom opt-out. Removing the '
+            'membership immediately blocks those classroom reads. Legacy-only linked '
+            'Teachers retain the separate per-Teacher Share Progress and Share Saved '
+            'Images confirmations. Messaging is separate from classroom and progress '
+            'permissions. Credentials, private settings, raw video, feedback '
+            'internals, achievements, and unrestricted account data are never shared.',
       ],
     ),
     ElixrLegalSection(
@@ -244,18 +241,15 @@ abstract final class ElixrLegalDocuments {
       id: 'roster-linking-and-sharing',
       title: 'Roster Linking and Sharing',
       paragraphs: [
-        'Roster linking: the Teacher application may store Teacher↔Trainee '
-            'relationship records after you create a durable roster code and a '
-            'Trainee intentionally requests to join. You must approve each request. '
-            'Linking alone does not share progress. A Trainee may '
-            'separately authorize sanitized, read-only progress summary and '
-            'practice/assessment history, then stop sharing or revoke the '
-            'relationship at any time. Raw video, credentials, private settings, '
-            'feedback internals, achievements, and unrestricted account data are '
-            'not shared. If the Trainee separately enables saved-image access, the '
-            'Teacher may lazily view retained annotated stills for sanitized session '
-            'rows until permission is revoked. The Teacher app cannot create or edit '
-            'Trainee sessions or scores.',
+        'Roster linking: the Teacher application may store group membership and '
+            'legacy Teacher↔Trainee relationship records after a Trainee requests '
+            'to join. You must approve each group request. An approved classroom '
+            'membership automatically permits read-only access to the Trainee’s '
+            'sanitized progress and available retained stills while it remains '
+            'approved. Legacy-only relationships use the Trainee’s separate sharing '
+            'controls. Raw video, credentials, private settings, feedback internals, '
+            'achievements, and unrestricted account data are not shared. The Teacher '
+            'app cannot create or edit Trainee sessions or scores.',
       ],
     ),
     ElixrLegalSection(
@@ -332,10 +326,10 @@ abstract final class ElixrLegalDocuments {
       paragraphs: [
         'Teacher accounts are for instructor use of the Teacher application. '
             'A Teacher roster lists only Trainees whose join request the Teacher approves. '
-            'Student progress review is read-only when separately authorized by '
-            'the Trainee. Direct messaging is available independently of roster or '
-            'progress authorization; progress review remains read-only and separately '
-            'consented.',
+            'Student progress review is read-only and is automatic for an approved '
+            'classroom membership; legacy-only relationships remain separately '
+            'authorized by the Trainee. Direct messaging is available independently '
+            'of roster or progress authorization.',
       ],
     ),
   ];

@@ -14,6 +14,7 @@ abstract final class AppRoutePaths {
 
   // Trainee join
   static const joinCoach = '/join-coach';
+  static const teacherAccess = '/teacher-access';
 
   // Trainee practice (outside shell)
   static const practice = '/practice';
@@ -70,6 +71,7 @@ abstract final class AppRoutePaths {
 
   static const traineeShellRoutes = {
     dashboard,
+    teacherAccess,
     leaderboard,
     movements,
     assignedMovements,

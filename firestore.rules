@@ -1323,9 +1323,9 @@ service cloud.firestore {
         && data.role in ['Trainee', 'Teacher']
         && data.created_at == request.time
         && data.privacy_consent_at == request.time
-        && data.privacy_policy_version == 'v5'
+        && data.privacy_policy_version == 'v6'
         && data.terms_consent_at == request.time
-        && data.terms_of_service_version == 'v2';
+        && data.terms_of_service_version == 'v3';
     }
 
     function validUserProfileUpdate() {
@@ -1334,13 +1334,23 @@ service cloud.firestore {
           'first_name', 'middle_name', 'last_name', 'full_name', 'email',
           'profile_picture_path', 'profile_picture_url',
           'profile_picture_storage_path', 'session_evidence_enabled',
+          'session_evidence_policy_version', 'session_evidence_decision_at',
           'teacher_roster_invite_code', 'teacher_invite_code'
         ])
         && (!affected.hasAny(['email'])
           || request.resource.data.email == request.auth.token.email)
         && (!affected.hasAny([
             'first_name', 'middle_name', 'last_name', 'full_name'
-          ]) || validStructuredName(request.resource.data));
+          ]) || validStructuredName(request.resource.data))
+        && (!affected.hasAny([
+            'session_evidence_policy_version', 'session_evidence_decision_at'
+          ]) || (
+            affected.hasAll([
+              'session_evidence_policy_version', 'session_evidence_decision_at'
+            ])
+            && request.resource.data.session_evidence_policy_version == 'v1'
+            && request.resource.data.session_evidence_decision_at == request.time
+          ));
     }
 
     match /users/{userId} {
@@ -1881,7 +1891,8 @@ service cloud.firestore {
       match /details/summary {
         allow read: if isSignedIn()
           && (canReadProtectedPublicProfile(userId)
-            || hasApprovedProgressAccess(userId));
+            || hasApprovedProgressAccess(userId)
+            || hasApprovedClassroomProgressAccess(userId));
         allow create, update: if isOwner(userId)
           && validPublicProfileSummary(request.resource.data);
         allow delete: if isOwner(userId);
@@ -1890,7 +1901,8 @@ service cloud.firestore {
       match /sessions/{sessionId} {
         allow read: if isSignedIn()
           && (canReadProtectedPublicProfile(userId)
-            || hasApprovedProgressAccess(userId));
+            || hasApprovedProgressAccess(userId)
+            || hasApprovedClassroomProgressAccess(userId));
         allow create, update: if isOwner(userId)
           && validPublicProfileSession(request.resource.data, userId, sessionId);
         allow delete: if isOwner(userId);
@@ -2073,6 +2085,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/teacher_student_links/$(teacherId + '_' + traineeId);
     }
 
+    function classroomTeacherAccessPath(teacherId, traineeId) {
+      return /databases/$(database)/documents/classroom_teacher_access/$(teacherId + '_' + traineeId);
+    }
+
     function hasApprovedProgressAccess(traineeId) {
       return isSignedIn()
         && exists(teacherStudentLinkPath(request.auth.uid, traineeId))
@@ -2088,6 +2104,23 @@ service cloud.firestore {
           == 1
         && get(teacherStudentLinkPath(request.auth.uid, traineeId)).data.progress_access_granted_at
           is timestamp;
+    }
+
+    // The context is a repairable pointer. Protected reads must still verify
+    // the current Teacher-owned group and approved membership through
+    // hasClassroomAuthorization().
+    function hasApprovedClassroomProgressAccess(traineeId) {
+      let contextRef = classroomTeacherAccessPath(request.auth.uid, traineeId);
+      return isSignedIn()
+        && exists(contextRef)
+        && get(contextRef).data.get('teacher_id', '') == request.auth.uid
+        && get(contextRef).data.get('trainee_id', '') == traineeId
+        && get(contextRef).data.get('group_id', '') is string
+        && get(contextRef).data.get('schema_version', 0) == 1
+        && hasClassroomAuthorization(
+          get(contextRef).data.group_id,
+          traineeId
+        );
     }
 
     function isLinkStatus(value) {
@@ -2331,9 +2364,77 @@ service cloud.firestore {
         && (resource == null || isLinkParticipant());
     }
 
+    // Private, repairable classroom authorization pointers. The pointer is
+    // never sufficient by itself: protected readers re-check the group and
+    // membership, and writes must bind all ids to the authenticated Teacher.
+    function classroomAccessContextKeys() {
+      return [
+        'teacher_id',
+        'trainee_id',
+        'group_id',
+        'schema_version',
+        'updated_at'
+      ];
+    }
+
+    function classroomAccessContextIdsMatch(data, contextId) {
+      return data.teacher_id is string
+        && data.trainee_id is string
+        && data.group_id is string
+        && isParticipantId(data.teacher_id)
+        && isParticipantId(data.trainee_id)
+        && isParticipantId(data.group_id)
+        && data.teacher_id != data.trainee_id
+        && contextId == data.teacher_id + '_' + data.trainee_id;
+    }
+
+    function validClassroomAccessContextWrite(data, contextId) {
+      return isVerifiedTeacher()
+        && data.keys().hasOnly(classroomAccessContextKeys())
+        && data.keys().hasAll(classroomAccessContextKeys())
+        && classroomAccessContextIdsMatch(data, contextId)
+        && data.teacher_id == request.auth.uid
+        && data.schema_version == 1
+        && data.updated_at == request.time
+        && existsAfter(groupPath(data.group_id))
+        && getAfter(groupPath(data.group_id)).data.teacher_id == request.auth.uid
+        && existsAfter(groupMembershipPath(data.group_id, data.trainee_id))
+        && getAfter(groupMembershipPath(data.group_id, data.trainee_id)).data.group_id
+          == data.group_id
+        && getAfter(groupMembershipPath(data.group_id, data.trainee_id)).data.teacher_id
+          == data.teacher_id
+        && getAfter(groupMembershipPath(data.group_id, data.trainee_id)).data.trainee_id
+          == data.trainee_id
+        && getAfter(groupMembershipPath(data.group_id, data.trainee_id)).data.status
+          == 'approved';
+    }
+
+    match /classroom_teacher_access/{contextId} {
+      allow get: if isSignedIn()
+        && (resource.data.teacher_id == request.auth.uid
+          || resource.data.trainee_id == request.auth.uid);
+      allow list: if isSignedIn()
+        && resource.data.teacher_id == request.auth.uid;
+      allow list: if isSignedIn()
+        && resource.data.trainee_id == request.auth.uid;
+      allow create: if validClassroomAccessContextWrite(
+        request.resource.data,
+        contextId
+      );
+      allow update: if validClassroomAccessContextWrite(
+        request.resource.data,
+        contextId
+      );
+      allow delete: if isSignedIn()
+        && (resource.data.teacher_id == request.auth.uid
+          || resource.data.trainee_id == request.auth.uid);
+    }
+
     // ---- Teacher-owned groups (Phase 2) ------------------------------------
-    // Classroom Authorization = approved group_memberships.
-    // Progress Access / General Evidence Access remain on teacher_student_links.
+    // Classroom Authorization = approved group_memberships plus a repairable
+    // classroom_teacher_access pointer for protected progress/evidence reads.
+    // Legacy Progress Access / General Evidence Access remain on
+    // teacher_student_links for legacy-only relationships.
     // Assignment Submission Authorization is not implemented until Phase 6.
 
     function groupPath(groupId) {
@@ -2560,6 +2661,19 @@ service cloud.firestore {
           == resource.data.get('request_version', 0);
     }
 
+    function classroomAccessContextAfterMembership(data) {
+      let contextRef = classroomTeacherAccessPath(
+        data.teacher_id,
+        data.trainee_id
+      );
+      return existsAfter(contextRef)
+        && getAfter(contextRef).data.teacher_id == data.teacher_id
+        && getAfter(contextRef).data.trainee_id == data.trainee_id
+        && getAfter(contextRef).data.group_id == data.group_id
+        && getAfter(contextRef).data.schema_version == 1
+        && getAfter(contextRef).data.updated_at == request.time;
+    }
+
     function validMembershipUpdateShape(data) {
       return data.keys().hasOnly(membershipAllowedKeys())
         && data.keys().hasAll(membershipKeys())
@@ -2596,7 +2710,11 @@ service cloud.firestore {
         && resource.data.get('request_version', 0) == 1
         && request.resource.data.status in ['approved', 'rejected']
         && membershipParticipantsUnchanged()
-        && membershipIdentitySnapshotsUnchanged();
+        && membershipIdentitySnapshotsUnchanged()
+        && (
+          request.resource.data.status == 'rejected'
+          || classroomAccessContextAfterMembership(request.resource.data)
+        );
     }
 
     function validTeacherMembershipRemoval() {
@@ -2610,7 +2728,8 @@ service cloud.firestore {
 
     match /groups/{groupId} {
       allow get: if isSignedIn()
-        && resource.data.status == 'active';
+        && (resource.data.status == 'active'
+          || resource.data.teacher_id == request.auth.uid);
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
 
       allow create: if validGroupCreate(request.resource.data);

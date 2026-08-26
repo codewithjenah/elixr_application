@@ -54,6 +54,18 @@ class TeacherAccessController extends ChangeNotifier {
   StreamSubscription<List<GroupMembership>>? _groupMembershipsSub;
   bool _disposed = false;
 
+  Set<String> get classroomTeacherIds => {
+    for (final membership in approvedGroupMemberships) membership.teacherId,
+  };
+
+  /// Approved legacy relationships that are not already covered by an
+  /// approved classroom membership. These retain the explicit legacy sharing
+  /// controls for backward compatibility.
+  List<TeacherStudentLink> get legacyOnlyApproved => [
+    for (final link in approved)
+      if (!classroomTeacherIds.contains(link.teacherId)) link,
+  ];
+
   Future<void> start() async {
     loading = true;
     errorMessage = null;

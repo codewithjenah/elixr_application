@@ -138,7 +138,97 @@ async function seedClassroom({
   });
 }
 
+async function seedClassroomEvidence({
+  membership = 'approved',
+  enabled = true,
+  contextGroup = GROUP_ID,
+} = {}) {
+  await seedClassroom({ membership });
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    await setDoc(doc(db, 'users', 'trainee'), {
+      session_evidence_enabled: enabled,
+    }, { merge: true });
+    await setDoc(doc(db, 'classroom_teacher_access', 'teacher_trainee'), {
+      teacher_id: 'teacher',
+      trainee_id: 'trainee',
+      group_id: contextGroup,
+      schema_version: 1,
+      updated_at: Timestamp.now(),
+    });
+  });
+}
+
+async function uploadSavedImage() {
+  await assertSucceeds(
+    uploadBytes(
+      ref(context('trainee').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      new Uint8Array(1024),
+      { contentType: 'image/jpeg' },
+    ),
+  );
+}
+
 describe('assignment_submissions Storage', () => {
+  test('approved classroom Teacher can read saved image while enabled', async () => {
+    await seedClassroomEvidence();
+    await uploadSavedImage();
+    await assertSucceeds(
+      getBytes(
+        ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      ),
+    );
+  });
+
+  test('classroom saved-image read is denied when the Trainee disables it', async () => {
+    await seedClassroomEvidence();
+    await uploadSavedImage();
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'users', 'trainee'), {
+        session_evidence_enabled: false,
+      }, { merge: true });
+    });
+    await assertFails(
+      getBytes(
+        ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      ),
+    );
+  });
+
+  test('removed classroom membership invalidates a saved-image read', async () => {
+    await seedClassroomEvidence();
+    await uploadSavedImage();
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'group_memberships', `${GROUP_ID}_trainee`), {
+        status: 'removed',
+      }, { merge: true });
+    });
+    await assertFails(
+      getBytes(
+        ref(context('teacher').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      ),
+    );
+  });
+
+  test('unrelated Teacher cannot use a classroom context for another owner', async () => {
+    await seedClassroomEvidence();
+    await uploadSavedImage();
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), 'classroom_teacher_access', 'other_trainee'), {
+        teacher_id: 'other',
+        trainee_id: 'trainee',
+        group_id: GROUP_ID,
+        schema_version: 1,
+        updated_at: Timestamp.now(),
+      });
+    });
+    await assertFails(
+      getBytes(
+        ref(context('other').storage(), 'users/trainee/session_evidence/session-1.jpg'),
+      ),
+    );
+  });
+
   test('approved Trainee creates matching <=15MiB video/mp4', async () => {
     await seedClassroom();
     const storage = context('trainee').storage();

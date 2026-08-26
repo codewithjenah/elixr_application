@@ -6,6 +6,7 @@ export 'constants/coaching_movement_names.dart';
 export 'database/user_profile_store.dart';
 export 'legal/legal_documents.dart';
 export 'models/coach_code.dart';
+export 'models/classroom_teacher_access_context.dart';
 export 'models/elixr_group.dart';
 export 'models/group_exception.dart';
 export 'models/group_invite.dart';

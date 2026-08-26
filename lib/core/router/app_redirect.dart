@@ -133,8 +133,8 @@ String? _redirectAuthenticatedTrainee({
     return AppRoutePaths.dashboard;
   }
 
-  if (state.hasPendingJoinCode && location != AppRoutePaths.joinCoach) {
-    return AppRoutePaths.joinCoach;
+  if (state.hasPendingJoinCode && location != AppRoutePaths.teacherAccess) {
+    return AppRoutePaths.teacherAccess;
   }
 
   if (isAuthRoute) return AppRoutePaths.dashboard;

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 
 import 'package:elixr_application/data/models/public_profile.dart';
@@ -306,22 +307,25 @@ PublicProfileSummary sampleSummary() => const PublicProfileSummary(
   completedMovementNames: ['Hand Stall'],
 );
 
-PublicProfileSession sampleSession({String id = 'session-1'}) =>
-    PublicProfileSession(
-      sessionId: id,
-      userId: 'trainee',
-      movementName: 'Hand Stall',
-      difficulty: 'Easy',
-      durationSeconds: 60,
-      propType: TrainingProp.bottle,
-      rubric: const RubricAssessment(
-        technique: 2,
-        stability: 2,
-        completion: 2,
-        propPositioning: 2,
-      ),
-      assessmentVersion: 2,
-    );
+PublicProfileSession sampleSession({
+  String id = 'session-1',
+  bool? evidenceAvailable,
+}) => PublicProfileSession(
+  sessionId: id,
+  userId: 'trainee',
+  movementName: 'Hand Stall',
+  difficulty: 'Easy',
+  durationSeconds: 60,
+  propType: TrainingProp.bottle,
+  rubric: const RubricAssessment(
+    technique: 2,
+    stability: 2,
+    completion: 2,
+    propPositioning: 2,
+  ),
+  assessmentVersion: 2,
+  evidenceAvailable: evidenceAvailable,
+);
 
 class TrackingTeacherProgressRepository implements TeacherProgressRepository {
   final InMemoryTeacherProgressRepository inner =
@@ -347,5 +351,22 @@ class TrackingTeacherProgressRepository implements TeacherProgressRepository {
       pageSize: pageSize,
       startAfter: startAfter,
     );
+  }
+}
+
+class TrackingTeacherEvidenceRepository implements TeacherEvidenceRepository {
+  final Map<String, Uint8List?> responses = {};
+  final Map<String, Object> errors = {};
+  final List<String> downloads = [];
+
+  @override
+  Future<Uint8List?> downloadEvidence({
+    required String traineeId,
+    required String sessionId,
+  }) async {
+    downloads.add('$traineeId:$sessionId');
+    final error = errors[sessionId];
+    if (error != null) throw error;
+    return responses[sessionId];
   }
 }

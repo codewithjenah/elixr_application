@@ -13,12 +13,12 @@ void main() {
         ),
         {
           'privacy_consent_at': marker,
-          'privacy_policy_version': 'v5',
+          'privacy_policy_version': 'v6',
           'terms_consent_at': marker,
-          'terms_of_service_version': 'v2',
+          'terms_of_service_version': 'v3',
         },
       );
-      expect(RegistrationPrivacyConsent.policyVersion, 'v5');
+      expect(RegistrationPrivacyConsent.policyVersion, 'v6');
     });
   });
 

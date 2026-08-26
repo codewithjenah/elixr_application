@@ -10,6 +10,12 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function sessionEvidenceEnabled(traineeId) {
+      let user = /databases/(default)/documents/users/$(traineeId);
+      return firestore.exists(user)
+        && firestore.get(user).data.get('session_evidence_enabled', false) == true;
+    }
+
     function hasTeacherEvidenceGrant(traineeId) {
       let link = /databases/(default)/documents/teacher_student_links/$(request.auth.uid + '_' + traineeId);
       return isSignedIn()
@@ -22,7 +28,31 @@ service firebase.storage {
         && firestore.get(link).data.progress_access_granted_at is timestamp
         && firestore.get(link).data.evidence_access == 'granted'
         && firestore.get(link).data.evidence_access_version == 1
-        && firestore.get(link).data.evidence_access_granted_at is timestamp;
+        && firestore.get(link).data.evidence_access_granted_at is timestamp
+        && sessionEvidenceEnabled(traineeId);
+    }
+
+    function hasTeacherClassroomEvidenceGrant(traineeId) {
+      let contextRef = /databases/(default)/documents/classroom_teacher_access/$(request.auth.uid + '_' + traineeId);
+      return isSignedIn()
+        && firestore.exists(contextRef)
+        && firestore.get(contextRef).data.get('teacher_id', '') == request.auth.uid
+        && firestore.get(contextRef).data.get('trainee_id', '') == traineeId
+        && firestore.get(contextRef).data.get('schema_version', 0) == 1
+        && firestore.get(contextRef).data.get('group_id', '') is string
+        && firestore.exists(/databases/(default)/documents/groups/$(firestore.get(contextRef).data.group_id))
+        && firestore.get(/databases/(default)/documents/groups/$(firestore.get(contextRef).data.group_id)).data.teacher_id
+          == request.auth.uid
+        && firestore.exists(/databases/(default)/documents/group_memberships/$(firestore.get(contextRef).data.group_id + '_' + traineeId))
+        && firestore.get(/databases/(default)/documents/group_memberships/$(firestore.get(contextRef).data.group_id + '_' + traineeId)).data.group_id
+          == firestore.get(contextRef).data.group_id
+        && firestore.get(/databases/(default)/documents/group_memberships/$(firestore.get(contextRef).data.group_id + '_' + traineeId)).data.teacher_id
+          == request.auth.uid
+        && firestore.get(/databases/(default)/documents/group_memberships/$(firestore.get(contextRef).data.group_id + '_' + traineeId)).data.trainee_id
+          == traineeId
+        && firestore.get(/databases/(default)/documents/group_memberships/$(firestore.get(contextRef).data.group_id + '_' + traineeId)).data.status
+          == 'approved'
+        && sessionEvidenceEnabled(traineeId);
     }
 
     function isValidProfileImage() {
@@ -280,7 +310,9 @@ service firebase.storage {
     // content and size checks match the client/backend contract.
     match /users/{userId}/session_evidence/{fileName} {
       allow read: if fileName.matches('^[^/]+\\.jpg$')
-        && (isOwner(userId) || hasTeacherEvidenceGrant(userId));
+        && (isOwner(userId)
+          || hasTeacherEvidenceGrant(userId)
+          || hasTeacherClassroomEvidenceGrant(userId));
       allow create, update: if isOwner(userId)
         && fileName.matches('^[^/]+\\.jpg$')
         && request.resource.contentType == 'image/jpeg'

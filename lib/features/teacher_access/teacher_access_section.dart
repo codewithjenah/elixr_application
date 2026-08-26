@@ -16,7 +16,7 @@ import '../../data/repositories/session_evidence_repository.dart';
 import '../settings/widgets/settings_components.dart';
 import 'teacher_access_controller.dart';
 
-/// Dedicated Teacher Access destination hosted in Settings.
+/// Reusable Teacher Access body hosted by the trainee shell destination.
 class TeacherAccessSection extends StatefulWidget {
   const TeacherAccessSection({
     super.key,
@@ -131,9 +131,10 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
             children: [
               Text(
                 'Join a group with a class invite code, or use a legacy Teacher '
-                'roster code. The Teacher must approve your request. Progress and '
-                'saved movement images remain private until you enable each '
-                'permission separately on a linked Teacher.',
+                'roster code. The Teacher must approve your request. Approved '
+                'classroom memberships automatically share sanitized progress and '
+                'available saved movement images while they remain approved. '
+                'Legacy-only linked Teachers keep the explicit sharing controls.',
                 style: AppTheme.bodySecondary.copyWith(
                   color: context.elixTextSecondary,
                   height: 1.4,
@@ -259,8 +260,9 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
             const SizedBox(height: 6),
             Text(
               controller.resolvedKind == JoinCodeKind.groupInvite
-                  ? 'Send a group join request? Classroom membership does not share '
-                        'progress or saved images.'
+                  ? 'Send a group join request? Once approved, sanitized progress '
+                        'and available saved images are shared automatically while '
+                        'membership remains approved.'
                   : 'Send a legacy Teacher roster request? Nothing is shared until '
                         'the Teacher approves, and progress and images remain off by default.',
               style: AppTheme.caption.copyWith(
@@ -361,7 +363,7 @@ class _GroupMembershipsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Group Memberships',
+            'Approved Classroom Memberships',
             style: AppTheme.headingMedium.copyWith(
               fontSize: 16,
               color: context.elixTextPrimary,
@@ -382,7 +384,9 @@ class _GroupMembershipsCard extends StatelessWidget {
                 groupName:
                     controller.groupNamesById[membership.groupId]?.name ??
                     'Group',
-                subtitleOverride: 'Classroom membership approved',
+                subtitleOverride:
+                    'Approved · Progress and available saved movement images '
+                    'are shared automatically while membership remains approved.',
               ),
               if (membership != controller.approvedGroupMemberships.last)
                 const SizedBox(height: AppSpacing.md),
@@ -449,19 +453,20 @@ class _LinkedTeachersCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final linked = controller.legacyOnlyApproved;
     return SettingsGroup(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Linked Teachers',
+            'Legacy-only Linked Teachers',
             style: AppTheme.headingMedium.copyWith(
               fontSize: 16,
               color: context.elixTextPrimary,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          if (controller.approved.isEmpty)
+          if (linked.isEmpty)
             Text(
               'No linked Teachers yet.',
               key: const Key('teacher_access_linked_empty'),
@@ -470,7 +475,7 @@ class _LinkedTeachersCard extends StatelessWidget {
               ),
             )
           else
-            for (final link in controller.approved) ...[
+            for (final link in linked) ...[
               _RequestRow(
                 link: link,
                 subtitleOverride:
@@ -538,8 +543,7 @@ class _LinkedTeachersCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (link != controller.approved.last)
-                const SizedBox(height: AppSpacing.md),
+              if (link != linked.last) const SizedBox(height: AppSpacing.md),
             ],
         ],
       ),

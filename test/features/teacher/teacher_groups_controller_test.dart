@@ -149,6 +149,19 @@ class _SpyGroupRepository implements GroupRepository {
   }
 
   @override
+  Future<void> prepareClassroomAccessContext({
+    required String teacherId,
+    required String traineeId,
+    required String groupId,
+  }) {
+    return inner.prepareClassroomAccessContext(
+      teacherId: teacherId,
+      traineeId: traineeId,
+      groupId: groupId,
+    );
+  }
+
+  @override
   Future<GroupMembership> requestGroupJoin({
     required String traineeId,
     required String traineeDisplayName,

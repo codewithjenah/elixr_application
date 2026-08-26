@@ -140,10 +140,7 @@ class AppRouter {
         ),
         GoRoute(
           path: AppRoutePaths.joinCoach,
-          pageBuilder: (context, state) => fadeTransitionPage(
-            key: state.pageKey,
-            child: const JoinTeacherScreen(),
-          ),
+          redirect: (context, state) => AppRoutePaths.teacherAccess,
         ),
         GoRoute(
           path: AppRoutePaths.practice,
@@ -192,6 +189,13 @@ class AppRouter {
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,
                 child: const DashboardScreen(),
+              ),
+            ),
+            GoRoute(
+              path: AppRoutePaths.teacherAccess,
+              pageBuilder: (context, state) => fadeTransitionPage(
+                key: state.pageKey,
+                child: const TeacherAccessScreen(),
               ),
             ),
             GoRoute(

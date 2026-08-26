@@ -19,9 +19,9 @@ enum GroupMembershipStatus {
 
 /// Membership at `group_memberships/{groupId}_{traineeId}`.
 ///
-/// Approved membership is **Classroom Authorization**. It does not grant
-/// Progress Access, General Evidence Access, or Assignment Submission
-/// Authorization.
+/// Approved membership is **Classroom Authorization**. It automatically
+/// enables the separate, read-only classroom progress/evidence context while
+/// it remains approved; assignment submission authorization is separate.
 class GroupMembership {
   static const currentRequestVersion = 1;
 

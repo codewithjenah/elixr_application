@@ -133,6 +133,22 @@ function pendingMembershipPayload(code = CODE) {
   };
 }
 
+async function approveMembership(db = context('teacher').firestore()) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'group_memberships', MEMBERSHIP_ID), {
+    status: 'approved',
+    updated_at: serverTimestamp(),
+  });
+  batch.set(doc(db, 'classroom_teacher_access', 'teacher_trainee'), {
+    teacher_id: 'teacher',
+    trainee_id: 'trainee',
+    group_id: GROUP_ID,
+    schema_version: 1,
+    updated_at: serverTimestamp(),
+  });
+  await assertSucceeds(batch.commit());
+}
+
 describe('Phase 2 groups', () => {
   test('verified Teacher creates own group', async () => {
     await seedUsers();
@@ -365,9 +381,62 @@ describe('group memberships', () => {
     await assertSucceeds(
       setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
     );
+    await approveMembership();
+  });
+
+  test('membership approval and classroom context must be atomic', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
     await assertSucceeds(
-      updateDoc(doc(context('teacher').firestore(), 'group_memberships', MEMBERSHIP_ID), {
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+
+    const teacher = context('teacher').firestore();
+    await assertFails(
+      updateDoc(doc(teacher, 'group_memberships', MEMBERSHIP_ID), {
         status: 'approved',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(teacher, 'classroom_teacher_access', 'teacher_trainee'), {
+        teacher_id: 'teacher',
+        trainee_id: 'trainee',
+        group_id: GROUP_ID,
+        schema_version: 1,
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('approved Teacher can repair context but cannot retarget it', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const trainee = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
+    );
+    await approveMembership();
+
+    const teacher = context('teacher').firestore();
+    await assertSucceeds(
+      setDoc(doc(teacher, 'classroom_teacher_access', 'teacher_trainee'), {
+        teacher_id: 'teacher',
+        trainee_id: 'trainee',
+        group_id: GROUP_ID,
+        schema_version: 1,
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(teacher, 'classroom_teacher_access', 'teacher_trainee'), {
+        teacher_id: 'teacher',
+        trainee_id: 'trainee',
+        group_id: 'other-group',
+        schema_version: 1,
         updated_at: serverTimestamp(),
       }),
     );
@@ -419,12 +488,7 @@ describe('group memberships', () => {
       'group_memberships',
       MEMBERSHIP_ID,
     );
-    await assertSucceeds(
-      updateDoc(teacherMembership, {
-        status: 'approved',
-        updated_at: serverTimestamp(),
-      }),
-    );
+    await approveMembership();
     await assertSucceeds(
       updateDoc(teacherMembership, {
         status: 'removed',
@@ -609,12 +673,7 @@ describe('unverified Trainee group join (Windows auth parity)', () => {
     await assertSucceeds(
       setDoc(doc(trainee, 'group_memberships', MEMBERSHIP_ID), pendingMembershipPayload()),
     );
-    await assertSucceeds(
-      updateDoc(doc(context('teacher').firestore(), 'group_memberships', MEMBERSHIP_ID), {
-        status: 'approved',
-        updated_at: serverTimestamp(),
-      }),
-    );
+    await approveMembership();
   });
 
   test('unverified Teacher cannot create group', async () => {
@@ -692,12 +751,7 @@ describe('unverified Teacher membership decisions (rules boundary)', () => {
     await seedPendingMembership();
     const verifiedTeacher = context('teacher').firestore();
     const membershipRef = doc(verifiedTeacher, 'group_memberships', MEMBERSHIP_ID);
-    await assertSucceeds(
-      updateDoc(membershipRef, {
-        status: 'approved',
-        updated_at: serverTimestamp(),
-      }),
-    );
+    await approveMembership();
     const unverifiedTeacher = context('teacher', { emailVerified: false }).firestore();
     await assertFails(
       updateDoc(doc(unverifiedTeacher, 'group_memberships', MEMBERSHIP_ID), {

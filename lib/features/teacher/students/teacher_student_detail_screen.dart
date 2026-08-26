@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:elixr_core/elixr_core.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -20,10 +23,12 @@ class TeacherStudentDetailScreen extends StatefulWidget {
     super.key,
     required this.traineeId,
     this.preferredGroupId,
+    this.evidenceRepository,
   });
 
   final String traineeId;
   final String? preferredGroupId;
+  final TeacherEvidenceRepository? evidenceRepository;
 
   @override
   State<TeacherStudentDetailScreen> createState() =>
@@ -43,13 +48,22 @@ class _TeacherStudentDetailScreenState
     if (userId == null) return;
     _controller = TeacherStudentDetailController(
       groupRepository: context.read(),
-      relationshipRepository: context.read(),
       progressRepository: context.read(),
       publicProfileRepository: context.read<PublicProfileRepository>(),
       teacherId: userId,
       traineeId: widget.traineeId,
       preferredGroupId: widget.preferredGroupId,
+      evidenceRepository:
+          widget.evidenceRepository ?? _maybeEvidenceRepository(context),
     )..start();
+  }
+
+  TeacherEvidenceRepository? _maybeEvidenceRepository(BuildContext context) {
+    try {
+      return context.read<TeacherEvidenceRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   @override
@@ -258,18 +272,6 @@ class _ProgressSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return switch (controller.state) {
-      TeacherStudentDetailState.waitingForAccess => const _MessagePanel(
-        title: 'Waiting for progress access',
-        body:
-            'This student is in your classroom but has not shared official practice progress yet. They can grant Progress Access from their ELIXR settings.',
-        icon: FluentIcons.hour_glass,
-      ),
-      TeacherStudentDetailState.accessWithdrawn => const _MessagePanel(
-        title: 'Progress access withdrawn',
-        body:
-            'This student previously shared progress but has withdrawn access. Classroom membership is unchanged.',
-        icon: FluentIcons.remove_filter,
-      ),
       TeacherStudentDetailState.loadingProgress => const Center(
         child: ProgressRing(),
       ),
@@ -325,6 +327,9 @@ class _ProgressReady extends StatelessWidget {
             return ListTile(
               title: Text(session.movementName),
               subtitle: Text('${session.difficulty} · $scoreLabel'),
+              trailing: session.evidenceAvailable == true
+                  ? _SavedImageAction(controller: controller, session: session)
+                  : null,
             );
           }),
         if (controller.paginationError != null) ...[
@@ -344,6 +349,90 @@ class _ProgressReady extends StatelessWidget {
                   : const Text('Load more'),
             ),
           ),
+      ],
+    );
+  }
+}
+
+class _SavedImageAction extends StatelessWidget {
+  const _SavedImageAction({required this.controller, required this.session});
+
+  final TeacherStudentDetailController controller;
+  final PublicProfileSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.evidenceStateFor(session.sessionId);
+    return switch (state) {
+      TeacherEvidenceState.idle => Button(
+        key: Key('teacher_saved_image_${session.sessionId}'),
+        onPressed: () => _open(context),
+        child: const Text('View saved image'),
+      ),
+      TeacherEvidenceState.loading => const Button(
+        onPressed: null,
+        child: ProgressRing(),
+      ),
+      TeacherEvidenceState.loaded => Button(
+        key: Key('teacher_saved_image_${session.sessionId}'),
+        onPressed: () {
+          final bytes = controller.evidenceFor(session.sessionId);
+          if (bytes != null) _showImage(context, bytes);
+        },
+        child: const Text('View saved image'),
+      ),
+      TeacherEvidenceState.unavailable => _RetrySavedImageAction(
+        message: 'Saved image unavailable',
+        onRetry: () => _open(context),
+      ),
+      TeacherEvidenceState.error => _RetrySavedImageAction(
+        message: 'Could not load saved image',
+        onRetry: () => _open(context),
+      ),
+    };
+  }
+
+  Future<void> _open(BuildContext context) async {
+    await controller.loadEvidence(session);
+    if (!context.mounted) return;
+    final bytes = controller.evidenceFor(session.sessionId);
+    if (bytes != null) _showImage(context, bytes);
+  }
+
+  void _showImage(BuildContext context, Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => ContentDialog(
+        title: Text('${session.movementName} · Saved image'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 520),
+          child: Image.memory(bytes, fit: BoxFit.contain),
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RetrySavedImageAction extends StatelessWidget {
+  const _RetrySavedImageAction({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(message, style: AppTheme.caption),
+        const SizedBox(width: AppSpacing.xs),
+        Button(onPressed: onRetry, child: const Text('Retry')),
       ],
     );
   }

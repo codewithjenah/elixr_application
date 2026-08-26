@@ -465,6 +465,17 @@ class _ControllableGroupRepository implements GroupRepository {
   }) => inner.watchTraineeMemberships(traineeId: traineeId);
 
   @override
+  Future<void> prepareClassroomAccessContext({
+    required String teacherId,
+    required String traineeId,
+    required String groupId,
+  }) => inner.prepareClassroomAccessContext(
+    teacherId: teacherId,
+    traineeId: traineeId,
+    groupId: groupId,
+  );
+
+  @override
   Future<GroupMembership> requestGroupJoin({
     required String traineeId,
     required String traineeDisplayName,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/coach_code.dart';
+import '../models/classroom_teacher_access_context.dart';
 import '../models/elixr_group.dart';
 import '../models/group_exception.dart';
 import '../models/group_invite.dart';
@@ -31,6 +32,7 @@ class InMemoryGroupRepository implements GroupRepository {
   final Map<String, GroupInvite> invites = {};
   final Map<String, String> activeInviteByGroup = {};
   final Map<String, GroupMembership> memberships = {};
+  final Map<String, ClassroomTeacherAccessContext> classroomAccessContexts = {};
   int _groupCounter = 0;
 
   /// Legacy `teacher_invites` codes reserved for cross-namespace collision tests.
@@ -74,6 +76,38 @@ class InMemoryGroupRepository implements GroupRepository {
   void seedMembership(GroupMembership membership) {
     memberships[membership.id] = membership;
     _emitMemberships();
+  }
+
+  @override
+  Future<void> prepareClassroomAccessContext({
+    required String teacherId,
+    required String traineeId,
+    required String groupId,
+  }) async {
+    final membership =
+        memberships[GroupMembership.documentId(
+          groupId: groupId,
+          traineeId: traineeId,
+        )];
+    final group = groups[groupId];
+    if (membership == null ||
+        !membership.isApproved ||
+        membership.teacherId != teacherId ||
+        membership.traineeId != traineeId ||
+        membership.groupId != groupId ||
+        group == null ||
+        group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    classroomAccessContexts[ClassroomTeacherAccessContext.documentId(
+      teacherId: teacherId,
+      traineeId: traineeId,
+    )] = ClassroomTeacherAccessContext(
+      teacherId: teacherId,
+      traineeId: traineeId,
+      groupId: groupId,
+      updatedAt: now,
+    );
   }
 
   void dispose() {
@@ -358,13 +392,32 @@ class InMemoryGroupRepository implements GroupRepository {
   Future<void> approveMembership({
     required String membershipId,
     required String teacherId,
-  }) => _transition(
-    membershipId: membershipId,
-    participantId: teacherId,
-    teacherOwned: true,
-    from: GroupMembershipStatus.pending,
-    to: GroupMembershipStatus.approved,
-  );
+  }) async {
+    final membership = memberships[membershipId];
+    if (membership == null ||
+        membership.teacherId != teacherId ||
+        !membership.isPending) {
+      throw const GroupException(GroupError.notFound);
+    }
+    final group = groups[membership.groupId];
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    memberships[membershipId] = membership.copyWith(
+      status: GroupMembershipStatus.approved,
+      updatedAt: now,
+    );
+    classroomAccessContexts[ClassroomTeacherAccessContext.documentId(
+      teacherId: membership.teacherId,
+      traineeId: membership.traineeId,
+    )] = ClassroomTeacherAccessContext(
+      teacherId: membership.teacherId,
+      traineeId: membership.traineeId,
+      groupId: membership.groupId,
+      updatedAt: now,
+    );
+    _emitMemberships();
+  }
 
   @override
   Future<void> rejectMembership({
