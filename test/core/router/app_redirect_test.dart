@@ -337,6 +337,15 @@ void main() {
       ),
       AppRoutePaths.dashboard,
     );
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.teacherGroup('group-1'),
+        ),
+      ),
+      AppRoutePaths.dashboard,
+    );
   });
 
   test('verified teacher can stay on faculties', () {
@@ -400,6 +409,18 @@ void main() {
         ),
       ),
       AppRoutePaths.teacherDashboard,
+    );
+  });
+
+  test('verified teacher can stay on a group detail', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _teacher(),
+          location: AppRoutePaths.teacherGroup('group-1'),
+        ),
+      ),
+      isNull,
     );
   });
 

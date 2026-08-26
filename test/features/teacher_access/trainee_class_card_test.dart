@@ -44,7 +44,7 @@ void main() {
               child: TraineeClassCard(
                 groupId: 'group-1',
                 className: 'BSIT-4A',
-                teacherDisplayName: 'Jiro Lapuz',
+                subtitle: 'Jiro Lapuz',
                 onOpen: () => opened = true,
               ),
             ),

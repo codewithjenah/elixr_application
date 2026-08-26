@@ -44,14 +44,20 @@ class TraineeClassCard extends StatelessWidget {
     super.key,
     required this.groupId,
     required this.className,
-    required this.teacherDisplayName,
+    required this.subtitle,
     required this.onOpen,
+    this.footerLabel = 'Open classwork',
+    this.cardKey,
+    this.subtitleIcon = FluentIcons.contact,
   });
 
   final String groupId;
   final String className;
-  final String teacherDisplayName;
+  final String subtitle;
   final VoidCallback onOpen;
+  final String footerLabel;
+  final Key? cardKey;
+  final IconData subtitleIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +68,7 @@ class TraineeClassCard extends StatelessWidget {
       borderRadius: 18,
       onTap: onOpen,
       child: Container(
-        key: Key('teacher_access_group_$groupId'),
+        key: cardKey ?? Key('teacher_access_group_$groupId'),
         height: 214,
         decoration: BoxDecoration(
           color: context.elixCardSurface,
@@ -101,7 +107,8 @@ class TraineeClassCard extends StatelessWidget {
                 child: TraineeClassHero(
                   accent: accent,
                   title: className,
-                  subtitle: teacherDisplayName,
+                  subtitle: subtitle,
+                  subtitleIcon: subtitleIcon,
                   compact: true,
                 ),
               ),
@@ -126,7 +133,7 @@ class TraineeClassCard extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Open classwork',
+                        footerLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.caption.copyWith(
@@ -159,12 +166,14 @@ class TraineeClassHero extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.compact = false,
+    this.subtitleIcon = FluentIcons.contact,
   });
 
   final TraineeClassAccent accent;
   final String title;
   final String subtitle;
   final bool compact;
+  final IconData subtitleIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -261,7 +270,7 @@ class TraineeClassHero extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    FluentIcons.contact,
+                    subtitleIcon,
                     size: compact ? 12 : 14,
                     color: Colors.white.withValues(alpha: 0.9),
                   ),
@@ -283,6 +292,71 @@ class TraineeClassHero extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Framed class hero used by trainee and teacher class detail pages.
+class TraineeClassHeroBanner extends StatelessWidget {
+  const TraineeClassHeroBanner({
+    super.key,
+    required this.groupId,
+    required this.title,
+    required this.subtitle,
+    this.height = 176,
+    this.subtitleIcon = FluentIcons.contact,
+  });
+
+  final String groupId;
+  final String title;
+  final String subtitle;
+  final double height;
+  final IconData subtitleIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = traineeClassAccent(groupId);
+    final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
+    return Container(
+      height: height,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : Color.alphaBlend(
+                  accent.start.withValues(alpha: isDark ? 0.28 : 0.18),
+                  context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
+                ),
+          width: highContrast ? 2 : 1,
+        ),
+        boxShadow: highContrast
+            ? const []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.08),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+                BoxShadow(
+                  color: accent.start.withValues(alpha: isDark ? 0.18 : 0.12),
+                  blurRadius: 24,
+                  spreadRadius: -6,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: TraineeClassHero(
+          accent: accent,
+          title: title,
+          subtitle: subtitle,
+          subtitleIcon: subtitleIcon,
+        ),
+      ),
     );
   }
 }

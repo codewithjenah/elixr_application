@@ -54,6 +54,13 @@ void main() {
     );
     expect(
       isTeacherSidebarRouteActive(
+        '${AppRoutePaths.teacherGroups}/group-1',
+        AppRoutePaths.teacherGroups,
+      ),
+      isTrue,
+    );
+    expect(
+      isTeacherSidebarRouteActive(
         AppRoutePaths.teacherDashboard,
         AppRoutePaths.teacherGroups,
       ),

@@ -145,56 +145,15 @@ class _ClassDetailBody extends StatelessWidget {
       );
     }
 
-    final accent = traineeClassAccent(controller.groupId);
-    final isDark = context.isDarkTheme;
-    final highContrast = context.isHighContrast;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 176,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: highContrast
-                    ? context.elixBorder
-                    : Color.alphaBlend(
-                        accent.start.withValues(alpha: isDark ? 0.28 : 0.18),
-                        context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
-                      ),
-                width: highContrast ? 2 : 1,
-              ),
-              boxShadow: highContrast
-                  ? const []
-                  : [
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: isDark ? 0.28 : 0.08,
-                        ),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                      BoxShadow(
-                        color: accent.start.withValues(
-                          alpha: isDark ? 0.18 : 0.12,
-                        ),
-                        blurRadius: 24,
-                        spreadRadius: -6,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: TraineeClassHero(
-                accent: accent,
-                title: controller.className,
-                subtitle: controller.teacherDisplayName,
-              ),
-            ),
+          TraineeClassHeroBanner(
+            groupId: controller.groupId,
+            title: controller.className,
+            subtitle: controller.teacherDisplayName,
           ),
           const SizedBox(height: AppSpacing.lg),
           Wrap(

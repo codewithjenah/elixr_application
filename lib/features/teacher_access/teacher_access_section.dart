@@ -698,7 +698,7 @@ class _ApprovedClassesGrid extends StatelessWidget {
                   className:
                       controller.groupNamesById[membership.groupId]?.name ??
                       'Class',
-                  teacherDisplayName: membership.teacherDisplayName,
+                  subtitle: membership.teacherDisplayName,
                   onOpen: () => onOpenClass?.call(membership.groupId),
                 ),
               ),

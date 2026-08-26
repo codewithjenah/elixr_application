@@ -99,6 +99,18 @@ abstract final class AppRoutePaths {
     );
   }
 
+  static String teacherGroup(String groupId) {
+    return '$teacherGroups/${Uri.encodeComponent(groupId)}';
+  }
+
+  static String groupIdFromTeacherGroup(String location) {
+    final prefix = '$teacherGroups/';
+    if (!location.startsWith(prefix)) return '';
+    return Uri.decodeComponent(
+      location.substring(prefix.length).split('?').first,
+    );
+  }
+
   static String assignedPractice(String assignmentId) {
     return '$assignedPracticePrefix/${Uri.encodeComponent(assignmentId)}';
   }

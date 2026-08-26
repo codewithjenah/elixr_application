@@ -248,6 +248,7 @@ void main() {
   Object? authorizationError;
   var authorizationCalls = 0;
   var inviteCodeIndex = 0;
+  var groupIdIndex = 0;
 
   const inviteCodes = ['7KPMXR4DQ2WT', 'ABCDEFGH2345'];
 
@@ -260,11 +261,13 @@ void main() {
 
   setUp(() {
     inviteCodeIndex = 0;
+    groupIdIndex = 0;
     authorizationOk = true;
     authorizationError = null;
     authorizationCalls = 0;
     memory = InMemoryGroupRepository(
       generateNormalizedCode: () => inviteCodes[inviteCodeIndex++],
+      generateGroupId: () => 'group-${groupIdIndex++}',
       now: () => DateTime.utc(2026, 8, 19),
     );
     repository = _SpyGroupRepository(memory);
@@ -304,11 +307,16 @@ void main() {
     await controller.start();
     expect(controller.groups, isEmpty);
 
-    await controller.createGroup('BSHM 4A');
+    final group = await controller.createGroup('BSHM 4A');
     expect(controller.groups, hasLength(1));
+    expect(group?.name, 'BSHM 4A');
+    expect(controller.selectedGroup, isNull);
+    expect(controller.activeInvite, isNull);
+    expect(repository.privilegedCalls, contains('createGroup'));
+
+    await controller.selectGroup(group!);
     expect(controller.selectedGroup?.name, 'BSHM 4A');
     expect(controller.activeInvite?.displayCode, '7KPM-XR4D-Q2WT');
-    expect(repository.privilegedCalls, contains('createGroup'));
   });
 
   test('approve and remove membership lifecycle', () async {
@@ -439,7 +447,8 @@ void main() {
 
   test('renameSelectedGroup requires authorization refresh', () async {
     await controller.start();
-    await controller.createGroup('BSHM 4A');
+    final group = await controller.createGroup('BSHM 4A');
+    await controller.selectGroup(group!);
     authorizationCalls = 0;
     repository.privilegedCalls.clear();
     authorizationOk = false;
@@ -457,7 +466,8 @@ void main() {
 
   test('archiveSelectedGroup requires authorization refresh', () async {
     await controller.start();
-    await controller.createGroup('BSHM 4A');
+    final group = await controller.createGroup('BSHM 4A');
+    await controller.selectGroup(group!);
     final groupId = controller.selectedGroup!.id;
     authorizationCalls = 0;
     repository.privilegedCalls.clear();
@@ -477,7 +487,8 @@ void main() {
 
   test('rotateInvite requires authorization refresh', () async {
     await controller.start();
-    await controller.createGroup('BSHM 4A');
+    final group = await controller.createGroup('BSHM 4A');
+    await controller.selectGroup(group!);
     final originalCode = controller.activeInvite?.normalizedCode;
     authorizationCalls = 0;
     repository.privilegedCalls.clear();
@@ -563,6 +574,38 @@ void main() {
       );
     },
   );
+
+  test('openGroupById selects an owned class and rejects others', () async {
+    final group = await memory.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final other = await memory.createGroup(
+      teacherId: 'teacher-2',
+      teacherDisplayName: 'Other Teacher',
+      name: 'Other Class',
+    );
+    await controller.start();
+
+    await controller.openGroupById(group.id);
+    expect(controller.unauthorized, isFalse);
+    expect(controller.selectedGroup?.id, group.id);
+    expect(controller.activeInvite, isNotNull);
+
+    await controller.openGroupById(other.id);
+    expect(controller.unauthorized, isTrue);
+    expect(controller.selectedGroup, isNull);
+    expect(controller.errorMessage, 'This class is not available.');
+  });
+
+  test('startForGroup marks missing classes unauthorized', () async {
+    await controller.startForGroup('missing');
+    expect(controller.loading, isFalse);
+    expect(controller.unauthorized, isTrue);
+    expect(controller.selectedGroup, isNull);
+    expect(controller.errorMessage, 'This class is not available.');
+  });
 
   test('unrelated Teacher membership data does not appear', () async {
     final group = await memory.createGroup(

@@ -33,8 +33,10 @@ class TeacherGroupsController extends ChangeNotifier {
   GroupInvite? activeInvite;
   bool loading = false;
   bool busy = false;
+  bool unauthorized = false;
   String? errorMessage;
   String? actionMessage;
+  bool _closed = false;
 
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<GroupMembership>>? _pendingSub;
@@ -48,7 +50,7 @@ class TeacherGroupsController extends ChangeNotifier {
     return url;
   }
 
-  Future<void> start() async {
+  Future<void> start({bool keepLoading = false}) async {
     loading = true;
     errorMessage = null;
     notifyListeners();
@@ -88,13 +90,70 @@ class TeacherGroupsController extends ChangeNotifier {
     } catch (_) {
       errorMessage = 'Could not load groups.';
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!keepLoading) {
+        loading = false;
+        notifyListeners();
+      }
     }
+  }
+
+  Future<void> startForGroup(String groupId) async {
+    await start(keepLoading: true);
+    if (_closed) return;
+    try {
+      await openGroupById(groupId);
+    } finally {
+      if (!_closed) {
+        loading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> openGroupById(String groupId) async {
+    final trimmed = groupId.trim();
+    unauthorized = false;
+    if (trimmed.isEmpty) {
+      unauthorized = true;
+      errorMessage = 'This class is not available.';
+      clearSelection();
+      return;
+    }
+
+    ElixrGroup? group;
+    for (final candidate in groups) {
+      if (candidate.id == trimmed) {
+        group = candidate;
+        break;
+      }
+    }
+
+    if (group == null) {
+      try {
+        final fetched = await repository.getGroup(groupId: trimmed);
+        if (fetched != null && fetched.teacherId == teacherId) {
+          group = fetched;
+        }
+      } catch (error, stackTrace) {
+        _logTeacherActionFailure('openGroup', error, stackTrace);
+      }
+    } else if (group.teacherId != teacherId) {
+      group = null;
+    }
+
+    if (group == null) {
+      unauthorized = true;
+      errorMessage = 'This class is not available.';
+      clearSelection();
+      return;
+    }
+
+    await selectGroup(group);
   }
 
   Future<void> selectGroup(ElixrGroup group) async {
     selectedGroup = group;
+    unauthorized = false;
     actionMessage = null;
     notifyListeners();
     await _watchSelectedGroup(group.id);
@@ -111,20 +170,21 @@ class TeacherGroupsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createGroup(String name) {
-    return _runTeacherAction(
+  Future<ElixrGroup?> createGroup(String name) async {
+    ElixrGroup? created;
+    await _runTeacherAction(
       operation: 'createGroup',
       failureMessage: 'Could not create that group.',
       action: () async {
-        final group = await repository.createGroup(
+        created = await repository.createGroup(
           teacherId: teacherId,
           teacherDisplayName: teacherDisplayName,
           name: name,
         );
-        actionMessage = 'Created ${group.name}.';
-        await selectGroup(group);
+        actionMessage = 'Created ${created!.name}.';
       },
     );
+    return created;
   }
 
   Future<void> renameSelectedGroup(String name) {
@@ -374,6 +434,7 @@ class TeacherGroupsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _closed = true;
     unawaited(_groupsSub?.cancel());
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());
