@@ -43,34 +43,6 @@ void main() {
     });
   });
 
-  group('AssessmentSpec round trip', () {
-    test('toMap then tryFrom preserves semantic values', () {
-      const original = AssessmentSpec(laterality: AssessmentLaterality.left);
-      final parsed = AssessmentSpec.tryFrom(original.toMap());
-      expect(parsed, isNotNull);
-      expect(parsed, original);
-      expect(parsed!.toMap(), original.toMap());
-    });
-
-    test('toMap emits only the canonical five fields', () {
-      const spec = AssessmentSpec(laterality: AssessmentLaterality.either);
-      expect(spec.toMap().keys.toSet(), {
-        'schema_version',
-        'template_id',
-        'prop',
-        'target',
-        'laterality',
-      });
-      expect(spec.toMap(), {
-        'schema_version': 1,
-        'template_id': 'balance_stall.wrist_v1',
-        'prop': 'bottle',
-        'target': 'wrist',
-        'laterality': 'either',
-      });
-    });
-  });
-
   group('AssessmentSpec fail-closed validation', () {
     test('rejects schema 0, schema 2, and missing schema', () {
       expect(AssessmentSpec.tryFrom(_golden()..['schema_version'] = 0), isNull);

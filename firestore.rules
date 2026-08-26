@@ -2766,36 +2766,6 @@ service cloud.firestore {
           || isBoundedText(spec.safety_guidance, 1000)
         );
     }
-    // Phase 7E AssessmentSpec v1: exact five keys, Wrist Stall Bottle only.
-    function assessmentSpecKeys() {
-      return ['schema_version', 'template_id', 'prop', 'target', 'laterality'];
-    }
-    function validAssessmentSpecV1(spec) {
-      return spec is map
-        && spec.keys().hasAll(assessmentSpecKeys())
-        && spec.keys().hasOnly(assessmentSpecKeys())
-        && spec.schema_version == 1
-        && spec.template_id == 'balance_stall.wrist_v1'
-        && spec.prop == 'bottle'
-        && spec.target == 'wrist'
-        && spec.laterality in ['either', 'left', 'right'];
-    }
-    function templateScoredSpecKeys() {
-      return ['instructions', 'required_prop', 'assessment'];
-    }
-    function validTemplateScoredRevisionSpec(spec) {
-      return spec is map
-        && spec.keys().hasAll(templateScoredSpecKeys())
-        && spec.keys().hasOnly(templateScoredSpecKeys().concat(['safety_guidance']))
-        && isBoundedText(spec.instructions, 2000)
-        && spec.required_prop == 'bottle'
-        && validAssessmentSpecV1(spec.assessment)
-        && spec.assessment.prop == spec.required_prop
-        && (
-          !spec.keys().hasAny(['safety_guidance'])
-          || isBoundedText(spec.safety_guidance, 1000)
-        );
-    }
     function validTeacherMovementCreate(data, movementId) {
       return isVerifiedTeacher()
         && isClassroomDocId(movementId)
@@ -2825,9 +2795,12 @@ service cloud.firestore {
         && isBoundedText(request.resource.data.title, 80)
         && isClassroomDocId(request.resource.data.current_revision_id);
     }
-    function validTeacherMovementArchiveUpdate() {
+    function validTeacherMovementArchiveUpdate(movementId) {
       return resource.data.status == 'active'
         && request.resource.data.status == 'archived'
+        && get(teacherMovementRevisionPath(
+          movementId, resource.data.current_revision_id
+        )).data.assessment_mode == 'teacher_reviewed'
         && request.resource.data.title == resource.data.title
         && request.resource.data.current_revision_id == resource.data.current_revision_id
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -2847,6 +2820,9 @@ service cloud.firestore {
       );
       return resource.data.status == 'active'
         && request.resource.data.status == 'active'
+        && get(teacherMovementRevisionPath(
+          movementId, resource.data.current_revision_id
+        )).data.assessment_mode == 'teacher_reviewed'
         && request.resource.data.current_revision_id != resource.data.current_revision_id
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'current_revision_id', 'updated_at'])
@@ -2860,7 +2836,7 @@ service cloud.firestore {
         && resource.data.teacher_id == request.auth.uid
         && validTeacherMovementRootIdentity()
         && (
-          validTeacherMovementArchiveUpdate()
+          validTeacherMovementArchiveUpdate(movementId)
           || validTeacherMovementPublishRevisionUpdate(movementId)
         );
     }
@@ -2880,24 +2856,6 @@ service cloud.firestore {
         && afterRoot.teacher_id == request.auth.uid
         && afterRoot.current_revision_id == revisionId;
     }
-    // Access budget: 1 getAfter(root) + cached isVerifiedTeacher user get/exists.
-    function validTemplateScoredRevisionCreate(data, movementId, revisionId) {
-      let afterRoot = getAfter(teacherMovementPath(movementId)).data;
-      return isVerifiedTeacher()
-        && isClassroomDocId(movementId)
-        && isClassroomDocId(revisionId)
-        && data.keys().hasOnly(teacherMovementRevisionKeys())
-        && data.keys().hasAll(teacherMovementRevisionKeys())
-        && data.movement_id == movementId
-        && data.teacher_id == request.auth.uid
-        && data.schema_version == 1
-        && data.assessment_mode == 'template_scored'
-        && validTemplateScoredRevisionSpec(data.spec)
-        && data.created_at == request.time
-        && afterRoot.teacher_id == request.auth.uid
-        && afterRoot.current_revision_id == revisionId;
-    }
-
     match /teacher_movements/{movementId} {
       allow get, list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
       allow create: if validTeacherMovementCreate(request.resource.data, movementId);
@@ -2905,7 +2863,10 @@ service cloud.firestore {
       allow delete: if isSignedIn()
         && resource.data.teacher_id == request.auth.uid
         && (
-          isVerifiedTeacher()
+          (get(teacherMovementRevisionPath(
+            movementId, resource.data.current_revision_id
+          )).data.assessment_mode != 'template_scored'
+            && isVerifiedTeacher())
           || !exists(userPath(request.auth.uid))
         );
 
@@ -2913,14 +2874,13 @@ service cloud.firestore {
         allow get, list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
         allow create: if validTeacherMovementRevisionCreate(
           request.resource.data, movementId, revisionId
-        ) || validTemplateScoredRevisionCreate(
-          request.resource.data, movementId, revisionId
         );
         allow update: if false;
         allow delete: if isSignedIn()
           && resource.data.teacher_id == request.auth.uid
           && (
-            isVerifiedTeacher()
+            (resource.data.assessment_mode != 'template_scored'
+              && isVerifiedTeacher())
             || !exists(userPath(request.auth.uid))
           );
       }
@@ -2935,7 +2895,6 @@ service cloud.firestore {
       return groupAssignmentRequiredKeys().concat([
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at',
-        'assessment_spec'
       ]);
     }
     function validOfficialAssignmentCreate(data) {
@@ -2983,40 +2942,6 @@ service cloud.firestore {
           || isBoundedText(data.display_safety_guidance, 1000)
         );
     }
-    // Access budget: get(movement)+get(revision). Combined with
-    // validGroupAssignmentCreate get(group)+isVerifiedTeacher user = 4 unique.
-    function validTemplateScoredAssignmentCreate(data) {
-      let movement = get(teacherMovementPath(data.movement_id)).data;
-      let revision = get(
-        teacherMovementRevisionPath(data.movement_id, data.revision_id)
-      ).data;
-      return data.origin == 'teacher_created'
-        && data.assessment_mode == 'template_scored'
-        && !data.keys().hasAny(['official_movement_name'])
-        && data.keys().hasAny(['assessment_spec'])
-        && validAssessmentSpecV1(data.assessment_spec)
-        && movement.teacher_id == request.auth.uid
-        && movement.status == 'active'
-        && movement.current_revision_id == data.revision_id
-        && revision.movement_id == data.movement_id
-        && revision.teacher_id == request.auth.uid
-        && revision.assessment_mode == 'template_scored'
-        && validTemplateScoredRevisionSpec(revision.spec)
-        && data.assessment_spec == revision.spec.assessment
-        && data.display_title == movement.title
-        && isBoundedText(data.display_instructions, 2000)
-        && data.display_instructions == revision.spec.instructions
-        && data.keys().hasAny(['allowed_prop'])
-        && data.allowed_prop == 'bottle'
-        && data.allowed_prop == revision.spec.required_prop
-        && data.allowed_prop == data.assessment_spec.prop
-        && data.get('display_safety_guidance', '__elixr_absent__')
-          == revision.spec.get('safety_guidance', '__elixr_absent__')
-        && (
-          !data.keys().hasAny(['display_safety_guidance'])
-          || isBoundedText(data.display_safety_guidance, 1000)
-        );
-    }
     function validGroupAssignmentCreate(data) {
       let group = get(groupPath(data.group_id)).data;
       return isVerifiedTeacher()
@@ -3043,12 +2968,12 @@ service cloud.firestore {
         && (
           validOfficialAssignmentCreate(data)
           || validTeacherCreatedAssignmentCreate(data)
-          || validTemplateScoredAssignmentCreate(data)
         );
     }
     function validGroupAssignmentUpdate() {
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
+        && resource.data.assessment_mode != 'template_scored'
         && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
         && request.resource.data.keys().hasOnly(groupAssignmentAllowedKeys())
         && request.resource.data.teacher_id == resource.data.teacher_id
@@ -3069,8 +2994,6 @@ service cloud.firestore {
           == resource.data.get('display_instructions', '__elixr_absent__')
         && request.resource.data.get('display_safety_guidance', '__elixr_absent__')
           == resource.data.get('display_safety_guidance', '__elixr_absent__')
-        && request.resource.data.get('assessment_spec', '__elixr_absent__')
-          == resource.data.get('assessment_spec', '__elixr_absent__')
         && request.resource.data.status in ['active', 'archived']
         && request.resource.data.updated_at == request.time
         && (
@@ -3095,7 +3018,8 @@ service cloud.firestore {
       allow delete: if isSignedIn()
         && resource.data.teacher_id == request.auth.uid
         && (
-          isVerifiedTeacher()
+          (resource.data.assessment_mode != 'template_scored'
+            && isVerifiedTeacher())
           || !exists(userPath(request.auth.uid))
         );
     }
@@ -3245,54 +3169,6 @@ service cloud.firestore {
           || validSubmissionSupersedes(data)
         );
     }
-    function templateScoreAllowedKeys() {
-      return assignmentAttemptIdentityKeys().concat([
-        'assessment_version', 'rubric', 'rubric_total',
-        'performance_level', 'duration_seconds', 'prop_type', 'completed_at'
-      ]);
-    }
-    function isTemplateScoreAttemptId(attemptId) {
-      return attemptId.matches('^template_score_[A-Za-z0-9]+$')
-        && attemptId.size() <= 128;
-    }
-    // Access budget: get(assignment) is cached if attemptMatchesAssignment
-    // already fetched it. Unique gets: membership + assignment = 2.
-    function validTemplateScoreAttemptCreate(data, attemptId) {
-      let assignment = get(assignmentPath(data.assignment_id)).data;
-      return data.attempt_kind == 'template_score'
-        && isTemplateScoreAttemptId(attemptId)
-        && data.status == 'submitted'
-        && data.origin == 'teacher_created'
-        && data.assessment_mode == 'template_scored'
-        && data.awards_global_xp == false
-        && data.keys().hasAll(assignmentAttemptIdentityKeys())
-        && data.keys().hasAll(['assessment_version', 'rubric', 'rubric_total',
-          'performance_level', 'prop_type', 'completed_at'])
-        && data.keys().hasOnly(templateScoreAllowedKeys())
-        && !data.keys().hasAny(['source_session_id', 'video_storage_path',
-          'video_content_type', 'video_size_bytes', 'video_duration_ms',
-          'submitted_at', 'video_expires_at', 'video_deleted_at',
-          'deletion_failed', 'deletion_failed_at', 'review_verdict',
-          'review_feedback', 'reviewed_at', 'supersedes_attempt_id',
-          'abandoned_at'])
-        && assignment.origin == 'teacher_created'
-        && assignment.assessment_mode == 'template_scored'
-        && assignment.status == 'active'
-        && validAssessmentSpecV1(assignment.assessment_spec)
-        && assignment.allowed_prop == 'bottle'
-        && data.prop_type == 'bottle'
-        && data.assessment_version == 2
-        && validRubricMap(data.rubric)
-        && data.rubric_total == data.rubric.technique + data.rubric.stability
-          + data.rubric.completion + data.rubric.prop_positioning
-        && isRubricTotal(data.rubric_total)
-        && data.performance_level == performanceLevelFor(data.rubric_total)
-        && data.completed_at is timestamp
-        && (
-          !data.keys().hasAny(['duration_seconds'])
-          || (data.duration_seconds is int && data.duration_seconds >= 0)
-        );
-    }
     function validAssignmentAttemptCreate(data, attemptId) {
       let membership = get(groupMembershipPath(data.group_id, request.auth.uid)).data;
       return isSignedIn()
@@ -3316,9 +3192,7 @@ service cloud.firestore {
             ? validOfficialPointerCreate(data, attemptId)
             : data.attempt_kind == 'teacher_review_draft'
               ? validTeacherDraftAttemptCreate(data, attemptId)
-              : data.attempt_kind == 'template_score'
-                ? validTemplateScoreAttemptCreate(data, attemptId)
-                : validTeacherReviewSubmissionCreate(data, attemptId)
+              : validTeacherReviewSubmissionCreate(data, attemptId)
         );
     }
     function assignmentAttemptIdentityUnchanged() {

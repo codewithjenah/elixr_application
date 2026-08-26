@@ -127,7 +127,7 @@ class _Body extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = controller.items[index];
         final assignment = item.assignment;
-        final canStart = assignment.isActive;
+        final canStart = assignment.isActive && !assignment.isRetiredTemplate;
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -168,7 +168,7 @@ class _Body extends StatelessWidget {
                           AppRoutePaths.assignedPractice(assignment.id),
                         )
                       : null,
-                  child: Text(_actionLabel(item.attempt)),
+                  child: Text(_actionLabel(assignment, item.attempt)),
                 ),
               ],
             ),
@@ -178,7 +178,11 @@ class _Body extends StatelessWidget {
     );
   }
 
-  static String _actionLabel(AssignmentAttempt? attempt) {
+  static String _actionLabel(
+    GroupAssignment assignment,
+    AssignmentAttempt? attempt,
+  ) {
+    if (assignment.isRetiredTemplate) return 'Retired';
     if (attempt == null) return 'Start practice';
     if (attempt.status == AssignmentAttemptStatus.needsRetry) {
       return 'Record again';
@@ -195,6 +199,13 @@ class _Body extends StatelessWidget {
     AssignmentAttempt? attempt,
     AssignmentAttempt? submission,
   ) {
+    if (assignment.isRetiredTemplate) {
+      final total = attempt?.rubricTotal;
+      final level = attempt?.performanceLevel?.label;
+      return 'Historical · Automatic template assessment retired'
+          '${total == null ? '' : ' · Previous score $total/12'}'
+          '${level == null ? '' : ' · $level'}';
+    }
     final due = assignment.dueAt;
     final dueText = due == null
         ? 'No due date'

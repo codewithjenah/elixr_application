@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/movements.dart';
 import '../../../data/models/assessment_mode.dart';
-import '../../../data/models/assessment_spec.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
@@ -65,7 +64,7 @@ class TeacherMovementsController extends ChangeNotifier {
       groups.where((group) => group.isActive).toList();
 
   List<TeacherMovement> get activeMyMovements =>
-      myMovements.where((movement) => movement.isActive).toList();
+      myMovements.where(canManageMovement).toList();
 
   TeacherMovementRevision? revisionFor(TeacherMovement movement) {
     final cached = currentRevisions[movement.id];
@@ -75,13 +74,22 @@ class TeacherMovementsController extends ChangeNotifier {
     return null;
   }
 
+  bool isRetiredTemplate(TeacherMovement movement) {
+    return revisionFor(movement)?.isRetiredTemplate == true;
+  }
+
+  bool canManageMovement(TeacherMovement movement) {
+    return movement.isActive &&
+        revisionFor(movement)?.assessmentMode == AssessmentMode.teacherReviewed;
+  }
+
   String movementModeLabel(TeacherMovement movement) {
+    final revision = revisionFor(movement);
+    if (revision?.isRetiredTemplate == true) {
+      return 'Retired template scoring · Historical read-only';
+    }
     if (!movement.isActive) {
       return 'Archived · Historical assignments stay pinned';
-    }
-    final revision = revisionFor(movement);
-    if (revision?.assessmentMode == AssessmentMode.templateScored) {
-      return 'Template scored · Wrist Stall · Bottle';
     }
     if (revision?.assessmentMode == AssessmentMode.teacherReviewed) {
       return 'Teacher reviewed · No automatic ELIXR score';
@@ -282,42 +290,6 @@ class TeacherMovementsController extends ChangeNotifier {
         title: title,
         instructions: instructions,
         requiredProp: requiredProp,
-        safetyGuidance: safetyGuidance,
-      ),
-    );
-  }
-
-  Future<void> createTemplateScoredMovement({
-    required String title,
-    required String instructions,
-    required AssessmentSpec assessment,
-    String? safetyGuidance,
-  }) {
-    return _runWrite(
-      () => movementRepository.createTemplateScoredMovement(
-        teacherId: teacherId,
-        title: title,
-        instructions: instructions,
-        assessment: assessment,
-        safetyGuidance: safetyGuidance,
-      ),
-    );
-  }
-
-  Future<void> editTemplateScoredMovement({
-    required TeacherMovement movement,
-    required String title,
-    required String instructions,
-    required AssessmentSpec assessment,
-    String? safetyGuidance,
-  }) {
-    return _runWrite(
-      () => movementRepository.editTemplateScoredMovement(
-        teacherId: teacherId,
-        movementId: movement.id,
-        title: title,
-        instructions: instructions,
-        assessment: assessment,
         safetyGuidance: safetyGuidance,
       ),
     );

@@ -1,6 +1,5 @@
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/models/elixr_group.dart';
-import 'package:elixr_core/models/rubric_assessment.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
@@ -9,7 +8,6 @@ import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/movement_origin.dart';
 import '../models/teacher_movement.dart';
-import '../models/teacher_movement_revision_spec.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
 
@@ -65,14 +63,6 @@ abstract class ClassroomAssignmentRepository {
   Future<AssignmentAttempt> startTeacherCreatedAttempt({
     required String traineeId,
     required GroupAssignment assignment,
-  });
-
-  Future<AssignmentAttempt> createTemplateScoreAttempt({
-    required String traineeId,
-    required GroupAssignment assignment,
-    required RubricAssessment rubric,
-    required int durationSeconds,
-    required DateTime completedAt,
   });
 
   Future<AssignmentAttempt> createTeacherReviewSubmissionDraft({
@@ -199,13 +189,21 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     );
   }
 
+  if (revision.assessmentMode != AssessmentMode.teacherReviewed ||
+      revision.spec is! TeacherReviewedMovementSpec) {
+    throw const ClassroomException(
+      ClassroomError.identityMismatch,
+      'Retired template-scored movements are read-only and cannot be assigned.',
+    );
+  }
+
   final payload = <String, dynamic>{
     'teacher_id': teacherId,
     'group_id': group.id,
     'movement_id': movement.id,
     'revision_id': revision.id,
     'origin': MovementOrigin.teacherCreated.wireValue,
-    'assessment_mode': revision.assessmentMode.wireValue,
+    'assessment_mode': AssessmentMode.teacherReviewed.wireValue,
     'status': GroupAssignmentStatus.active.name,
     'display_title': movement.title,
     'display_instructions': revision.spec.instructions,
@@ -218,25 +216,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'due_at': ?dueAt,
   };
 
-  if (revision.assessmentMode == AssessmentMode.teacherReviewed) {
-    if (revision.spec is! TeacherReviewedMovementSpec) {
-      throw const ClassroomException(ClassroomError.malformed);
-    }
-    return payload;
-  }
-  if (revision.assessmentMode == AssessmentMode.templateScored) {
-    final spec = revision.spec;
-    if (spec is! TemplateScoredRevisionSpec) {
-      throw const ClassroomException(ClassroomError.malformed);
-    }
-    if (spec.requiredProp != TrainingProp.bottle ||
-        !spec.assessment.isCanonicalWristStallV1) {
-      throw const ClassroomException(ClassroomError.malformed);
-    }
-    payload['assessment_spec'] = spec.assessment.toMap();
-    return payload;
-  }
-  throw const ClassroomException(ClassroomError.identityMismatch);
+  return payload;
 }
 
 AssignmentAttempt teacherCreatedDraftAttempt({
@@ -342,53 +322,6 @@ Future<AssignmentAttempt> startTeacherCreatedAttemptWorkflow({
 
 TrainingProp? assignmentAllowedProp(GroupAssignment assignment) {
   return assignment.allowedProp;
-}
-
-AssignmentAttempt templateScoreAttempt({
-  required String traineeId,
-  required GroupAssignment assignment,
-  required RubricAssessment rubric,
-  required int durationSeconds,
-  required DateTime completedAt,
-  String? attemptId,
-}) {
-  if (!assignment.isActive) {
-    throw const ClassroomException(ClassroomError.inactive);
-  }
-  if (!assignment.isTeacherCreated) {
-    throw const ClassroomException(ClassroomError.identityMismatch);
-  }
-  if (assignment.assessmentMode != AssessmentMode.templateScored) {
-    throw const ClassroomException(ClassroomError.identityMismatch);
-  }
-  final spec = assignment.assessmentSpec;
-  if (spec == null || !spec.isCanonicalWristStallV1) {
-    throw const ClassroomException(ClassroomError.malformed);
-  }
-  if (assignment.allowedProp != TrainingProp.bottle) {
-    throw const ClassroomException(ClassroomError.identityMismatch);
-  }
-  if (durationSeconds < 0) {
-    throw const ClassroomException(ClassroomError.malformed);
-  }
-  return AssignmentAttempt(
-    id: attemptId ?? newTemplateScoreAttemptId(),
-    traineeId: traineeId,
-    teacherId: assignment.teacherId,
-    groupId: assignment.groupId,
-    assignmentId: assignment.id,
-    movementId: assignment.movementId,
-    revisionId: assignment.revisionId,
-    origin: MovementOrigin.teacherCreated,
-    assessmentMode: AssessmentMode.templateScored,
-    attemptKind: AssignmentAttemptKind.templateScore,
-    status: AssignmentAttemptStatus.submitted,
-    awardsGlobalXp: false,
-    rubric: rubric,
-    durationSeconds: durationSeconds,
-    propType: TrainingProp.bottle,
-    completedAt: completedAt.toUtc(),
-  );
 }
 
 AssignmentAttempt teacherReviewSubmissionDraftAttempt({

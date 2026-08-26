@@ -1,5 +1,4 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
-import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -9,7 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 GroupAssignment _assignment({
   MovementOrigin origin = MovementOrigin.teacherCreated,
   AssessmentMode mode = AssessmentMode.teacherReviewed,
-  AssessmentSpec? spec,
   TrainingProp? allowedProp = TrainingProp.bottle,
   String? officialName,
 }) {
@@ -26,12 +24,11 @@ GroupAssignment _assignment({
     origin: origin,
     assessmentMode: mode,
     status: GroupAssignmentStatus.active,
-    displayTitle: officialName ?? 'Classroom Wrist Stall',
+    displayTitle: officialName ?? 'Classroom Movement',
     teacherDisplayName: 'Grace Hopper',
     groupName: 'BSHM 4A',
     officialMovementName: officialName,
     allowedProp: allowedProp,
-    assessmentSpec: spec,
   );
 }
 
@@ -50,29 +47,42 @@ void main() {
     );
   });
 
-  test('teacherReviewed dispatches to Phase 6 recording', () {
+  test('teacherReviewed dispatches to teacher recording', () {
     expect(
       dispatchAssignedPractice(_assignment()),
       AssignedPracticeDispatch.teacherReviewed,
     );
   });
 
-  test('templateScored dispatches to the template practice path', () {
-    expect(
-      dispatchAssignedPractice(
-        _assignment(
-          mode: AssessmentMode.templateScored,
-          spec: const AssessmentSpec(laterality: AssessmentLaterality.either),
+  test(
+    'historical template assignment never dispatches to camera practice',
+    () {
+      expect(
+        dispatchAssignedPractice(
+          _assignment(mode: AssessmentMode.templateScored),
         ),
-      ),
-      AssignedPracticeDispatch.templateScored,
-    );
-  });
+        AssignedPracticeDispatch.retiredTemplate,
+      );
+    },
+  );
 
-  test('malformed template assignment is invalid', () {
+  test('archived teacher-reviewed assignment is invalid', () {
     expect(
       dispatchAssignedPractice(
-        _assignment(mode: AssessmentMode.templateScored),
+        GroupAssignment(
+          id: 'asg1',
+          teacherId: 'teacher-1',
+          groupId: 'g1',
+          movementId: 'tm1',
+          revisionId: 'rev1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          status: GroupAssignmentStatus.archived,
+          displayTitle: 'Classroom Movement',
+          teacherDisplayName: 'Grace Hopper',
+          groupName: 'BSHM 4A',
+          allowedProp: TrainingProp.bottle,
+        ),
       ),
       AssignedPracticeDispatch.invalid,
     );

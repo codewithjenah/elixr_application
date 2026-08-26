@@ -1,8 +1,10 @@
-/// Strict AssessmentSpec v1 for the Phase 7 Wrist Stall vertical slice.
+/// Historical Firestore compatibility parser for the retired Phase 7
+/// AssessmentSpec v1 Wrist Stall records.
 ///
 /// Unknown keys and values outside the locked Bottle + Wrist matrix fail
-/// closed. This is not a runtime evaluator and does not accept teacher
-/// thresholds or executable expressions.
+/// closed. This is not a runtime evaluator, does not accept teacher
+/// thresholds or executable expressions, and intentionally has no serializer:
+/// current application payloads cannot emit retired template data.
 enum AssessmentTemplateId {
   balanceStallWristV1('balance_stall.wrist_v1');
 
@@ -99,16 +101,6 @@ class AssessmentSpec {
         templateId == AssessmentTemplateId.balanceStallWristV1 &&
         prop == AssessmentProp.bottle &&
         target == AssessmentTarget.wrist;
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'schema_version': schemaVersion,
-      'template_id': templateId.wireValue,
-      'prop': prop.wireValue,
-      'target': target.wireValue,
-      'laterality': laterality.wireValue,
-    };
   }
 
   static AssessmentSpec? tryFrom(Object? raw) {

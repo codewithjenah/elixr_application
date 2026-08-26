@@ -4,6 +4,12 @@
 **Sequence:** `08` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phases 1–7 complete **and** every migration gate below passed before deletion.
 
+**Phase 7 lifecycle note (2026-08-26):** Template scoring and Teacher
+Movement Builder Live Test are retired. Historical template movements,
+assignments, and scores remain readable, while current teacher-created work is
+`teacher_reviewed` only. The Phase 7 entries below are historical evidence,
+not an active feature promise.
+
 ## Implementing agent instructions
 
 - Re-read current `main`, [AGENTS.md](../../AGENTS.md), [00-master-plan.md](00-master-plan.md), all prior phase completion reports, and this file before editing.
@@ -20,7 +26,7 @@ PHASE 8 CLOSED — `teacher_app` deleted on 2026-08-22 after `AUTHORIZED TO STAR
 
 The Windows executable is the only in-repo Teacher product. Existing Android Teacher installs will not receive updates from this repository. That is an accepted capstone cutoff.
 
-Phase 7 remains PRODUCTION CLOSED for the functional write path. Physical Wrist Stall camera characterization remains **DEFERRED / NOT VERIFIED**. Phase 8 did not claim real-camera accuracy.
+The former Phase 7 functional write path is retired. Physical Wrist Stall camera characterization remains **DEFERRED / NOT VERIFIED**. Phase 8 did not claim real-camera accuracy.
 
 No Phase 9 exists. Follow-on work needs a new human-approved plan.
 
@@ -32,7 +38,7 @@ No Phase 9 exists. Follow-on work needs a new human-approved plan.
 | Phase 4 Global / My Students / Group + official XP gate | **PASS** |
 | Phase 5 movements / assignments / `assignment_attempts` | **PASS** |
 | Phase 6 Teacher-reviewed video + Storage lifecycle | **PASS** |
-| Phase 7 Wrist Stall Live Test on existing Python backend | **PASS** — functional path; real-camera accuracy **NOT VERIFIED** |
+| Phase 7 Wrist Stall Live Test on existing Python backend | **HISTORICAL PASS** — path retired; real-camera accuracy **NOT VERIFIED** |
 | Gate 8 migrated teacher_app behaviors as Windows/`elixr_core` tests | **PASS** |
 | Gate 9 Android Teacher installs no longer required | **PASS** — 2026-08-22 |
 | `teacher_app` deleted | **YES** |
@@ -66,7 +72,7 @@ Start inventory recorded on `main` at HEAD `825132d6343463d1bc5313732c185b32e1bd
 | Roster ranking | Phase 4 My Students / Group | `test/features/teacher/leaderboard/*` | **PASS** |
 | Session evidence JPEG download | Phase 3 + General Evidence Access | existing evidence/progress tests | **PASS** |
 | Video review | Phase 6 (never on Android) | Phase 6 Windows/Storage tests | **PASS** (Windows-only capability) |
-| Groups / assignments / template score | Phases 2, 5, 7 (never on Android) | Phase 5–7 Windows/backend tests | **PASS** (Windows-only capability) |
+| Groups / assignments / historical template score | Phases 2, 5, 7 (never on Android) | Phase 5–7 Windows/backend tests | **PASS** for historical visibility; template write/runtime path retired |
 
 Required Gate 8 behaviors already existed outside `teacher_app/test`. Remaining Android-shell tests (Material roster/QR widgets, Android theme, `ElixrTeacherApp` router) were deleted with the tree.
 

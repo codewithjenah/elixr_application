@@ -21,7 +21,6 @@ from config import (
     READINESS_ITEM_PASS_FRAMES,
     READINESS_STABLE_DURATION_S,
 )
-from assessment.specs.assessment_spec import AssessmentSpec
 from schemas.readiness import ReadinessItem
 from vision.types import (
     BottleDetection,
@@ -178,21 +177,6 @@ def _pass_upper_body_visible(obs: ReadinessObservation) -> bool:
     return _pose_has_complete_arm_chain(pose)
 
 
-def _pass_pose_available(obs: ReadinessObservation) -> bool:
-    return obs.pose is not None
-
-
-def _pass_wrist_visible(obs: ReadinessObservation, laterality: str) -> bool:
-    pose = obs.pose
-    if pose is None:
-        return False
-    if laterality == "left":
-        return pose.get(15) is not None
-    if laterality == "right":
-        return pose.get(16) is not None
-    return pose.get(15) is not None or pose.get(16) is not None
-
-
 def _pass_camera(obs: ReadinessObservation) -> bool:
     return obs.has_camera_frame
 
@@ -320,30 +304,6 @@ def _upper_body_req() -> ReadinessRequirement:
         "upper_body_visible",
         "Keep both shoulders and at least one complete arm visible.",
         _pass_upper_body_visible,
-        DetectorModality.POSE,
-    )
-
-
-def _pose_available_req() -> ReadinessRequirement:
-    return _req(
-        "pose_visible",
-        "Keep your body in the camera so pose can be tracked.",
-        _pass_pose_available,
-        DetectorModality.POSE,
-    )
-
-
-def _wrist_visible_req(laterality: str) -> ReadinessRequirement:
-    if laterality == "left":
-        message = "Keep your left wrist visible."
-    elif laterality == "right":
-        message = "Keep your right wrist visible."
-    else:
-        message = "Keep at least one wrist visible."
-    return _req(
-        "wrist_visible",
-        message,
-        lambda obs, lat=laterality: _pass_wrist_visible(obs, lat),
         DetectorModality.POSE,
     )
 
@@ -486,25 +446,6 @@ def readiness_profile_for(
 ) -> ReadinessProfile:
     """Return the authoritative readiness profile for a movement."""
     return _build_profile(movement, prop_type)
-
-
-def template_readiness_profile(spec: AssessmentSpec) -> ReadinessProfile:
-    """Wrist Stall readiness derived from a validated AssessmentSpec.
-
-    Not registered as an official catalog movement. Laterality selects the
-    required Pose wrist (15 left / 16 right / either).
-    """
-    if spec.template_id != "balance_stall.wrist_v1":
-        raise ValueError("unsupported_assessment_spec")
-    laterality = spec.laterality
-    if laterality not in {"either", "left", "right"}:
-        raise ValueError("unsupported_assessment_spec")
-    return _profile(
-        _camera_req(),
-        _bottle_req(),
-        _pose_available_req(),
-        _wrist_visible_req(laterality),
-    )
 
 
 def requirements_for(

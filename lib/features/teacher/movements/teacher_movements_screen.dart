@@ -16,9 +16,7 @@ import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../services/auth_service.dart';
-import 'teacher_live_test_screen.dart';
 import 'teacher_movement_builder_dialog.dart';
-import 'teacher_movement_builder_draft.dart';
 import 'teacher_movements_controller.dart';
 import 'teacher_reviews_pane.dart';
 
@@ -272,7 +270,7 @@ class _MyMovementsList extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              if (movement.isActive) ...[
+              if (controller.canManageMovement(movement)) ...[
                 Button(
                   onPressed: controller.busy
                       ? null
@@ -395,7 +393,7 @@ class _AssignmentsList extends StatelessWidget {
     if (attempt.attemptKind == AssignmentAttemptKind.templateScore) {
       final total = attempt.rubricTotal;
       final level = attempt.performanceLevel?.label;
-      return 'Template-scored Wrist Stall'
+      return 'Historical template score'
           '${total == null ? '' : ' · $total/12'}'
           '${level == null ? '' : ' · $level'}';
     }
@@ -454,10 +452,9 @@ Future<void> _showCreateOrEditMovement(
     );
   }
   if (!context.mounted) return;
-  TeacherLiveTestDraft? liveTest;
   await showDialog<void>(
     context: context,
-    builder: (dialogContext) {
+    builder: (_) {
       return TeacherMovementBuilderDialog(
         existing: existing,
         existingRevision: revision,
@@ -491,48 +488,8 @@ Future<void> _showCreateOrEditMovement(
                   safetyGuidance: safetyGuidance,
                 );
               },
-        onCreateTemplateScored:
-            ({
-              required title,
-              required instructions,
-              required assessmentSpec,
-              safetyGuidance,
-            }) {
-              return controller.createTemplateScoredMovement(
-                title: title,
-                instructions: instructions,
-                assessment: assessmentSpec,
-                safetyGuidance: safetyGuidance,
-              );
-            },
-        onEditTemplateScored: existing == null
-            ? null
-            : ({
-                required title,
-                required instructions,
-                required assessmentSpec,
-                safetyGuidance,
-              }) {
-                return controller.editTemplateScoredMovement(
-                  movement: existing,
-                  title: title,
-                  instructions: instructions,
-                  assessment: assessmentSpec,
-                  safetyGuidance: safetyGuidance,
-                );
-              },
-        onOpenLiveTest: (draft) {
-          liveTest = draft;
-          Navigator.pop(dialogContext);
-        },
       );
     },
-  );
-  if (liveTest == null || !context.mounted) return;
-  await Navigator.of(context).push(
-    FluentPageRoute<void>(
-      builder: (_) => TeacherLiveTestScreen(draft: liveTest!),
-    ),
   );
 }
 

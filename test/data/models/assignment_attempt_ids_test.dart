@@ -33,20 +33,4 @@ void main() {
     );
     expect(generated, 'review_sub_Token42');
   });
-
-  test('template score ids use template_score_ and unique entropy', () {
-    expect(
-      assignmentAttemptIdForTemplateScore('abc123'),
-      'template_score_abc123',
-    );
-    expect(
-      () => assignmentAttemptIdForTemplateScore('ada@x.com'),
-      throwsArgumentError,
-    );
-    final first = newTemplateScoreAttemptId(entropy: () => 'Token42');
-    final second = newTemplateScoreAttemptId(entropy: () => 'Token43');
-    expect(first, 'template_score_Token42');
-    expect(second, 'template_score_Token43');
-    expect(first, isNot(second));
-  });
 }

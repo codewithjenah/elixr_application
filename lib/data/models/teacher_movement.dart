@@ -113,6 +113,10 @@ class TeacherMovementRevision {
   final int schemaVersion;
   final DateTime? createdAt;
 
+  /// True only for a historical revision that must not be edited, assigned,
+  /// archived, or executed.
+  bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
+
   static TeacherMovementRevision? tryFromMap(
     Map<String, dynamic> map, {
     required String id,

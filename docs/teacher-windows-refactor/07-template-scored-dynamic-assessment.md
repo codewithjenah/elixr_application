@@ -1,8 +1,15 @@
 # Phase 7 — Template-scored dynamic assessment (Wrist Stall vertical slice)
 
-**Status:** PHASE 7 PRODUCTION CLOSED — FUNCTIONAL WRITE PATH; physical camera characterization deferred
+**Status:** HISTORICAL ONLY — TEMPLATE SCORING AND LIVE TEST RETIRED; historical records remain readable
 **Sequence:** `07` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`  
 **Prerequisite:** Phase 6 complete enough that Teacher-reviewed custom movements work, **and** Phase 5 `assignment_attempts` + revision `spec` exist. If missing, **STOP**. Do not score into `sessions`.
+
+This document preserves the former Phase 7 design and verification record. As
+of 2026-08-26, the product no longer exposes template movement creation/editing,
+Live Test, automatic template assessment, template WebSocket fields, or
+template Firestore writes. Existing `template_scored` movements, assignments,
+and `template_score` attempts are retained as read-only historical data; no
+production records were deleted or converted.
 
 ## Implementing agent instructions
 
@@ -19,9 +26,9 @@
 
 ## 1. Status
 
-PHASE 7 PRODUCTION CLOSED — FUNCTIONAL WRITE PATH
+PHASE 7 RETIRED — HISTORICAL RECORDS ONLY
 
-Phase 7 functional production E2E passed on 2026-08-22 after explicit human authorization `AUTHORIZED FOR PHASE7 CONTROLLED PRODUCTION E2E`. Production Firestore Phase 7 rules remain the live rules-only deploy. Real-camera Wrist Stall accuracy is **not verified**. Physical Wrist Stall characterization remains **DEFERRED / NOT VERIFIED**. Phase 8 is **not started**.
+The former Phase 7 functional production E2E passed on 2026-08-22 after explicit human authorization. That write/runtime path has since been retired. Historical production records remain available for authorized reads; new template records and template execution are denied. Real-camera Wrist Stall accuracy was **not verified**.
 
 Classroom/template scores remain **controlled-client capstone classroom assessment data**.
 

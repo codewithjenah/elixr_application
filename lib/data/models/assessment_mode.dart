@@ -19,6 +19,6 @@ enum AssessmentMode {
   String get displayLabel => switch (this) {
     AssessmentMode.officialGuided => 'Official ELIXR guided assessment',
     AssessmentMode.teacherReviewed => 'Teacher reviewed — no automatic score',
-    AssessmentMode.templateScored => 'Template scored',
+    AssessmentMode.templateScored => 'Retired template scoring (historical)',
   };
 }

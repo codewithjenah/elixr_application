@@ -4,6 +4,13 @@
 **Branch policy:** existing `main` only. Do not create another branch.  
 **This directory is documentation / implementation planning only.** Do not treat these files as permission to implement multiple phases at once.
 
+**Current implementation note (2026-08-26):** Phase 7 Template Scoring and
+Teacher Movement Builder Live Test are retired. Existing `template_scored`,
+`template_score`, and `AssessmentSpec` records remain readable as historical
+data, but the current product only creates or runs official guided and
+`teacher_reviewed` flows. The Phase 7 material below is retained as historical
+context and is not a current feature specification.
+
 Inspected against current `main` on 2026-08-19. Executable code, schemas, Firestore/Storage rules, tests, and current behavior are authoritative over [docs/phase1-teacher-rankings-plan.md](../phase1-teacher-rankings-plan.md), [docs/dynamic-movements-proposal.md](../dynamic-movements-proposal.md), and any stale README comments.
 
 ---
@@ -37,11 +44,11 @@ ELIXR becomes **one Windows Flutter executable** supporting Trainee and Teacher 
 | Clients | One Windows app. The standalone Android `teacher_app` (`elixr_teacher`) was removed in Phase 8. |
 | Identity | Shared Firebase Authentication. Role is `users/{uid}.role` = `Trainee` or `Teacher`, immutable after create. |
 | Storage | Shared Cloud Firestore + Firebase Storage. Firestore holds metadata only; never video bytes or base64. |
-| Camera / CV | One local Python FastAPI backend owns the webcam. Trainee practice uses it today. Phase 7 Teacher Movement Builder Live Test uses **the same** backend. No Flutter webcam owner. No second Teacher CV process. |
+| Camera / CV | One local Python FastAPI backend owns the webcam for current Trainee practice and Teacher-reviewed recording. The retired Phase 7 Live Test used the same backend historically. No Flutter webcam owner. No second Teacher CV process. |
 | Routing | One sign-in. Role-based post-login routing to Trainee shell or Teacher shell. |
 | Teacher destinations | Dashboard, Groups, Students, Leaderboard, Movements, Settings/Profile. |
 | Classes | Real multi-group classes: invite codes, join requests, approval / rejection / removal. |
-| Scoring domains | Official ELIXR practice outside an assignment → `sessions` only → eligible global XP. Official practice **launched from a classroom assignment** → `sessions` (XP once) **plus a required** `assignment_attempts` pointer (`awards_global_xp: false`, never a second XP award). Teacher-created / review / template classroom work → `assignment_attempts` only → never global XP. |
+| Scoring domains | Official ELIXR practice outside an assignment → `sessions` only → eligible global XP. Official practice **launched from a classroom assignment** → `sessions` (XP once) **plus a required** `assignment_attempts` pointer (`awards_global_xp: false`, never a second XP award). Current Teacher-created / review work → `assignment_attempts` only → never global XP. Historical template classroom records remain readable and are not writable or runnable. |
 
 ```mermaid
 flowchart LR
@@ -58,7 +65,7 @@ flowchart LR
   teacherShell --> python
 ```
 
-Teacher → Python is **not** a second backend. It is the existing local WebSocket/HTTP CV service, used for Trainee practice and, in Phase 7, Teacher Live Test of template-scored definitions.
+Teacher → Python is **not** a second backend. It is the existing local WebSocket/HTTP CV service, used for Trainee practice and Teacher-reviewed recording. The historical Phase 7 Live Test used this same service and is now retired.
 
 ---
 
@@ -72,7 +79,7 @@ flowchart TD
   p4[Phase 4 Leaderboard and official XP gate]
   p5[Phase 5 Movements assignments assignment_attempts]
   p6[Phase 6 Teacher-reviewed video]
-  p7[Phase 7 Template-scored Wrist Stall plus Live Test]
+  p7[Phase 7 Template-scored Wrist Stall plus Live Test — retired]
   p8[Phase 8 teacher_app removal and hardening]
   p1 --> p2 --> p3 --> p4 --> p5 --> p6 --> p7 --> p8
 ```
@@ -85,7 +92,7 @@ flowchart TD
 | 4 | Hardens official-only global XP **before** custom movements exist, so Phase 5 cannot leak XP. |
 | 5 | Introduces Teacher-created movements, assignments, and `assignment_attempts`. Video and AI scoring attach here. |
 | 6 | Adds review video to `assignment_attempts`, not to `sessions`. Needs assignment IDs from Phase 5. |
-| 7 | Template scoring and Live Test write classroom results to `assignment_attempts` and reuse Python. Needs movement IDs/revisions. |
+| 7 | **Retired.** Historical template scoring and Live Test records remain readable; no new template writes or execution path exists. |
 | 8 | Deletes `teacher_app` only after parity. |
 
 ---
@@ -226,7 +233,7 @@ Rules invariant to preserve for official XP: `total_xp == sessions_completed * 2
 
 1. **Main only.** No extra branches.
 2. **One phase at a time.**
-3. **Python owns the camera** for Trainee practice, Teacher-reviewed recording, and Teacher Live Test.
+3. **Python owns the camera** for Trainee practice and Teacher-reviewed recording. The retired Teacher Live Test never introduced a second owner.
 4. **No video/base64 on the realtime WebSocket.** Do not extend `evidence_jpeg_base64` into video.
 5. **Firestore = metadata. Storage = bytes.**
 6. **Do not weaken Auth / Firestore / Storage authorization.** UI checks are not security.
@@ -235,7 +242,7 @@ Rules invariant to preserve for official XP: `total_xp == sessions_completed * 2
 9. **Teacher registration is explicit.** Role cannot be casually changed.
 10. **Teacher onboarding must not trigger trainee practice onboarding.**
 11. **Rubric stays 0..3 per criterion, 0..12 total** for Assessment V2. Do not mix legacy 0–100 with rubric totals.
-12. **Official 12 rule modules stay intact** until Phase 7 expands templates **after** Wrist Stall works.
+12. **Official 12 rule modules stay intact.** The former Phase 7 template expansion is historical and retired.
 13. **Leaderboard identity = Firebase UID.** Awards remain idempotent via `leaderboard_processed_sessions`.
 14. **Do not claim the client-written leaderboard is tamper-proof.**
 15. **The `assignment_attempts` domain never awards global XP.** Official catalog practice still awards XP via `sessions` (including assignment-context official practice, **exactly once**). Pointers and Teacher-created / review / template results must never produce a second award or any classroom XP on `leaderboard`.
@@ -341,7 +348,7 @@ These are **adopted**. Implementing agents must not invent alternatives.
 | U3 | Video cleanup | **Client reconciler** (14-day reviewed_at policy, delete-on-replace, retry failures) **plus** server-side **`assignment_submissions/` Object Lifecycle Management** (~30-day hard age from upload). No Cloud Functions for this cleanup. |
 | U4 | Default-group backfill | **No automatic production/default-group migration.** Inventory first. Any migrator requires explicit human decision/action. |
 | U5 | Invite compatibility | Windows Groups write `group_invites`. The Android Teacher-level `teacher_invites` writer was removed with `teacher_app` in Phase 8. Legacy `teacher_invites` and `teacher_student_links` remain readable for compatibility. Do **not** delete those production documents in Phase 8. |
-| U6 | Teacher Live Test | **Ephemeral.** No `sessions` row, no global XP, no required `assignment_attempts` log. |
+| U6 | Teacher Live Test | **Retired historical behavior.** No current Live Test path is exposed; the historical design was ephemeral and created no `sessions` row or global XP. |
 | U7 | Group leaderboard | Rank members using **official ELIXR global XP only**. Teacher-created / classroom assignments do **not** contribute. Assignment-specific views show rubric / completion / review status **separately**. Do **not** invent one cumulative classroom points formula. |
 
 ---
@@ -364,7 +371,7 @@ These are **adopted**. Implementing agents must not invent alternatives.
 | [04-leaderboard-refactor.md](04-leaderboard-refactor.md) | Global / My Students / Group boards; official XP gate |
 | [05-movement-management-and-assignments.md](05-movement-management-and-assignments.md) | Official vs Teacher-created; assignments; `assignment_attempts` |
 | [06-teacher-reviewed-video-submissions.md](06-teacher-reviewed-video-submissions.md) | Explicit review clips, Storage, deletion, review queue |
-| [07-template-scored-dynamic-assessment.md](07-template-scored-dynamic-assessment.md) | AssessmentSpec, Wrist Stall, Teacher Live Test via Python |
+| [07-template-scored-dynamic-assessment.md](07-template-scored-dynamic-assessment.md) | **Historical / retired:** AssessmentSpec, Wrist Stall, Teacher Live Test via Python |
 | [08-teacher-app-removal-and-hardening.md](08-teacher-app-removal-and-hardening.md) | Parity, delete `teacher_app`, hardening |
 
 ---
@@ -382,6 +389,6 @@ Checked across all nine files:
 3. Locked Public Profile Privacy does not block assigned classroom work from the assigning Teacher. Public Profile Privacy remains separate from Classroom Authorization.
 4. Unrelated Teachers get no privileged drill-down.
 5. Explicitly submitted assignment video uses Assignment Submission Authorization, not General Evidence Access. Trainees cannot self-approve.
-6. Python is the only webcam owner; Phase 7 Live Test uses the same local backend; first template_id is `balance_stall.wrist_v1` (Bottle + Wrist only).
+6. Python remains the only webcam owner; the historical Phase 7 Live Test used the same local backend. The first historical template_id was `balance_stall.wrist_v1` (Bottle + Wrist only).
 7. Video cleanup is client reconciler (~14 days after review) **plus** `assignment_submissions/` Object Lifecycle ~30-day hard age. Values remain unvalidated planning defaults. No Cloud Functions for this cleanup.
 8. No automatic default-group migration (U4). The Android `teacher_invites` writer is deprecated (U5); leftover invite and consent documents remain. Coaching notes: Classroom Authorization OR legacy approved link; no silent consent links.

@@ -70,18 +70,17 @@ void main() {
       expect(spec.assessment.laterality, AssessmentLaterality.either);
     });
 
-    test('round-trips through toMap', () {
-      final original = TemplateScoredRevisionSpec.tryFrom(
-        _templateSpec(safetyGuidance: 'Clear the area.'),
-      );
-      expect(original, isNotNull);
-      final parsed = TemplateScoredRevisionSpec.tryFrom(original!.toMap());
-      expect(parsed, isNotNull);
-      expect(parsed!.instructions, original.instructions);
-      expect(parsed.requiredProp, original.requiredProp);
-      expect(parsed.safetyGuidance, original.safetyGuidance);
-      expect(parsed.assessment, original.assessment);
-    });
+    test(
+      'parses an existing historical wrapper without a write serializer',
+      () {
+        final spec = TemplateScoredRevisionSpec.tryFrom(
+          _templateSpec(safetyGuidance: 'Clear the area.'),
+        );
+        expect(spec, isNotNull);
+        expect(spec!.safetyGuidance, 'Clear the area.');
+        expect(spec.isTeacherReviewOnly, isFalse);
+      },
+    );
 
     test('exposes presentation fields and optional safety guidance', () {
       final spec = TemplateScoredRevisionSpec.tryFrom(

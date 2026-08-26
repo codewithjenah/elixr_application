@@ -10,6 +10,7 @@ enum AssignmentAttemptKind {
   practicePointer('practice_pointer'),
   teacherReviewDraft('teacher_review_draft'),
   teacherReviewSubmission('teacher_review_submission'),
+  // Historical Firestore value. New attempts must use a current kind.
   templateScore('template_score');
 
   const AssignmentAttemptKind(this.wireValue);
@@ -64,7 +65,9 @@ enum AssignmentReviewVerdict {
 
 /// Classroom attempt at `assignment_attempts/{attemptId}`.
 ///
-/// `awards_global_xp` is always false. Official pointers copy sanitized
+/// `template_score` is retained only so historical Firestore records can be
+/// displayed; [toCreateMap] rejects it. `awards_global_xp` is always false.
+/// Official pointers copy sanitized
 /// Assessment V2 fields from the source session so the assigning Teacher can
 /// see results without Progress Access or a public profile.
 class AssignmentAttempt {
@@ -142,6 +145,10 @@ class AssignmentAttempt {
   bool get isTeacherReviewSubmission =>
       attemptKind == AssignmentAttemptKind.teacherReviewSubmission;
 
+  bool get isHistoricalTemplateScore =>
+      attemptKind == AssignmentAttemptKind.templateScore ||
+      assessmentMode == AssessmentMode.templateScored;
+
   bool get isAbandonedTeacherReviewDraft {
     if (!isTeacherReviewSubmission) return false;
     return status == AssignmentAttemptStatus.draft && abandonedAt != null;
@@ -167,6 +174,11 @@ class AssignmentAttempt {
   }
 
   Map<String, dynamic> toCreateMap({required Object createdAt}) {
+    if (isHistoricalTemplateScore) {
+      throw StateError(
+        'Template-scored attempts are read-only historical records.',
+      );
+    }
     final map = <String, dynamic>{
       'trainee_id': traineeId,
       'teacher_id': teacherId,

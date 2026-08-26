@@ -61,6 +61,8 @@ class GroupAssignment {
   final String? displayInstructions;
   final String? displaySafetyGuidance;
   final TrainingProp? allowedProp;
+
+  /// Historical `assessment_spec` payload, parsed only for retired records.
   final AssessmentSpec? assessmentSpec;
   final DateTime? dueAt;
   final DateTime? createdAt;
@@ -69,6 +71,7 @@ class GroupAssignment {
   bool get isActive => status == GroupAssignmentStatus.active;
   bool get isOfficial => origin == MovementOrigin.officialElixr;
   bool get isTeacherCreated => origin == MovementOrigin.teacherCreated;
+  bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
 
   bool get isOverdue {
     final due = dueAt;

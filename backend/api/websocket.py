@@ -28,14 +28,15 @@ from assessment.readiness import (
 )
 from assessment.rule_engine import (
     evaluate_movement,
+    movement_is_prop_detection_only,
+    movement_max_hands,
+    movement_requires_hands,
+    movement_requires_pose,
     movement_required_prop_type,
     validate_movement_difficulty,
 )
 from assessment.scoring import RubricTracker
 from assessment.rubric import RubricAssessment
-from assessment.specs.assessment_spec import AssessmentSpec
-from assessment.specs.session_profile import build_session_profile
-from assessment.specs.wrist_v1 import evaluate as evaluate_wrist_v1
 from config import (
     FPS_LOG_INTERVAL,
     EVIDENCE_JPEG_QUALITY,
@@ -53,7 +54,6 @@ from config import (
 )
 from schemas.commands import (
     PROTOCOL_VERSION,
-    TEMPLATE_SESSION_PURPOSES,
     ActivateCommand,
     BeginReadinessCommand,
     CancelSubmissionRecordCommand,
@@ -320,11 +320,7 @@ _PREPARE_VALUE_ERROR_CODES = (
     "invalid_camera_device_id",
     "invalid_camera_index",
     "invalid_session_purpose",
-    "missing_assessment_spec",
     "unexpected_assessment_spec",
-    "unsupported_assessment_spec",
-    "assessment_spec_prop_mismatch",
-    "template_submission_recording_not_allowed",
 )
 
 
@@ -340,7 +336,7 @@ def _validation_error_code(exc: ValidationError) -> str:
         if "session_purpose" in loc:
             return "invalid_session_purpose"
         if "assessment_spec" in loc:
-            return "unsupported_assessment_spec"
+            return "unexpected_assessment_spec"
         if "bottle_detection_enabled" in loc:
             return "invalid_boolean"
         if "protocol_version" in loc:
@@ -424,22 +420,11 @@ def _human_error_message(error_code: str) -> str:
         ),
         "record_failed": "Submission recording failed. Try again.",
         "invalid_session_purpose": (
-            "session_purpose must be official, template_scored, or live_test."
-        ),
-        "missing_assessment_spec": (
-            "template_scored and live_test prepares require a valid assessment_spec."
+            "This session purpose has been retired. Use official practice or "
+            "teacher-reviewed recording."
         ),
         "unexpected_assessment_spec": (
-            "assessment_spec is only valid for template_scored or live_test sessions."
-        ),
-        "unsupported_assessment_spec": (
-            "The assessment_spec is not a supported Wrist Stall template."
-        ),
-        "assessment_spec_prop_mismatch": (
-            "Template assessment requires prop_type bottle to match the spec."
-        ),
-        "template_submission_recording_not_allowed": (
-            "Template and live-test sessions cannot enable submission recording."
+            "assessment_spec is no longer accepted by the WebSocket API."
         ),
     }.get(error_code, "The WebSocket command was rejected.")
 
@@ -470,18 +455,10 @@ class VisionSession:
         camera_device_id: str | None = None,
         bottle_detection_enabled: bool = True,
         session_id: str | None = None,
-        session_purpose: str = "official",
-        assessment_spec: AssessmentSpec | dict | None = None,
     ):
         if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
 
-        self._session_profile = build_session_profile(
-            purpose=session_purpose,
-            movement=movement,
-            prop_type=prop_type,
-            assessment_spec=assessment_spec,
-        )
         self.movement = movement
         self.prop_type = prop_type
         self.prop_display_name = {
@@ -516,24 +493,22 @@ class VisionSession:
         # stream preview JPEGs before model init cost.
         self.hands_detector: HandsDetector | None = None
         self.pose_detector: PoseDetector | None = None
-        self._prop_detection_only = self._session_profile.is_prop_detection_only
+        self._prop_detection_only = movement_is_prop_detection_only(movement)
         self._hands_rotated_fallback = (
             not self._prop_detection_only
-            and not self._session_profile.is_template
             and movement in HANDS_ROTATED_FALLBACK_MOVEMENTS
         )
         self._hands_bartender_roi = (
             not self._prop_detection_only
-            and not self._session_profile.is_template
             and movement in HANDS_BARTENDER_ROI_MOVEMENTS
         )
         self._hands_needed = (
-            not self._prop_detection_only and self._session_profile.requires_hands
+            not self._prop_detection_only and movement_requires_hands(movement)
         )
         self._pose_needed = (
-            not self._prop_detection_only and self._session_profile.requires_pose
+            not self._prop_detection_only and movement_requires_pose(movement)
         )
-        self._hands_max = self._session_profile.max_hands
+        self._hands_max = movement_max_hands(movement)
         self.rubric = RubricTracker()
 
         self._frame_index = 0
@@ -767,7 +742,7 @@ class VisionSession:
 
     @property
     def display_movement(self) -> str:
-        return self._session_profile.display_movement
+        return self.movement
 
     def start(self) -> bool:
         return self.camera.open()
@@ -822,15 +797,6 @@ class VisionSession:
         if self._prop_detection_only:
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
             return
-        if self._session_profile.is_template:
-            profile = self._session_profile.readiness_profile
-            needs_hands = profile.needs_hands() if profile is not None else False
-            needs_pose = profile.needs_pose() if profile is not None else False
-            self._sync_landmark_detectors(
-                needs_hands=needs_hands,
-                needs_pose=needs_pose,
-            )
-            return
         self._sync_landmark_detectors(
             needs_hands=readiness_needs_hands(self.movement, self.prop_type),
             needs_pose=readiness_needs_pose(self.movement, self.prop_type),
@@ -852,7 +818,6 @@ class VisionSession:
             self._readiness_tracker = ReadinessTracker(
                 self.movement,
                 self.prop_type,
-                profile=self._session_profile.readiness_profile,
             )
             self._latest_readiness_snapshot = None
             self._latest_readiness_observed_at = None
@@ -1158,13 +1123,8 @@ class VisionSession:
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
 
-        if self._session_profile.is_template:
-            profile = self._session_profile.readiness_profile
-            needs_h = profile.needs_hands() if profile is not None else False
-            needs_p = profile.needs_pose() if profile is not None else False
-        else:
-            needs_h = readiness_needs_hands(self.movement, self.prop_type)
-            needs_p = readiness_needs_pose(self.movement, self.prop_type)
+        needs_h = readiness_needs_hands(self.movement, self.prop_type)
+        needs_p = readiness_needs_pose(self.movement, self.prop_type)
 
         hands = None
         if needs_h and self.hands_detector is not None:
@@ -1472,37 +1432,20 @@ class VisionSession:
         )
 
         t0 = time.perf_counter()
-        if self._session_profile.is_template:
-            spec = self._session_profile.assessment_spec
-            if spec is None or spec.template_id != "balance_stall.wrist_v1":
-                raise ValueError("unsupported_assessment_spec")
-            state = dict(self._movement_state) if self._movement_state else {}
-            scale = self._calibration.resolved[0]
-            state["calibration_scale"] = scale
-            rule_result, self._movement_state = evaluate_wrist_v1(
-                spec,
-                bottle,
-                pose,
-                state,
-            )
-            if self._movement_state is None:
-                self._movement_state = {}
-            self._movement_state["calibration_scale"] = scale
-        else:
-            rule_result, self._prev_hip_center, self._movement_state = evaluate_movement(
-                self.movement,
-                bottle,
-                pose,
-                hands,
-                self._prev_hip_center,
-                self._movement_state,
-                bottle_detection_enabled=self.bottle_detection_enabled,
-                bottles=rule_bottles if self.bottle_detection_enabled else None,
-                prop_type=self.prop_type,
-                prop_label=self.prop_display_name,
-                shakers=rule_shakers,
-                calibration_scale=self._calibration.resolved[0],
-            )
+        rule_result, self._prev_hip_center, self._movement_state = evaluate_movement(
+            self.movement,
+            bottle,
+            pose,
+            hands,
+            self._prev_hip_center,
+            self._movement_state,
+            bottle_detection_enabled=self.bottle_detection_enabled,
+            bottles=rule_bottles if self.bottle_detection_enabled else None,
+            prop_type=self.prop_type,
+            prop_label=self.prop_display_name,
+            shakers=rule_shakers,
+            calibration_scale=self._calibration.resolved[0],
+        )
         self.timings.add("evaluate", time.perf_counter() - t0)
 
         hold_ts = time.monotonic()
@@ -1770,8 +1713,6 @@ async def _cv_session_loop(
     session_id: str | None = None,
     prepare_gate: dict | None = None,
     send_text: SendText | None = None,
-    session_purpose: str = "official",
-    assessment_spec: AssessmentSpec | None = None,
 ):
     async def _send(payload: str) -> None:
         if send_text is not None:
@@ -1787,8 +1728,6 @@ async def _cv_session_loop(
             camera_device_id=camera_device_id,
             bottle_detection_enabled=bottle_detection_enabled,
             session_id=session_id,
-            session_purpose=session_purpose,
-            assessment_spec=assessment_spec,
         )
     except Exception:
         logger.exception("Failed to initialize vision session")
@@ -2370,8 +2309,6 @@ async def websocket_endpoint(websocket: WebSocket):
         start_active: bool,
         session_id: str | None,
         wait_for_prepare: bool,
-        session_purpose: str = "official",
-        assessment_spec: AssessmentSpec | None = None,
     ) -> tuple[bool, str | None, str | None]:
         nonlocal session_task, current_session_id, submission_recording_allowed
 
@@ -2407,8 +2344,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_id=session_id,
                 prepare_gate=prepare_gate,
                 send_text=safe_send,
-                session_purpose=session_purpose,
-                assessment_spec=assessment_spec,
             )
         )
 
@@ -2452,54 +2387,40 @@ async def websocket_endpoint(websocket: WebSocket):
     async def handle_v1_prepare_or_start(command: PrepareCommand | StartCommand) -> None:
         nonlocal movement, difficulty, current_session_id, submission_recording_allowed
 
-        is_template_prepare = (
-            isinstance(command, PrepareCommand)
-            and command.session_purpose in TEMPLATE_SESSION_PURPOSES
+        auth_difficulty, movement_error = validate_movement_difficulty(
+            command.movement,
+            command.difficulty,
         )
-
-        if is_template_prepare:
-            assert isinstance(command, PrepareCommand)
-            auth_difficulty = command.difficulty
-            assessment_spec = command.assessment_spec
-            session_purpose = command.session_purpose
-        else:
-            auth_difficulty, movement_error = validate_movement_difficulty(
-                command.movement,
-                command.difficulty,
+        if movement_error is not None:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=_public_session_state(
+                    session_ref.get("session"),
+                    current_session_id=current_session_id,
+                ),
+                error_code=movement_error,
+                message=_human_error_message(movement_error),
             )
-            if movement_error is not None:
-                await send_ack(
-                    request_id=command.request_id,
-                    session_id=command.session_id,
-                    action=command.action,
-                    accepted=False,
-                    session_state=_public_session_state(
-                        session_ref.get("session"),
-                        current_session_id=current_session_id,
-                    ),
-                    error_code=movement_error,
-                    message=_human_error_message(movement_error),
-                )
-                return
+            return
 
-            required_prop_type = movement_required_prop_type(command.movement)
-            if required_prop_type is not None and command.prop_type != required_prop_type:
-                await send_ack(
-                    request_id=command.request_id,
-                    session_id=command.session_id,
-                    action=command.action,
-                    accepted=False,
-                    session_state=_public_session_state(
-                        session_ref.get("session"),
-                        current_session_id=current_session_id,
-                    ),
-                    error_code="movement_prop_mismatch",
-                    message=_human_error_message("movement_prop_mismatch"),
-                )
-                return
-
-            assessment_spec = None
-            session_purpose = "official"
+        required_prop_type = movement_required_prop_type(command.movement)
+        if required_prop_type is not None and command.prop_type != required_prop_type:
+            await send_ack(
+                request_id=command.request_id,
+                session_id=command.session_id,
+                action=command.action,
+                accepted=False,
+                session_state=_public_session_state(
+                    session_ref.get("session"),
+                    current_session_id=current_session_id,
+                ),
+                error_code="movement_prop_mismatch",
+                message=_human_error_message("movement_prop_mismatch"),
+            )
+            return
 
         assert auth_difficulty is not None
 
@@ -2516,15 +2437,12 @@ async def websocket_endpoint(websocket: WebSocket):
             start_active=start_active,
             session_id=command.session_id,
             wait_for_prepare=True,
-            session_purpose=session_purpose,
-            assessment_spec=assessment_spec,
         )
 
         if ok:
             submission_recording_allowed = (
                 bool(command.allow_submission_recording)
                 and command.movement == "Free Practice"
-                and session_purpose == "official"
             )
             await send_ack(
                 request_id=command.request_id,

@@ -16,18 +16,20 @@ import '../../data/models/training_prop.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../features/practice/live_practice_screen.dart';
 import '../../features/practice/practice_screen.dart';
-import 'template_scored_practice_screen.dart';
 import '../../services/auth_service.dart';
 import '../../services/tutorial_progress_service.dart';
 
 enum AssignedPracticeDispatch {
   officialGuided,
   teacherReviewed,
-  templateScored,
+  retiredTemplate,
   invalid,
 }
 
 AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
+  if (assignment.isRetiredTemplate) {
+    return AssignedPracticeDispatch.retiredTemplate;
+  }
   if (!assignment.isActive) return AssignedPracticeDispatch.invalid;
   if (assignment.isOfficial) {
     if (assignment.assessmentMode != AssessmentMode.officialGuided) {
@@ -40,15 +42,6 @@ AssignedPracticeDispatch dispatchAssignedPractice(GroupAssignment assignment) {
       return AssignedPracticeDispatch.invalid;
     }
     return AssignedPracticeDispatch.teacherReviewed;
-  }
-  if (assignment.assessmentMode == AssessmentMode.templateScored) {
-    final spec = assignment.assessmentSpec;
-    if (spec == null ||
-        !spec.isCanonicalWristStallV1 ||
-        assignment.allowedProp != TrainingProp.bottle) {
-      return AssignedPracticeDispatch.invalid;
-    }
-    return AssignedPracticeDispatch.templateScored;
   }
   return AssignedPracticeDispatch.invalid;
 }
@@ -104,6 +97,14 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         });
         return;
       }
+      if (assignment.isRetiredTemplate) {
+        setState(() {
+          _loading = false;
+          _error =
+              'Automatic template assessment has been retired. This historical assignment is read-only; previous scores remain available.';
+        });
+        return;
+      }
       if (!assignment.isActive) {
         setState(() {
           _loading = false;
@@ -142,20 +143,16 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
               ),
             );
           });
-        case AssignedPracticeDispatch.templateScored:
+        case AssignedPracticeDispatch.retiredTemplate:
           setState(() {
             _loading = false;
-            _child = TemplateScoredPracticeScreen(
-              assignment: assignment,
-              traineeId: traineeId,
-            );
+            _error =
+                'Automatic template assessment has been retired. This historical assignment is read-only.';
           });
         case AssignedPracticeDispatch.invalid:
           setState(() {
             _loading = false;
-            _error = assignment.assessmentMode == AssessmentMode.templateScored
-                ? 'This template assignment is malformed.'
-                : 'This assignment cannot be opened.';
+            _error = 'This assignment cannot be opened.';
           });
       }
     } catch (_) {

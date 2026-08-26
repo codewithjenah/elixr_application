@@ -178,6 +178,33 @@ def test_valid_prepare_command_parses():
     assert cmd.prop_type == "bottle"
 
 
+def test_retired_template_session_purpose_is_rejected():
+    with pytest.raises(ValidationError) as exc_info:
+        PrepareCommand.model_validate(
+            _prepare_payload(session_purpose="template_scored")
+        )
+
+    assert websocket_api._validation_error_code(exc_info.value) == (
+        "invalid_session_purpose"
+    )
+
+
+def test_retired_assessment_spec_is_rejected():
+    with pytest.raises(ValidationError) as exc_info:
+        PrepareCommand.model_validate(
+            _prepare_payload(
+                assessment_spec={
+                    "schema_version": 1,
+                    "template_id": "balance_stall.wrist_v1",
+                }
+            )
+        )
+
+    assert websocket_api._validation_error_code(exc_info.value) == (
+        "unexpected_assessment_spec"
+    )
+
+
 @pytest.mark.parametrize("prop_type", ["bottle", "shaker", "bottle_and_shaker"])
 def test_prepare_and_start_accept_supported_props(prop_type):
     prepare = parse_v1_command(_prepare_payload(prop_type=prop_type))

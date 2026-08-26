@@ -30,7 +30,6 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
   @override
   bool get isTeacherReviewOnly => capability == teacherReviewOnly;
 
-  @override
   Map<String, dynamic> toMap() {
     return {
       'instructions': instructions,

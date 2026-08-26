@@ -99,9 +99,6 @@ class FeedbackCode(str, Enum):
     # --- Hand Stall (Phase A) ---
     HAND_STALL_LOCKED = "hand_stall_locked"
 
-    # --- Wrist Stall template (Phase 7B; not an official catalog movement) ---
-    WRIST_STALL_LOCKED = "wrist_stall_locked"
-
     # --- One Finger Stall ---
     INDEX_FINGER_NOT_EXTENDED = "index_finger_not_extended"
     INDEX_FINGER_NOT_HORIZONTAL = "index_finger_not_horizontal"
@@ -202,7 +199,6 @@ _CODE_CATEGORIES: dict[FeedbackCode, FeedbackCategory] = {
     FeedbackCode.CLAW_GRIP_LOCKED: FeedbackCategory.TECHNIQUE,
     # Hand Stall
     FeedbackCode.HAND_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
-    FeedbackCode.WRIST_STALL_LOCKED: FeedbackCategory.TECHNIQUE,
     # One Finger Stall
     FeedbackCode.INDEX_FINGER_NOT_EXTENDED: FeedbackCategory.TECHNIQUE,
     FeedbackCode.INDEX_FINGER_NOT_HORIZONTAL: FeedbackCategory.TECHNIQUE,
@@ -316,7 +312,6 @@ _CODE_CRITERIA: dict[FeedbackCode, Optional[RubricCriterion]] = {
     FeedbackCode.REVERSE_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.CLAW_GRIP_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.HAND_STALL_LOCKED: RubricCriterion.TECHNIQUE,
-    FeedbackCode.WRIST_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.ONE_FINGER_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.FOREARM_STALL_LOCKED: RubricCriterion.TECHNIQUE,
     FeedbackCode.ELBOW_STALL_LOCKED: RubricCriterion.TECHNIQUE,

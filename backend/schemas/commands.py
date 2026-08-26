@@ -14,8 +14,6 @@ from pydantic import (
     model_validator,
 )
 
-from assessment.specs.assessment_spec import AssessmentSpec
-
 PROTOCOL_VERSION = 1
 MAX_ID_LENGTH = 128
 MAX_MOVEMENT_LENGTH = 128
@@ -23,8 +21,6 @@ MAX_DIFFICULTY_LENGTH = 64
 MAX_DEVICE_ID_LENGTH = 1024
 MAX_CAMERA_INDEX = 10
 PropType = Literal["bottle", "shaker", "bottle_and_shaker"]
-SessionPurpose = Literal["official", "template_scored", "live_test"]
-TEMPLATE_SESSION_PURPOSES = frozenset({"template_scored", "live_test"})
 
 NonEmptyId = Annotated[str, Field(min_length=1, max_length=MAX_ID_LENGTH)]
 
@@ -53,8 +49,6 @@ class PrepareCommand(_CommandBase):
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
     allow_submission_recording: StrictBool = False
-    session_purpose: SessionPurpose = "official"
-    assessment_spec: Optional[AssessmentSpec] = None
 
     @field_validator("movement", "difficulty", mode="before")
     @classmethod
@@ -95,23 +89,6 @@ class PrepareCommand(_CommandBase):
         if self.camera_device_id is not None and self.camera_index is not None:
             raise ValueError("invalid_camera_device_id")
         return self
-
-    @model_validator(mode="after")
-    def _enforce_session_purpose(self) -> "PrepareCommand":
-        if self.session_purpose == "official":
-            if self.assessment_spec is not None:
-                raise ValueError("unexpected_assessment_spec")
-            return self
-        if self.session_purpose not in TEMPLATE_SESSION_PURPOSES:
-            raise ValueError("invalid_session_purpose")
-        if self.assessment_spec is None:
-            raise ValueError("missing_assessment_spec")
-        if self.allow_submission_recording:
-            raise ValueError("template_submission_recording_not_allowed")
-        if self.prop_type != self.assessment_spec.prop:
-            raise ValueError("assessment_spec_prop_mismatch")
-        return self
-
 
 class ActivateCommand(_CommandBase):
     action: Literal["activate"]
