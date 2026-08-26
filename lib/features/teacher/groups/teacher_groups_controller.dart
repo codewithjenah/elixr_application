@@ -163,14 +163,14 @@ class TeacherGroupsController extends ChangeNotifier {
     if (group == null) return Future.value();
     return _runTeacherAction(
       operation: 'rotateInvite',
-      failureMessage: 'Could not rotate the invite code.',
+      failureMessage: 'Could not make a new class code.',
       action: () async {
         activeInvite = await repository.createOrRotateGroupInvite(
           groupId: group.id,
           teacherId: teacherId,
           teacherDisplayName: teacherDisplayName,
         );
-        actionMessage = 'Invite code rotated.';
+        actionMessage = 'New class code is ready.';
       },
     );
   }

@@ -149,6 +149,17 @@ class _SpyGroupRepository implements GroupRepository {
   }
 
   @override
+  Stream<List<GroupMembership>> watchApprovedGroupMembers({
+    required String groupId,
+    required String teacherId,
+  }) {
+    return inner.watchApprovedGroupMembers(
+      groupId: groupId,
+      teacherId: teacherId,
+    );
+  }
+
+  @override
   Future<void> prepareClassroomAccessContext({
     required String teacherId,
     required String traineeId,

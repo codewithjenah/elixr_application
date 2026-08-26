@@ -146,4 +146,46 @@ void main() {
     await boot();
     expect(controller.visibleEntries, isEmpty);
   });
+
+  test('students are listed separately per class', () async {
+    repository.seedGroup(activeGroup(id: 'group-1', name: 'BSHM 4A'));
+    repository.seedGroup(activeGroup(id: 'group-2', name: 'BSHM 4B'));
+    repository.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 't1',
+        traineeName: 'Ada Lovelace',
+      ),
+    );
+    repository.seedMembership(
+      membership(
+        groupId: 'group-2',
+        teacherId: 'teacher',
+        traineeId: 't2',
+        traineeName: 'Alan Turing',
+      ),
+    );
+    await boot();
+    expect(
+      controller.visibleGroupRosters.map((roster) => roster.group.name).toSet(),
+      {'BSHM 4A', 'BSHM 4B'},
+    );
+    expect(
+      controller.visibleGroupRosters
+          .firstWhere((roster) => roster.group.id == 'group-1')
+          .memberships
+          .single
+          .traineeId,
+      't1',
+    );
+    expect(
+      controller.visibleGroupRosters
+          .firstWhere((roster) => roster.group.id == 'group-2')
+          .memberships
+          .single
+          .traineeId,
+      't2',
+    );
+  });
 }

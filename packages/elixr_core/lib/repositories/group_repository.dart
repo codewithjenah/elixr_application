@@ -58,6 +58,18 @@ abstract class GroupRepository {
     required String traineeId,
   });
 
+  /// Approved members of one group, newest first.
+  ///
+  /// Firestore allows this query for the group's Teacher or an approved
+  /// classmate. Callers must pass `groupId` and `teacherId` together with the
+  /// approved-status filter — pending rows are not returned. Omitting
+  /// `teacher_id` from the query makes the classmate list rule unprovable and
+  /// Cloud Firestore denies the whole snapshot.
+  Stream<List<GroupMembership>> watchApprovedGroupMembers({
+    required String groupId,
+    required String teacherId,
+  });
+
   /// Idempotently prepares the protected-read pointer for an approved
   /// Teacher/Trainee classroom relationship. Implementations must validate the
   /// current membership before writing the pointer.

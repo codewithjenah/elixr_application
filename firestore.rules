@@ -2612,6 +2612,25 @@ service cloud.firestore {
         );
     }
 
+    // Approved classmates may list other approved members in the same group.
+    // Pending, rejected, cancelled, and removed rows stay hidden from peers.
+    // Clients must query teacher_id + group_id + status==approved so Cloud
+    // Firestore can prove every result passes this rule.
+    function hasApprovedMembershipInSameGroup() {
+      return isSignedIn()
+        && resource.data.status == 'approved'
+        && isParticipantId(resource.data.group_id)
+        && exists(groupMembershipPath(resource.data.group_id, request.auth.uid))
+        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.group_id
+          == resource.data.group_id
+        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.trainee_id
+          == request.auth.uid
+        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.status
+          == 'approved'
+        && get(groupMembershipPath(resource.data.group_id, request.auth.uid)).data.teacher_id
+          == resource.data.teacher_id;
+    }
+
     // Binds authorization to the authenticated Teacher viewer (Phase 3+).
     function hasClassroomAuthorization(groupId, traineeId) {
       return isSignedIn()
@@ -2756,6 +2775,7 @@ service cloud.firestore {
       allow get: if isMembershipParticipant();
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
       allow list: if isSignedIn() && resource.data.trainee_id == request.auth.uid;
+      allow list: if hasApprovedMembershipInSameGroup();
 
       allow create: if validPendingMembershipCreate(request.resource.data, membershipId);
 

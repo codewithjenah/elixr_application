@@ -168,7 +168,10 @@ void main() {
 
       expect(find.text('Privacy'), findsWidgets);
       expect(find.text('Lock profile'), findsOneWidget);
-      expect(find.textContaining('including other faculty'), findsOneWidget);
+      expect(
+        find.textContaining('other students and teachers'),
+        findsOneWidget,
+      );
       expect(find.text('Save confirmed movement images'), findsNothing);
       expect(profiles.seedCalls, 1);
       expect(profiles.seededVisibility, ProfileVisibility.public);

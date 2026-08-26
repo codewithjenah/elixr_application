@@ -397,4 +397,60 @@ void main() {
         .first;
     expect(otherTeacher, isEmpty);
   });
+
+  test(
+    'watchApprovedGroupMembers returns only approved members of that group',
+    () async {
+      final groupA = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4A',
+      );
+      final groupB = await groupRepository.createGroup(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        name: 'BSHM 4B',
+      );
+      final inviteA = (await groupRepository.getActiveGroupInvite(
+        groupId: groupA.id,
+      ))!;
+      final inviteB = (await groupRepository.getActiveGroupInvite(
+        groupId: groupB.id,
+      ))!;
+      final adaA = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-1',
+        traineeDisplayName: 'Ada Lovelace',
+        code: inviteA.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: adaA.id,
+        teacherId: 'teacher-1',
+      );
+      final alanA = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-2',
+        traineeDisplayName: 'Alan Turing',
+        code: inviteA.normalizedCode,
+      );
+      expect(alanA.isPending, isTrue);
+      final adaB = await groupRepository.requestGroupJoin(
+        traineeId: 'trainee-3',
+        traineeDisplayName: 'Grace Hopper',
+        code: inviteB.normalizedCode,
+      );
+      await groupRepository.approveMembership(
+        membershipId: adaB.id,
+        teacherId: 'teacher-1',
+      );
+
+      final approvedA = await groupRepository
+          .watchApprovedGroupMembers(groupId: groupA.id, teacherId: 'teacher-1')
+          .first;
+      expect(approvedA.map((m) => m.traineeId), ['trainee-1']);
+
+      final approvedB = await groupRepository
+          .watchApprovedGroupMembers(groupId: groupB.id, teacherId: 'teacher-1')
+          .first;
+      expect(approvedB.map((m) => m.traineeId), ['trainee-3']);
+    },
+  );
 }

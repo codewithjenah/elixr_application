@@ -96,12 +96,12 @@ void main() {
       expectNoUnboundedFlex(tester);
       expect(find.widgetWithText(TextBox, 'Search by name'), findsOneWidget);
       expect(find.byType(ComboBox<String?>), findsOneWidget);
-      expect(find.text('All groups'), findsWidgets);
+      expect(find.text('All classes'), findsWidgets);
       expect(find.byType(ComboBox<TeacherStudentStatusFilter>), findsOneWidget);
       expect(find.text('Approved'), findsWidgets);
       expect(find.text('Ada Lovelace'), findsOneWidget);
       expect(find.text('Alan Turing'), findsOneWidget);
-      expect(find.byType(ListView), findsOneWidget);
+      expect(find.byType(CustomScrollView), findsOneWidget);
     },
   );
 
@@ -134,7 +134,7 @@ void main() {
     expect(find.text('Student 00'), findsOneWidget);
     expect(find.text('Student 23'), findsNothing);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -4000));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -4000));
     await tester.pumpAndSettle();
 
     expectNoUnboundedFlex(tester);
@@ -174,16 +174,42 @@ void main() {
     expect(find.text('Alan Turing'), findsNothing);
   });
 
-  testWidgets('empty classroom shows the genuine empty copy', (tester) async {
+  testWidgets('empty class still shows that class on its own', (tester) async {
     repository.seedGroup(activeGroup());
     await pumpStudents(tester);
 
     expectNoUnboundedFlex(tester);
-    expect(
-      find.text('No students yet. Approve join requests in Groups.'),
-      findsOneWidget,
+    expect(find.text('BSHM 4A'), findsOneWidget);
+    expect(find.text('No students in this class yet.'), findsOneWidget);
+    expect(find.byType(CustomScrollView), findsOneWidget);
+  });
+
+  testWidgets('students stay in separate class groups', (tester) async {
+    repository.seedGroup(activeGroup(id: 'group-1', name: 'BSHM 4A'));
+    repository.seedGroup(activeGroup(id: 'group-2', name: 'BSHM 4B'));
+    repository.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 't1',
+        traineeName: 'Ada Lovelace',
+      ),
     );
-    expect(find.byType(ListView), findsNothing);
+    repository.seedMembership(
+      membership(
+        groupId: 'group-2',
+        teacherId: 'teacher',
+        traineeId: 't2',
+        traineeName: 'Alan Turing',
+      ),
+    );
+    await pumpStudents(tester);
+
+    expectNoUnboundedFlex(tester);
+    expect(find.text('BSHM 4A'), findsOneWidget);
+    expect(find.text('BSHM 4B'), findsOneWidget);
+    expect(find.text('Ada Lovelace'), findsOneWidget);
+    expect(find.text('Alan Turing'), findsOneWidget);
   });
 
   testWidgets('filter miss shows match-empty copy', (tester) async {

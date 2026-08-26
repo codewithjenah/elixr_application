@@ -47,6 +47,8 @@ class InMemoryGroupRepository implements GroupRepository {
       <String, StreamController<List<GroupMembership>>>{};
   final _traineeMembershipControllers =
       <String, StreamController<List<GroupMembership>>>{};
+  final _approvedMemberControllers =
+      <String, StreamController<List<GroupMembership>>>{};
 
   static String _defaultGroupId() =>
       'group-${DateTime.now().microsecondsSinceEpoch}';
@@ -121,6 +123,9 @@ class InMemoryGroupRepository implements GroupRepository {
       controller.close();
     }
     for (final controller in _traineeMembershipControllers.values) {
+      controller.close();
+    }
+    for (final controller in _approvedMemberControllers.values) {
       controller.close();
     }
   }
@@ -327,6 +332,16 @@ class InMemoryGroupRepository implements GroupRepository {
     _traineeMembershipControllers,
     traineeId,
     () => _membershipsForTrainee(traineeId),
+  );
+
+  @override
+  Stream<List<GroupMembership>> watchApprovedGroupMembers({
+    required String groupId,
+    required String teacherId,
+  }) => _watchMemberships(
+    _approvedMemberControllers,
+    _approvedMemberWatchKey(teacherId, groupId),
+    () => _approvedMembersForGroup(teacherId, groupId),
   );
 
   @override
@@ -550,6 +565,34 @@ class InMemoryGroupRepository implements GroupRepository {
     return result;
   }
 
+  String _approvedMemberWatchKey(String teacherId, String groupId) =>
+      '$teacherId::$groupId';
+
+  (String teacherId, String groupId) _parseApprovedMemberWatchKey(String key) {
+    final separator = key.indexOf('::');
+    if (separator <= 0) return (key, '');
+    return (key.substring(0, separator), key.substring(separator + 2));
+  }
+
+  List<GroupMembership> _approvedMembersForGroup(
+    String teacherId,
+    String groupId,
+  ) {
+    final result = memberships.values
+        .where(
+          (membership) =>
+              membership.teacherId == teacherId &&
+              membership.groupId == groupId &&
+              membership.isApproved,
+        )
+        .toList();
+    result.sort(
+      (a, b) =>
+          (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+    );
+    return result;
+  }
+
   void _emitGroups() {
     for (final entry in _teacherGroupControllers.entries) {
       if (!entry.value.isClosed) {
@@ -575,6 +618,12 @@ class InMemoryGroupRepository implements GroupRepository {
     for (final entry in _traineeMembershipControllers.entries) {
       if (!entry.value.isClosed) {
         entry.value.add(_membershipsForTrainee(entry.key));
+      }
+    }
+    for (final entry in _approvedMemberControllers.entries) {
+      if (!entry.value.isClosed) {
+        final (teacherId, groupId) = _parseApprovedMemberWatchKey(entry.key);
+        entry.value.add(_approvedMembersForGroup(teacherId, groupId));
       }
     }
   }

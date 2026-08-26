@@ -123,7 +123,8 @@ class _GroupsListPanel extends StatelessWidget {
       return const ElixStatusPanel(
         key: Key('teacher_groups_empty'),
         message:
-            'No groups yet. Create a class such as BSHM 4A to share a group invite code.',
+            'No classes yet. Create one class per section, like BSHM 4A. '
+            'Students in each class stay in their own group.',
       );
     }
 
@@ -163,8 +164,8 @@ class _EmptyDetailPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElixStatusPanel(
       message: hasGroups
-          ? 'Select a group to manage invite codes and membership.'
-          : 'Create your first group to get started.',
+          ? 'Select a class to see its students and join code.'
+          : 'Create your first class to get started.',
     );
   }
 }
@@ -221,7 +222,7 @@ class _GroupDetailPanel extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(
-                'Group invite code',
+                'Join code for this class',
                 style: AppTheme.headingMedium.copyWith(
                   fontSize: 16,
                   color: context.elixTextPrimary,
@@ -230,7 +231,7 @@ class _GroupDetailPanel extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               if (invite == null)
                 Text(
-                  'No active invite code.',
+                  'No join code yet.',
                   style: AppTheme.bodySecondary.copyWith(
                     color: context.elixTextSecondary,
                   ),
@@ -261,7 +262,7 @@ class _GroupDetailPanel extends StatelessWidget {
                       onPressed: controller.busy
                           ? null
                           : () => _confirmRotateInvite(context, controller),
-                      child: const Text('Rotate code'),
+                      child: const Text('Make a new code'),
                     ),
                   ],
                 ),
@@ -272,8 +273,8 @@ class _GroupDetailPanel extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         _MembershipSection(
           key: const Key('teacher_group_pending_section'),
-          title: 'Pending join requests',
-          emptyMessage: 'No pending requests.',
+          title: 'Waiting to join',
+          emptyMessage: 'No one is waiting to join this class.',
           memberships: controller.pendingMemberships,
           profilePictureUrlFor: controller.profilePictureUrlFor,
           builder: (membership) => Wrap(
@@ -301,8 +302,8 @@ class _GroupDetailPanel extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         _MembershipSection(
           key: const Key('teacher_group_members_section'),
-          title: 'Approved members',
-          emptyMessage: 'No approved members yet.',
+          title: 'Students in this class',
+          emptyMessage: 'No students in this class yet.',
           memberships: controller.approvedMemberships,
           profilePictureUrlFor: controller.profilePictureUrlFor,
           builder: (membership) => Button(
@@ -380,7 +381,9 @@ class _MembershipSection extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          membership.status.name,
+                          membership.isPending
+                              ? 'Wants to join'
+                              : 'In this class',
                           style: AppTheme.caption.copyWith(
                             color: context.elixTextSecondary,
                           ),
@@ -416,7 +419,7 @@ Future<void> _showCreateGroupDialog(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Enter a class or group name.'),
+          const Text('Enter a class name, such as BSHM 4A.'),
           const SizedBox(height: AppSpacing.sm),
           TextBox(
             controller: nameController,
@@ -481,8 +484,8 @@ Future<void> _confirmArchive(
     builder: (context) => ContentDialog(
       title: const Text('Archive this group?'),
       content: const Text(
-        'Archived groups stop accepting new join requests. Existing approved '
-        'memberships remain for Classroom Authorization until you remove members.',
+        'Students already in this class stay. New students will not be able '
+        'to join with this class code.',
       ),
       actions: [
         Button(
@@ -506,10 +509,10 @@ Future<void> _confirmRotateInvite(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Rotate invite code?'),
+      title: const Text('Make a new class code?'),
       content: const Text(
-        'The current group code will stop working. Share the new code with '
-        'Trainees who still need to join.',
+        'The old code will stop working. Share the new code with students '
+        'who still need to join.',
       ),
       actions: [
         Button(
@@ -517,7 +520,7 @@ Future<void> _confirmRotateInvite(
           onPressed: () => Navigator.pop(context, false),
         ),
         FilledButton(
-          child: const Text('Rotate code'),
+          child: const Text('Make a new code'),
           onPressed: () => Navigator.pop(context, true),
         ),
       ],
@@ -536,8 +539,8 @@ Future<void> _confirmRemoveMember(
     builder: (context) => ContentDialog(
       title: Text('Remove ${membership.traineeDisplayName}?'),
       content: const Text(
-        'This removes Classroom Authorization for this group. It does not revoke '
-        'Progress Access or General Evidence Access on the legacy Teacher link.',
+        'This student will leave the class. They can join again later with '
+        'the class code.',
       ),
       actions: [
         Button(

@@ -127,7 +127,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         setState(() {
           _loading = false;
           _error =
-              'You need approved Classroom Authorization for this class to practice this assignment.';
+              'You need to be accepted into this class before you can practice this assignment.';
         });
         return;
       }

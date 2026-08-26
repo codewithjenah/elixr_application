@@ -235,7 +235,7 @@ class _Detail extends StatelessWidget {
             controller: feedback,
             maxLength: 1000,
             maxLines: 4,
-            placeholder: 'Bounded feedback for the Trainee',
+            placeholder: 'Feedback for the student',
           ),
           const SizedBox(height: AppSpacing.sm),
           Row(

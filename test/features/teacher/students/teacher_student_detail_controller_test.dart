@@ -387,6 +387,12 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
   }) => throw UnimplementedError();
 
   @override
+  Stream<List<GroupMembership>> watchApprovedGroupMembers({
+    required String groupId,
+    required String teacherId,
+  }) => throw UnimplementedError();
+
+  @override
   Future<void> prepareClassroomAccessContext({
     required String teacherId,
     required String traineeId,

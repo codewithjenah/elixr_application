@@ -165,3 +165,49 @@ List<TeacherGroupSummary> buildGroupSummaries({
       ),
   ];
 }
+
+/// One class with the students that belong only to that class.
+class TeacherGroupRoster {
+  const TeacherGroupRoster({required this.group, required this.memberships});
+
+  final ElixrGroup group;
+  final List<GroupMembership> memberships;
+}
+
+List<TeacherGroupRoster> buildTeacherGroupRosters({
+  required List<ElixrGroup> groups,
+  required List<GroupMembership> memberships,
+  required String searchQuery,
+  required String? groupId,
+  required TeacherStudentStatusFilter statusFilter,
+}) {
+  final trimmed = searchQuery.trim().toLowerCase();
+  final orderedGroups = [
+    ...groups.where((group) => group.isActive),
+    ...groups.where((group) => !group.isActive),
+  ];
+  final rosters = <TeacherGroupRoster>[];
+  for (final group in orderedGroups) {
+    if (groupId != null && group.id != groupId) continue;
+    final members =
+        memberships.where((membership) {
+          if (membership.groupId != group.id) return false;
+          if (!membershipMatchesStatusFilter(membership.status, statusFilter)) {
+            return false;
+          }
+          if (trimmed.isNotEmpty &&
+              !membership.traineeDisplayName.toLowerCase().contains(trimmed)) {
+            return false;
+          }
+          return true;
+        }).toList()..sort(
+          (a, b) => a.traineeDisplayName.toLowerCase().compareTo(
+            b.traineeDisplayName.toLowerCase(),
+          ),
+        );
+    if (trimmed.isNotEmpty && members.isEmpty) continue;
+    if (!group.isActive && members.isEmpty) continue;
+    rosters.add(TeacherGroupRoster(group: group, memberships: members));
+  }
+  return rosters;
+}

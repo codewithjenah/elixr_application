@@ -76,9 +76,11 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Expanded(
-                      child: controller.visibleEntries.isEmpty
+                      child: controller.groups.isEmpty
                           ? _EmptyStudents(controller: controller)
-                          : _StudentRoster(controller: controller),
+                          : controller.visibleGroupRosters.isEmpty
+                          ? _EmptyStudents(controller: controller)
+                          : _GroupedStudentRoster(controller: controller),
                     ),
                   ],
                 ),
@@ -115,9 +117,9 @@ class _Toolbar extends StatelessWidget {
         ),
         ComboBox<String?>(
           value: controller.selectedGroupId,
-          placeholder: const Text('All groups'),
+          placeholder: const Text('All classes'),
           items: [
-            const ComboBoxItem(value: null, child: Text('All groups')),
+            const ComboBoxItem(value: null, child: Text('All classes')),
             for (final group in controller.groups.where((g) => g.isActive))
               ComboBoxItem(value: group.id, child: Text(group.name)),
           ],
@@ -152,51 +154,82 @@ class _Toolbar extends StatelessWidget {
   }
 }
 
-class _StudentRoster extends StatelessWidget {
-  const _StudentRoster({required this.controller});
+class _GroupedStudentRoster extends StatelessWidget {
+  const _GroupedStudentRoster({required this.controller});
 
   final TeacherStudentsController controller;
 
   @override
   Widget build(BuildContext context) {
-    final groupNames = {
-      for (final group in controller.groups) group.id: group.name,
-    };
-    return ListView.separated(
-      itemCount: controller.visibleEntries.length,
-      separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final entry = controller.visibleEntries[index];
-        return _StudentRow(
-          entry: entry,
-          groupNames: groupNames,
-          onOpen: () {
-            final groupId = entry.memberships
-                .where((m) => m.isApproved)
-                .map((m) => m.groupId)
-                .firstOrNull;
-            context.go(
-              AppRoutePaths.teacherStudentDetail(
-                entry.traineeId,
-                groupId: groupId,
+    final rosters = controller.visibleGroupRosters;
+    return CustomScrollView(
+      slivers: [
+        for (var index = 0; index < rosters.length; index++) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(
+                top: index == 0 ? 0 : AppSpacing.lg,
+                bottom: AppSpacing.sm,
               ),
-            );
-          },
-        );
-      },
+              child: _GroupRosterHeader(roster: rosters[index]),
+            ),
+          ),
+          if (rosters[index].memberships.isEmpty)
+            const SliverToBoxAdapter(child: SizedBox.shrink())
+          else
+            SliverList(
+              delegate: SliverChildBuilderDelegate((context, studentIndex) {
+                final membership = rosters[index].memberships[studentIndex];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _StudentRow(
+                    membership: membership,
+                    onOpen: () {
+                      context.go(
+                        AppRoutePaths.teacherStudentDetail(
+                          membership.traineeId,
+                          groupId: membership.groupId,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              }, childCount: rosters[index].memberships.length),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GroupRosterHeader extends StatelessWidget {
+  const _GroupRosterHeader({required this.roster});
+
+  final TeacherGroupRoster roster;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(roster.group.name, style: AppTheme.headingMedium),
+        const SizedBox(height: 2),
+        Text(
+          roster.memberships.isEmpty
+              ? 'No students in this class yet.'
+              : '${roster.memberships.length} '
+                    '${roster.memberships.length == 1 ? 'student' : 'students'}',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+      ],
     );
   }
 }
 
 class _StudentRow extends StatelessWidget {
-  const _StudentRow({
-    required this.entry,
-    required this.groupNames,
-    required this.onOpen,
-  });
+  const _StudentRow({required this.membership, required this.onOpen});
 
-  final TeacherStudentEntry entry;
-  final Map<String, String> groupNames;
+  final GroupMembership membership;
   final VoidCallback onOpen;
 
   @override
@@ -208,55 +241,21 @@ class _StudentRow extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(entry.displayName, style: AppTheme.headingMedium),
-                    const SizedBox(height: AppSpacing.xs),
-                    Wrap(
-                      spacing: AppSpacing.xs,
-                      runSpacing: AppSpacing.xs,
-                      children: [
-                        for (final membership in entry.memberships)
-                          _GroupChip(
-                            label:
-                                groupNames[membership.groupId] ??
-                                membership.groupId,
-                          ),
-                      ],
-                    ),
-                  ],
+                child: Text(
+                  membership.traineeDisplayName,
+                  style: AppTheme.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: context.elixTextPrimary,
+                  ),
                 ),
               ),
-              _StatusBadge(status: entry.effectiveStatus),
+              _StatusBadge(status: membership.status),
               const SizedBox(width: AppSpacing.md),
               Button(onPressed: onOpen, child: const Text('Open details')),
             ],
           ),
         );
       },
-    );
-  }
-}
-
-class _GroupChip extends StatelessWidget {
-  const _GroupChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm,
-        vertical: 4,
-      ),
-      decoration: BoxDecoration(
-        color: context.elixBackground,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: context.elixBorder),
-      ),
-      child: Text(label, style: AppTheme.caption),
     );
   }
 }
@@ -296,8 +295,8 @@ class _EmptyStudents extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: ElixStatusPanel(
-          message: controller.allEntries.isEmpty
-              ? 'No students yet. Approve join requests in Groups.'
+          message: controller.groups.isEmpty
+              ? 'No students yet. Open Groups, share a class code, then accept students. Each class has its own student list.'
               : 'No students match the current filters.',
         ),
       ),

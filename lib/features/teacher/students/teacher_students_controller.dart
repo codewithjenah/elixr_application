@@ -22,6 +22,7 @@ class TeacherStudentsController extends ChangeNotifier {
   List<GroupMembership> memberships = const [];
   List<TeacherStudentEntry> allEntries = const [];
   List<TeacherStudentEntry> visibleEntries = const [];
+  List<TeacherGroupRoster> visibleGroupRosters = const [];
 
   String searchQuery = '';
   String? selectedGroupId;
@@ -106,6 +107,13 @@ class TeacherStudentsController extends ChangeNotifier {
   void _applyFilters() {
     visibleEntries = filterTeacherStudents(
       entries: allEntries,
+      searchQuery: searchQuery,
+      groupId: selectedGroupId,
+      statusFilter: statusFilter,
+    );
+    visibleGroupRosters = buildTeacherGroupRosters(
+      groups: groups,
+      memberships: memberships,
       searchQuery: searchQuery,
       groupId: selectedGroupId,
       statusFilter: statusFilter,

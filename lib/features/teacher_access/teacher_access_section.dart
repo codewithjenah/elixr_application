@@ -1,6 +1,8 @@
+import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -11,9 +13,11 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_status_panel.dart';
+import '../../core/widgets/profile_avatar.dart';
+import '../../data/repositories/public_profile_repository.dart';
+import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
-import '../../data/repositories/session_evidence_repository.dart';
 import 'teacher_access_controller.dart';
 
 const double _accessWideBreakpoint = 1080;
@@ -74,6 +78,12 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
         widget.repository ?? context.read<TeacherRelationshipRepository>();
     final groupRepository = context.read<GroupRepository>();
     final joinCodeResolver = context.read<JoinCodeResolver>();
+    PublicProfileRepository? publicProfileRepository;
+    try {
+      publicProfileRepository = context.read<PublicProfileRepository>();
+    } on ProviderNotFoundException {
+      publicProfileRepository = null;
+    }
     _owned = TeacherAccessController(
       relationshipRepository: repository,
       groupRepository: groupRepository,
@@ -81,6 +91,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
       traineeId: userId,
       traineeDisplayName: user!.fullName,
       privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
+      publicProfileRepository: publicProfileRepository,
       reconcileEvidenceAvailability: (traineeId) => SessionEvidenceRepository()
           .reconcilePublicEvidenceAvailability(traineeId),
     );
@@ -159,11 +170,19 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                     right: _PendingRequestsCard(controller: controller),
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  _AccessPair(
-                    wide: wide,
-                    left: _GroupMembershipsCard(controller: controller),
-                    right: _LinkedTeachersCard(controller: controller),
-                  ),
+                  if (controller.approvedGroupMemberships.isEmpty) ...[
+                    const _EmptyClassesCard(),
+                    const SizedBox(height: AppSpacing.lg),
+                  ] else
+                    for (final membership
+                        in controller.approvedGroupMemberships) ...[
+                      _ApprovedGroupCard(
+                        controller: controller,
+                        membership: membership,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
+                  _LinkedTeachersCard(controller: controller),
                 ],
               ),
             );
@@ -182,11 +201,9 @@ class _AccessIntro extends StatelessWidget {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 820),
       child: Text(
-        'Join a group with a class invite code, or use a legacy Teacher '
-        'roster code. The Teacher must approve your request. Approved '
-        'classroom memberships automatically share sanitized progress and '
-        'available saved movement images while they remain approved. '
-        'Legacy-only linked Teachers keep the explicit sharing controls.',
+        'Ask to join a class with the code from your teacher. After they '
+        'accept you, you can see the other students in that class, and they '
+        'can see you. Each class stays separate.',
         style: AppTheme.bodySecondary.copyWith(
           color: context.elixTextSecondary,
           height: 1.45,
@@ -206,22 +223,22 @@ class _AccessMetricsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tiles = [
       _MetricTile(
-        label: 'Pending groups',
+        label: 'Waiting for class',
         value: '${controller.pendingGroupMemberships.length}',
         icon: FluentIcons.people,
       ),
       _MetricTile(
-        label: 'Pending joins',
+        label: 'Waiting for teacher',
         value: '${controller.pending.length}',
         icon: FluentIcons.inbox,
       ),
       _MetricTile(
-        label: 'Approved classrooms',
+        label: 'My classes',
         value: '${controller.approvedGroupMemberships.length}',
         icon: FluentIcons.completed,
       ),
       _MetricTile(
-        label: 'Legacy links',
+        label: 'Linked teachers',
         value: '${controller.legacyOnlyApproved.length}',
         icon: FluentIcons.contact,
       ),
@@ -419,7 +436,7 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Join a group',
+                      'Join a class',
                       style: AppTheme.headingMedium.copyWith(
                         fontSize: 18,
                         color: context.elixTextPrimary,
@@ -428,13 +445,12 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
                     const SizedBox(height: 4),
                     Text(
                       controller.joinStep == JoinTeacherStep.enterCode
-                          ? 'Enter a group invite code or a legacy Teacher roster code.'
+                          ? 'Type the class code your teacher gave you.'
                           : controller.resolvedKind == JoinCodeKind.groupInvite
-                          ? 'Send a group join request? Once approved, sanitized progress '
-                                'and available saved images are shared automatically while '
-                                'membership remains approved.'
-                          : 'Send a legacy Teacher roster request? Nothing is shared until '
-                                'the Teacher approves, and progress and images remain off by default.',
+                          ? 'Send a join request? Your teacher needs to accept '
+                                'you before you can see this class.'
+                          : 'Send a request to this teacher? They need to accept '
+                                'you first.',
                       style: AppTheme.bodySecondary.copyWith(
                         color: context.elixTextSecondary,
                         height: 1.4,
@@ -528,7 +544,12 @@ class _JoinConfirmActions extends StatelessWidget {
       children: [
         Text(
           controller.resolvedKind == JoinCodeKind.groupInvite
-              ? controller.resolvedGroupInvite?.teacherDisplayName ?? 'Teacher'
+              ? [
+                  if (controller.resolvedGroupName != null)
+                    controller.resolvedGroupName!,
+                  controller.resolvedGroupInvite?.teacherDisplayName ??
+                      'Teacher',
+                ].join(' · ')
               : controller.resolvedTeacherInvite?.teacherDisplayName ??
                     'Teacher',
           key: const Key('teacher_access_confirm_teacher'),
@@ -575,11 +596,11 @@ class _PendingGroupRequestsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _AccessSectionPanel(
-      title: 'Pending Group Requests',
+      title: 'Waiting to join a class',
       icon: FluentIcons.people,
       count: controller.pendingGroupMemberships.length,
       child: controller.pendingGroupMemberships.isEmpty
-          ? const _EmptyHint(message: 'No pending group requests.')
+          ? const _EmptyHint(message: 'No class requests waiting.')
           : Column(
               children: [
                 for (final membership
@@ -606,36 +627,99 @@ class _PendingGroupRequestsCard extends StatelessWidget {
   }
 }
 
-class _GroupMembershipsCard extends StatelessWidget {
-  const _GroupMembershipsCard({required this.controller});
-
-  final TeacherAccessController controller;
+class _EmptyClassesCard extends StatelessWidget {
+  const _EmptyClassesCard();
 
   @override
   Widget build(BuildContext context) {
-    return _AccessSectionPanel(
-      title: 'Approved Classroom Memberships',
+    return const _AccessSectionPanel(
+      title: 'Your classes',
       icon: FluentIcons.completed,
-      count: controller.approvedGroupMemberships.length,
-      child: controller.approvedGroupMemberships.isEmpty
-          ? const _EmptyHint(message: 'No approved group memberships yet.')
-          : Column(
+      count: 0,
+      child: _EmptyHint(
+        message: 'You are not in a class yet. Join with a class code above.',
+      ),
+    );
+  }
+}
+
+class _ApprovedGroupCard extends StatelessWidget {
+  const _ApprovedGroupCard({
+    required this.controller,
+    required this.membership,
+  });
+
+  final TeacherAccessController controller;
+  final GroupMembership membership;
+
+  @override
+  Widget build(BuildContext context) {
+    final groupName =
+        controller.groupNamesById[membership.groupId]?.name ?? 'Class';
+    final members = controller.membersForGroup(membership.groupId);
+    final loading = controller.isLoadingGroupMembers(membership.groupId);
+    return _AccessSectionPanel(
+      key: Key('teacher_access_group_${membership.groupId}'),
+      title: groupName,
+      icon: FluentIcons.people,
+      count: loading ? null : members.length,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Teacher: ${membership.teacherDisplayName}',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Classmates',
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w600,
+              color: context.elixTextPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: SizedBox(width: 24, height: 24, child: ProgressRing()),
+            )
+          else if (members.isEmpty)
+            const _EmptyHint(message: 'No students in this class yet.')
+          else
+            Column(
               children: [
-                for (final membership
-                    in controller.approvedGroupMemberships) ...[
+                for (final member in members) ...[
                   _AccessListRow(
-                    title:
-                        controller.groupNamesById[membership.groupId]?.name ??
-                        'Group',
-                    subtitle:
-                        'Approved · Progress and available saved movement images '
-                        'are shared automatically while membership remains approved.',
+                    leading: ProfileAvatarWidget(
+                      key: Key(
+                        'teacher_access_classmate_avatar_'
+                        '${membership.groupId}_${member.traineeId}',
+                      ),
+                      radius: 18,
+                      showBorder: false,
+                      initials: userInitials(member.traineeDisplayName),
+                      networkImageUrl: controller.profilePictureUrlFor(
+                        member.traineeId,
+                      ),
+                    ),
+                    title: member.traineeId == controller.traineeId
+                        ? '${member.traineeDisplayName} (you)'
+                        : member.traineeDisplayName,
+                    subtitle: member.traineeId == controller.traineeId
+                        ? 'You are in this class'
+                        : 'In this class',
                   ),
-                  if (membership != controller.approvedGroupMemberships.last)
+                  if (member != members.last)
                     const SizedBox(height: AppSpacing.md),
                 ],
               ],
             ),
+        ],
+      ),
     );
   }
 }
@@ -648,20 +732,20 @@ class _PendingRequestsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _AccessSectionPanel(
-      title: 'Pending Join Requests',
+      title: 'Waiting for a teacher',
       icon: FluentIcons.inbox,
       count: controller.pending.length,
       child: controller.pending.isEmpty
           ? const _EmptyHint(
               key: Key('teacher_access_pending_empty'),
-              message: 'No pending requests.',
+              message: 'No teacher requests waiting.',
             )
           : Column(
               children: [
                 for (final link in controller.pending) ...[
                   _AccessListRow(
                     title: link.teacherDisplayName,
-                    subtitle: 'Waiting for Teacher approval',
+                    subtitle: 'Waiting for your teacher to accept you',
                     trailing: Button(
                       key: Key('teacher_access_cancel_${link.id}'),
                       onPressed: controller.busy
@@ -688,13 +772,13 @@ class _LinkedTeachersCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final linked = controller.legacyOnlyApproved;
     return _AccessSectionPanel(
-      title: 'Legacy-only Linked Teachers',
+      title: 'Teachers not in a class',
       icon: FluentIcons.contact,
       count: linked.length,
       child: linked.isEmpty
           ? const _EmptyHint(
               key: Key('teacher_access_linked_empty'),
-              message: 'No linked Teachers yet.',
+              message: 'No extra teacher links.',
             )
           : Column(
               children: [
@@ -702,9 +786,10 @@ class _LinkedTeachersCard extends StatelessWidget {
                   _AccessListRow(
                     title: link.teacherDisplayName,
                     subtitle:
-                        'Relationship: Linked\nProgress sharing: '
+                        'Connected to this teacher\n'
+                        'Practice sharing: '
                         '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}\n'
-                        'Saved movement images: '
+                        'Saved pictures: '
                         '${link.hasEffectiveEvidenceAccess ? 'On' : 'Off'}',
                     trailing: Wrap(
                       spacing: AppSpacing.sm,
@@ -763,7 +848,7 @@ class _LinkedTeachersCard extends StatelessWidget {
                                   controller,
                                   link,
                                 ),
-                          child: const Text('Revoke Teacher'),
+                          child: const Text('Remove teacher'),
                         ),
                       ],
                     ),
@@ -779,6 +864,7 @@ class _LinkedTeachersCard extends StatelessWidget {
 
 class _AccessSectionPanel extends StatelessWidget {
   const _AccessSectionPanel({
+    super.key,
     required this.title,
     required this.icon,
     required this.child,
@@ -846,15 +932,41 @@ class _AccessListRow extends StatelessWidget {
   const _AccessListRow({
     required this.title,
     required this.subtitle,
+    this.leading,
     this.trailing,
   });
 
   final String title;
   final String subtitle;
+  final Widget? leading;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
+    final textColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTheme.body.copyWith(
+            fontWeight: FontWeight.w600,
+            color: context.elixTextPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            height: 1.4,
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Align(alignment: Alignment.centerRight, child: trailing),
+        ],
+      ],
+    );
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -863,30 +975,16 @@ class _AccessListRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: context.elixBorder.withValues(alpha: 0.45)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: AppTheme.body.copyWith(
-              fontWeight: FontWeight.w600,
-              color: context.elixTextPrimary,
+      child: leading == null
+          ? textColumn
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                leading!,
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: textColumn),
+              ],
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: AppTheme.caption.copyWith(
-              color: context.elixTextSecondary,
-              height: 1.4,
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Align(alignment: Alignment.centerRight, child: trailing),
-          ],
-        ],
-      ),
     );
   }
 }
@@ -899,14 +997,10 @@ Future<void> _confirmShareProgress(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Share progress with this Teacher?'),
+      title: const Text('Share practice with this teacher?'),
       content: const Text(
-        'This shares total practice time, completed movement names, and sanitized '
-        'practice/assessment history: movement, difficulty, date and duration, '
-        'prop type, legacy score or V2 rubric scores, and performance level.\n\n'
-        'It does not share passwords or credentials, private settings, raw webcam '
-        'or video, feedback internals, achievements, visitor records, permission '
-        'to edit sessions or scores, or unrestricted account data.',
+        'This teacher can see your practice time, completed moves, and scores. '
+        'Passwords, camera video, and private settings stay private.',
       ),
       actions: [
         Button(
@@ -931,11 +1025,10 @@ Future<void> _confirmStopSharing(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Stop sharing progress?'),
+      title: const Text('Stop sharing practice?'),
       content: const Text(
-        'This Teacher will immediately lose access to your sanitized progress. '
-        'Your Teacher relationship will remain linked, messaging remains available, '
-        'and you can share progress again later.',
+        'This teacher will stop seeing your practice progress. You stay '
+        'connected and can share again later.',
       ),
       actions: [
         Button(
@@ -960,11 +1053,10 @@ Future<void> _confirmShareEvidence(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Share saved movement images?'),
+      title: const Text('Share saved pictures?'),
       content: const Text(
-        'Retained historical and future annotated still images will become '
-        'readable by this Teacher until you revoke this permission. Progress '
-        'sharing must remain on. No video or arbitrary Storage path is shared.',
+        'This teacher can see your saved move pictures until you turn this off. '
+        'Practice sharing must stay on. Video is not shared.',
       ),
       actions: [
         Button(
@@ -989,11 +1081,10 @@ Future<void> _confirmRevokeTeacher(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Revoke this Teacher?'),
+      title: const Text('Remove this teacher?'),
       content: const Text(
-        'This ends the Teacher relationship and removes any progress consent. '
-        'Direct messages remain available separately unless either user blocks the other. '
-        'If you approve a future request from this Teacher, progress sharing will be off by default.',
+        'This ends the connection with this teacher. You can join again later '
+        'if you want.',
       ),
       actions: [
         Button(
@@ -1001,7 +1092,7 @@ Future<void> _confirmRevokeTeacher(
           onPressed: () => Navigator.pop(context, false),
         ),
         FilledButton(
-          child: const Text('Revoke Teacher'),
+          child: const Text('Remove teacher'),
           onPressed: () => Navigator.pop(context, true),
         ),
       ],

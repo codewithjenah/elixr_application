@@ -237,7 +237,7 @@ class _GroupOverviewRow extends StatelessWidget {
         child: ListTile(
           title: Text(summary.group.name),
           subtitle: Text(
-            '${summary.approvedCount} approved · ${summary.pendingCount} pending',
+            '${summary.approvedCount} students · ${summary.pendingCount} waiting',
           ),
           trailing: Button(
             onPressed: () => context.go(AppRoutePaths.teacherGroups),
@@ -261,7 +261,7 @@ class _PendingRequestRow extends StatelessWidget {
       child: ElixPanelCard(
         child: ListTile(
           title: Text(membership.traineeDisplayName),
-          subtitle: const Text('Requested group membership'),
+          subtitle: const Text('Wants to join a class'),
           trailing: Button(
             onPressed: () => context.go(AppRoutePaths.teacherGroups),
             child: const Text('Review in Groups'),
@@ -286,7 +286,8 @@ class _EmptyDashboard extends StatelessWidget {
           icon: FluentIcons.people,
           title: 'Your classroom is ready',
           message:
-              'Create a group and share an invite code to start building your roster.',
+              'Create a class, then share the join code with your students. '
+              'Each class keeps its own student list.',
           actionLabel: 'Open Groups',
           onAction: onOpenGroups,
         ),

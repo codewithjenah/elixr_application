@@ -126,11 +126,8 @@ class TeacherPrivacySectionState extends State<TeacherPrivacySection> {
               toggleKey: const Key('teacher_privacy_profile_lock_toggle'),
               label: 'Lock profile',
               description:
-                  'When locked, other signed-in Trainees and Teachers, '
-                  'including other faculty, cannot see your detailed stats, '
-                  'claimed achievements, completed movements, practice '
-                  'history, or visitors. Name and avatar stay visible either '
-                  'way. Detailed stats are usually empty for Teachers.',
+                  'When locked, other students and teachers cannot see your '
+                  'detailed stats. Your name and photo stay visible either way.',
               checked: _visibility == ProfileVisibility.private,
               onChanged: _saving ? null : _setLocked,
             ),

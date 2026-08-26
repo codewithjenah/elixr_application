@@ -317,6 +317,62 @@ void main() {
         .first;
     expect(otherGroup.map((m) => m.id), ['group-2_trainee-1']);
   });
+
+  test(
+    'watchApprovedGroupMembers returns only approved members of that group',
+    () async {
+      await firestore
+          .collection(FirestoreCollections.groupMemberships)
+          .doc('group-1_trainee-1')
+          .set({
+            'group_id': 'group-1',
+            'teacher_id': 'teacher-1',
+            'trainee_id': 'trainee-1',
+            'teacher_display_name': 'Grace Hopper',
+            'trainee_display_name': 'Ada Lovelace',
+            'status': GroupMembershipStatus.approved.name,
+            'invite_id': code,
+            'request_version': GroupMembership.currentRequestVersion,
+            'created_at': Timestamp.fromDate(DateTime.utc(2026, 1, 15, 10)),
+            'updated_at': Timestamp.fromDate(DateTime.utc(2026, 1, 15, 10)),
+          });
+      await firestore
+          .collection(FirestoreCollections.groupMemberships)
+          .doc('group-1_trainee-2')
+          .set({
+            'group_id': 'group-1',
+            'teacher_id': 'teacher-1',
+            'trainee_id': 'trainee-2',
+            'teacher_display_name': 'Grace Hopper',
+            'trainee_display_name': 'Alan Turing',
+            'status': GroupMembershipStatus.pending.name,
+            'invite_id': code,
+            'request_version': GroupMembership.currentRequestVersion,
+            'created_at': Timestamp.fromDate(DateTime.utc(2026, 1, 16, 10)),
+            'updated_at': Timestamp.fromDate(DateTime.utc(2026, 1, 16, 10)),
+          });
+      await firestore
+          .collection(FirestoreCollections.groupMemberships)
+          .doc('group-2_trainee-1')
+          .set({
+            'group_id': 'group-2',
+            'teacher_id': 'teacher-1',
+            'trainee_id': 'trainee-1',
+            'teacher_display_name': 'Grace Hopper',
+            'trainee_display_name': 'Ada Lovelace',
+            'status': GroupMembershipStatus.approved.name,
+            'invite_id': code,
+            'request_version': GroupMembership.currentRequestVersion,
+            'created_at': Timestamp.fromDate(DateTime.utc(2026, 1, 17, 10)),
+            'updated_at': Timestamp.fromDate(DateTime.utc(2026, 1, 17, 10)),
+          });
+
+      final members = await repository
+          .watchApprovedGroupMembers(groupId: groupId, teacherId: teacherId)
+          .first;
+      expect(members.map((m) => m.id), ['group-1_trainee-1']);
+    },
+  );
 }
 
 Future<void> _seedActiveGroupAndInvite(FakeFirebaseFirestore firestore) async {

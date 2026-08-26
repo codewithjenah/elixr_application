@@ -11,6 +11,8 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../data/models/public_profile.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/join_code_resolver.dart';
 
 enum JoinTeacherStep { enterCode, confirm }
@@ -24,6 +26,7 @@ class TeacherAccessController extends ChangeNotifier {
     required this.traineeDisplayName,
     this.privateImageSavingEnabled = false,
     this.reconcileEvidenceAvailability,
+    this.publicProfileRepository,
     this.onJoinCompleted,
   });
 
@@ -34,6 +37,7 @@ class TeacherAccessController extends ChangeNotifier {
   final String traineeDisplayName;
   final bool privateImageSavingEnabled;
   final Future<void> Function(String traineeId)? reconcileEvidenceAvailability;
+  final PublicProfileRepository? publicProfileRepository;
   final VoidCallback? onJoinCompleted;
 
   List<TeacherStudentLink> pending = const [];
@@ -49,10 +53,22 @@ class TeacherAccessController extends ChangeNotifier {
   JoinCodeKind? resolvedKind;
   TeacherRosterInvite? resolvedTeacherInvite;
   GroupInvite? resolvedGroupInvite;
+  String? resolvedGroupName;
   String? joinError;
   StreamSubscription<List<TeacherStudentLink>>? _linksSub;
   StreamSubscription<List<GroupMembership>>? _groupMembershipsSub;
+  final Map<String, StreamSubscription<List<GroupMembership>>> _classmateSubs =
+      {};
+  final Map<String, List<GroupMembership>> membersByGroupId = {};
+  final Map<String, StreamSubscription<PublicProfile?>> _profileSubs = {};
+  final Map<String, String> _profilePictureUrls = {};
   bool _disposed = false;
+
+  String? profilePictureUrlFor(String userId) {
+    final url = _profilePictureUrls[userId]?.trim();
+    if (url == null || url.isEmpty) return null;
+    return url;
+  }
 
   Set<String> get classroomTeacherIds => {
     for (final membership in approvedGroupMemberships) membership.teacherId,
@@ -109,6 +125,7 @@ class TeacherAccessController extends ChangeNotifier {
                   if (membership.isApproved) membership,
               ];
               if (!firstGroups.isCompleted) firstGroups.complete();
+              _syncClassmateWatches();
               _safeNotifyListeners();
               unawaited(_refreshGroupNames(memberships));
             },
@@ -133,6 +150,7 @@ class TeacherAccessController extends ChangeNotifier {
     resolvedKind = null;
     resolvedTeacherInvite = null;
     resolvedGroupInvite = null;
+    resolvedGroupName = null;
     joinError = null;
     notifyListeners();
   }
@@ -149,6 +167,7 @@ class TeacherAccessController extends ChangeNotifier {
     resolvedKind = null;
     resolvedTeacherInvite = null;
     resolvedGroupInvite = null;
+    resolvedGroupName = null;
     joinError = null;
     notifyListeners();
   }
@@ -165,9 +184,12 @@ class TeacherAccessController extends ChangeNotifier {
         case ResolvedGroupJoinCode(:final invite):
           resolvedGroupInvite = invite;
           resolvedTeacherInvite = null;
+          final group = await groupRepository.getGroup(groupId: invite.groupId);
+          resolvedGroupName = group?.name;
         case ResolvedTeacherRosterJoinCode(:final invite):
           resolvedTeacherInvite = invite;
           resolvedGroupInvite = null;
+          resolvedGroupName = null;
       }
       joinStep = JoinTeacherStep.confirm;
     } on GroupException catch (error) {
@@ -334,6 +356,62 @@ class TeacherAccessController extends ChangeNotifier {
     }
   }
 
+  List<GroupMembership> membersForGroup(String groupId) {
+    return membersByGroupId[groupId] ?? const [];
+  }
+
+  bool isLoadingGroupMembers(String groupId) {
+    return !membersByGroupId.containsKey(groupId);
+  }
+
+  void _syncClassmateWatches() {
+    final approvedIds = {
+      for (final membership in approvedGroupMemberships) membership.groupId,
+    };
+    final staleIds = _classmateSubs.keys
+        .where((id) => !approvedIds.contains(id))
+        .toList(growable: false);
+    for (final groupId in staleIds) {
+      unawaited(_classmateSubs.remove(groupId)?.cancel());
+      membersByGroupId.remove(groupId);
+    }
+    _syncClassmateProfileWatches();
+    for (final membership in approvedGroupMemberships) {
+      final groupId = membership.groupId;
+      if (_classmateSubs.containsKey(groupId)) continue;
+      _classmateSubs[groupId] = groupRepository
+          .watchApprovedGroupMembers(
+            groupId: groupId,
+            teacherId: membership.teacherId,
+          )
+          .listen(
+            (members) {
+              if (_disposed) return;
+              final sorted = [...members]
+                ..sort(
+                  (a, b) => a.traineeDisplayName.toLowerCase().compareTo(
+                    b.traineeDisplayName.toLowerCase(),
+                  ),
+                );
+              membersByGroupId[groupId] = sorted;
+              _syncClassmateProfileWatches();
+              _safeNotifyListeners();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (kDebugMode) {
+                debugPrint(
+                  '[TeacherAccess] classmates stream failed for $groupId: '
+                  '$error\n$stackTrace',
+                );
+              }
+              membersByGroupId[groupId] = const [];
+              errorMessage = 'Could not load classmates.';
+              _safeNotifyListeners();
+            },
+          );
+    }
+  }
+
   Future<void> _refreshGroupNames(List<GroupMembership> memberships) async {
     for (final membership in memberships) {
       if (_disposed) return;
@@ -345,6 +423,64 @@ class TeacherAccessController extends ChangeNotifier {
     _safeNotifyListeners();
   }
 
+  void _syncClassmateProfileWatches() {
+    final ids = <String>{
+      for (final members in membersByGroupId.values)
+        for (final member in members) member.traineeId,
+    };
+    final repository = publicProfileRepository;
+    if (repository == null) {
+      _cancelClassmateProfileWatches();
+      return;
+    }
+
+    final staleIds = _profileSubs.keys
+        .where((id) => !ids.contains(id))
+        .toList(growable: false);
+    for (final id in staleIds) {
+      unawaited(_profileSubs.remove(id)?.cancel());
+      _profilePictureUrls.remove(id);
+    }
+
+    for (final traineeId in ids) {
+      if (_profileSubs.containsKey(traineeId)) continue;
+      _profileSubs[traineeId] = repository
+          .watchProfileRoot(traineeId)
+          .listen(
+            (profile) {
+              if (_disposed) return;
+              final trimmed = profile?.profilePictureUrl?.trim();
+              final next = (trimmed == null || trimmed.isEmpty)
+                  ? null
+                  : trimmed;
+              final previous = _profilePictureUrls[traineeId];
+              if (previous == next) return;
+              if (next == null) {
+                _profilePictureUrls.remove(traineeId);
+              } else {
+                _profilePictureUrls[traineeId] = next;
+              }
+              _safeNotifyListeners();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!kDebugMode) return;
+              debugPrint(
+                '[TeacherAccess] profile watch failed for $traineeId: '
+                '$error\n$stackTrace',
+              );
+            },
+          );
+    }
+  }
+
+  void _cancelClassmateProfileWatches() {
+    for (final subscription in _profileSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _profileSubs.clear();
+    _profilePictureUrls.clear();
+  }
+
   void _safeNotifyListeners() {
     if (!_disposed) notifyListeners();
   }
@@ -354,6 +490,11 @@ class TeacherAccessController extends ChangeNotifier {
     _disposed = true;
     unawaited(_linksSub?.cancel());
     unawaited(_groupMembershipsSub?.cancel());
+    for (final subscription in _classmateSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _classmateSubs.clear();
+    _cancelClassmateProfileWatches();
     super.dispose();
   }
 }
