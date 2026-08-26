@@ -241,12 +241,23 @@ abstract final class AppTheme {
     );
   }
 
+  /// Geometric Windows display face for ELIXR wordmarks.
+  static const brandFontFamily = 'Bahnschrift';
+
+  static const brandFontFallbacks = ['Segoe UI Variable Display', 'Segoe UI'];
+
   static TextStyle brandTitle({double fontSize = 28, Color? color}) =>
       TextStyle(
+        fontFamily: brandFontFamily,
+        fontFamilyFallback: brandFontFallbacks,
         fontSize: fontSize,
-        fontWeight: FontWeight.w900,
+        fontWeight: FontWeight.w700,
         letterSpacing: 1.5,
         color: color ?? AppColors.primary,
+        fontVariations: const [
+          FontVariation('wght', 700),
+          FontVariation('wdth', 85),
+        ],
       );
 
   static TextStyle get headingLarge =>

@@ -109,6 +109,7 @@ void main() {
       find.image(const AssetImage(AppConstants.appLogoAsset)),
       findsOneWidget,
     );
+    expect(find.text(AppConstants.appName), findsAtLeastNWidgets(1));
     expect(find.text('Teacher'), findsWidgets);
     expect(find.text('CLASSROOM'), findsOneWidget);
     expect(find.text('INSIGHTS'), findsOneWidget);

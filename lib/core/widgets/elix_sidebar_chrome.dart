@@ -81,20 +81,43 @@ class ElixBrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final radius = size * 0.3;
+    final stroke = (size * 0.05).clamp(1.4, 2.2);
+    final innerSize = size - stroke * 2;
+
     return Container(
       width: size,
       height: size,
+      padding: EdgeInsets.all(stroke),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.3),
-        boxShadow: [
-          BoxShadow(
-            color: _pink.withValues(alpha: 0.28),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(radius),
+        gradient: highContrast
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_pink, AppColors.primarySoft, _purple],
+              ),
+        border: highContrast
+            ? Border.all(color: context.elixBorder, width: stroke)
+            : null,
+        boxShadow: highContrast
+            ? const []
+            : [
+                BoxShadow(
+                  color: _pink.withValues(alpha: 0.42),
+                  blurRadius: 16,
+                  spreadRadius: 0.4,
+                ),
+                BoxShadow(
+                  color: _purple.withValues(alpha: 0.22),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
       ),
-      child: ElixAppLogo(size: size, borderRadius: size * 0.3),
+      child: ElixAppLogo(size: innerSize, borderRadius: innerSize * 0.28),
     );
   }
 }
@@ -106,49 +129,90 @@ class ElixBrandWordmark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = AppTheme.headingMedium.copyWith(
-      fontSize: 17,
-      fontWeight: FontWeight.w800,
-      letterSpacing: 1.1,
-      height: 1.1,
+    final highContrast = context.isHighContrast;
+    final titleStyle = AppTheme.brandTitle(
+      fontSize: 20,
       color: Colors.white,
-    );
+    ).copyWith(letterSpacing: 2.6, height: 1.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        ShaderMask(
-          blendMode: BlendMode.srcIn,
-          shaderCallback: (bounds) => const LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [_pink, _purple],
-          ).createShader(bounds),
-          child: Text(
-            AppConstants.appName,
-            style: titleStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            if (!highContrast)
+              ExcludeSemantics(
+                child: Text(
+                  AppConstants.appName,
+                  style: titleStyle.copyWith(
+                    color: _pink.withValues(alpha: 0.5),
+                    shadows: [
+                      Shadow(
+                        color: _pink.withValues(alpha: 0.75),
+                        blurRadius: 16,
+                      ),
+                      Shadow(
+                        color: _purple.withValues(alpha: 0.45),
+                        blurRadius: 22,
+                      ),
+                    ],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (bounds) => LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: highContrast
+                    ? [context.elixTextPrimary, context.elixTextPrimary]
+                    : const [_pink, AppColors.primarySoft, _purple],
+              ).createShader(bounds),
+              child: Text(
+                AppConstants.appName,
+                style: titleStyle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 5),
         Container(
-          width: 28,
-          height: 1.5,
+          width: 46,
+          height: 2,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(1),
+            borderRadius: BorderRadius.circular(2),
             gradient: const LinearGradient(colors: [_pink, _purple]),
+            boxShadow: highContrast
+                ? const []
+                : [
+                    BoxShadow(
+                      color: _pink.withValues(alpha: 0.55),
+                      blurRadius: 8,
+                    ),
+                  ],
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Text(
           subtitle,
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
+          style: TextStyle(
+            fontFamily: AppTheme.brandFontFamily,
+            fontFamilyFallback: AppTheme.brandFontFallbacks,
+            color: Color.lerp(context.elixTextSecondary, _pink, 0.22),
             fontSize: 10.5,
-            letterSpacing: 0.4,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.7,
             height: 1.1,
+            fontVariations: const [
+              FontVariation('wght', 600),
+              FontVariation('wdth', 90),
+            ],
           ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -170,15 +234,24 @@ class ElixSidebarBrandDivider extends StatelessWidget {
         horizontal: collapsed ? AppSpacing.sm : AppSpacing.md,
       ),
       child: Container(
-        height: 1,
+        height: 1.5,
         decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(1),
           gradient: LinearGradient(
             colors: [
-              _pink.withValues(alpha: 0.55),
-              _purple.withValues(alpha: 0.35),
-              context.elixBorder.withValues(alpha: 0.15),
+              _pink.withValues(alpha: 0.72),
+              _purple.withValues(alpha: 0.42),
+              context.elixBorder.withValues(alpha: 0.12),
             ],
           ),
+          boxShadow: context.isHighContrast
+              ? const []
+              : [
+                  BoxShadow(
+                    color: _pink.withValues(alpha: 0.28),
+                    blurRadius: 8,
+                  ),
+                ],
         ),
       ),
     );
@@ -279,7 +352,7 @@ class ElixSidebarHeader extends StatelessWidget {
         ),
         child: Column(
           children: [
-            const Center(child: ElixBrandMark(size: 40)),
+            const Center(child: ElixBrandMark(size: 44)),
             const SizedBox(height: AppSpacing.md),
             Center(
               child: ElixSidebarCollapseButton(
@@ -295,21 +368,46 @@ class ElixSidebarHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
-        AppSpacing.md,
+        AppSpacing.md + 2,
         AppSpacing.sm,
-        AppSpacing.xs,
+        AppSpacing.sm,
       ),
-      child: Row(
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          const ElixBrandMark(size: 34),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(child: ElixBrandWordmark(subtitle: subtitle)),
-          const SizedBox(width: AppSpacing.xs),
-          ElixSidebarCollapseButton(
-            isCollapsed: isCollapsed,
-            onTap: onToggleCollapse,
+          if (!context.isHighContrast)
+            Positioned(
+              left: -10,
+              top: -14,
+              child: IgnorePointer(
+                child: Container(
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        _pink.withValues(alpha: 0.18),
+                        _pink.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Row(
+            children: [
+              const ElixBrandMark(size: 40),
+              const SizedBox(width: 10),
+              Expanded(child: ElixBrandWordmark(subtitle: subtitle)),
+              const SizedBox(width: AppSpacing.xs),
+              ElixSidebarCollapseButton(
+                isCollapsed: isCollapsed,
+                onTap: onToggleCollapse,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+            ],
           ),
-          const SizedBox(width: AppSpacing.xs),
         ],
       ),
     );
