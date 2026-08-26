@@ -144,4 +144,31 @@ void main() {
     );
     expect(find.text('Share saved images'), findsOneWidget);
   });
+
+  testWidgets(
+    'fills a wide desktop surface with metric tiles and paired cards',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpAccess(
+        tester,
+        controller,
+        groupRepository: groupRepository,
+        joinCodeResolver: joinCodeResolver,
+      );
+
+      expect(find.text('Pending groups'), findsOneWidget);
+      expect(find.text('Approved classrooms'), findsOneWidget);
+      expect(find.text('Join a group'), findsOneWidget);
+      expect(find.text('Pending Group Requests'), findsOneWidget);
+      expect(find.text('Approved Classroom Memberships'), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_access_roster_code')),
+        findsOneWidget,
+      );
+    },
+  );
 }
