@@ -210,6 +210,35 @@ void main() {
     expect(alanAvatar.networkImageUrl, isNull);
   });
 
+  testWidgets('classwork tab can switch to people', (tester) async {
+    final group = await approvedClass(
+      name: 'BSHM 4A',
+      extraTraineeIds: ['trainee-2'],
+    );
+    final controller = TraineeClassDetailController(
+      groupId: group.id,
+      traineeId: 'trainee-1',
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    await pumpClassDetail(
+      tester,
+      controller: controller,
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+
+    expect(find.text('Ada Lovelace (you)'), findsNothing);
+    await tester.tap(find.byKey(const Key('teacher_access_class_tab_people')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(controller.tab, TraineeClassDetailTab.people);
+    expect(find.text('Ada Lovelace (you)'), findsOneWidget);
+  });
+
   testWidgets('unauthorized membership shows an error panel', (tester) async {
     final group = await groupRepository.createGroup(
       teacherId: 'teacher-1',

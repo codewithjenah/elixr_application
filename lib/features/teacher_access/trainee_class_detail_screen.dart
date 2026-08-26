@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
@@ -144,39 +145,54 @@ class _ClassDetailBody extends StatelessWidget {
       );
     }
 
-    final banner = traineeClassBannerColor(controller.groupId);
+    final accent = traineeClassAccent(controller.groupId);
+    final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: ColoredBox(
-              color: banner,
-              child: SizedBox(
-                width: double.infinity,
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        controller.className,
-                        style: AppTheme.headingLarge.copyWith(
-                          color: Colors.white,
-                        ),
+          Container(
+            height: 176,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: highContrast
+                    ? context.elixBorder
+                    : Color.alphaBlend(
+                        accent.start.withValues(alpha: isDark ? 0.28 : 0.18),
+                        context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        controller.teacherDisplayName,
-                        style: AppTheme.body.copyWith(
-                          color: Colors.white.withValues(alpha: 0.92),
+                width: highContrast ? 2 : 1,
+              ),
+              boxShadow: highContrast
+                  ? const []
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: isDark ? 0.28 : 0.08,
                         ),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                      BoxShadow(
+                        color: accent.start.withValues(
+                          alpha: isDark ? 0.18 : 0.12,
+                        ),
+                        blurRadius: 24,
+                        spreadRadius: -6,
+                        offset: const Offset(0, 10),
                       ),
                     ],
-                  ),
-                ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: TraineeClassHero(
+                accent: accent,
+                title: controller.className,
+                subtitle: controller.teacherDisplayName,
               ),
             ),
           ),
@@ -185,19 +201,21 @@ class _ClassDetailBody extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              ToggleButton(
+              _ClassDetailTab(
                 key: const Key('teacher_access_class_tab_classwork'),
-                checked: controller.tab == TraineeClassDetailTab.classwork,
-                onChanged: (_) =>
+                label: 'Classwork',
+                icon: FluentIcons.education,
+                selected: controller.tab == TraineeClassDetailTab.classwork,
+                onPressed: () =>
                     controller.setTab(TraineeClassDetailTab.classwork),
-                child: const Text('Classwork'),
               ),
-              ToggleButton(
+              _ClassDetailTab(
                 key: const Key('teacher_access_class_tab_people'),
-                checked: controller.tab == TraineeClassDetailTab.people,
-                onChanged: (_) =>
+                label: 'People',
+                icon: FluentIcons.people,
+                selected: controller.tab == TraineeClassDetailTab.people,
+                onPressed: () =>
                     controller.setTab(TraineeClassDetailTab.people),
-                child: const Text('People'),
               ),
             ],
           ),
@@ -229,14 +247,25 @@ class _ClassworkPane extends StatelessWidget {
       return const Center(child: ProgressRing());
     }
     if (assignments.errorMessage != null && assignments.items.isEmpty) {
-      return ElixStatusPanel(message: assignments.errorMessage!, isError: true);
+      return Align(
+        alignment: Alignment.topCenter,
+        child: ElixStatusPanel(
+          message: assignments.errorMessage!,
+          isError: true,
+        ),
+      );
     }
     if (assignments.items.isEmpty) {
-      return ElixStatusPanel(
-        key: const Key('teacher_access_class_assignments_empty'),
-        message:
-            'No assigned movements in this class yet. Work from your '
-            'teacher will show up here.',
+      return const Align(
+        alignment: Alignment.topCenter,
+        child: ElixStatusPanel(
+          key: Key('teacher_access_class_assignments_empty'),
+          icon: FluentIcons.education,
+          title: 'No classwork yet',
+          message:
+              'No assigned movements in this class yet. Work from your '
+              'teacher will show up here.',
+        ),
       );
     }
     return AssignedMovementList(items: assignments.items, showGroupName: false);
@@ -254,15 +283,20 @@ class _PeoplePane extends StatelessWidget {
       return const Center(child: ProgressRing());
     }
     if (controller.classmates.isEmpty) {
-      return const ElixStatusPanel(
-        key: Key('teacher_access_class_classmates_empty'),
-        message: 'No students in this class yet.',
+      return const Align(
+        alignment: Alignment.topCenter,
+        child: ElixStatusPanel(
+          key: Key('teacher_access_class_classmates_empty'),
+          icon: FluentIcons.people,
+          title: 'No classmates yet',
+          message: 'No students in this class yet.',
+        ),
       );
     }
     return ListView.separated(
       itemCount: controller.classmates.length,
       separatorBuilder: (context, index) =>
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final member = controller.classmates[index];
         final isYou = member.traineeId == controller.traineeId;
@@ -270,10 +304,14 @@ class _PeoplePane extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
-            color: context.elixBackground.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(12),
+            color: context.elixCardSurface,
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: context.elixBorder.withValues(alpha: 0.45),
+              color: isYou
+                  ? AppColors.primary.withValues(
+                      alpha: context.isHighContrast ? 1 : 0.35,
+                    )
+                  : context.elixBorder.withValues(alpha: 0.7),
             ),
           ),
           child: Row(
@@ -313,6 +351,87 @@ class _PeoplePane extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ClassDetailTab extends StatelessWidget {
+  const _ClassDetailTab({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    return HoverButton(
+      onPressed: onPressed,
+      cursor: SystemMouseCursors.click,
+      builder: (context, states) {
+        final hovered = states.isHovered;
+        final foreground = selected ? Colors.white : context.elixTextPrimary;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? (highContrast ? AppColors.primary : null)
+                : Color.alphaBlend(
+                    (hovered ? AppColors.primary : Colors.transparent)
+                        .withValues(alpha: hovered ? 0.06 : 0),
+                    context.elixCardSurface,
+                  ),
+            gradient: selected && !highContrast
+                ? const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.primary, AppColors.accent],
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: selected
+                  ? (highContrast ? context.elixBorder : Colors.transparent)
+                  : context.elixBorder.withValues(
+                      alpha: highContrast ? 1 : 0.9,
+                    ),
+              width: highContrast ? 2 : 1,
+            ),
+            boxShadow: selected && !highContrast
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.28),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: foreground),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
                 ),
               ),
             ],
