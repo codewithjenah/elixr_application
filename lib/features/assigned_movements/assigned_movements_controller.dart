@@ -27,12 +27,16 @@ class AssignedMovementsController extends ChangeNotifier {
     required this.groupRepository,
     required this.assignmentRepository,
     this.submissionRepository,
+    this.filterGroupId,
   });
 
   final String traineeId;
   final GroupRepository groupRepository;
   final ClassroomAssignmentRepository assignmentRepository;
   final AssignmentSubmissionRepository? submissionRepository;
+
+  /// When set, only assignments for this approved class are loaded.
+  final String? filterGroupId;
 
   bool loading = false;
   String? errorMessage;
@@ -48,25 +52,27 @@ class AssignedMovementsController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      final membershipsFirst = Completer<void>();
-      await _membershipsSub?.cancel();
-      _membershipsSub = groupRepository
-          .watchTraineeMemberships(traineeId: traineeId)
-          .listen(
-            (value) {
-              _memberships = value;
-              if (!membershipsFirst.isCompleted) membershipsFirst.complete();
-              unawaited(_reloadAssignments());
-            },
-            onError: (Object error) {
-              errorMessage = 'Could not load assigned movements.';
-              if (!membershipsFirst.isCompleted) {
-                membershipsFirst.completeError(error);
-              }
-              notifyListeners();
-            },
-          );
-      await membershipsFirst.future;
+      if (filterGroupId == null) {
+        final membershipsFirst = Completer<void>();
+        await _membershipsSub?.cancel();
+        _membershipsSub = groupRepository
+            .watchTraineeMemberships(traineeId: traineeId)
+            .listen(
+              (value) {
+                _memberships = value;
+                if (!membershipsFirst.isCompleted) membershipsFirst.complete();
+                unawaited(_reloadAssignments());
+              },
+              onError: (Object error) {
+                errorMessage = 'Could not load assigned movements.';
+                if (!membershipsFirst.isCompleted) {
+                  membershipsFirst.completeError(error);
+                }
+                notifyListeners();
+              },
+            );
+        await membershipsFirst.future;
+      }
 
       final attemptsFirst = Completer<void>();
       await _attemptsSub?.cancel();
@@ -101,17 +107,25 @@ class AssignedMovementsController extends ChangeNotifier {
   Future<void> retry() => start();
 
   Future<void> _reloadAssignments() async {
-    final approved = _memberships
-        .where((membership) => membership.hasClassroomAuthorization)
-        .toList();
     try {
-      final loaded = <GroupAssignment>[];
-      for (final membership in approved) {
-        loaded.addAll(
-          await assignmentRepository.fetchAssignmentsForGroup(
-            groupId: membership.groupId,
-          ),
+      final List<GroupAssignment> loaded;
+      final scopedGroupId = filterGroupId;
+      if (scopedGroupId != null) {
+        loaded = await assignmentRepository.fetchAssignmentsForGroup(
+          groupId: scopedGroupId,
         );
+      } else {
+        final approved = _memberships
+            .where((membership) => membership.hasClassroomAuthorization)
+            .toList();
+        loaded = <GroupAssignment>[];
+        for (final membership in approved) {
+          loaded.addAll(
+            await assignmentRepository.fetchAssignmentsForGroup(
+              groupId: membership.groupId,
+            ),
+          );
+        }
       }
       _assignments = loaded;
       _rebuildItems();

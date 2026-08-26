@@ -34,6 +34,7 @@ import '../../features/teacher/students/teacher_students_screen.dart';
 import '../../features/settings/settings_section.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
 import '../../features/teacher_access/join_teacher_screen.dart';
+import '../../features/teacher_access/trainee_class_detail_screen.dart';
 import '../../features/training/training_screen.dart';
 import '../../features/training/training_view.dart';
 import '../../services/auth_service.dart';
@@ -197,6 +198,18 @@ class AppRouter {
                 key: state.pageKey,
                 child: const TeacherAccessScreen(),
               ),
+              routes: [
+                GoRoute(
+                  path: ':groupId',
+                  pageBuilder: (context, state) {
+                    final groupId = state.pathParameters['groupId'] ?? '';
+                    return fadeTransitionPage(
+                      key: state.pageKey,
+                      child: TraineeClassDetailScreen(groupId: groupId),
+                    );
+                  },
+                ),
+              ],
             ),
             GoRoute(
               path: AppRoutePaths.leaderboard,

@@ -87,6 +87,18 @@ abstract final class AppRoutePaths {
 
   static const traineePracticeRoutes = {practice, livePractice};
 
+  static String teacherAccessClass(String groupId) {
+    return '$teacherAccess/${Uri.encodeComponent(groupId)}';
+  }
+
+  static String groupIdFromTeacherAccessClass(String location) {
+    final prefix = '$teacherAccess/';
+    if (!location.startsWith(prefix)) return '';
+    return Uri.decodeComponent(
+      location.substring(prefix.length).split('?').first,
+    );
+  }
+
   static String assignedPractice(String assignmentId) {
     return '$assignedPracticePrefix/${Uri.encodeComponent(assignmentId)}';
   }

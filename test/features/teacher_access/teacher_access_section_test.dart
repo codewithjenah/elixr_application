@@ -1,6 +1,4 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
-import 'package:elixr_application/core/widgets/profile_avatar.dart';
-import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_section.dart';
 import 'package:elixr_application/services/join_code_resolver.dart';
@@ -9,13 +7,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import '../teacher/teacher_phase3_test_support.dart';
-
 Future<void> pumpAccess(
   WidgetTester tester,
   TeacherAccessController controller, {
   required GroupRepository groupRepository,
   required JoinCodeResolver joinCodeResolver,
+  void Function(String groupId)? onOpenClass,
 }) async {
   await tester.pumpWidget(
     FluentApp(
@@ -27,7 +24,11 @@ Future<void> pumpAccess(
         ],
         child: ScaffoldPage(
           content: SingleChildScrollView(
-            child: TeacherAccessSection(controller: controller, isActive: true),
+            child: TeacherAccessSection(
+              controller: controller,
+              isActive: true,
+              onOpenClass: onOpenClass,
+            ),
           ),
         ),
       ),
@@ -49,10 +50,12 @@ void main() {
       now: () => DateTime.utc(2026, 8, 16),
     );
     var groupCodeIndex = 0;
+    var groupIdIndex = 0;
     const groupCodes = ['ABCD2345EFGH', 'ZZZZ2345YYYY', 'MNOP2345QRST'];
     groupRepository = InMemoryGroupRepository(
       generateNormalizedCode: () =>
           groupCodes[groupCodeIndex++ % groupCodes.length],
+      generateGroupId: () => 'group-${groupIdIndex++}',
       now: () => DateTime.utc(2026, 8, 16),
     );
     joinCodeResolver = JoinCodeResolver(
@@ -179,7 +182,7 @@ void main() {
     },
   );
 
-  testWidgets('each approved class lists only its own classmates', (
+  testWidgets('approved classes are compact cards that open the class page', (
     tester,
   ) async {
     final groupA = await groupRepository.createGroup(
@@ -226,39 +229,21 @@ void main() {
       teacherId: 'teacher-1',
     );
 
-    final profiles = FakePublicProfileRepository();
-    controller.dispose();
-    controller = TeacherAccessController(
-      relationshipRepository: relationshipRepository,
-      groupRepository: groupRepository,
-      joinCodeResolver: joinCodeResolver,
-      traineeId: 'trainee-1',
-      traineeDisplayName: 'Ada Lovelace',
-      privateImageSavingEnabled: true,
-      publicProfileRepository: profiles,
-    );
-    profiles.emitProfile(
-      'trainee-2',
-      const PublicProfile(
-        userId: 'trainee-2',
-        displayName: 'Alan Turing',
-        visibility: ProfileVisibility.public,
-        profilePictureUrl: 'https://example.test/alan.png',
-      ),
-    );
-
+    String? openedGroupId;
     await pumpAccess(
       tester,
       controller,
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
+      onOpenClass: (groupId) => openedGroupId = groupId,
     );
     await tester.pump();
 
     expect(find.text('BSHM 4A'), findsOneWidget);
     expect(find.text('BSHM 4B'), findsOneWidget);
-    expect(find.text('Ada Lovelace (you)'), findsNWidgets(2));
-    expect(find.text('Alan Turing'), findsOneWidget);
+    expect(find.text('Ada Lovelace (you)'), findsNothing);
+    expect(find.text('Alan Turing'), findsNothing);
+    expect(find.text('Classmates'), findsNothing);
     expect(
       find.byKey(Key('teacher_access_group_${groupA.id}')),
       findsOneWidget,
@@ -267,30 +252,12 @@ void main() {
       find.byKey(Key('teacher_access_group_${groupB.id}')),
       findsOneWidget,
     );
-    expect(find.byType(ProfileAvatarWidget), findsNWidgets(3));
-    expect(
-      find.byKey(Key('teacher_access_classmate_avatar_${groupA.id}_trainee-1')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(Key('teacher_access_classmate_avatar_${groupA.id}_trainee-2')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(Key('teacher_access_classmate_avatar_${groupB.id}_trainee-1')),
-      findsOneWidget,
-    );
 
-    final alanAvatar = tester.widget<ProfileAvatarWidget>(
-      find.byKey(Key('teacher_access_classmate_avatar_${groupA.id}_trainee-2')),
+    await tester.ensureVisible(
+      find.byKey(Key('teacher_access_group_${groupA.id}')),
     );
-    expect(alanAvatar.initials, 'AT');
-    expect(alanAvatar.networkImageUrl, 'https://example.test/alan.png');
-
-    final adaAvatar = tester.widget<ProfileAvatarWidget>(
-      find.byKey(Key('teacher_access_classmate_avatar_${groupA.id}_trainee-1')),
-    );
-    expect(adaAvatar.initials, 'AL');
-    expect(adaAvatar.networkImageUrl, isNull);
+    await tester.tap(find.byKey(Key('teacher_access_group_${groupA.id}')));
+    await tester.pump();
+    expect(openedGroupId, groupA.id);
   });
 }

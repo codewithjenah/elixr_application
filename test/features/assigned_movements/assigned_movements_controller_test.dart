@@ -113,4 +113,47 @@ void main() {
     expect(controller.items, isEmpty);
     expect(controller.errorMessage, isNull);
   });
+
+  test('filterGroupId keeps assignments from that class only', () async {
+    final groups = InMemoryGroupRepository();
+    addTearDown(groups.dispose);
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'g1',
+        teacherId: 'teacher-1',
+        name: 'BSHM 4A',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'g2',
+        teacherId: 'teacher-1',
+        name: 'BSHM 4B',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    groups.seedMembership(
+      _membership(groupId: 'g1', status: GroupMembershipStatus.approved),
+    );
+    groups.seedMembership(
+      _membership(groupId: 'g2', status: GroupMembershipStatus.approved),
+    );
+
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(assignments.dispose);
+    assignments.seedAssignment(_assignment(id: 'asg-a', groupId: 'g1'));
+    assignments.seedAssignment(_assignment(id: 'asg-b', groupId: 'g2'));
+
+    final controller = AssignedMovementsController(
+      traineeId: 'trainee-1',
+      groupRepository: groups,
+      assignmentRepository: assignments,
+      filterGroupId: 'g1',
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    expect(controller.items.map((item) => item.assignment.id), ['asg-a']);
+  });
 }

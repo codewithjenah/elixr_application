@@ -37,5 +37,9 @@ void main() {
       isElixSidebarRouteActive('/teacher-access', '/teacher-access'),
       isTrue,
     );
+    expect(
+      isElixSidebarRouteActive('/teacher-access/group-1', '/teacher-access'),
+      isTrue,
+    );
   });
 }

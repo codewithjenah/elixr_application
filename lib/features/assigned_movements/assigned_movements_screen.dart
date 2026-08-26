@@ -1,17 +1,14 @@
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
-import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
-import '../../data/models/assignment_attempt.dart';
-import '../../data/models/group_assignment.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/auth_service.dart';
+import 'assigned_movement_list.dart';
 import 'assigned_movements_controller.dart';
 
 class AssignedMovementsScreen extends StatefulWidget {
@@ -120,132 +117,6 @@ class _Body extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      itemCount: controller.items.length,
-      separatorBuilder: (context, index) =>
-          const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final item = controller.items[index];
-        final assignment = item.assignment;
-        final canStart = assignment.isActive && !assignment.isRetiredTemplate;
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        assignment.displayTitle,
-                        style: AppTheme.headingMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${assignment.teacherDisplayName} · ${assignment.groupName} · '
-                        '${assignment.origin.displayLabel}',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _statusLine(
-                          assignment,
-                          item.attempt,
-                          item.latestSubmission,
-                        ),
-                        style: AppTheme.body,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                FilledButton(
-                  onPressed: canStart
-                      ? () => context.go(
-                          AppRoutePaths.assignedPractice(assignment.id),
-                        )
-                      : null,
-                  child: Text(_actionLabel(assignment, item.attempt)),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  static String _actionLabel(
-    GroupAssignment assignment,
-    AssignmentAttempt? attempt,
-  ) {
-    if (assignment.isRetiredTemplate) return 'Retired';
-    if (attempt == null) return 'Start practice';
-    if (attempt.status == AssignmentAttemptStatus.needsRetry) {
-      return 'Record again';
-    }
-    if (attempt.status == AssignmentAttemptStatus.inProgress ||
-        attempt.status == AssignmentAttemptStatus.draft) {
-      return 'Continue practice';
-    }
-    return 'Practice again';
-  }
-
-  static String _statusLine(
-    GroupAssignment assignment,
-    AssignmentAttempt? attempt,
-    AssignmentAttempt? submission,
-  ) {
-    if (assignment.isRetiredTemplate) {
-      final total = attempt?.rubricTotal;
-      final level = attempt?.performanceLevel?.label;
-      return 'Historical · Automatic template assessment retired'
-          '${total == null ? '' : ' · Previous score $total/12'}'
-          '${level == null ? '' : ' · $level'}';
-    }
-    final due = assignment.dueAt;
-    final dueText = due == null
-        ? 'No due date'
-        : assignment.isOverdue
-        ? 'Overdue'
-        : 'Due ${due.toLocal().toIso8601String().split('T').first}';
-    final attemptText = _attemptText(assignment, attempt, submission);
-    if (!assignment.isActive) return 'Archived · $attemptText';
-    return '$dueText · $attemptText';
-  }
-
-  static String _attemptText(
-    GroupAssignment assignment,
-    AssignmentAttempt? attempt,
-    AssignmentAttempt? submission,
-  ) {
-    if (assignment.isTeacherCreated) {
-      final current = submission ?? attempt;
-      if (current == null ||
-          current.attemptKind == AssignmentAttemptKind.teacherReviewDraft) {
-        return 'Practice available · Not submitted';
-      }
-      final expired = current.videoExpired ? ' · Video expired' : '';
-      return switch (current.status) {
-        AssignmentAttemptStatus.draft ||
-        AssignmentAttemptStatus.inProgress => 'Not submitted',
-        AssignmentAttemptStatus.submitted =>
-          'Submitted / awaiting review$expired',
-        AssignmentAttemptStatus.approved => 'Approved$expired',
-        AssignmentAttemptStatus.needsRetry =>
-          'Needs retry${current.reviewFeedback == null || current.reviewFeedback!.isEmpty ? '' : ' · ${current.reviewFeedback}'}$expired',
-      };
-    }
-    return switch (attempt?.status) {
-      null => 'Not started',
-      AssignmentAttemptStatus.draft => 'Draft',
-      AssignmentAttemptStatus.inProgress => 'In progress',
-      AssignmentAttemptStatus.submitted => 'Submitted',
-      AssignmentAttemptStatus.approved => 'Approved',
-      AssignmentAttemptStatus.needsRetry => 'Needs retry',
-    };
+    return AssignedMovementList(items: controller.items);
   }
 }

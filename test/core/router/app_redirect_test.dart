@@ -379,6 +379,30 @@ void main() {
     );
   });
 
+  test('trainee class detail stays on Teacher Access', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _trainee(),
+          location: AppRoutePaths.teacherAccessClass('group-1'),
+        ),
+      ),
+      isNull,
+    );
+  });
+
+  test('teacher is kept out of trainee class detail', () {
+    expect(
+      resolveAppRedirect(
+        _state(
+          user: _teacher(),
+          location: AppRoutePaths.teacherAccessClass('group-1'),
+        ),
+      ),
+      AppRoutePaths.teacherDashboard,
+    );
+  });
+
   test('trainee with pending join code redirects to Teacher Access', () {
     expect(
       resolveAppRedirect(

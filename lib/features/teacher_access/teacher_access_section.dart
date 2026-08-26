@@ -1,8 +1,6 @@
-import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
-import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -13,12 +11,11 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_status_panel.dart';
-import '../../core/widgets/profile_avatar.dart';
-import '../../data/repositories/public_profile_repository.dart';
 import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
 import 'teacher_access_controller.dart';
+import 'trainee_class_card.dart';
 
 const double _accessWideBreakpoint = 1080;
 const double _accessCompactBreakpoint = 760;
@@ -30,11 +27,13 @@ class TeacherAccessSection extends StatefulWidget {
     this.repository,
     this.controller,
     this.isActive = false,
+    this.onOpenClass,
   });
 
   final TeacherRelationshipRepository? repository;
   final TeacherAccessController? controller;
   final bool isActive;
+  final ValueChanged<String>? onOpenClass;
 
   @override
   State<TeacherAccessSection> createState() => TeacherAccessSectionState();
@@ -78,12 +77,6 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
         widget.repository ?? context.read<TeacherRelationshipRepository>();
     final groupRepository = context.read<GroupRepository>();
     final joinCodeResolver = context.read<JoinCodeResolver>();
-    PublicProfileRepository? publicProfileRepository;
-    try {
-      publicProfileRepository = context.read<PublicProfileRepository>();
-    } on ProviderNotFoundException {
-      publicProfileRepository = null;
-    }
     _owned = TeacherAccessController(
       relationshipRepository: repository,
       groupRepository: groupRepository,
@@ -91,7 +84,6 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
       traineeId: userId,
       traineeDisplayName: user!.fullName,
       privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
-      publicProfileRepository: publicProfileRepository,
       reconcileEvidenceAvailability: (traineeId) => SessionEvidenceRepository()
           .reconcilePublicEvidenceAvailability(traineeId),
     );
@@ -173,15 +165,18 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                   if (controller.approvedGroupMemberships.isEmpty) ...[
                     const _EmptyClassesCard(),
                     const SizedBox(height: AppSpacing.lg),
-                  ] else
-                    for (final membership
-                        in controller.approvedGroupMemberships) ...[
-                      _ApprovedGroupCard(
-                        controller: controller,
-                        membership: membership,
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                    ],
+                  ] else ...[
+                    _ClassesHeading(
+                      count: controller.approvedGroupMemberships.length,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _ApprovedClassesGrid(
+                      controller: controller,
+                      compact: compact,
+                      onOpenClass: widget.onOpenClass,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
                   _LinkedTeachersCard(controller: controller),
                 ],
               ),
@@ -202,8 +197,8 @@ class _AccessIntro extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 820),
       child: Text(
         'Ask to join a class with the code from your teacher. After they '
-        'accept you, you can see the other students in that class, and they '
-        'can see you. Each class stays separate.',
+        'accept you, open a class card to see classmates and assignments. '
+        'Each class stays separate.',
         style: AppTheme.bodySecondary.copyWith(
           color: context.elixTextSecondary,
           height: 1.45,
@@ -643,83 +638,73 @@ class _EmptyClassesCard extends StatelessWidget {
   }
 }
 
-class _ApprovedGroupCard extends StatelessWidget {
-  const _ApprovedGroupCard({
-    required this.controller,
-    required this.membership,
-  });
+class _ClassesHeading extends StatelessWidget {
+  const _ClassesHeading({required this.count});
 
-  final TeacherAccessController controller;
-  final GroupMembership membership;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
-    final groupName =
-        controller.groupNamesById[membership.groupId]?.name ?? 'Class';
-    final members = controller.membersForGroup(membership.groupId);
-    final loading = controller.isLoadingGroupMembers(membership.groupId);
-    return _AccessSectionPanel(
-      key: Key('teacher_access_group_${membership.groupId}'),
-      title: groupName,
-      icon: FluentIcons.people,
-      count: loading ? null : members.length,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Teacher: ${membership.teacherDisplayName}',
-            style: AppTheme.caption.copyWith(
-              color: context.elixTextSecondary,
-              height: 1.4,
-            ),
+    return Row(
+      children: [
+        Text(
+          'Your classes',
+          style: AppTheme.headingMedium.copyWith(
+            fontSize: 16,
+            color: context.elixTextPrimary,
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Classmates',
-            style: AppTheme.body.copyWith(
-              fontWeight: FontWeight.w600,
-              color: context.elixTextPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          if (loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: SizedBox(width: 24, height: 24, child: ProgressRing()),
-            )
-          else if (members.isEmpty)
-            const _EmptyHint(message: 'No students in this class yet.')
-          else
-            Column(
-              children: [
-                for (final member in members) ...[
-                  _AccessListRow(
-                    leading: ProfileAvatarWidget(
-                      key: Key(
-                        'teacher_access_classmate_avatar_'
-                        '${membership.groupId}_${member.traineeId}',
-                      ),
-                      radius: 18,
-                      showBorder: false,
-                      initials: userInitials(member.traineeDisplayName),
-                      networkImageUrl: controller.profilePictureUrlFor(
-                        member.traineeId,
-                      ),
-                    ),
-                    title: member.traineeId == controller.traineeId
-                        ? '${member.traineeDisplayName} (you)'
-                        : member.traineeDisplayName,
-                    subtitle: member.traineeId == controller.traineeId
-                        ? 'You are in this class'
-                        : 'In this class',
-                  ),
-                  if (member != members.last)
-                    const SizedBox(height: AppSpacing.md),
-                ],
-              ],
-            ),
-        ],
-      ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        ElixPill(text: '$count', color: AppColors.accent),
+      ],
+    );
+  }
+}
+
+class _ApprovedClassesGrid extends StatelessWidget {
+  const _ApprovedClassesGrid({
+    required this.controller,
+    required this.compact,
+    this.onOpenClass,
+  });
+
+  final TeacherAccessController controller;
+  final bool compact;
+  final ValueChanged<String>? onOpenClass;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = compact
+            ? 1
+            : width >= _accessWideBreakpoint
+            ? 3
+            : 2;
+        final gap = AppSpacing.md;
+        final cardWidth = columns == 1
+            ? width
+            : (width - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final membership in controller.approvedGroupMemberships)
+              SizedBox(
+                width: cardWidth,
+                child: TraineeClassCard(
+                  groupId: membership.groupId,
+                  className:
+                      controller.groupNamesById[membership.groupId]?.name ??
+                      'Class',
+                  teacherDisplayName: membership.teacherDisplayName,
+                  onOpen: () => onOpenClass?.call(membership.groupId),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -864,7 +849,6 @@ class _LinkedTeachersCard extends StatelessWidget {
 
 class _AccessSectionPanel extends StatelessWidget {
   const _AccessSectionPanel({
-    super.key,
     required this.title,
     required this.icon,
     required this.child,
@@ -932,41 +916,15 @@ class _AccessListRow extends StatelessWidget {
   const _AccessListRow({
     required this.title,
     required this.subtitle,
-    this.leading,
     this.trailing,
   });
 
   final String title;
   final String subtitle;
-  final Widget? leading;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    final textColumn = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: AppTheme.body.copyWith(
-            fontWeight: FontWeight.w600,
-            color: context.elixTextPrimary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: AppTheme.caption.copyWith(
-            color: context.elixTextSecondary,
-            height: 1.4,
-          ),
-        ),
-        if (trailing != null) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Align(alignment: Alignment.centerRight, child: trailing),
-        ],
-      ],
-    );
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -975,16 +933,30 @@ class _AccessListRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: context.elixBorder.withValues(alpha: 0.45)),
       ),
-      child: leading == null
-          ? textColumn
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                leading!,
-                const SizedBox(width: AppSpacing.md),
-                Expanded(child: textColumn),
-              ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w600,
+              color: context.elixTextPrimary,
             ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              height: 1.4,
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Align(alignment: Alignment.centerRight, child: trailing),
+          ],
+        ],
+      ),
     );
   }
 }
