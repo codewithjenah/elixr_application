@@ -23,6 +23,7 @@ class ProfileHeader extends StatelessWidget {
     this.onPreviewProfile,
     this.onPrivacy,
     this.onEditAvatar,
+    this.isTeacher = false,
   });
 
   final String displayName;
@@ -38,6 +39,7 @@ class ProfileHeader extends StatelessWidget {
   final VoidCallback? onPreviewProfile;
   final VoidCallback? onPrivacy;
   final VoidCallback? onEditAvatar;
+  final bool isTeacher;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +79,7 @@ class ProfileHeader extends StatelessWidget {
                   rank: rank,
                   showUnrankedLabel: showUnrankedLabel,
                   visibility: showOwnerActions ? visibility : null,
+                  isTeacher: isTeacher,
                 ),
               ),
               if (showOwnerActions) ...[
@@ -186,6 +189,7 @@ class _IdentityBlock extends StatelessWidget {
     this.rank,
     this.showUnrankedLabel = false,
     this.visibility,
+    this.isTeacher = false,
   });
 
   final String displayName;
@@ -194,6 +198,7 @@ class _IdentityBlock extends StatelessWidget {
   final int? rank;
   final bool showUnrankedLabel;
   final ProfileVisibility? visibility;
+  final bool isTeacher;
 
   @override
   Widget build(BuildContext context) {
@@ -235,11 +240,52 @@ class _IdentityBlock extends StatelessWidget {
             ),
           ),
         ],
-        if (visibility != null) ...[
+        if (isTeacher || visibility != null) ...[
           const SizedBox(height: 10),
-          _VisibilityBadge(visibility: visibility!),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (isTeacher) const _TeacherBadge(),
+              if (visibility != null) _VisibilityBadge(visibility: visibility!),
+            ],
+          ),
         ],
       ],
+    );
+  }
+}
+
+class _TeacherBadge extends StatelessWidget {
+  const _TeacherBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: context.elixBackground.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.elixBorder.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            FluentIcons.education,
+            size: 11,
+            color: context.elixTextSecondary,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Teacher',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

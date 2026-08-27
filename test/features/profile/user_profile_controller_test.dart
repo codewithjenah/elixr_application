@@ -9,6 +9,7 @@ import 'package:elixr_application/data/repositories/leaderboard_repository.dart'
 import 'package:elixr_application/data/repositories/profile_visit_repository.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/profile/user_profile_controller.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -181,6 +182,29 @@ void main() {
       expect(controller.profileRoot?.isPublic, isTrue);
     },
   );
+
+  test(
+    'initialize forwards role to ensurePublicProfile for self profiles',
+    () async {
+      final profiles = _DelayedPublicProfileRepository(profileRoot.stream);
+      controller = UserProfileController(
+        userId: 'teacher-a',
+        currentUserId: 'teacher-a',
+        leaderboardRepository: _DelayedLeaderboardRepository(
+          leaderboard.stream,
+        ),
+        publicProfileRepository: profiles,
+        profileVisitRepository: _NoopProfileVisitRepository(),
+      );
+
+      await controller.initialize(
+        displayName: 'Teacher A',
+        role: User.roleTeacher,
+      );
+
+      expect(profiles.lastEnsureRole, User.roleTeacher);
+    },
+  );
 }
 
 class _DelayedLeaderboardRepository extends LeaderboardRepository {
@@ -203,6 +227,7 @@ class _DelayedPublicProfileRepository extends PublicProfileRepository {
   _DelayedPublicProfileRepository(this._watch);
 
   final Stream<PublicProfile?> _watch;
+  String? lastEnsureRole;
 
   @override
   Stream<PublicProfile?> watchProfileRoot(String userId) => _watch;
@@ -212,7 +237,10 @@ class _DelayedPublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
-  }) async {}
+    String? role,
+  }) async {
+    lastEnsureRole = role;
+  }
 
   @override
   Future<PublicProfileSummary?> getSummary(String userId) async => null;

@@ -38,6 +38,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {
     seedCalls++;
     root ??= PublicProfile(
@@ -45,6 +46,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
       displayName: displayName,
       visibility: ProfileVisibility.public,
       profilePictureUrl: profilePictureUrl,
+      role: role,
     );
     seededVisibility = root!.visibility;
   }
@@ -62,6 +64,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
       displayName: existing?.displayName ?? 'Teacher',
       visibility: visibility,
       profilePictureUrl: existing?.profilePictureUrl,
+      role: existing?.role,
     );
   }
 }

@@ -121,6 +121,7 @@ class _StubPublicProfiles extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {}
 
   @override

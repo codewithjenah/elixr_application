@@ -1,5 +1,6 @@
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -47,6 +48,40 @@ void main() {
       );
 
       expect(fields.containsKey('profile_picture_url'), isFalse);
+    });
+
+    test('includes role when non-empty', () {
+      final fields = PublicProfileRootCreation.fields(
+        userId: 'u1',
+        displayName: 'Ada',
+        initialVisibility: ProfileVisibility.public,
+        role: ' Teacher ',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      );
+
+      expect(fields['role'], User.roleTeacher);
+    });
+
+    test('omits role when empty or missing', () {
+      final missing = PublicProfileRootCreation.fields(
+        userId: 'u1',
+        displayName: 'Ada',
+        initialVisibility: ProfileVisibility.public,
+        createdAt: 'created',
+        updatedAt: 'updated',
+      );
+      final empty = PublicProfileRootCreation.fields(
+        userId: 'u1',
+        displayName: 'Ada',
+        initialVisibility: ProfileVisibility.public,
+        role: '   ',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      );
+
+      expect(missing.containsKey('role'), isFalse);
+      expect(empty.containsKey('role'), isFalse);
     });
   });
 }

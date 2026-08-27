@@ -128,6 +128,7 @@ class _RecordingPublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {
     seedCalls++;
     callOrder.add('seed');

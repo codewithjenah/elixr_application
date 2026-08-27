@@ -18,6 +18,10 @@ import 'package:elixr_application/features/leaderboard/leaderboard_screen.dart';
 import 'package:elixr_application/features/profile/profile_route_args.dart';
 import 'package:elixr_application/features/profile/user_profile_controller.dart';
 import 'package:elixr_application/features/profile/user_profile_screen.dart';
+import 'package:elixr_application/features/profile/widgets/completed_movements_section.dart';
+import 'package:elixr_application/features/profile/widgets/profile_achievements_section.dart';
+import 'package:elixr_application/features/profile/widgets/profile_stats_section.dart';
+import 'package:elixr_application/features/profile/widgets/teacher_profile_state.dart';
 import 'package:elixr_application/features/settings/settings_section.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -203,12 +207,14 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {
     root ??= PublicProfile(
       userId: userId,
       displayName: displayName,
       visibility: ProfileVisibility.public,
       profilePictureUrl: profilePictureUrl,
+      role: role,
     );
   }
 
@@ -223,6 +229,7 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
       displayName: existing?.displayName ?? 'User',
       visibility: visibility,
       profilePictureUrl: existing?.profilePictureUrl,
+      role: existing?.role,
     );
   }
 
@@ -231,6 +238,7 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {}
 
   @override
@@ -318,6 +326,7 @@ class _SeededProfileController extends UserProfileController {
   Future<void> initialize({
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {}
 }
 
@@ -1598,5 +1607,221 @@ void main() {
         expect(find.textContaining('leaderboard identity'), findsNothing);
       },
     );
+  });
+
+  group('teacher-owned profile content', () {
+    AuthService teacherAuth({String id = 'viewer'}) {
+      return AuthService(
+        repository: _NavFakeAuthRepository(),
+        awaitInitialAuthState: () async {},
+      )..seedAuthenticatedUser(
+        User(
+          id: id,
+          firstName: 'Viewer',
+          lastName: 'User',
+          email: 'viewer@example.com',
+          role: User.roleTeacher,
+        ),
+      );
+    }
+
+    Future<void> pumpProfile(
+      WidgetTester tester, {
+      required AuthService auth,
+      required String userId,
+      required String currentUserId,
+      required PublicProfile root,
+      ProfileRouteArgs? initialArgs,
+      bool isSelf = false,
+    }) async {
+      await _setSurface(tester);
+      final controller = _SeededProfileController(
+        userId: userId,
+        currentUserId: currentUserId,
+        seedState: ProfileLoadState.loaded,
+        entry: _entry(userId, root.displayName, 100),
+        root: root,
+        summary: const PublicProfileSummary(
+          totalDurationSeconds: 30,
+          completedMovementNames: ['Hand Stall'],
+        ),
+        claimedAchievements: achievementCatalog
+            .where((a) => a.id == 'first_steps')
+            .toList(),
+        visitorsState: ProfileVisitorsState.loaded,
+        visitors: isSelf
+            ? [_visitor(viewerId: 'alice-id', displayName: 'Alice Visitor')]
+            : const [],
+        rank: 2,
+      );
+
+      final router = GoRouter(
+        initialLocation: '/profile/$userId',
+        routes: [
+          GoRoute(
+            path: '/profile/:userId',
+            builder: (context, state) => UserProfileScreen(
+              userId: userId,
+              initialArgs: initialArgs,
+              controller: controller,
+            ),
+          ),
+          GoRoute(
+            path: '/leaderboard',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Leaderboard')),
+          ),
+          GoRoute(
+            path: '/achievements',
+            builder: (context, state) =>
+                const ScaffoldPage(content: Text('Achievements page')),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthService>.value(
+          value: auth,
+          child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'teacher-owned public profile shows teacher card and hides trainee sections',
+      (tester) async {
+        await pumpProfile(
+          tester,
+          auth: _testAuth(),
+          userId: 'teacher-b',
+          currentUserId: 'viewer',
+          root: const PublicProfile(
+            userId: 'teacher-b',
+            displayName: 'Zoe Faculty',
+            visibility: ProfileVisibility.public,
+            role: User.roleTeacher,
+          ),
+        );
+
+        expect(find.text('Teacher'), findsOneWidget);
+        expect(find.byType(TeacherProfileState), findsOneWidget);
+        expect(find.text('Teacher account'), findsOneWidget);
+        expect(
+          find.text(
+            'Teacher profiles do not track achievements or completed movements.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byType(ProfileAchievementsSection), findsNothing);
+        expect(find.byType(CompletedMovementsSection), findsNothing);
+        expect(find.byType(ProfileStatsSection), findsNothing);
+        expect(find.text('Achievements'), findsNothing);
+        expect(find.text('Completed Movements'), findsNothing);
+        expect(find.text('Player Stats'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'teacher role from route args is enough when the root has no role yet',
+      (tester) async {
+        await pumpProfile(
+          tester,
+          auth: _testAuth(),
+          userId: 'teacher-b',
+          currentUserId: 'viewer',
+          root: const PublicProfile(
+            userId: 'teacher-b',
+            displayName: 'Zoe Faculty',
+            visibility: ProfileVisibility.public,
+          ),
+          initialArgs: const ProfileRouteArgs(role: User.roleTeacher),
+        );
+
+        expect(find.byType(TeacherProfileState), findsOneWidget);
+        expect(find.byType(ProfileAchievementsSection), findsNothing);
+        expect(find.byType(CompletedMovementsSection), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'trainee public profile still shows achievements and movements',
+      (tester) async {
+        await pumpProfile(
+          tester,
+          auth: _testAuth(),
+          userId: 'p1',
+          currentUserId: 'viewer',
+          root: const PublicProfile(
+            userId: 'p1',
+            displayName: 'Alice',
+            visibility: ProfileVisibility.public,
+            role: User.roleTrainee,
+          ),
+        );
+
+        expect(find.byType(TeacherProfileState), findsNothing);
+        expect(find.text('Teacher'), findsNothing);
+        expect(find.byType(ProfileAchievementsSection), findsOneWidget);
+        expect(find.byType(CompletedMovementsSection), findsOneWidget);
+        expect(find.text('Achievements'), findsOneWidget);
+        expect(find.text('Completed Movements'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'teacher self-view shows teacher card and visitors, not trainee sections',
+      (tester) async {
+        await pumpProfile(
+          tester,
+          auth: teacherAuth(),
+          userId: 'viewer',
+          currentUserId: 'viewer',
+          isSelf: true,
+          root: const PublicProfile(
+            userId: 'viewer',
+            displayName: 'Viewer User',
+            visibility: ProfileVisibility.public,
+            role: User.roleTeacher,
+          ),
+        );
+
+        expect(find.text('My Profile'), findsOneWidget);
+        expect(find.text('Teacher'), findsOneWidget);
+        expect(find.byType(TeacherProfileState), findsOneWidget);
+        expect(find.text('Profile Visitors'), findsOneWidget);
+        expect(find.byType(ProfileAchievementsSection), findsNothing);
+        expect(find.byType(CompletedMovementsSection), findsNothing);
+        expect(find.byType(ProfileStatsSection), findsNothing);
+      },
+    );
+
+    testWidgets('teacher self-preview still hides trainee sections', (
+      tester,
+    ) async {
+      await pumpProfile(
+        tester,
+        auth: teacherAuth(),
+        userId: 'viewer',
+        currentUserId: 'viewer',
+        isSelf: true,
+        root: const PublicProfile(
+          userId: 'viewer',
+          displayName: 'Viewer User',
+          visibility: ProfileVisibility.public,
+          role: User.roleTeacher,
+        ),
+      );
+
+      await tester.tap(find.text('Preview as Visitor'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TeacherProfileState), findsOneWidget);
+      expect(find.text('Teacher'), findsOneWidget);
+      expect(find.byType(ProfileAchievementsSection), findsNothing);
+      expect(find.byType(CompletedMovementsSection), findsNothing);
+      expect(find.text('Profile Visitors'), findsNothing);
+      expect(find.text('Edit Profile'), findsNothing);
+    });
   });
 }

@@ -69,6 +69,10 @@ class TeacherAccessController extends ChangeNotifier {
     for (final membership in approvedGroupMemberships) membership.teacherId,
   };
 
+  /// Pending class memberships plus leftover Teacher-roster requests.
+  /// Joining a class is one wait: the teacher still has to accept you.
+  int get pendingJoinCount => pendingGroupMemberships.length + pending.length;
+
   /// Approved legacy relationships that are not already covered by an
   /// approved classroom membership. These retain the explicit legacy sharing
   /// controls for backward compatibility.

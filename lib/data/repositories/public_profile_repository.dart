@@ -48,6 +48,7 @@ class PublicProfileRootCreation {
     required String displayName,
     required ProfileVisibility initialVisibility,
     String? profilePictureUrl,
+    String? role,
     required Object createdAt,
     required Object updatedAt,
   }) {
@@ -63,8 +64,18 @@ class PublicProfileRootCreation {
     if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
       payload['profile_picture_url'] = trimmedUrl;
     }
+    final trimmedRole = _nonEmptyRole(role);
+    if (trimmedRole != null) {
+      payload['role'] = trimmedRole;
+    }
     return payload;
   }
+}
+
+String? _nonEmptyRole(String? role) {
+  final trimmed = role?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  return trimmed;
 }
 
 /// Canonical `public_profiles/{userId}/details/summary` writer.
@@ -365,6 +376,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) {
     return _runWithEnsureGuard(
       userId,
@@ -372,6 +384,7 @@ class PublicProfileRepository {
         userId: userId,
         displayName: displayName,
         profilePictureUrl: profilePictureUrl,
+        role: role,
       ),
     );
   }
@@ -384,6 +397,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) {
     final trimmedUserId = userId.trim();
     if (trimmedUserId.isEmpty) return Future<void>.value();
@@ -398,6 +412,7 @@ class PublicProfileRepository {
         userId: trimmedUserId,
         displayName: trimmedName,
         profilePictureUrl: profilePictureUrl,
+        role: role,
         initialVisibility: ProfileVisibility.public,
       ),
     );
@@ -412,6 +427,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) {
     final trimmedUserId = userId.trim();
     if (trimmedUserId.isEmpty) return Future<void>.value();
@@ -425,6 +441,7 @@ class PublicProfileRepository {
         userId: trimmedUserId,
         displayName: trimmedName,
         profilePictureUrl: profilePictureUrl,
+        role: role,
         initialVisibility: ProfileVisibility.private,
       ),
     );
@@ -488,6 +505,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {
     final trimmedName = displayName.trim().isEmpty
         ? 'Trainee'
@@ -497,6 +515,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      role: role,
       initialVisibility: ProfileVisibility.private,
     );
 
@@ -504,6 +523,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      role: role,
       clearProfilePicture: profilePictureUrl?.trim().isEmpty ?? true,
     );
 
@@ -646,6 +666,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
     required ProfileVisibility initialVisibility,
   }) async {
     final ref = _rootRef(userId);
@@ -658,6 +679,7 @@ class PublicProfileRepository {
         displayName: displayName,
         initialVisibility: initialVisibility,
         profilePictureUrl: profilePictureUrl,
+        role: role,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       ),
@@ -668,6 +690,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
     bool clearProfilePicture = false,
   }) async {
     final trimmedName = displayName.trim();
@@ -677,6 +700,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      role: role,
       initialVisibility: ProfileVisibility.private,
     );
 
@@ -684,6 +708,7 @@ class PublicProfileRepository {
       userId: userId,
       displayName: trimmedName,
       profilePictureUrl: profilePictureUrl,
+      role: role,
       clearProfilePicture:
           clearProfilePicture || profilePictureUrl?.trim().isEmpty == true,
     );
@@ -693,6 +718,7 @@ class PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
     bool clearProfilePicture = false,
   }) async {
     final fields = <String, dynamic>{
@@ -704,6 +730,10 @@ class PublicProfileRepository {
       fields['profile_picture_url'] = FieldValue.delete();
     } else if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
       fields['profile_picture_url'] = trimmedUrl;
+    }
+    final trimmedRole = _nonEmptyRole(role);
+    if (trimmedRole != null) {
+      fields['role'] = trimmedRole;
     }
     await _rootRef(userId).set(fields, SetOptions(merge: true));
   }

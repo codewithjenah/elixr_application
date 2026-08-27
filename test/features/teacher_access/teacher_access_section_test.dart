@@ -111,6 +111,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(controller.pending.single.requestVersion, 2);
     expect(find.text('Waiting for your teacher to accept you'), findsOneWidget);
+    expect(find.text('Waiting for a teacher'), findsNothing);
+    expect(find.text('Waiting to join a class'), findsNothing);
   });
 
   testWidgets('pending request is Trainee-cancellable', (tester) async {
@@ -131,6 +133,47 @@ void main() {
       find.byKey(const Key('teacher_access_pending_empty')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('class and teacher waits share one pending list', (tester) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await relationshipRepository.requestTeacherJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: '7KPMXR4DQ2WT',
+    );
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+    await tester.pump();
+
+    expect(find.text('Waiting to join'), findsOneWidget);
+    expect(find.text('Waiting to join a class'), findsNothing);
+    expect(find.text('Waiting for a teacher'), findsNothing);
+    expect(find.text('BSHM 4A'), findsOneWidget);
+    expect(
+      find.textContaining('Waiting for Grace Hopper to accept you'),
+      findsOneWidget,
+    );
+    expect(find.text('Waiting for your teacher to accept you'), findsOneWidget);
+    expect(find.text('2'), findsWidgets);
+    expect(controller.pendingJoinCount, 2);
   });
 
   testWidgets('evidence sharing appears only after progress access', (
@@ -160,6 +203,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Share saved images'), findsOneWidget);
+    expect(find.text('Teachers not in a class'), findsOneWidget);
   });
 
   testWidgets(
@@ -177,11 +221,15 @@ void main() {
         joinCodeResolver: joinCodeResolver,
       );
 
-      expect(find.text('Waiting for class'), findsOneWidget);
+      expect(find.text('Waiting'), findsOneWidget);
       expect(find.text('My classes'), findsOneWidget);
       expect(find.text('Join a class'), findsOneWidget);
-      expect(find.text('Waiting to join a class'), findsOneWidget);
+      expect(find.text('Waiting to join'), findsOneWidget);
+      expect(find.text('Waiting to join a class'), findsNothing);
+      expect(find.text('Waiting for a teacher'), findsNothing);
       expect(find.text('Your classes'), findsOneWidget);
+      expect(find.text('Linked teachers'), findsNothing);
+      expect(find.text('Teachers not in a class'), findsNothing);
       expect(
         find.byKey(const Key('teacher_access_roster_code')),
         findsOneWidget,

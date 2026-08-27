@@ -79,6 +79,7 @@ class UserProfileController extends ChangeNotifier {
   Future<void> initialize({
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {
     _leaderboardSub = _leaderboardRepository.watchPlayer(_userId).listen((
       entry,
@@ -139,6 +140,7 @@ class UserProfileController extends ChangeNotifier {
               userId: _userId,
               displayName: displayName,
               profilePictureUrl: profilePictureUrl,
+              role: role,
             )
             .catchError((_) {}),
       );

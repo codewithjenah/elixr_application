@@ -126,12 +126,14 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
     required String userId,
     required String displayName,
     String? profilePictureUrl,
+    String? role,
   }) async {
     ensureRootCalls++;
     root ??= PublicProfile(
       userId: userId,
       displayName: displayName,
       visibility: ProfileVisibility.private,
+      role: role,
     );
   }
 
@@ -150,6 +152,7 @@ class _FakePublicProfileRepository extends PublicProfileRepository {
       displayName: root?.displayName ?? 'Ada',
       visibility: visibility,
       profilePictureUrl: root?.profilePictureUrl,
+      role: root?.role,
     );
   }
 }

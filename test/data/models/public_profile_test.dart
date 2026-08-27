@@ -1,4 +1,5 @@
 import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_core/models/user.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -28,6 +29,38 @@ void main() {
         'visibility': 'hidden',
       });
       expect(profile!.visibility, ProfileVisibility.private);
+    });
+
+    test('parses Teacher role', () {
+      final profile = PublicProfile.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Zoe',
+        'visibility': 'public',
+        'role': ' Teacher ',
+      });
+      expect(profile!.role, User.roleTeacher);
+      expect(profile.isTeacher, isTrue);
+    });
+
+    test('missing role is not a teacher', () {
+      final profile = PublicProfile.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Alice',
+        'visibility': 'public',
+      });
+      expect(profile!.role, isNull);
+      expect(profile.isTeacher, isFalse);
+    });
+
+    test('empty role is treated as absent', () {
+      final profile = PublicProfile.tryFromMap({
+        'user_id': 'u1',
+        'display_name': 'Alice',
+        'visibility': 'public',
+        'role': '   ',
+      });
+      expect(profile!.role, isNull);
+      expect(profile.isTeacher, isFalse);
     });
   });
 }

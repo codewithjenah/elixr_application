@@ -36,7 +36,7 @@ alwaysApply: false
 ## Public profiles (Firestore)
 
 - `public_profiles/{userId}` uses the Firebase UID as document ID and `user_id`.
-- Root document fields (see `publicProfileRootKeys` in `firestore.rules`): `user_id`, `display_name`, optional `profile_picture_url` (HTTPS), `visibility` (`public` | `private`), `created_at`, `updated_at`, `schema_version`.
+- Root document fields (see `publicProfileRootKeys` in `firestore.rules`): `user_id`, `display_name`, optional `profile_picture_url` (HTTPS), optional `role` (must match `users/{userId}.role` when present), `visibility` (`public` | `private`), `created_at`, `updated_at`, `schema_version`.
 - Root documents are authenticated read for any signed-in user (basic directory / leaderboard identity regardless of lock state).
 - New accounts seed via `seedNewAccountPublicProfile` with `visibility: public` when the root is missing; idempotent — never overwrites an existing root.
 - Repair/backfill paths (`ensurePublicProfile`, `syncClaimedAchievementProjections`, `updatePublicIdentity`) create missing roots as `visibility: private` (fail-closed; no silent widening of legacy accounts).

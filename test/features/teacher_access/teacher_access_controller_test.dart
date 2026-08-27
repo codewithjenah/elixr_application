@@ -58,6 +58,7 @@ void main() {
     expect(await controller.confirmJoin(), isTrue);
     expect(controller.pending.single.requestVersion, 2);
     expect(controller.pending.single.teacherDisplayName, 'Grace Hopper');
+    expect(controller.pendingJoinCount, 1);
   });
 
   test('group invite resolves and creates pending membership', () async {
@@ -76,6 +77,7 @@ void main() {
     expect(await controller.confirmJoin(), isTrue);
     expect(controller.pendingGroupMemberships.single.groupId, group.id);
     expect(relationshipRepository.links, isEmpty);
+    expect(controller.pendingJoinCount, 1);
   });
 
   test(

@@ -23,6 +23,7 @@ import 'widgets/profile_achievements_section.dart';
 import 'widgets/profile_header.dart';
 import 'widgets/profile_stats_section.dart';
 import 'widgets/profile_visitors_section.dart';
+import 'widgets/teacher_profile_state.dart';
 
 /// Content max width for large Windows workspaces (sidebar visible).
 const _kProfileContentMaxWidth = 1360.0;
@@ -84,6 +85,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _controller!.initialize(
         displayName: user?.fullName ?? 'Trainee',
         profilePictureUrl: user?.profilePictureUrl,
+        role: user?.role,
       );
       if (_controller!.isSelf && (user?.isTeacher ?? false)) {
         _seedOwnTeacherPublicProfileIfPossible();
@@ -117,6 +119,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           userId: userId,
           displayName: user.fullName,
           profilePictureUrl: user.profilePictureUrl,
+          role: user.role,
         );
       } catch (_) {}
     }());
@@ -127,6 +130,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   bool get _ownerIsTeacher {
     if (_controller?.isSelf ?? false) return _isTeacherViewer;
+    final root = _controller?.profileRoot;
+    final persistedRole = root?.role?.trim();
+    if (persistedRole != null && persistedRole.isNotEmpty) {
+      return root!.isTeacher;
+    }
     return widget.initialArgs?.role == User.roleTeacher;
   }
 
@@ -291,23 +299,34 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 showUnrankedLabel: entry != null && controller.rank == null,
                 visibility: showOwnerUi ? root?.visibility : null,
                 showOwnerActions: showOwnerUi,
+                isTeacher: _ownerIsTeacher,
                 onEditProfile: showOwnerUi ? _openAccountProfileSettings : null,
                 onPreviewProfile: showOwnerUi ? _enterPreviewAsVisitor : null,
                 onPrivacy: showOwnerUi ? _openPrivacySettings : null,
                 onEditAvatar: showOwnerUi ? _openAccountProfileSettings : null,
               ),
               const SizedBox(height: AppSpacing.lg),
-              if (canViewDetails && entry != null)
+              if (canViewDetails && !_ownerIsTeacher && entry != null)
                 ProfileStatsSection(
                   leaderboardEntry: entry,
                   rank: controller.rank,
                   summary: controller.summary,
                 ),
-              if (canViewDetails && entry != null)
+              if (canViewDetails && !_ownerIsTeacher && entry != null)
                 const SizedBox(height: AppSpacing.lg),
               if (!canViewDetails)
                 PrivateProfileState(ownerIsTeacher: _ownerIsTeacher)
-              else
+              else if (_ownerIsTeacher) ...[
+                const TeacherProfileState(),
+                if (showOwnerUi) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  ProfileVisitorsSection(
+                    state: controller.visitorsState,
+                    visitors: controller.visitors,
+                    onVisitorTap: _openVisitorProfile,
+                  ),
+                ],
+              ] else
                 _ProfileContentLayout(
                   wide: wide,
                   showVisitorsColumn: showOwnerUi,

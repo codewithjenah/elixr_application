@@ -285,6 +285,7 @@ class AuthService extends ChangeNotifier {
           userId: seedUserId,
           displayName: user.fullName,
           profilePictureUrl: user.profilePictureUrl,
+          role: user.role,
         );
       } catch (error, stackTrace) {
         if (kDebugMode) {
@@ -593,6 +594,7 @@ class AuthService extends ChangeNotifier {
         userId: userId,
         displayName: user.fullName,
         profilePictureUrl: user.profilePictureUrl,
+        role: user.role,
       );
     } catch (error, stackTrace) {
       if (kDebugMode) {
@@ -1006,6 +1008,7 @@ class AuthService extends ChangeNotifier {
         userId: userId,
         displayName: _currentUser?.fullName ?? '',
         profilePictureUrl: _currentUser?.profilePictureUrl,
+        role: _currentUser?.role,
         clearProfilePicture: pictureUpdate?.isRemoval ?? false,
       );
     } catch (error, stackTrace) {

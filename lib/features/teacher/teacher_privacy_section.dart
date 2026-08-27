@@ -59,6 +59,7 @@ class TeacherPrivacySectionState extends State<TeacherPrivacySection> {
         userId: userId,
         displayName: user.fullName,
         profilePictureUrl: user.profilePictureUrl,
+        role: user.role,
       );
       final profile = await repository.getProfileRoot(userId);
       if (!mounted) return;

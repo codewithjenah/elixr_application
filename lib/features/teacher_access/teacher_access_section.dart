@@ -138,7 +138,6 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
             final width = constraints.maxWidth.isFinite
                 ? constraints.maxWidth
                 : MediaQuery.sizeOf(context).width;
-            final wide = width >= _accessWideBreakpoint;
             final compact = width < _accessCompactBreakpoint;
 
             return SizedBox(
@@ -148,7 +147,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                 children: [
                   const _AccessIntro(),
                   const SizedBox(height: AppSpacing.lg),
-                  _AccessMetricsRow(controller: controller, compact: compact),
+                  _AccessMetricsRow(controller: controller),
                   const SizedBox(height: AppSpacing.lg),
                   if (controller.errorMessage != null) ...[
                     ElixStatusPanel(
@@ -159,11 +158,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                   ],
                   _JoinTeacherCard(controller: controller, compact: compact),
                   const SizedBox(height: AppSpacing.lg),
-                  _AccessPair(
-                    wide: wide,
-                    left: _PendingGroupRequestsCard(controller: controller),
-                    right: _PendingRequestsCard(controller: controller),
-                  ),
+                  _PendingJoinsCard(controller: controller),
                   const SizedBox(height: AppSpacing.lg),
                   if (controller.approvedGroupMemberships.isEmpty) ...[
                     const _EmptyClassesCard(),
@@ -180,7 +175,8 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                   ],
-                  _LinkedTeachersCard(controller: controller),
+                  if (controller.legacyOnlyApproved.isNotEmpty)
+                    _LinkedTeachersCard(controller: controller),
                 ],
               ),
             );
@@ -212,62 +208,29 @@ class _AccessIntro extends StatelessWidget {
 }
 
 class _AccessMetricsRow extends StatelessWidget {
-  const _AccessMetricsRow({required this.controller, required this.compact});
+  const _AccessMetricsRow({required this.controller});
 
   final TeacherAccessController controller;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final tiles = [
-      _MetricTile(
-        label: 'Waiting for class',
-        value: '${controller.pendingGroupMemberships.length}',
-        icon: FluentIcons.people,
-      ),
-      _MetricTile(
-        label: 'Waiting for teacher',
-        value: '${controller.pending.length}',
-        icon: FluentIcons.inbox,
-      ),
-      _MetricTile(
-        label: 'My classes',
-        value: '${controller.approvedGroupMemberships.length}',
-        icon: FluentIcons.completed,
-      ),
-      _MetricTile(
-        label: 'Linked teachers',
-        value: '${controller.legacyOnlyApproved.length}',
-        icon: FluentIcons.contact,
-      ),
-    ];
-
-    Widget row(Widget a, Widget b) {
-      return Row(
-        children: [
-          Expanded(child: a),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(child: b),
-        ],
-      );
-    }
-
-    if (compact) {
-      return Column(
-        children: [
-          row(tiles[0], tiles[1]),
-          const SizedBox(height: AppSpacing.md),
-          row(tiles[2], tiles[3]),
-        ],
-      );
-    }
-
     return Row(
       children: [
-        for (var i = 0; i < tiles.length; i++) ...[
-          if (i > 0) const SizedBox(width: AppSpacing.md),
-          Expanded(child: tiles[i]),
-        ],
+        Expanded(
+          child: _MetricTile(
+            label: 'Waiting',
+            value: '${controller.pendingJoinCount}',
+            icon: FluentIcons.inbox,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: _MetricTile(
+            label: 'My classes',
+            value: '${controller.approvedGroupMemberships.length}',
+            icon: FluentIcons.completed,
+          ),
+        ),
       ],
     );
   }
@@ -326,40 +289,6 @@ class _MetricTile extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _AccessPair extends StatelessWidget {
-  const _AccessPair({
-    required this.wide,
-    required this.left,
-    required this.right,
-  });
-
-  final bool wide;
-  final Widget left;
-  final Widget right;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!wide) {
-      return Column(
-        children: [
-          left,
-          const SizedBox(height: AppSpacing.lg),
-          right,
-        ],
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: left),
-        const SizedBox(width: AppSpacing.lg),
-        Expanded(child: right),
-      ],
     );
   }
 }
@@ -586,41 +515,67 @@ class _JoinConfirmActions extends StatelessWidget {
   }
 }
 
-class _PendingGroupRequestsCard extends StatelessWidget {
-  const _PendingGroupRequestsCard({required this.controller});
+class _PendingJoinsCard extends StatelessWidget {
+  const _PendingJoinsCard({required this.controller});
 
   final TeacherAccessController controller;
 
   @override
   Widget build(BuildContext context) {
+    final groups = controller.pendingGroupMemberships;
+    final teachers = controller.pending;
+    final rows = <Widget>[];
+
+    void addRow(Widget row) {
+      if (rows.isNotEmpty) {
+        rows.add(const SizedBox(height: AppSpacing.md));
+      }
+      rows.add(row);
+    }
+
+    for (final membership in groups) {
+      addRow(
+        _AccessListRow(
+          title: controller.groupNamesById[membership.groupId]?.name ?? 'Class',
+          subtitle:
+              'Waiting for ${membership.teacherDisplayName} to accept you · '
+              '${_formatTime(membership.createdAt)}',
+          trailing: Button(
+            key: Key('teacher_access_cancel_group_${membership.id}'),
+            onPressed: controller.busy
+                ? null
+                : () => controller.cancelPendingGroup(membership),
+            child: const Text('Cancel'),
+          ),
+        ),
+      );
+    }
+    for (final link in teachers) {
+      addRow(
+        _AccessListRow(
+          title: link.teacherDisplayName,
+          subtitle: 'Waiting for your teacher to accept you',
+          trailing: Button(
+            key: Key('teacher_access_cancel_${link.id}'),
+            onPressed: controller.busy
+                ? null
+                : () => controller.cancelPending(link),
+            child: const Text('Cancel'),
+          ),
+        ),
+      );
+    }
+
     return _AccessSectionPanel(
-      title: 'Waiting to join a class',
-      icon: FluentIcons.people,
-      count: controller.pendingGroupMemberships.length,
-      child: controller.pendingGroupMemberships.isEmpty
-          ? const _EmptyHint(message: 'No class requests waiting.')
-          : Column(
-              children: [
-                for (final membership
-                    in controller.pendingGroupMemberships) ...[
-                  _AccessListRow(
-                    title:
-                        controller.groupNamesById[membership.groupId]?.name ??
-                        'Group',
-                    subtitle:
-                        '${membership.teacherDisplayName} · ${_formatTime(membership.createdAt)}',
-                    trailing: Button(
-                      onPressed: controller.busy
-                          ? null
-                          : () => controller.cancelPendingGroup(membership),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  if (membership != controller.pendingGroupMemberships.last)
-                    const SizedBox(height: AppSpacing.md),
-                ],
-              ],
-            ),
+      title: 'Waiting to join',
+      icon: FluentIcons.inbox,
+      count: controller.pendingJoinCount,
+      child: rows.isEmpty
+          ? const _EmptyHint(
+              key: Key('teacher_access_pending_empty'),
+              message: 'No join requests waiting.',
+            )
+          : Column(children: rows),
     );
   }
 }
@@ -730,45 +685,6 @@ class _ApprovedClassesGrid extends StatelessWidget {
   }
 }
 
-class _PendingRequestsCard extends StatelessWidget {
-  const _PendingRequestsCard({required this.controller});
-
-  final TeacherAccessController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return _AccessSectionPanel(
-      title: 'Waiting for a teacher',
-      icon: FluentIcons.inbox,
-      count: controller.pending.length,
-      child: controller.pending.isEmpty
-          ? const _EmptyHint(
-              key: Key('teacher_access_pending_empty'),
-              message: 'No teacher requests waiting.',
-            )
-          : Column(
-              children: [
-                for (final link in controller.pending) ...[
-                  _AccessListRow(
-                    title: link.teacherDisplayName,
-                    subtitle: 'Waiting for your teacher to accept you',
-                    trailing: Button(
-                      key: Key('teacher_access_cancel_${link.id}'),
-                      onPressed: controller.busy
-                          ? null
-                          : () => controller.cancelPending(link),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  if (link != controller.pending.last)
-                    const SizedBox(height: AppSpacing.md),
-                ],
-              ],
-            ),
-    );
-  }
-}
-
 class _LinkedTeachersCard extends StatelessWidget {
   const _LinkedTeachersCard({required this.controller});
 
@@ -781,89 +697,77 @@ class _LinkedTeachersCard extends StatelessWidget {
       title: 'Teachers not in a class',
       icon: FluentIcons.contact,
       count: linked.length,
-      child: linked.isEmpty
-          ? const _EmptyHint(
-              key: Key('teacher_access_linked_empty'),
-              message: 'No extra teacher links.',
-            )
-          : Column(
-              children: [
-                for (final link in linked) ...[
-                  _AccessListRow(
-                    title: link.teacherDisplayName,
-                    subtitle:
-                        'Connected to this teacher\n'
-                        'Practice sharing: '
-                        '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}\n'
-                        'Saved pictures: '
-                        '${link.hasEffectiveEvidenceAccess ? 'On' : 'Off'}',
-                    trailing: Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
-                      alignment: WrapAlignment.end,
-                      children: [
-                        if (link.hasEffectiveProgressAccess)
-                          Button(
-                            key: Key('teacher_access_stop_sharing_${link.id}'),
-                            onPressed: controller.busy
-                                ? null
-                                : () => _confirmStopSharing(
-                                    context,
-                                    controller,
-                                    link,
-                                  ),
-                            child: const Text('Stop sharing'),
-                          )
-                        else
-                          Button(
-                            key: Key('teacher_access_share_${link.id}'),
-                            onPressed: controller.busy
-                                ? null
-                                : () => _confirmShareProgress(
-                                    context,
-                                    controller,
-                                    link,
-                                  ),
-                            child: const Text('Share progress'),
-                          ),
-                        if (link.hasEffectiveProgressAccess &&
-                            controller.privateImageSavingEnabled)
-                          Button(
-                            key: Key('teacher_access_evidence_${link.id}'),
-                            onPressed: controller.busy
-                                ? null
-                                : link.hasEffectiveEvidenceAccess
-                                ? () => controller.stopSharingEvidence(link)
-                                : () => _confirmShareEvidence(
-                                    context,
-                                    controller,
-                                    link,
-                                  ),
-                            child: Text(
-                              link.hasEffectiveEvidenceAccess
-                                  ? 'Stop sharing images'
-                                  : 'Share saved images',
+      child: Column(
+        children: [
+          for (final link in linked) ...[
+            _AccessListRow(
+              title: link.teacherDisplayName,
+              subtitle:
+                  'Connected to this teacher\n'
+                  'Practice sharing: '
+                  '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}\n'
+                  'Saved pictures: '
+                  '${link.hasEffectiveEvidenceAccess ? 'On' : 'Off'}',
+              trailing: Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                alignment: WrapAlignment.end,
+                children: [
+                  if (link.hasEffectiveProgressAccess)
+                    Button(
+                      key: Key('teacher_access_stop_sharing_${link.id}'),
+                      onPressed: controller.busy
+                          ? null
+                          : () =>
+                                _confirmStopSharing(context, controller, link),
+                      child: const Text('Stop sharing'),
+                    )
+                  else
+                    Button(
+                      key: Key('teacher_access_share_${link.id}'),
+                      onPressed: controller.busy
+                          ? null
+                          : () => _confirmShareProgress(
+                              context,
+                              controller,
+                              link,
                             ),
-                          ),
-                        Button(
-                          key: Key('teacher_access_revoke_${link.id}'),
-                          onPressed: controller.busy
-                              ? null
-                              : () => _confirmRevokeTeacher(
-                                  context,
-                                  controller,
-                                  link,
-                                ),
-                          child: const Text('Remove teacher'),
-                        ),
-                      ],
+                      child: const Text('Share progress'),
                     ),
+                  if (link.hasEffectiveProgressAccess &&
+                      controller.privateImageSavingEnabled)
+                    Button(
+                      key: Key('teacher_access_evidence_${link.id}'),
+                      onPressed: controller.busy
+                          ? null
+                          : link.hasEffectiveEvidenceAccess
+                          ? () => controller.stopSharingEvidence(link)
+                          : () => _confirmShareEvidence(
+                              context,
+                              controller,
+                              link,
+                            ),
+                      child: Text(
+                        link.hasEffectiveEvidenceAccess
+                            ? 'Stop sharing images'
+                            : 'Share saved images',
+                      ),
+                    ),
+                  Button(
+                    key: Key('teacher_access_revoke_${link.id}'),
+                    onPressed: controller.busy
+                        ? null
+                        : () =>
+                              _confirmRevokeTeacher(context, controller, link),
+                    child: const Text('Remove teacher'),
                   ),
-                  if (link != linked.last)
-                    const SizedBox(height: AppSpacing.md),
                 ],
-              ],
+              ),
             ),
+            if (link != linked.last) const SizedBox(height: AppSpacing.md),
+          ],
+        ],
+      ),
     );
   }
 }

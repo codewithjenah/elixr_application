@@ -219,6 +219,7 @@ class PrivacySectionState extends State<PrivacySection> {
         userId: userId,
         displayName: user?.fullName ?? 'Trainee',
         profilePictureUrl: user?.profilePictureUrl,
+        role: user?.role,
       );
     }
     await repository.updateVisibility(userId: userId, visibility: visibility);

@@ -1,3 +1,5 @@
+import 'package:elixr_core/models/user.dart';
+
 /// Visibility for a player's public profile directory document.
 enum ProfileVisibility {
   public,
@@ -28,6 +30,7 @@ class PublicProfile {
     required this.displayName,
     required this.visibility,
     this.profilePictureUrl,
+    this.role,
     this.createdAt,
     this.updatedAt,
     this.schemaVersion = 1,
@@ -37,11 +40,13 @@ class PublicProfile {
   final String displayName;
   final ProfileVisibility visibility;
   final String? profilePictureUrl;
+  final String? role;
   final String? createdAt;
   final String? updatedAt;
   final int schemaVersion;
 
   bool get isPublic => visibility == ProfileVisibility.public;
+  bool get isTeacher => role == User.roleTeacher;
 
   static PublicProfile? tryFromMap(Map<String, dynamic> map, {String? id}) {
     final userId = _readString(map['user_id']) ?? id;
@@ -55,6 +60,7 @@ class PublicProfile {
       displayName: displayName,
       visibility: ProfileVisibility.fromFirestore(map['visibility']),
       profilePictureUrl: _readProfilePictureUrl(map['profile_picture_url']),
+      role: _readNonEmptyString(map['role']),
       createdAt: _readTimestampString(map['created_at']),
       updatedAt: _readTimestampString(map['updated_at']),
       schemaVersion: _readInt(map['schema_version']) ?? 1,
@@ -73,6 +79,10 @@ class PublicProfile {
   }
 
   static String? _readProfilePictureUrl(dynamic value) {
+    return _readNonEmptyString(value);
+  }
+
+  static String? _readNonEmptyString(dynamic value) {
     if (value is! String) return null;
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;

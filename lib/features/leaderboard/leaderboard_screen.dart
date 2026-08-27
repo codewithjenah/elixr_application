@@ -93,6 +93,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           userId: userId,
           displayName: user.fullName,
           profilePictureUrl: user.profilePictureUrl,
+          role: user.role,
         );
         return result;
       },

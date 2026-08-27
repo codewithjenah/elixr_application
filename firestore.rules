@@ -1731,6 +1731,7 @@ service cloud.firestore {
         'user_id',
         'display_name',
         'profile_picture_url',
+        'role',
         'visibility',
         'created_at',
         'updated_at',
@@ -1836,6 +1837,10 @@ service cloud.firestore {
         && data.visibility in ['public', 'private']
         && (!data.keys().hasAny(['profile_picture_url'])
           || isValidHttpsProfilePictureUrl(data.profile_picture_url))
+        && (!data.keys().hasAny(['role'])
+          || (data.role is string
+            && exists(userPath(userId))
+            && get(userPath(userId)).data.role == data.role))
         && (!data.keys().hasAny(['schema_version'])
           || (data.schema_version is int && data.schema_version >= 1));
     }
