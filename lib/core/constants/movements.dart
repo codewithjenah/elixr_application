@@ -104,14 +104,58 @@ List<Movement> movementsByDifficulty(String difficulty) {
   return movementCatalog.where((m) => m.difficulty == difficulty).toList();
 }
 
-/// Returns the next enabled movement in catalog order after the
-/// movement named [name], or null if [name] is the last enabled
-/// movement, isn't found, or nothing enabled follows it.
-Movement? nextEnabledMovementAfter(String name) {
-  final index = movementCatalog.indexWhere((m) => m.name == name);
-  if (index == -1) return null;
-  for (var i = index + 1; i < movementCatalog.length; i++) {
-    if (movementCatalog[i].enabled) return movementCatalog[i];
+/// One enabled catalog step: a movement practiced with one of its
+/// [Movement.supportedProps], in catalog order then prop-declaration order.
+class PracticeCatalogStep {
+  const PracticeCatalogStep({required this.movement, required this.prop});
+
+  final Movement movement;
+  final TrainingProp prop;
+}
+
+/// Flattened enabled practice sequence. Medium stalls contribute both
+/// Bottle and Cocktail Shaker steps so Session Complete Next visits each.
+List<PracticeCatalogStep> enabledPracticeSteps() {
+  return [
+    for (final movement in movementCatalog)
+      if (movement.enabled)
+        for (final prop in movement.supportedProps)
+          PracticeCatalogStep(movement: movement, prop: prop),
+  ];
+}
+
+/// Session Complete Next label. Includes the prop when the movement offers
+/// a choice or uses a non-default prop, so Bottle vs Cocktail Shaker is
+/// visible when advancing.
+String nextPracticeLabel(Movement movement, TrainingProp prop) {
+  final showProp =
+      movement.supportedProps.length > 1 || prop != TrainingProp.bottle;
+  if (!showProp) return movement.name;
+  return '${movement.name} (${prop.displayLabel})';
+}
+
+/// Returns the next enabled (movement, prop) step after [name] + [prop].
+///
+/// Walks [enabledPracticeSteps]: catalog order, and within a movement the
+/// declared [Movement.supportedProps] order (Bottle then Cocktail Shaker
+/// for Medium stalls). Returns null when [name] is unknown, or when the
+/// current step is last.
+///
+/// If [name] exists but [prop] is not a catalog step for that movement,
+/// Next advances past the last step of [name] so progress is not stuck.
+PracticeCatalogStep? nextEnabledPracticeAfter(String name, TrainingProp prop) {
+  final steps = enabledPracticeSteps();
+  var currentIndex = steps.indexWhere(
+    (step) => step.movement.name == name && step.prop == prop,
+  );
+  if (currentIndex == -1) {
+    var lastForName = -1;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].movement.name == name) lastForName = i;
+    }
+    if (lastForName == -1) return null;
+    currentIndex = lastForName;
   }
-  return null;
+  if (currentIndex + 1 >= steps.length) return null;
+  return steps[currentIndex + 1];
 }

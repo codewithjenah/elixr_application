@@ -146,6 +146,109 @@ void main() {
       }
     });
 
+    group('nextEnabledPracticeAfter', () {
+      test(
+        'enabled sequence includes Cocktail Shaker for every Medium stall',
+        () {
+          final shakerMedium = enabledPracticeSteps()
+              .where((step) => step.prop == TrainingProp.shaker)
+              .map((step) => step.movement.name)
+              .toList();
+          expect(shakerMedium, [
+            'Hand Stall',
+            'One Finger Stall',
+            'Forearm Stall',
+            'Elbow Stall',
+          ]);
+          expect(enabledPracticeSteps(), hasLength(16));
+        },
+      );
+
+      test('inserts Cocktail Shaker after each Medium bottle stall', () {
+        for (final movement in movementsByDifficulty('Medium')) {
+          final afterBottle = nextEnabledPracticeAfter(
+            movement.name,
+            TrainingProp.bottle,
+          );
+          expect(afterBottle, isNotNull, reason: movement.name);
+          expect(afterBottle!.movement.name, movement.name);
+          expect(afterBottle.prop, TrainingProp.shaker);
+        }
+
+        final afterHandShaker = nextEnabledPracticeAfter(
+          'Hand Stall',
+          TrainingProp.shaker,
+        );
+        expect(afterHandShaker, isNotNull);
+        expect(afterHandShaker!.movement.name, 'One Finger Stall');
+        expect(afterHandShaker.prop, TrainingProp.bottle);
+      });
+
+      test('keeps Easy movements on Bottle before Medium shaker steps', () {
+        final afterClaw = nextEnabledPracticeAfter(
+          'Claw Grip',
+          TrainingProp.bottle,
+        );
+        expect(afterClaw, isNotNull);
+        expect(afterClaw!.movement.name, 'Hand Stall');
+        expect(afterClaw.prop, TrainingProp.bottle);
+      });
+
+      test('Elbow Stall Cocktail Shaker advances to Reverse Forearm Stall', () {
+        final afterElbowShaker = nextEnabledPracticeAfter(
+          'Elbow Stall',
+          TrainingProp.shaker,
+        );
+        expect(afterElbowShaker, isNotNull);
+        expect(afterElbowShaker!.movement.name, 'Reverse Forearm Stall');
+        expect(afterElbowShaker.prop, TrainingProp.bottle);
+      });
+
+      test('Bottle in a tin is last and returns null', () {
+        expect(
+          nextEnabledPracticeAfter(
+            'Bottle in a tin',
+            TrainingProp.bottleAndShaker,
+          ),
+          isNull,
+        );
+      });
+
+      test('unknown movement returns null', () {
+        expect(
+          nextEnabledPracticeAfter('Unknown Move', TrainingProp.bottle),
+          isNull,
+        );
+      });
+
+      test('unsupported prop on a known movement still advances', () {
+        final after = nextEnabledPracticeAfter(
+          'Hand Stall',
+          TrainingProp.bottleAndShaker,
+        );
+        expect(after, isNotNull);
+        expect(after!.movement.name, 'One Finger Stall');
+        expect(after.prop, TrainingProp.bottle);
+      });
+
+      test('nextPracticeLabel shows Cocktail Shaker when the step uses it', () {
+        final handStall = movementCatalog.firstWhere(
+          (m) => m.name == 'Hand Stall',
+        );
+        expect(
+          nextPracticeLabel(handStall, TrainingProp.shaker),
+          'Hand Stall (Cocktail Shaker)',
+        );
+        expect(
+          nextPracticeLabel(handStall, TrainingProp.bottle),
+          'Hand Stall (Bottle)',
+        );
+
+        final claw = movementCatalog.firstWhere((m) => m.name == 'Claw Grip');
+        expect(nextPracticeLabel(claw, TrainingProp.bottle), 'Claw Grip');
+      });
+    });
+
     test('every catalog movement has a declared image asset', () {
       for (final movement in movementCatalog) {
         final assetPath = MovementVisuals.assetPathFor(movement.name);

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/practice_feedback.dart';
 import 'package:elixr_application/data/models/rubric_assessment.dart';
+import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/features/practice/coaching/coaching_config.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/session_assessment.dart';
@@ -176,6 +177,7 @@ Future<void> _openSummary(
   Size size = const Size(1366, 768),
   String movement = 'Hand Stall',
   Movement? nextMovement,
+  TrainingProp? nextProp,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -194,6 +196,7 @@ Future<void> _openSummary(
                   assessment: assessment,
                   onSave: onSave,
                   nextMovement: nextMovement,
+                  nextProp: nextProp,
                 );
               },
               child: const Text('Open'),
@@ -1011,6 +1014,28 @@ void main() {
       expect(find.text('Finish'), findsNothing);
       expect(_primaryButton, findsOneWidget);
     });
+
+    testWidgets(
+      'Next label includes Cocktail Shaker when that is the next prop',
+      (tester) async {
+        await _openSummary(
+          tester,
+          assessment: _standardSummaryAssessment(),
+          nextMovement: const Movement(
+            name: 'Hand Stall',
+            difficulty: 'Medium',
+            description: 'Balance the bottle on your open palm.',
+            requiresHandsDetection: true,
+            enabled: true,
+            supportedProps: [TrainingProp.bottle, TrainingProp.shaker],
+          ),
+          nextProp: TrainingProp.shaker,
+          onSave: (_) async => 'session-next-shaker',
+        );
+
+        expect(find.text('Next: Hand Stall (Cocktail Shaker)'), findsOneWidget);
+      },
+    );
 
     testWidgets('without next movement shows Finish and no Save & Continue', (
       tester,

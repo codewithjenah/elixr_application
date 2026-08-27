@@ -7,9 +7,11 @@ import 'package:flutter/material.dart' show Material, MaterialType;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/rubric_assessment.dart';
+import '../../data/models/training_prop.dart';
 import 'practice_game_widgets.dart';
 import 'session_assessment.dart';
 import 'widgets/training_performance.dart';
@@ -78,6 +80,7 @@ class SessionSummarySheet extends StatelessWidget {
     required SessionAssessment assessment,
     required Future<String> Function(String? existingSessionId) onSave,
     Movement? nextMovement,
+    TrainingProp? nextProp,
     Uint8List? evidenceJpegBytes,
   }) {
     return showDialog<SessionSummaryResult>(
@@ -134,7 +137,12 @@ class SessionSummarySheet extends StatelessWidget {
                           assessment: assessment,
                           saving: saving,
                           saveError: saveError,
-                          nextMovementName: nextMovement?.name,
+                          nextMovementName: nextMovement == null
+                              ? null
+                              : nextPracticeLabel(
+                                  nextMovement,
+                                  nextProp ?? nextMovement.supportedProps.first,
+                                ),
                           evidenceJpegBytes: evidenceJpegBytes,
                           onDiscard: () {
                             if (saving) return;

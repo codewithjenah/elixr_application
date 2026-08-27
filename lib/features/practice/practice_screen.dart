@@ -787,15 +787,16 @@ class _PracticeScreenState extends State<PracticeScreen>
     try {
       unawaited(_playCongratsBestEffort(sfxVolume));
       if (!mounted) return;
-      final nextMovement = widget.assignmentContext == null
-          ? nextEnabledMovementAfter(_movement)
+      final nextStep = widget.assignmentContext == null
+          ? nextEnabledPracticeAfter(_movement, _prop)
           : null;
       final result = await SessionSummarySheet.show(
         context,
         movement: _movement,
         durationSeconds: summaryDuration,
         assessment: sessionAssessment,
-        nextMovement: nextMovement,
+        nextMovement: nextStep?.movement,
+        nextProp: nextStep?.prop,
         evidenceJpegBytes: evidence,
         onSave: (existingSessionId) => sessionService.saveCompletedSession(
           existingSessionId: existingSessionId,
@@ -825,21 +826,18 @@ class _PracticeScreenState extends State<PracticeScreen>
         return;
       }
 
-      if (result == SessionSummaryResult.next && nextMovement != null) {
+      if (result == SessionSummaryResult.next && nextStep != null) {
         // Session was already persisted by the summary primary action.
         unawaited(tutorialProgress.completeFirstSessionGuidance());
         // Don't block navigation on SFX teardown.
         unawaited(_sfx.stop());
         _clearSessionState();
         _run.cancelToIdle();
-        final prop = nextMovement.supportedProps.contains(_prop)
-            ? _prop
-            : nextMovement.supportedProps.first;
-        final encoded = Uri.encodeComponent(nextMovement.name);
+        final encoded = Uri.encodeComponent(nextStep.movement.name);
         router.go(
           '/practice?movement=$encoded'
-          '&difficulty=${nextMovement.difficulty}'
-          '&prop=${prop.protocolValue}',
+          '&difficulty=${nextStep.movement.difficulty}'
+          '&prop=${nextStep.prop.protocolValue}',
         );
         return;
       }
