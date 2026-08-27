@@ -168,6 +168,11 @@ void main() {
     );
 
     expect(find.text('Hand Stall'), findsWidgets);
+    expect(
+      find.byKey(const Key('assigned_movement_card_asg-a')),
+      findsOneWidget,
+    );
+    expect(find.text('Start practice'), findsOneWidget);
     expect(find.text('Ada Lovelace (you)'), findsNothing);
   });
 
