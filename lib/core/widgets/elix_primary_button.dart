@@ -12,6 +12,7 @@ class ElixPrimaryButton extends StatefulWidget {
     this.isLoading = false,
     this.expanded = true,
     this.dense = false,
+    this.padding,
   });
 
   final String label;
@@ -20,6 +21,7 @@ class ElixPrimaryButton extends StatefulWidget {
   final bool isLoading;
   final bool expanded;
   final bool dense;
+  final EdgeInsetsGeometry? padding;
 
   @override
   State<ElixPrimaryButton> createState() => _ElixPrimaryButtonState();
@@ -80,10 +82,11 @@ class _ElixPrimaryButtonState extends State<ElixPrimaryButton> {
                   return AppColors.primary;
                 }),
                 padding: WidgetStateProperty.all(
-                  EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: widget.dense ? AppSpacing.sm : AppSpacing.md,
-                  ),
+                  widget.padding ??
+                      EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                        vertical: widget.dense ? AppSpacing.sm : AppSpacing.md,
+                      ),
                 ),
               ),
               onPressed: widget.isLoading ? null : widget.onPressed,

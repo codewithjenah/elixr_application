@@ -410,6 +410,12 @@ class _JoinCodeEntry extends StatelessWidget {
     required this.compact,
   });
 
+  /// Keeps Continue at Fluent TextBox min height (32) beside the code field.
+  static const _continuePadding = EdgeInsets.symmetric(
+    horizontal: 16,
+    vertical: 5.5,
+  );
+
   final TeacherAccessController controller;
   final TextEditingController textController;
   final bool compact;
@@ -426,6 +432,7 @@ class _JoinCodeEntry extends StatelessWidget {
       key: const Key('teacher_access_resolve_code'),
       label: 'Continue',
       expanded: compact,
+      padding: _continuePadding,
       isLoading: controller.busy,
       onPressed: controller.busy ? null : controller.resolveCode,
     );
@@ -439,7 +446,7 @@ class _JoinCodeEntry extends StatelessWidget {
           action,
         ] else
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(child: field),
               const SizedBox(width: AppSpacing.md),

@@ -237,6 +237,31 @@ void main() {
     },
   );
 
+  testWidgets(
+    'join code field and Continue button share the same height on a wide layout',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpAccess(
+        tester,
+        controller,
+        groupRepository: groupRepository,
+        joinCodeResolver: joinCodeResolver,
+      );
+
+      final fieldSize = tester.getSize(
+        find.byKey(const Key('teacher_access_roster_code')),
+      );
+      final buttonSize = tester.getSize(
+        find.byKey(const Key('teacher_access_resolve_code')),
+      );
+      expect(buttonSize.height, fieldSize.height);
+    },
+  );
+
   testWidgets('approved classes are compact cards that open the class page', (
     tester,
   ) async {
