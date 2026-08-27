@@ -20,6 +20,29 @@ import '../../../data/repositories/teacher_movement_repository.dart';
 
 enum TeacherMovementsTab { official, mine, assignments, reviews }
 
+class TeacherAssignmentRosterCounts {
+  const TeacherAssignmentRosterCounts({
+    required this.turnedIn,
+    required this.awaitingReview,
+    required this.approved,
+    required this.needsRetry,
+    required this.notTurnedIn,
+  });
+
+  const TeacherAssignmentRosterCounts.empty()
+    : turnedIn = 0,
+      awaitingReview = 0,
+      approved = 0,
+      needsRetry = 0,
+      notTurnedIn = 0;
+
+  final int turnedIn;
+  final int awaitingReview;
+  final int approved;
+  final int needsRetry;
+  final int notTurnedIn;
+}
+
 class TeacherMovementsController extends ChangeNotifier {
   TeacherMovementsController({
     required this.teacherId,
@@ -45,6 +68,8 @@ class TeacherMovementsController extends ChangeNotifier {
   List<AssignmentAttempt> attempts = const [];
   List<GroupMembership> memberships = const [];
   AssignmentAttempt? selectedReview;
+  String? selectedAssignmentId;
+  String? selectedWorkTraineeId;
   String? reviewFeedbackDraft;
   bool loading = false;
   bool busy = false;
@@ -101,6 +126,105 @@ class TeacherMovementsController extends ChangeNotifier {
     return attempts
         .where((attempt) => attempt.assignmentId == assignmentId)
         .toList();
+  }
+
+  GroupAssignment? assignmentById(String assignmentId) {
+    for (final assignment in assignments) {
+      if (assignment.id == assignmentId) return assignment;
+    }
+    return null;
+  }
+
+  List<GroupMembership> approvedMembersForGroup(String groupId) {
+    final members = memberships
+        .where(
+          (membership) =>
+              membership.groupId == groupId &&
+              membership.hasClassroomAuthorization,
+        )
+        .toList();
+    members.sort(
+      (a, b) => a.traineeDisplayName.toLowerCase().compareTo(
+        b.traineeDisplayName.toLowerCase(),
+      ),
+    );
+    return members;
+  }
+
+  AssignmentAttempt? latestVisibleAttemptFor({
+    required String assignmentId,
+    required String traineeId,
+  }) {
+    AssignmentAttempt? latest;
+    for (final attempt in attempts) {
+      if (attempt.assignmentId != assignmentId) continue;
+      if (attempt.traineeId != traineeId) continue;
+      if (attempt.isAbandonedTeacherReviewDraft) continue;
+      if (latest == null) {
+        latest = attempt;
+        continue;
+      }
+      final attemptAt =
+          attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final latestAt =
+          latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      if (attemptAt.isAfter(latestAt)) latest = attempt;
+    }
+    return latest;
+  }
+
+  TeacherAssignmentRosterCounts rosterCountsFor(String assignmentId) {
+    final assignment = assignmentById(assignmentId);
+    if (assignment == null) {
+      return const TeacherAssignmentRosterCounts.empty();
+    }
+    final members = approvedMembersForGroup(assignment.groupId);
+    var turnedIn = 0;
+    var awaitingReview = 0;
+    var approved = 0;
+    var needsRetry = 0;
+    var notTurnedIn = 0;
+    for (final member in members) {
+      final attempt = latestVisibleAttemptFor(
+        assignmentId: assignmentId,
+        traineeId: member.traineeId,
+      );
+      if (!_isTurnedInAttempt(attempt)) {
+        notTurnedIn++;
+        continue;
+      }
+      turnedIn++;
+      if (!attempt!.isReviewFacingSubmission) continue;
+      switch (attempt.status) {
+        case AssignmentAttemptStatus.submitted:
+          awaitingReview++;
+        case AssignmentAttemptStatus.approved:
+          approved++;
+        case AssignmentAttemptStatus.needsRetry:
+          needsRetry++;
+        case AssignmentAttemptStatus.draft:
+        case AssignmentAttemptStatus.inProgress:
+          break;
+      }
+    }
+    return TeacherAssignmentRosterCounts(
+      turnedIn: turnedIn,
+      awaitingReview: awaitingReview,
+      approved: approved,
+      needsRetry: needsRetry,
+      notTurnedIn: notTurnedIn,
+    );
+  }
+
+  static bool _isTurnedInAttempt(AssignmentAttempt? attempt) {
+    if (attempt == null || attempt.isAbandonedTeacherReviewDraft) {
+      return false;
+    }
+    if (attempt.attemptKind == AssignmentAttemptKind.practicePointer ||
+        attempt.attemptKind == AssignmentAttemptKind.templateScore) {
+      return true;
+    }
+    return attempt.isReviewFacingSubmission;
   }
 
   List<AssignmentAttempt> get reviewQueue {
@@ -179,7 +303,12 @@ class TeacherMovementsController extends ChangeNotifier {
           () => _attemptsSub,
           (sub) => _attemptsSub = sub,
           assignmentRepository.watchAttemptsForTeacher(teacherId: teacherId),
-          (value) => attempts = value,
+          (value) {
+            attempts = value;
+            if (tab == TeacherMovementsTab.assignments) {
+              _syncSelectedWorkReview();
+            }
+          },
         ),
         _listenOnce(
           () => _membershipsSub,
@@ -256,8 +385,47 @@ class TeacherMovementsController extends ChangeNotifier {
   void setTab(TeacherMovementsTab value) {
     if (tab == value) return;
     tab = value;
+    if (value != TeacherMovementsTab.assignments) {
+      selectedAssignmentId = null;
+      selectedWorkTraineeId = null;
+    }
     notifyListeners();
   }
+
+  Future<void> selectAssignment(String? assignmentId) async {
+    if (selectedAssignmentId == assignmentId) return;
+    selectedAssignmentId = assignmentId;
+    selectedWorkTraineeId = null;
+    await selectReview(null);
+  }
+
+  Future<void> selectWorkTrainee(String? traineeId) async {
+    selectedWorkTraineeId = traineeId;
+    final assignmentId = selectedAssignmentId;
+    if (traineeId == null || assignmentId == null) {
+      await selectReview(null);
+      return;
+    }
+    final attempt = latestVisibleAttemptFor(
+      assignmentId: assignmentId,
+      traineeId: traineeId,
+    );
+    await selectReview(attempt);
+  }
+
+  void _syncSelectedWorkReview() {
+    final assignmentId = selectedAssignmentId;
+    final traineeId = selectedWorkTraineeId;
+    if (assignmentId == null || traineeId == null) return;
+    final attempt = latestVisibleAttemptFor(
+      assignmentId: assignmentId,
+      traineeId: traineeId,
+    );
+    selectedReview = attempt;
+    reviewFeedbackDraft = attempt?.reviewFeedback;
+  }
+
+  Future<void> releaseLocalPlayback() => releasePlaybackCache();
 
   Future<void> createMovement({
     required String title,

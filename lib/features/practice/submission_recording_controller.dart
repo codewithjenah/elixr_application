@@ -80,6 +80,7 @@ class SubmissionRecordingController extends ChangeNotifier {
   Timer? _timer;
   bool _recordCommandInFlight = false;
   bool _disposed = false;
+  SubmissionPlaybackFile? _submittedPlayback;
 
   bool get recordCommandInFlight => _recordCommandInFlight;
 
@@ -136,6 +137,30 @@ class SubmissionRecordingController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  Future<SubmissionPlaybackFile?> openSubmittedPlayback() async {
+    await releaseSubmittedPlayback();
+    final attempt = latestSubmission;
+    if (attempt == null || !attempt.hasPlayableVideo || attempt.videoExpired) {
+      return null;
+    }
+    final playback = await submissions.openLocalPlayback(attempt);
+    if (_disposed) {
+      await submissions.releaseLocalPlayback(playback);
+      return null;
+    }
+    _submittedPlayback = playback;
+    notifyListeners();
+    return playback;
+  }
+
+  Future<void> releaseSubmittedPlayback() async {
+    final playback = _submittedPlayback;
+    _submittedPlayback = null;
+    await submissions.releaseLocalPlayback(playback);
+  }
+
+  SubmissionPlaybackFile? get submittedPlayback => _submittedPlayback;
 
   void requestConsent() {
     if (!canRecord || _recordCommandInFlight) return;
@@ -245,6 +270,7 @@ class SubmissionRecordingController extends ChangeNotifier {
       clip = null;
       phase = SubmissionRecordingPhase.submitted;
       await refreshLatestSubmission();
+      await openSubmittedPlayback();
     } catch (error) {
       if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
@@ -274,6 +300,7 @@ class SubmissionRecordingController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _timer?.cancel();
+    unawaited(releaseSubmittedPlayback());
     unawaited(abandonLocalClip());
     super.dispose();
   }

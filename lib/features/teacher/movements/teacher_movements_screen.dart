@@ -11,7 +11,7 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
-import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
@@ -19,6 +19,7 @@ import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../movements/movements_presentation.dart';
 import '../../../services/auth_service.dart';
+import 'teacher_assignment_work_pane.dart';
 import 'teacher_movement_builder_dialog.dart';
 import 'teacher_movements_controller.dart';
 import 'teacher_reviews_pane.dart';
@@ -169,9 +170,10 @@ class _TabBody extends StatelessWidget {
     return switch (controller.tab) {
       TeacherMovementsTab.official => _OfficialList(controller: controller),
       TeacherMovementsTab.mine => _MyMovementsList(controller: controller),
-      TeacherMovementsTab.assignments => _AssignmentsList(
-        controller: controller,
-      ),
+      TeacherMovementsTab.assignments =>
+        controller.selectedAssignmentId == null
+            ? _AssignmentsList(controller: controller)
+            : TeacherAssignmentWorkPane(controller: controller),
       TeacherMovementsTab.reviews => TeacherReviewsPane(controller: controller),
     };
   }
@@ -345,21 +347,51 @@ class _AssignmentsList extends StatelessWidget {
             'No assignments yet. Assign an Official ELIXR or My Movement item to a class.',
       );
     }
-    return ListView.separated(
-      itemCount: controller.assignments.length,
-      separatorBuilder: (context, index) =>
+    final official = [
+      for (final assignment in controller.assignments)
+        if (assignment.isOfficial) assignment,
+    ];
+    final teacherCreated = [
+      for (final assignment in controller.assignments)
+        if (!assignment.isOfficial) assignment,
+    ];
+    return ListView(
+      children: [
+        if (official.isNotEmpty) ...[
+          const _AssignmentOriginHeader(
+            sectionKey: Key('teacher_assignments_official_section'),
+            title: 'Official ELIXR',
+            subtitle: 'Live guided scores. No submission clip to review.',
+          ),
           const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final assignment = controller.assignments[index];
-        final attempts = controller.attemptsFor(assignment.id);
-        final submitted = attempts
-            .where(
-              (attempt) =>
-                  attempt.status == AssignmentAttemptStatus.submitted ||
-                  attempt.attemptKind == AssignmentAttemptKind.practicePointer,
-            )
-            .length;
-        final inProgress = attempts.length - submitted;
+          for (var i = 0; i < official.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            _assignmentCard(official[i]),
+          ],
+        ],
+        if (official.isNotEmpty && teacherCreated.isNotEmpty)
+          const SizedBox(height: AppSpacing.xl),
+        if (teacherCreated.isNotEmpty) ...[
+          const _AssignmentOriginHeader(
+            sectionKey: Key('teacher_assignments_teacher_section'),
+            title: 'Teacher-created',
+            subtitle: 'Recorded clips for you to review.',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (var i = 0; i < teacherCreated.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            _assignmentCard(teacherCreated[i]),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _assignmentCard(GroupAssignment assignment) {
+    final counts = controller.rosterCountsFor(assignment.id);
+    return HoverButton(
+      onPressed: () => controller.selectAssignment(assignment.id),
+      builder: (context, states) {
         return ElixPanelCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -377,47 +409,26 @@ class _AssignmentsList extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                assignment.isOfficial
-                    ? 'Classroom results: $submitted completed'
-                    : 'Classroom attempts: $inProgress in progress, $submitted submitted',
+                'Turned in ${counts.turnedIn} · '
+                'Awaiting review ${counts.awaitingReview} · '
+                'Approved ${counts.approved} · '
+                'Needs retry ${counts.needsRetry} · '
+                'Not turned in ${counts.notTurnedIn}',
                 style: AppTheme.body,
               ),
-              if (attempts.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.sm),
-                for (final attempt in attempts.take(8))
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      _attemptLine(attempt),
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
-                      ),
-                    ),
-                  ),
-              ],
+              const SizedBox(height: AppSpacing.sm),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Button(
+                  onPressed: () => controller.selectAssignment(assignment.id),
+                  child: const Text('View work'),
+                ),
+              ),
             ],
           ),
         );
       },
     );
-  }
-
-  static String _attemptLine(AssignmentAttempt attempt) {
-    if (attempt.attemptKind == AssignmentAttemptKind.practicePointer) {
-      final total = attempt.rubricTotal;
-      final level = attempt.performanceLevel?.label;
-      return 'Completed official practice'
-          '${total == null ? '' : ' · $total/12'}'
-          '${level == null ? '' : ' · $level'}';
-    }
-    if (attempt.attemptKind == AssignmentAttemptKind.templateScore) {
-      final total = attempt.rubricTotal;
-      final level = attempt.performanceLevel?.label;
-      return 'Historical template score'
-          '${total == null ? '' : ' · $total/12'}'
-          '${level == null ? '' : ' · $level'}';
-    }
-    return 'Teacher-reviewed practice · ${attempt.status.wireValue}';
   }
 
   static String _formatDue(DateTime dueAt) {
@@ -426,6 +437,36 @@ class _AssignmentsList extends StatelessWidget {
     final m = local.month.toString().padLeft(2, '0');
     final d = local.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+}
+
+class _AssignmentOriginHeader extends StatelessWidget {
+  const _AssignmentOriginHeader({
+    required this.sectionKey,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final Key sectionKey;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return KeyedSubtree(
+      key: sectionKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTheme.headingMedium),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -710,9 +751,7 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
       child: AnimatedBuilder(
         animation: _interactionController,
         builder: (context, child) {
-          final t = Curves.easeOutCubic.transform(
-            _interactionController.value,
-          );
+          final t = Curves.easeOutCubic.transform(_interactionController.value);
           final lift = reduceMotion ? 0.0 : 6 * t;
           final scale = reduceMotion ? 1.0 : 1 + (0.008 * t);
           final highContrastSurface = Color.alphaBlend(
@@ -749,9 +788,7 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
                           baseSurface,
                         ),
                         Color.alphaBlend(
-                          widget.accent.withValues(
-                            alpha: isDark ? 0.10 : 0.06,
-                          ),
+                          widget.accent.withValues(alpha: isDark ? 0.10 : 0.06),
                           baseSurface,
                         ),
                       ],
@@ -803,7 +840,10 @@ class _TeacherMovementHoverCardState extends State<_TeacherMovementHoverCard>
 }
 
 class _TeacherMovementThumb extends StatelessWidget {
-  const _TeacherMovementThumb({required this.movementName, required this.accent});
+  const _TeacherMovementThumb({
+    required this.movementName,
+    required this.accent,
+  });
 
   final String movementName;
   final Color accent;

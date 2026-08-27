@@ -5,6 +5,7 @@ import '../../data/models/training_prop.dart';
 import '../../features/achievements/achievements_screen.dart';
 import '../../features/assigned_movements/assigned_movements_screen.dart';
 import '../../features/assigned_movements/assigned_practice_screen.dart';
+import '../../features/assigned_movements/assignment_detail_screen.dart';
 import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/complete_google_profile_screen.dart';
 import '../../features/auth/login_screen.dart';
@@ -232,6 +233,19 @@ class AppRouter {
                 key: state.pageKey,
                 child: const AssignedMovementsScreen(),
               ),
+              routes: [
+                GoRoute(
+                  path: ':assignmentId',
+                  pageBuilder: (context, state) {
+                    final assignmentId =
+                        state.pathParameters['assignmentId'] ?? '';
+                    return fadeTransitionPage(
+                      key: state.pageKey,
+                      child: AssignmentDetailScreen(assignmentId: assignmentId),
+                    );
+                  },
+                ),
+              ],
             ),
             GoRoute(
               path: AppRoutePaths.learn,

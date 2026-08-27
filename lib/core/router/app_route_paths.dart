@@ -111,6 +111,18 @@ abstract final class AppRoutePaths {
     );
   }
 
+  static String assignmentDetail(String assignmentId) {
+    return '$assignedMovements/${Uri.encodeComponent(assignmentId)}';
+  }
+
+  static String assignmentIdFromAssignmentDetail(String location) {
+    final prefix = '$assignedMovements/';
+    if (!location.startsWith(prefix)) return '';
+    return Uri.decodeComponent(
+      location.substring(prefix.length).split('?').first,
+    );
+  }
+
   static String assignedPractice(String assignmentId) {
     return '$assignedPracticePrefix/${Uri.encodeComponent(assignmentId)}';
   }

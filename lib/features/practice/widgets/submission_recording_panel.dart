@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_submission_limits.dart';
@@ -26,13 +28,51 @@ class SubmissionRecordingPanel extends StatefulWidget {
 
 class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
   final _previewPlayback = ElixrPlaybackSession();
+  final _submittedPlayback = ElixrPlaybackSession();
+  bool _loadingSubmittedClip = false;
+  Object? _submittedClipError;
 
   SubmissionRecordingController get controller => widget.controller;
 
   @override
+  void initState() {
+    super.initState();
+    controller.addListener(_onController);
+    unawaited(_ensureSubmittedClip());
+  }
+
+  @override
   void dispose() {
+    controller.removeListener(_onController);
     unawaited(_previewPlayback.release());
+    unawaited(_submittedPlayback.release());
+    unawaited(controller.releaseSubmittedPlayback());
     super.dispose();
+  }
+
+  void _onController() {
+    unawaited(_ensureSubmittedClip());
+  }
+
+  Future<void> _ensureSubmittedClip() async {
+    if (controller.phase != SubmissionRecordingPhase.submitted) return;
+    if (controller.submittedPlayback != null) return;
+    if (_loadingSubmittedClip) return;
+    final attempt = controller.latestSubmission;
+    if (attempt == null || !attempt.hasPlayableVideo || attempt.videoExpired) {
+      return;
+    }
+    _loadingSubmittedClip = true;
+    _submittedClipError = null;
+    if (mounted) setState(() {});
+    try {
+      await controller.openSubmittedPlayback();
+    } catch (error) {
+      _submittedClipError = error;
+    } finally {
+      _loadingSubmittedClip = false;
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -154,8 +194,18 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
       case SubmissionRecordingPhase.submitted:
         return [
           Text(
-            'Submitted to your Teacher. This clip does not award XP.',
+            'Submitted to your Teacher. Preview your clip below. '
+            'This clip does not award XP.',
             style: AppTheme.body,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(height: 180, child: _submittedVideo()),
+          const SizedBox(height: AppSpacing.sm),
+          Button(
+            onPressed: () => context.go(
+              AppRoutePaths.assignmentDetail(controller.assignment.id),
+            ),
+            child: const Text('Open assignment'),
           ),
         ];
       case SubmissionRecordingPhase.failed:
@@ -197,5 +247,33 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
       await _previewPlayback.release();
       await controller.submitToTeacher();
     }
+  }
+
+  Widget _submittedVideo() {
+    final attempt = controller.latestSubmission;
+    if (attempt == null || !attempt.hasPlayableVideo || attempt.videoExpired) {
+      return Center(
+        child: Text(
+          attempt?.videoExpired == true
+              ? 'This clip is no longer available.'
+              : 'Your submitted clip will appear here after upload.',
+          textAlign: TextAlign.center,
+          style: AppTheme.body.copyWith(color: AppColors.warning),
+        ),
+      );
+    }
+    if (_submittedClipError != null) {
+      return Center(
+        child: Text(
+          'This clip could not be opened.',
+          style: AppTheme.body.copyWith(color: AppColors.error),
+        ),
+      );
+    }
+    final playable = controller.submittedPlayback;
+    if (_loadingSubmittedClip || playable == null) {
+      return const Center(child: ProgressRing());
+    }
+    return ElixrVideoPlayer(source: playable.uri, session: _submittedPlayback);
   }
 }

@@ -70,7 +70,7 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
                 Text('Assigned Movements', style: AppTheme.headingLarge),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  'Classroom work from your approved groups. Public profile privacy does not hide these assignments.',
+                  'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.',
                   style: AppTheme.body.copyWith(
                     color: context.elixTextSecondary,
                   ),

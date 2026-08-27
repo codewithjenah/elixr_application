@@ -84,6 +84,11 @@ void main() {
           builder: (context, state) =>
               Text('practice:${state.pathParameters['assignmentId']}'),
         ),
+        GoRoute(
+          path: '${AppRoutePaths.assignedMovements}/:assignmentId',
+          builder: (context, state) =>
+              Text('detail:${state.pathParameters['assignmentId']}'),
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -104,8 +109,18 @@ void main() {
     expect(find.text('Hand Stall'), findsOneWidget);
     expect(find.text('Basic Bottle Balances'), findsOneWidget);
     expect(find.text('James Bartender'), findsNWidgets(2));
-    expect(find.text('Official ELIXR'), findsOneWidget);
-    expect(find.text('Teacher-created'), findsOneWidget);
+    expect(
+      find.byKey(const Key('assigned_movements_official_section')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('assigned_movements_teacher_section')),
+      findsOneWidget,
+    );
+    expect(find.text('Official ELIXR'), findsNWidgets(2));
+    expect(find.text('Teacher-created'), findsNWidgets(2));
+    expect(find.textContaining('No submission clip'), findsOneWidget);
+    expect(find.textContaining('Record a clip'), findsOneWidget);
     expect(find.text('Start practice'), findsNWidgets(2));
     expect(find.text('No due date'), findsNWidgets(2));
     expect(find.text('Not started'), findsOneWidget);
@@ -115,5 +130,133 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('practice:asg-a'), findsOneWidget);
+  });
+
+  testWidgets('tapping the card body opens assignment detail', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => ScaffoldPage(
+            content: SizedBox(
+              height: 600,
+              child: AssignedMovementList(
+                items: [
+                  AssignedMovementItem(
+                    assignment: _assignment(id: 'asg-a', title: 'Hand Stall'),
+                    attempt: null,
+                  ),
+                ],
+                showGroupName: false,
+              ),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '${AppRoutePaths.assignedMovements}/:assignmentId',
+          builder: (context, state) =>
+              Text('detail:${state.pathParameters['assignmentId']}'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      FluentApp.router(theme: AppTheme.light, routerConfig: router),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Hand Stall'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('detail:asg-a'), findsOneWidget);
+  });
+
+  testWidgets('only Official ELIXR items hide the Teacher-created section', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.light,
+        home: ScaffoldPage(
+          content: SizedBox(
+            height: 600,
+            child: AssignedMovementList(
+              items: [
+                AssignedMovementItem(
+                  assignment: _assignment(id: 'asg-a', title: 'Hand Stall'),
+                  attempt: null,
+                ),
+              ],
+              showGroupName: false,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('assigned_movements_official_section')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('assigned_movements_teacher_section')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('only Teacher-created items hide the Official ELIXR section', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.light,
+        home: ScaffoldPage(
+          content: SizedBox(
+            height: 600,
+            child: AssignedMovementList(
+              items: [
+                AssignedMovementItem(
+                  assignment: _assignment(
+                    id: 'asg-b',
+                    title: 'Basic Bottle Balances',
+                    origin: MovementOrigin.teacherCreated,
+                  ),
+                  attempt: null,
+                ),
+              ],
+              showGroupName: false,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('assigned_movements_teacher_section')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('assigned_movements_official_section')),
+      findsNothing,
+    );
   });
 }
