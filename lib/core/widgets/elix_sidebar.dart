@@ -71,12 +71,6 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
-    label: 'Assigned Movements',
-    icon: FluentIcons.clipboard_list,
-    route: '/assigned-movements',
-    group: SidebarGroup.training,
-  ),
-  SidebarItem(
     label: 'Live Practice',
     icon: FluentIcons.video,
     route: '/live-practice',

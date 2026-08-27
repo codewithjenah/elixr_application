@@ -9,7 +9,7 @@ void main() {
       expect(labels.where((label) => label == 'Sessions'), ['Sessions']);
       expect(labels.contains('Calendar'), isFalse);
       expect(labels.contains('History'), isFalse);
-      expect(labels.contains('Assigned Movements'), isTrue);
+      expect(labels.contains('Assigned Movements'), isFalse);
       expect(labels.contains('Movements'), isTrue);
 
       final teacherAccessIndex = labels.indexOf('Teacher Access');
