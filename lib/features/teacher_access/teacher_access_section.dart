@@ -1,6 +1,7 @@
 import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_status_panel.dart';
+import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
@@ -86,6 +88,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
       privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
       reconcileEvidenceAvailability: (traineeId) => SessionEvidenceRepository()
           .reconcilePublicEvidenceAvailability(traineeId),
+      assignmentRepository: _maybeRead<ClassroomAssignmentRepository>(context),
     );
     _owned!.addListener(_onControllerTick);
     _active = _owned;
@@ -674,6 +677,7 @@ class _ApprovedClassesGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final openClass = onOpenClass;
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -698,8 +702,25 @@ class _ApprovedClassesGrid extends StatelessWidget {
                   className:
                       controller.groupNamesById[membership.groupId]?.name ??
                       'Class',
-                  subtitle: membership.teacherDisplayName,
-                  onOpen: () => onOpenClass?.call(membership.groupId),
+                  teacherName: membership.teacherDisplayName,
+                  sectionLabel:
+                      controller.groupNamesById[membership.groupId]?.isActive ==
+                          false
+                      ? 'Archived'
+                      : null,
+                  workItems: classCardWorkItemsFromAssignments(
+                    controller.assignmentsFor(membership.groupId),
+                  ),
+                  ownerInitials: userInitials(membership.teacherDisplayName),
+                  onOpen: () => openClass?.call(membership.groupId),
+                  menuItems: openClass == null
+                      ? null
+                      : (_) => [
+                          MenuFlyoutItem(
+                            text: const Text('Open class'),
+                            onPressed: () => openClass(membership.groupId),
+                          ),
+                        ],
                 ),
               ),
           ],
@@ -1076,4 +1097,12 @@ Future<void> _confirmRevokeTeacher(
 String _formatTime(DateTime? value) {
   if (value == null) return 'recently';
   return DateFormat.yMMMd().add_jm().format(value.toLocal());
+}
+
+T? _maybeRead<T>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } on ProviderNotFoundException {
+    return null;
+  }
 }

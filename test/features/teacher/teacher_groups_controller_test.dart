@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/auth/teacher_auth_messages.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_controller.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -728,4 +729,39 @@ void main() {
       expect(controller.profilePictureUrlFor('trainee-1'), isNull);
     },
   );
+
+  test('assignment previews are grouped by class', () async {
+    final assignments = InMemoryClassroomAssignmentRepository(
+      now: () => DateTime.utc(2026, 8, 26),
+    );
+    addTearDown(assignments.dispose);
+    final local = TeacherGroupsController(
+      repository: memory,
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      ensureTeacherAuthorization: ensureTeacherAuthorization,
+      assignmentRepository: assignments,
+    );
+    addTearDown(local.dispose);
+
+    final group = await memory.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: group,
+      officialMovementName: 'Normal Grip',
+      dueAt: DateTime.utc(2026, 8, 31),
+    );
+
+    await local.start();
+    await pumpEventQueue();
+
+    expect(local.assignmentsFor(group.id), hasLength(1));
+    expect(local.assignmentsFor(group.id).single.displayTitle, 'Normal Grip');
+    expect(local.assignmentsFor('missing'), isEmpty);
+  });
 }

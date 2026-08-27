@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_section.dart';
 import 'package:elixr_application/services/join_code_resolver.dart';
@@ -41,6 +42,7 @@ Future<void> pumpAccess(
 void main() {
   late InMemoryTeacherRelationshipRepository relationshipRepository;
   late InMemoryGroupRepository groupRepository;
+  late InMemoryClassroomAssignmentRepository assignments;
   late JoinCodeResolver joinCodeResolver;
   late TeacherAccessController controller;
 
@@ -58,6 +60,9 @@ void main() {
       generateGroupId: () => 'group-${groupIdIndex++}',
       now: () => DateTime.utc(2026, 8, 16),
     );
+    assignments = InMemoryClassroomAssignmentRepository(
+      now: () => DateTime.utc(2026, 8, 16),
+    );
     joinCodeResolver = JoinCodeResolver(
       groupRepository: groupRepository,
       relationshipRepository: relationshipRepository,
@@ -73,6 +78,7 @@ void main() {
       traineeId: 'trainee-1',
       traineeDisplayName: 'Ada Lovelace',
       privateImageSavingEnabled: true,
+      assignmentRepository: assignments,
     );
   });
 
@@ -80,6 +86,7 @@ void main() {
     controller.dispose();
     relationshipRepository.dispose();
     groupRepository.dispose();
+    assignments.dispose();
   });
 
   testWidgets('resolves Teacher and requires explicit join confirmation', (
@@ -228,6 +235,13 @@ void main() {
       membershipId: adaB.id,
       teacherId: 'teacher-1',
     );
+    await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: groupA,
+      officialMovementName: 'Normal Grip',
+      dueAt: DateTime(2026, 8, 31),
+    );
 
     String? openedGroupId;
     await pumpAccess(
@@ -241,6 +255,8 @@ void main() {
 
     expect(find.text('BSHM 4A'), findsOneWidget);
     expect(find.text('BSHM 4B'), findsOneWidget);
+    expect(find.text('Grace Hopper'), findsNWidgets(2));
+    expect(find.text('Normal Grip'), findsOneWidget);
     expect(find.text('Ada Lovelace (you)'), findsNothing);
     expect(find.text('Alan Turing'), findsNothing);
     expect(find.text('Classmates'), findsNothing);

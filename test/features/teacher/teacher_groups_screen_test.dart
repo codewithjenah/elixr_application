@@ -1,5 +1,7 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_controller.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -15,6 +17,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late InMemoryGroupRepository repository;
+  late InMemoryClassroomAssignmentRepository assignments;
   late AuthService auth;
   var groupIdIndex = 0;
   var inviteCodeIndex = 0;
@@ -30,11 +33,15 @@ void main() {
       generateGroupId: () => 'group-${groupIdIndex++}',
       now: () => DateTime.utc(2026, 8, 26),
     );
+    assignments = InMemoryClassroomAssignmentRepository(
+      now: () => DateTime.utc(2026, 8, 26),
+    );
     auth = phase3TeacherAuth();
   });
 
   tearDown(() {
     repository.dispose();
+    assignments.dispose();
     auth.dispose();
   });
 
@@ -71,12 +78,14 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           Provider<GroupRepository>.value(value: repository),
+          Provider<ClassroomAssignmentRepository>.value(value: assignments),
         ],
         child: FluentApp.router(theme: AppTheme.dark, routerConfig: router),
       ),
     );
     await tester.pump();
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
   }
 
   testWidgets('empty groups shows create copy instead of a side panel', (
@@ -114,13 +123,23 @@ void main() {
       membershipId: ada.id,
       teacherId: 'teacher',
     );
+    await assignments.createOfficialAssignment(
+      teacherId: 'teacher',
+      teacherDisplayName: 'Grace Hopper',
+      group: groupA,
+      officialMovementName: 'Normal Grip',
+      dueAt: DateTime(2026, 8, 31),
+    );
 
     await pumpGroups(tester);
 
     expect(find.text('BSIT-4A'), findsOneWidget);
     expect(find.text('BSHM 4B'), findsOneWidget);
     expect(find.text('Active'), findsNWidgets(2));
-    expect(find.text('Students and join code'), findsNWidgets(2));
+    expect(find.text('Grace Hopper'), findsNWidgets(2));
+    expect(find.text('Students and join code'), findsNothing);
+    expect(find.text('Open classwork'), findsNothing);
+    expect(find.text('Normal Grip'), findsOneWidget);
     expect(find.byKey(Key('teacher_group_card_${groupA.id}')), findsOneWidget);
     expect(find.byKey(Key('teacher_group_card_${groupB.id}')), findsOneWidget);
     expect(find.text('Ada Lovelace'), findsNothing);

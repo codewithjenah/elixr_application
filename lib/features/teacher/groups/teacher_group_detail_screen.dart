@@ -15,6 +15,7 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
+import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../teacher_access/trainee_class_card.dart';
@@ -61,12 +62,19 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     } on ProviderNotFoundException {
       publicProfileRepository = null;
     }
+    ClassroomAssignmentRepository? assignmentRepository;
+    try {
+      assignmentRepository = context.read<ClassroomAssignmentRepository>();
+    } on ProviderNotFoundException {
+      assignmentRepository = null;
+    }
     _owned = TeacherGroupsController(
       repository: context.read<GroupRepository>(),
       teacherId: userId,
       teacherDisplayName: user.fullName,
       ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
       publicProfileRepository: publicProfileRepository,
+      assignmentRepository: assignmentRepository,
     )..startForGroup(widget.groupId);
   }
 

@@ -1,4 +1,6 @@
+import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import 'teacher_groups_controller.dart';
@@ -50,6 +53,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
       ensureTeacherAuthorization: context
           .read<AuthService>()
           .ensureTeacherAuthorizationFresh,
+      assignmentRepository: _maybeRead<ClassroomAssignmentRepository>(context),
     )..start();
   }
 
@@ -172,15 +176,45 @@ class _GroupsGrid extends StatelessWidget {
                       child: TraineeClassCard(
                         groupId: group.id,
                         className: group.name,
-                        subtitle: group.isActive ? 'Active' : 'Archived',
-                        footerLabel: 'Students and join code',
+                        teacherName: controller.teacherDisplayName,
+                        sectionLabel: group.isActive ? 'Active' : 'Archived',
+                        workItems: classCardWorkItemsFromAssignments(
+                          controller.assignmentsFor(group.id),
+                        ),
+                        ownerInitials: userInitials(
+                          controller.teacherDisplayName,
+                        ),
+                        ownerPhotoUrl: context
+                            .read<AuthService>()
+                            .currentUser
+                            ?.profilePictureUrl,
                         cardKey: Key('teacher_group_card_${group.id}'),
-                        subtitleIcon: group.isActive
-                            ? FluentIcons.completed
-                            : FluentIcons.archive,
                         onOpen: () {
                           context.go(AppRoutePaths.teacherGroup(group.id));
                         },
+                        menuItems: (_) => [
+                          MenuFlyoutItem(
+                            text: const Text('Rename'),
+                            onPressed: controller.busy
+                                ? null
+                                : () => _showRenameGroupDialog(
+                                    context,
+                                    controller,
+                                    group,
+                                  ),
+                          ),
+                          if (group.isActive)
+                            MenuFlyoutItem(
+                              text: const Text('Archive'),
+                              onPressed: controller.busy
+                                  ? null
+                                  : () => _confirmArchiveGroup(
+                                      context,
+                                      controller,
+                                      group,
+                                    ),
+                            ),
+                        ],
                       ),
                     ),
                 ],
@@ -234,4 +268,81 @@ Future<void> _showCreateGroupDialog(
     }
   }
   nameController.dispose();
+}
+
+Future<void> _showRenameGroupDialog(
+  BuildContext context,
+  TeacherGroupsController controller,
+  ElixrGroup group,
+) async {
+  final nameController = TextEditingController(text: group.name);
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Rename group'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Enter a new class name.'),
+          const SizedBox(height: AppSpacing.sm),
+          TextBox(
+            controller: nameController,
+            placeholder: 'BSHM 4A',
+            autofocus: true,
+          ),
+        ],
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          child: const Text('Rename'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (accepted == true) {
+    await controller.renameGroup(group, nameController.text);
+  }
+  nameController.dispose();
+}
+
+Future<void> _confirmArchiveGroup(
+  BuildContext context,
+  TeacherGroupsController controller,
+  ElixrGroup group,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Archive this group?'),
+      content: const Text(
+        'Students already in this class stay. New students will not be able '
+        'to join with this class code.',
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          child: const Text('Archive'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.archiveGroup(group);
+}
+
+T? _maybeRead<T>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } on ProviderNotFoundException {
+    return null;
+  }
 }

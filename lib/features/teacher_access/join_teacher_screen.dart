@@ -9,6 +9,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
@@ -37,6 +38,12 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
     final userId = user?.id;
     if (user == null || userId == null) return;
     final links = context.read<JoinLinkService>();
+    ClassroomAssignmentRepository? assignmentRepository;
+    try {
+      assignmentRepository = context.read<ClassroomAssignmentRepository>();
+    } on ProviderNotFoundException {
+      assignmentRepository = null;
+    }
     _controller = TeacherAccessController(
       relationshipRepository: context.read<TeacherRelationshipRepository>(),
       groupRepository: context.read<GroupRepository>(),
@@ -49,6 +56,7 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
       onJoinCompleted: () {
         links.clearPendingCode();
       },
+      assignmentRepository: assignmentRepository,
     );
     final code = links.pendingCode;
     if (code != null) _controller!.prefillCode(code);

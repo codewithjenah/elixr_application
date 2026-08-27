@@ -11,6 +11,8 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../data/models/group_assignment.dart';
+import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../services/join_code_resolver.dart';
 
 enum JoinTeacherStep { enterCode, confirm }
@@ -25,6 +27,7 @@ class TeacherAccessController extends ChangeNotifier {
     this.privateImageSavingEnabled = false,
     this.reconcileEvidenceAvailability,
     this.onJoinCompleted,
+    this.assignmentRepository,
   });
 
   final TeacherRelationshipRepository relationshipRepository;
@@ -35,12 +38,15 @@ class TeacherAccessController extends ChangeNotifier {
   final bool privateImageSavingEnabled;
   final Future<void> Function(String traineeId)? reconcileEvidenceAvailability;
   final VoidCallback? onJoinCompleted;
+  final ClassroomAssignmentRepository? assignmentRepository;
 
   List<TeacherStudentLink> pending = const [];
   List<TeacherStudentLink> approved = const [];
   List<GroupMembership> pendingGroupMemberships = const [];
   List<GroupMembership> approvedGroupMemberships = const [];
   final Map<String, ElixrGroup> groupNamesById = {};
+  Map<String, List<GroupAssignment>> assignmentsByGroupId = const {};
+  int _assignmentLoadGen = 0;
   bool loading = false;
   bool busy = false;
   String? errorMessage;
@@ -54,6 +60,10 @@ class TeacherAccessController extends ChangeNotifier {
   StreamSubscription<List<TeacherStudentLink>>? _linksSub;
   StreamSubscription<List<GroupMembership>>? _groupMembershipsSub;
   bool _disposed = false;
+
+  List<GroupAssignment> assignmentsFor(String groupId) {
+    return assignmentsByGroupId[groupId] ?? const [];
+  }
 
   Set<String> get classroomTeacherIds => {
     for (final membership in approvedGroupMemberships) membership.teacherId,
@@ -112,6 +122,7 @@ class TeacherAccessController extends ChangeNotifier {
               if (!firstGroups.isCompleted) firstGroups.complete();
               _safeNotifyListeners();
               unawaited(_refreshGroupNames(memberships));
+              unawaited(_refreshAssignments());
             },
             onError: (Object error) {
               errorMessage = 'Could not load group memberships.';
@@ -351,6 +362,33 @@ class TeacherAccessController extends ChangeNotifier {
     _safeNotifyListeners();
   }
 
+  Future<void> _refreshAssignments() async {
+    final repo = assignmentRepository;
+    if (repo == null) {
+      assignmentsByGroupId = const {};
+      return;
+    }
+    final gen = ++_assignmentLoadGen;
+    final groupIds = [
+      for (final membership in approvedGroupMemberships) membership.groupId,
+    ];
+    try {
+      final next = <String, List<GroupAssignment>>{};
+      for (final groupId in groupIds) {
+        if (_disposed || gen != _assignmentLoadGen) return;
+        next[groupId] = await repo.fetchAssignmentsForGroup(groupId: groupId);
+      }
+      if (_disposed || gen != _assignmentLoadGen) return;
+      assignmentsByGroupId = next;
+      _safeNotifyListeners();
+    } catch (error, stackTrace) {
+      if (!kDebugMode) return;
+      debugPrint(
+        '[TeacherAccess] assignment preview load failed: $error\n$stackTrace',
+      );
+    }
+  }
+
   void _safeNotifyListeners() {
     if (!_disposed) notifyListeners();
   }
@@ -358,6 +396,7 @@ class TeacherAccessController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _assignmentLoadGen++;
     unawaited(_linksSub?.cancel());
     unawaited(_groupMembershipsSub?.cancel());
     super.dispose();

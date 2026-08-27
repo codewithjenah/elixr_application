@@ -8,7 +8,9 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/auth/teacher_auth_messages.dart';
+import '../../../data/models/group_assignment.dart';
 import '../../../data/models/public_profile.dart';
+import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 
 class TeacherGroupsController extends ChangeNotifier {
@@ -18,6 +20,7 @@ class TeacherGroupsController extends ChangeNotifier {
     required this.teacherDisplayName,
     this.ensureTeacherAuthorization,
     this.publicProfileRepository,
+    this.assignmentRepository,
   });
 
   final GroupRepository repository;
@@ -25,6 +28,7 @@ class TeacherGroupsController extends ChangeNotifier {
   final String teacherDisplayName;
   final Future<bool> Function()? ensureTeacherAuthorization;
   final PublicProfileRepository? publicProfileRepository;
+  final ClassroomAssignmentRepository? assignmentRepository;
 
   List<ElixrGroup> groups = const [];
   ElixrGroup? selectedGroup;
@@ -41,8 +45,14 @@ class TeacherGroupsController extends ChangeNotifier {
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<List<GroupMembership>>? _pendingSub;
   StreamSubscription<List<GroupMembership>>? _approvedSub;
+  StreamSubscription<List<GroupAssignment>>? _assignmentsSub;
+  Map<String, List<GroupAssignment>> assignmentsByGroupId = const {};
   final Map<String, StreamSubscription<PublicProfile?>> _profileSubs = {};
   final Map<String, String> _profilePictureUrls = {};
+
+  List<GroupAssignment> assignmentsFor(String groupId) {
+    return assignmentsByGroupId[groupId] ?? const [];
+  }
 
   String? profilePictureUrlFor(String traineeId) {
     final url = _profilePictureUrls[traineeId]?.trim();
@@ -87,6 +97,7 @@ class TeacherGroupsController extends ChangeNotifier {
             },
           );
       await first.future;
+      _listenToAssignments();
     } catch (_) {
       errorMessage = 'Could not load groups.';
     } finally {
@@ -95,6 +106,41 @@ class TeacherGroupsController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  void _listenToAssignments() {
+    final repo = assignmentRepository;
+    unawaited(_assignmentsSub?.cancel());
+    _assignmentsSub = null;
+    if (repo == null) {
+      assignmentsByGroupId = const {};
+      return;
+    }
+    _assignmentsSub = repo
+        .watchTeacherAssignments(teacherId: teacherId)
+        .listen(
+          (value) {
+            if (_closed) return;
+            assignmentsByGroupId = _assignmentsByGroup(value);
+            notifyListeners();
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!kDebugMode) return;
+            debugPrint(
+              '[TeacherGroups] assignments stream failed: $error\n$stackTrace',
+            );
+          },
+        );
+  }
+
+  Map<String, List<GroupAssignment>> _assignmentsByGroup(
+    List<GroupAssignment> value,
+  ) {
+    final next = <String, List<GroupAssignment>>{};
+    for (final assignment in value) {
+      (next[assignment.groupId] ??= []).add(assignment);
+    }
+    return next;
   }
 
   Future<void> startForGroup(String groupId) async {
@@ -187,9 +233,7 @@ class TeacherGroupsController extends ChangeNotifier {
     return created;
   }
 
-  Future<void> renameSelectedGroup(String name) {
-    final group = selectedGroup;
-    if (group == null) return Future.value();
+  Future<void> renameGroup(ElixrGroup group, String name) {
     return _runTeacherAction(
       operation: 'renameGroup',
       failureMessage: 'Could not rename that group.',
@@ -204,18 +248,30 @@ class TeacherGroupsController extends ChangeNotifier {
     );
   }
 
-  Future<void> archiveSelectedGroup() {
+  Future<void> renameSelectedGroup(String name) {
     final group = selectedGroup;
     if (group == null) return Future.value();
+    return renameGroup(group, name);
+  }
+
+  Future<void> archiveGroup(ElixrGroup group) {
     return _runTeacherAction(
       operation: 'archiveGroup',
       failureMessage: 'Could not archive that group.',
       action: () async {
         await repository.archiveGroup(groupId: group.id, teacherId: teacherId);
         actionMessage = 'Archived ${group.name}.';
-        clearSelection();
+        if (selectedGroup?.id == group.id) {
+          clearSelection();
+        }
       },
     );
+  }
+
+  Future<void> archiveSelectedGroup() {
+    final group = selectedGroup;
+    if (group == null) return Future.value();
+    return archiveGroup(group);
   }
 
   Future<void> rotateInvite() {
@@ -438,6 +494,7 @@ class TeacherGroupsController extends ChangeNotifier {
     unawaited(_groupsSub?.cancel());
     unawaited(_pendingSub?.cancel());
     unawaited(_approvedSub?.cancel());
+    unawaited(_assignmentsSub?.cancel());
     _cancelMemberProfileWatches();
     super.dispose();
   }

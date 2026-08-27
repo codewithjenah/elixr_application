@@ -1,3 +1,4 @@
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/services/join_code_resolver.dart';
 import 'package:elixr_core/elixr_core.dart';
@@ -121,5 +122,52 @@ void main() {
     await controller.confirmJoin();
     await controller.cancelPending(controller.pending.single);
     expect(controller.pending, isEmpty);
+  });
+
+  test('approved classes load assignment previews', () async {
+    final assignments = InMemoryClassroomAssignmentRepository(
+      now: () => DateTime.utc(2026, 8, 16),
+    );
+    addTearDown(assignments.dispose);
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    final membership = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await groupRepository.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+    await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: group,
+      officialMovementName: 'Normal Grip',
+    );
+    final previewController = TeacherAccessController(
+      relationshipRepository: relationshipRepository,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      assignmentRepository: assignments,
+    );
+    addTearDown(previewController.dispose);
+
+    await previewController.start();
+    await pumpEventQueue();
+
+    expect(
+      previewController.assignmentsFor(group.id).single.displayTitle,
+      'Normal Grip',
+    );
   });
 }
