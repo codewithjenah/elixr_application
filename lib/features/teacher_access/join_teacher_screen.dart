@@ -1,5 +1,4 @@
 import 'package:elixr_core/repositories/group_repository.dart';
-import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +9,6 @@ import '../../core/router/app_route_paths.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
-import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
 import '../../services/join_link_service.dart';
@@ -45,14 +43,10 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
       assignmentRepository = null;
     }
     _controller = TeacherAccessController(
-      relationshipRepository: context.read<TeacherRelationshipRepository>(),
       groupRepository: context.read<GroupRepository>(),
       joinCodeResolver: context.read<JoinCodeResolver>(),
       traineeId: userId,
       traineeDisplayName: user.fullName,
-      privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
-      reconcileEvidenceAvailability: (id) =>
-          SessionEvidenceRepository().reconcilePublicEvidenceAvailability(id),
       onJoinCompleted: () {
         links.clearPendingCode();
       },

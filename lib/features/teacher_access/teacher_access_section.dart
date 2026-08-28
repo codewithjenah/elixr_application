@@ -1,6 +1,4 @@
-import 'package:elixr_core/models/teacher_student_link.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
-import 'package:elixr_core/repositories/teacher_relationship_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
@@ -15,7 +13,6 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_stat_card.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
-import '../../data/repositories/session_evidence_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
 import 'teacher_access_controller.dart';
@@ -28,13 +25,11 @@ const double _accessCompactBreakpoint = 760;
 class TeacherAccessSection extends StatefulWidget {
   const TeacherAccessSection({
     super.key,
-    this.repository,
     this.controller,
     this.isActive = false,
     this.onOpenClass,
   });
 
-  final TeacherRelationshipRepository? repository;
   final TeacherAccessController? controller;
   final bool isActive;
   final ValueChanged<String>? onOpenClass;
@@ -77,19 +72,13 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
     final user = context.read<AuthService>().currentUser;
     final userId = user?.id;
     if (userId == null) return;
-    final repository =
-        widget.repository ?? context.read<TeacherRelationshipRepository>();
     final groupRepository = context.read<GroupRepository>();
     final joinCodeResolver = context.read<JoinCodeResolver>();
     _owned = TeacherAccessController(
-      relationshipRepository: repository,
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
       traineeId: userId,
       traineeDisplayName: user!.fullName,
-      privateImageSavingEnabled: user.sessionEvidenceEnabled == true,
-      reconcileEvidenceAvailability: (traineeId) => SessionEvidenceRepository()
-          .reconcilePublicEvidenceAvailability(traineeId),
       assignmentRepository: _maybeRead<ClassroomAssignmentRepository>(context),
     );
     _owned!.addListener(_onControllerTick);
@@ -177,8 +166,6 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                   ],
-                  if (controller.legacyOnlyApproved.isNotEmpty)
-                    _LinkedTeachersCard(controller: controller),
                 ],
               ),
             );
@@ -321,11 +308,8 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
                     Text(
                       controller.joinStep == JoinTeacherStep.enterCode
                           ? 'Type the class code your teacher gave you.'
-                          : controller.resolvedKind == JoinCodeKind.groupInvite
-                          ? 'Send a join request? Your teacher needs to accept '
-                                'you before you can see this class.'
-                          : 'Send a request to this teacher? They need to accept '
-                                'you first.',
+                          : 'Send a join request? Your teacher needs to accept '
+                                'you before you can see this class.',
                       style: AppTheme.bodySecondary.copyWith(
                         color: context.elixTextSecondary,
                         height: 1.4,
@@ -425,15 +409,11 @@ class _JoinConfirmActions extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          controller.resolvedKind == JoinCodeKind.groupInvite
-              ? [
-                  if (controller.resolvedGroupName != null)
-                    controller.resolvedGroupName!,
-                  controller.resolvedGroupInvite?.teacherDisplayName ??
-                      'Teacher',
-                ].join(' · ')
-              : controller.resolvedTeacherInvite?.teacherDisplayName ??
-                    'Teacher',
+          [
+            if (controller.resolvedGroupName != null)
+              controller.resolvedGroupName!,
+            controller.resolvedGroupInvite?.teacherDisplayName ?? 'Teacher',
+          ].join(' · '),
           key: const Key('teacher_access_confirm_teacher'),
           style: AppTheme.headingMedium.copyWith(
             color: context.elixTextPrimary,
@@ -478,7 +458,6 @@ class _PendingJoinsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final groups = controller.pendingGroupMemberships;
-    final teachers = controller.pending;
     final rows = <Widget>[];
 
     void addRow(Widget row) {
@@ -505,22 +484,6 @@ class _PendingJoinsCard extends StatelessWidget {
         ),
       );
     }
-    for (final link in teachers) {
-      addRow(
-        _AccessListRow(
-          title: link.teacherDisplayName,
-          subtitle: 'Waiting for your teacher to accept you',
-          trailing: Button(
-            key: Key('teacher_access_cancel_${link.id}'),
-            onPressed: controller.busy
-                ? null
-                : () => controller.cancelPending(link),
-            child: const Text('Cancel'),
-          ),
-        ),
-      );
-    }
-
     return _AccessSectionPanel(
       title: 'Waiting to join',
       icon: FluentIcons.inbox,
@@ -627,93 +590,6 @@ class _ApprovedClassesGrid extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _LinkedTeachersCard extends StatelessWidget {
-  const _LinkedTeachersCard({required this.controller});
-
-  final TeacherAccessController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final linked = controller.legacyOnlyApproved;
-    return _AccessSectionPanel(
-      title: 'Teachers not in a class',
-      icon: FluentIcons.contact,
-      count: linked.length,
-      child: Column(
-        children: [
-          for (final link in linked) ...[
-            _AccessListRow(
-              title: link.teacherDisplayName,
-              subtitle:
-                  'Connected to this teacher\n'
-                  'Practice sharing: '
-                  '${link.hasEffectiveProgressAccess ? 'On' : 'Off'}\n'
-                  'Saved pictures: '
-                  '${link.hasEffectiveEvidenceAccess ? 'On' : 'Off'}',
-              trailing: Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                alignment: WrapAlignment.end,
-                children: [
-                  if (link.hasEffectiveProgressAccess)
-                    Button(
-                      key: Key('teacher_access_stop_sharing_${link.id}'),
-                      onPressed: controller.busy
-                          ? null
-                          : () =>
-                                _confirmStopSharing(context, controller, link),
-                      child: const Text('Stop sharing'),
-                    )
-                  else
-                    Button(
-                      key: Key('teacher_access_share_${link.id}'),
-                      onPressed: controller.busy
-                          ? null
-                          : () => _confirmShareProgress(
-                              context,
-                              controller,
-                              link,
-                            ),
-                      child: const Text('Share progress'),
-                    ),
-                  if (link.hasEffectiveProgressAccess &&
-                      controller.privateImageSavingEnabled)
-                    Button(
-                      key: Key('teacher_access_evidence_${link.id}'),
-                      onPressed: controller.busy
-                          ? null
-                          : link.hasEffectiveEvidenceAccess
-                          ? () => controller.stopSharingEvidence(link)
-                          : () => _confirmShareEvidence(
-                              context,
-                              controller,
-                              link,
-                            ),
-                      child: Text(
-                        link.hasEffectiveEvidenceAccess
-                            ? 'Stop sharing images'
-                            : 'Share saved images',
-                      ),
-                    ),
-                  Button(
-                    key: Key('teacher_access_revoke_${link.id}'),
-                    onPressed: controller.busy
-                        ? null
-                        : () =>
-                              _confirmRevokeTeacher(context, controller, link),
-                    child: const Text('Remove teacher'),
-                  ),
-                ],
-              ),
-            ),
-            if (link != linked.last) const SizedBox(height: AppSpacing.md),
-          ],
-        ],
-      ),
     );
   }
 }
@@ -830,118 +706,6 @@ class _AccessListRow extends StatelessWidget {
       ),
     );
   }
-}
-
-Future<void> _confirmShareProgress(
-  BuildContext context,
-  TeacherAccessController controller,
-  TeacherStudentLink link,
-) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Share practice with this teacher?'),
-      content: const Text(
-        'This teacher can see your practice time, completed moves, and scores. '
-        'Passwords, camera video, and private settings stay private.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Share progress'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
-  );
-  if (accepted == true) await controller.shareProgress(link);
-}
-
-Future<void> _confirmStopSharing(
-  BuildContext context,
-  TeacherAccessController controller,
-  TeacherStudentLink link,
-) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Stop sharing practice?'),
-      content: const Text(
-        'This teacher will stop seeing your practice progress. You stay '
-        'connected and can share again later.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Stop sharing'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
-  );
-  if (accepted == true) await controller.stopSharingProgress(link);
-}
-
-Future<void> _confirmShareEvidence(
-  BuildContext context,
-  TeacherAccessController controller,
-  TeacherStudentLink link,
-) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Share saved pictures?'),
-      content: const Text(
-        'This teacher can see your saved move pictures until you turn this off. '
-        'Practice sharing must stay on. Video is not shared.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Share saved images'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
-  );
-  if (accepted == true) await controller.shareEvidence(link);
-}
-
-Future<void> _confirmRevokeTeacher(
-  BuildContext context,
-  TeacherAccessController controller,
-  TeacherStudentLink link,
-) async {
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
-      title: const Text('Remove this teacher?'),
-      content: const Text(
-        'This ends the connection with this teacher. You can join again later '
-        'if you want.',
-      ),
-      actions: [
-        Button(
-          child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, false),
-        ),
-        FilledButton(
-          child: const Text('Remove teacher'),
-          onPressed: () => Navigator.pop(context, true),
-        ),
-      ],
-    ),
-  );
-  if (accepted == true) await controller.revokeTeacher(link);
 }
 
 String _formatTime(DateTime? value) {

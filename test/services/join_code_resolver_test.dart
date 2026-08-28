@@ -16,10 +16,7 @@ void main() {
       generateNormalizedCode: () => '7KPMXR4DQ2WT',
       now: () => DateTime.utc(2026, 8, 19),
     );
-    resolver = JoinCodeResolver(
-      groupRepository: groupRepository,
-      relationshipRepository: relationshipRepository,
-    );
+    resolver = JoinCodeResolver(groupRepository: groupRepository);
   });
 
   tearDown(() {
@@ -27,11 +24,7 @@ void main() {
     groupRepository.dispose();
   });
 
-  test('prefers group invite over legacy roster invite', () async {
-    await relationshipRepository.createOrRotateRosterInvite(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-    );
+  test('resolves a classroom invite', () async {
     final group = await groupRepository.createGroup(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
@@ -41,16 +34,24 @@ void main() {
       groupId: group.id,
     );
     final resolved = await resolver.resolve(invite!.normalizedCode);
-    expect(resolved.kind, JoinCodeKind.groupInvite);
+    expect(resolved.groupId, group.id);
   });
 
-  test('falls back to legacy roster invite', () async {
+  test('does not accept a legacy Teacher roster invite', () async {
     await relationshipRepository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
     );
-    final resolved = await resolver.resolve('RSTU23456ABC');
-    expect(resolved.kind, JoinCodeKind.teacherRosterInvite);
+    await expectLater(
+      resolver.resolve('RSTU23456ABC'),
+      throwsA(
+        isA<GroupException>().having(
+          (error) => error.code,
+          'code',
+          GroupError.inviteNotFound,
+        ),
+      ),
+    );
   });
 
   test('invalid code is rejected', () async {

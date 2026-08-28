@@ -22,16 +22,12 @@ void main() {
           groupCodes[groupCodeIndex++ % groupCodes.length],
       now: () => DateTime.utc(2026, 8, 16),
     );
-    joinCodeResolver = JoinCodeResolver(
-      groupRepository: groupRepository,
-      relationshipRepository: relationshipRepository,
-    );
+    joinCodeResolver = JoinCodeResolver(groupRepository: groupRepository);
     await relationshipRepository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
     );
     controller = TeacherAccessController(
-      relationshipRepository: relationshipRepository,
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
       traineeId: 'trainee-1',
@@ -45,20 +41,14 @@ void main() {
     groupRepository.dispose();
   });
 
-  test('resolve and explicit confirmation create a V2 join request', () async {
+  test('legacy Teacher roster code is not accepted as a class code', () async {
     await controller.start();
     controller.setCodeInput('7kpm-xr4d-q2wt');
     await controller.resolveCode();
-    expect(
-      controller.resolvedTeacherInvite?.teacherDisplayName,
-      'Grace Hopper',
-    );
-    expect(controller.pending, isEmpty);
-
-    expect(await controller.confirmJoin(), isTrue);
-    expect(controller.pending.single.requestVersion, 2);
-    expect(controller.pending.single.teacherDisplayName, 'Grace Hopper');
-    expect(controller.pendingJoinCount, 1);
+    expect(controller.joinStep, JoinTeacherStep.enterCode);
+    expect(controller.resolvedGroupInvite, isNull);
+    expect(controller.joinError, 'No class is using that code.');
+    expect(controller.pendingJoinCount, 0);
   });
 
   test('group invite resolves and creates pending membership', () async {
@@ -73,57 +63,11 @@ void main() {
     await controller.start();
     controller.setCodeInput(invite!.normalizedCode);
     await controller.resolveCode();
-    expect(controller.resolvedKind, JoinCodeKind.groupInvite);
+    expect(controller.resolvedGroupInvite?.groupId, group.id);
     expect(await controller.confirmJoin(), isTrue);
     expect(controller.pendingGroupMemberships.single.groupId, group.id);
     expect(relationshipRepository.links, isEmpty);
     expect(controller.pendingJoinCount, 1);
-  });
-
-  test(
-    'classroom-backed Teachers are omitted from legacy-only links',
-    () async {
-      final group = await groupRepository.createGroup(
-        teacherId: 'teacher-1',
-        teacherDisplayName: 'Grace Hopper',
-        name: 'BSHM 4A',
-      );
-      final invite = await groupRepository.getActiveGroupInvite(
-        groupId: group.id,
-      );
-      final membership = await groupRepository.requestGroupJoin(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-        code: invite!.normalizedCode,
-      );
-      await groupRepository.approveMembership(
-        membershipId: membership.id,
-        teacherId: 'teacher-1',
-      );
-      final legacyLink = await relationshipRepository.requestTeacherJoin(
-        traineeId: 'trainee-1',
-        traineeDisplayName: 'Ada Lovelace',
-        code: '7KPMXR4DQ2WT',
-      );
-      await relationshipRepository.approveJoin(
-        linkId: legacyLink.id,
-        teacherId: 'teacher-1',
-      );
-
-      await controller.start();
-
-      expect(controller.classroomTeacherIds, contains('teacher-1'));
-      expect(controller.legacyOnlyApproved, isEmpty);
-    },
-  );
-
-  test('Trainee can cancel a pending request', () async {
-    await controller.start();
-    controller.setCodeInput('7KPMXR4DQ2WT');
-    await controller.resolveCode();
-    await controller.confirmJoin();
-    await controller.cancelPending(controller.pending.single);
-    expect(controller.pending, isEmpty);
   });
 
   test('approved classes load assignment previews', () async {
@@ -155,7 +99,6 @@ void main() {
       officialMovementName: 'Normal Grip',
     );
     final previewController = TeacherAccessController(
-      relationshipRepository: relationshipRepository,
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
       traineeId: 'trainee-1',

@@ -78,10 +78,7 @@ class _ElixrAppState extends State<ElixrApp> {
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
     _groupRepository = FirebaseGroupRepository();
     _teacherEvidenceRepository = FirebaseTeacherEvidenceRepository();
-    _joinCodeResolver = JoinCodeResolver(
-      groupRepository: _groupRepository,
-      relationshipRepository: _teacherRelationshipRepository,
-    );
+    _joinCodeResolver = JoinCodeResolver(groupRepository: _groupRepository);
     _joinLinkService = JoinLinkService();
     _chatRepository = FirebaseChatRepository();
     _authService = AuthService(

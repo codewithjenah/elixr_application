@@ -63,21 +63,16 @@ void main() {
     assignments = InMemoryClassroomAssignmentRepository(
       now: () => DateTime.utc(2026, 8, 16),
     );
-    joinCodeResolver = JoinCodeResolver(
-      groupRepository: groupRepository,
-      relationshipRepository: relationshipRepository,
-    );
+    joinCodeResolver = JoinCodeResolver(groupRepository: groupRepository);
     await relationshipRepository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
     );
     controller = TeacherAccessController(
-      relationshipRepository: relationshipRepository,
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
       traineeId: 'trainee-1',
       traineeDisplayName: 'Ada Lovelace',
-      privateImageSavingEnabled: true,
       assignmentRepository: assignments,
     );
   });
@@ -89,9 +84,17 @@ void main() {
     assignments.dispose();
   });
 
-  testWidgets('resolves Teacher and requires explicit join confirmation', (
+  testWidgets('resolves class and requires explicit join confirmation', (
     tester,
   ) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
     await pumpAccess(
       tester,
       controller,
@@ -100,26 +103,37 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('teacher_access_roster_code')),
-      '7KPM-XR4D-Q2WT',
+      invite!.displayCode,
     );
     await tester.tap(find.byKey(const Key('teacher_access_resolve_code')));
-    await tester.pump();
-    expect(find.text('Grace Hopper'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('BSHM 4A · Grace Hopper'), findsOneWidget);
     expect(relationshipRepository.links, isEmpty);
 
     await tester.tap(find.byKey(const Key('teacher_access_confirm_join')));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(controller.pending.single.requestVersion, 2);
-    expect(find.text('Waiting for your teacher to accept you'), findsOneWidget);
+    expect(controller.pendingGroupMemberships.single.requestVersion, 1);
+    expect(
+      find.textContaining('Waiting for Grace Hopper to accept you'),
+      findsOneWidget,
+    );
     expect(find.text('Waiting for a teacher'), findsNothing);
     expect(find.text('Waiting to join a class'), findsNothing);
   });
 
-  testWidgets('pending request is Trainee-cancellable', (tester) async {
-    final link = await relationshipRepository.requestTeacherJoin(
+  testWidgets('pending class request is Trainee-cancellable', (tester) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    final membership = await groupRepository.requestGroupJoin(
       traineeId: 'trainee-1',
       traineeDisplayName: 'Ada Lovelace',
-      code: '7KPMXR4DQ2WT',
+      code: invite!.normalizedCode,
     );
     await pumpAccess(
       tester,
@@ -127,7 +141,7 @@ void main() {
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
     );
-    await controller.cancelPending(link);
+    await controller.cancelPendingGroup(membership);
     await tester.pump();
     expect(
       find.byKey(const Key('teacher_access_pending_empty')),
@@ -135,7 +149,9 @@ void main() {
     );
   });
 
-  testWidgets('class and teacher waits share one pending list', (tester) async {
+  testWidgets('legacy Teacher waits are excluded from class requests', (
+    tester,
+  ) async {
     final group = await groupRepository.createGroup(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
@@ -171,14 +187,11 @@ void main() {
       find.textContaining('Waiting for Grace Hopper to accept you'),
       findsOneWidget,
     );
-    expect(find.text('Waiting for your teacher to accept you'), findsOneWidget);
-    expect(find.text('2'), findsWidgets);
-    expect(controller.pendingJoinCount, 2);
+    expect(find.text('Waiting for your teacher to accept you'), findsNothing);
+    expect(controller.pendingJoinCount, 1);
   });
 
-  testWidgets('evidence sharing appears only after progress access', (
-    tester,
-  ) async {
+  testWidgets('approved legacy Teacher link is not rendered', (tester) async {
     final link = await relationshipRepository.requestTeacherJoin(
       traineeId: 'trainee-1',
       traineeDisplayName: 'Ada Lovelace',
@@ -198,12 +211,9 @@ void main() {
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
     );
-    expect(
-      find.byKey(Key('teacher_access_evidence_${link.id}')),
-      findsOneWidget,
-    );
-    expect(find.text('Share saved images'), findsOneWidget);
-    expect(find.text('Teachers not in a class'), findsOneWidget);
+    expect(find.byKey(Key('teacher_access_evidence_${link.id}')), findsNothing);
+    expect(find.text('Share saved images'), findsNothing);
+    expect(find.text('Teachers not in a class'), findsNothing);
   });
 
   testWidgets(
