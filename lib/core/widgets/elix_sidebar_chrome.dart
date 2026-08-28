@@ -13,16 +13,16 @@ const _purple = AppColors.accent;
 
 /// Shared Trainee/Teacher sidebar geometry. Keep both shells aligned.
 abstract final class ElixSidebarMetrics {
-  static const expandedWidth = 256.0;
-  static const collapsedWidth = 80.0;
+  static const expandedWidth = 272.0;
+  static const collapsedWidth = 84.0;
   static const navOuterPadding = AppSpacing.sm + 4; // 12
   static const navInnerPadding = AppSpacing.sm; // 8
   static const navIndicatorWidth = 3.0;
   static const navIndicatorGap = 5.0;
-  static const navIconSlot = 28.0;
+  static const navIconSlot = 32.0;
   static const navIconSize = 18.0;
   static const navIconLabelGap = 10.0;
-  static const navItemHeight = 36.0;
+  static const navItemHeight = 40.0;
   static const navGroupLabelLeft =
       navOuterPadding + navInnerPadding + navIndicatorWidth + navIndicatorGap;
   static const layoutCollapseThreshold = 168.0;
@@ -32,44 +32,48 @@ BoxDecoration elixSidebarSurfaceDecoration(BuildContext context) {
   final isDark = context.isDarkTheme;
   final highContrast = context.isHighContrast;
   final sidebarBase = isDark
-      ? const Color(0xFF120D1C)
+      ? const Color(0xFF100B18)
       : context.elixCardSurface;
   return BoxDecoration(
     color: highContrast ? context.elixBackground : null,
     gradient: highContrast
         ? null
         : LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [
               Color.alphaBlend(
-                AppColors.primary.withValues(alpha: isDark ? 0.10 : 0.045),
+                AppColors.primary.withValues(alpha: isDark ? 0.14 : 0.055),
+                sidebarBase,
+              ),
+              Color.alphaBlend(
+                AppColors.accent.withValues(alpha: isDark ? 0.055 : 0.025),
                 sidebarBase,
               ),
               sidebarBase,
               Color.alphaBlend(
-                AppColors.accent.withValues(alpha: isDark ? 0.09 : 0.035),
+                AppColors.primary.withValues(alpha: isDark ? 0.045 : 0.018),
                 sidebarBase,
               ),
             ],
-            stops: const [0, 0.48, 1],
+            stops: const [0, 0.28, 0.66, 1],
           ),
     border: Border(
       right: BorderSide(
         color: highContrast
             ? context.elixBorder
             : (isDark
-                  ? _purple.withValues(alpha: 0.24)
-                  : context.elixBorder.withValues(alpha: 0.9)),
+                  ? _purple.withValues(alpha: 0.30)
+                  : _purple.withValues(alpha: 0.16)),
       ),
     ),
     boxShadow: highContrast
         ? const []
         : [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.20 : 0.05),
-              blurRadius: 16,
-              offset: const Offset(4, 0),
+              color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.08),
+              blurRadius: 28,
+              offset: const Offset(8, 0),
             ),
           ],
   );
@@ -82,43 +86,13 @@ class ElixBrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    final radius = size * 0.3;
-    final stroke = (size * 0.05).clamp(1.4, 2.2);
-    final innerSize = size - stroke * 2;
-
-    return Container(
+    // The supplied mark already includes its own lighting and transparent
+    // silhouette. Keep the sidebar treatment transparent, like the splash,
+    // so a surrounding tile does not alter the artwork.
+    return SizedBox(
       width: size,
       height: size,
-      padding: EdgeInsets.all(stroke),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        gradient: highContrast
-            ? null
-            : const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [_pink, AppColors.primarySoft, _purple],
-              ),
-        border: highContrast
-            ? Border.all(color: context.elixBorder, width: stroke)
-            : null,
-        boxShadow: highContrast
-            ? const []
-            : [
-                BoxShadow(
-                  color: _pink.withValues(alpha: 0.42),
-                  blurRadius: 16,
-                  spreadRadius: 0.4,
-                ),
-                BoxShadow(
-                  color: _purple.withValues(alpha: 0.22),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-      ),
-      child: ElixAppLogo(size: innerSize, borderRadius: innerSize * 0.28),
+      child: ElixAppLogo(size: size, borderRadius: size * 0.18),
     );
   }
 }
@@ -132,9 +106,9 @@ class ElixBrandWordmark extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final titleStyle = AppTheme.brandTitle(
-      fontSize: 20,
+      fontSize: 21,
       color: Colors.white,
-    ).copyWith(letterSpacing: 2.6, height: 1.0);
+    ).copyWith(letterSpacing: 3.0, height: 1.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -182,9 +156,9 @@ class ElixBrandWordmark extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 6),
         Container(
-          width: 46,
+          width: 52,
           height: 2,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(2),
@@ -199,12 +173,12 @@ class ElixBrandWordmark extends StatelessWidget {
                   ],
           ),
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 6),
         Text(
           subtitle,
           style: AppTheme.eyebrow(
             color: Color.lerp(context.elixTextSecondary, _pink, 0.22),
-          ).copyWith(fontSize: 10.5, letterSpacing: 1.7, height: 1.1),
+          ).copyWith(fontSize: 10, letterSpacing: 1.8, height: 1.1),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -267,8 +241,8 @@ class ElixSidebarCollapseButton extends StatefulWidget {
 class _ElixSidebarCollapseButtonState extends State<ElixSidebarCollapseButton> {
   bool _hovered = false;
 
-  static const _buttonSize = 40.0;
-  static const _iconSize = 20.0;
+  static const _buttonSize = 38.0;
+  static const _iconSize = 18.0;
 
   @override
   Widget build(BuildContext context) {
@@ -289,14 +263,22 @@ class _ElixSidebarCollapseButtonState extends State<ElixSidebarCollapseButton> {
               height: _buttonSize,
               decoration: BoxDecoration(
                 color: _hovered
-                    ? context.elixCardSurface.withValues(alpha: 0.9)
-                    : context.elixCardSurface.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(10),
+                    ? _pink.withValues(alpha: 0.12)
+                    : context.elixCardSurface.withValues(alpha: 0.48),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: _hovered
-                      ? _pink.withValues(alpha: 0.55)
-                      : context.elixBorder.withValues(alpha: 0.7),
+                      ? _pink.withValues(alpha: 0.48)
+                      : context.elixBorder.withValues(alpha: 0.52),
                 ),
+                boxShadow: _hovered && !context.isHighContrast
+                    ? [
+                        BoxShadow(
+                          color: _pink.withValues(alpha: 0.12),
+                          blurRadius: 14,
+                        ),
+                      ]
+                    : const [],
               ),
               child: Center(
                 child: AnimatedSwitcher(
@@ -343,8 +325,8 @@ class ElixSidebarHeader extends StatelessWidget {
         ),
         child: Column(
           children: [
-            const Center(child: ElixBrandMark(size: 44)),
-            const SizedBox(height: AppSpacing.md),
+            const Center(child: ElixBrandMark(size: 62)),
+            const SizedBox(height: AppSpacing.sm),
             Center(
               child: ElixSidebarCollapseButton(
                 isCollapsed: isCollapsed,
@@ -359,7 +341,7 @@ class ElixSidebarHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
-        AppSpacing.md + 2,
+        AppSpacing.md + 4,
         AppSpacing.sm,
         AppSpacing.sm,
       ),
@@ -372,13 +354,13 @@ class ElixSidebarHeader extends StatelessWidget {
               top: -14,
               child: IgnorePointer(
                 child: Container(
-                  width: 78,
-                  height: 78,
+                  width: 96,
+                  height: 96,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        _pink.withValues(alpha: 0.18),
+                        _pink.withValues(alpha: 0.14),
                         _pink.withValues(alpha: 0),
                       ],
                     ),
@@ -388,8 +370,8 @@ class ElixSidebarHeader extends StatelessWidget {
             ),
           Row(
             children: [
-              const ElixBrandMark(size: 40),
-              const SizedBox(width: 10),
+              const ElixBrandMark(size: 58),
+              const SizedBox(width: 8),
               Expanded(child: ElixBrandWordmark(subtitle: subtitle)),
               const SizedBox(width: AppSpacing.xs),
               ElixSidebarCollapseButton(
@@ -429,7 +411,9 @@ class ElixSidebarGroupLabel extends StatelessWidget {
       ),
       child: Text(
         title.toUpperCase(),
-        style: AppTheme.eyebrow(color: context.elixTextSecondary),
+        style: AppTheme.eyebrow(
+          color: context.elixTextSecondary.withValues(alpha: 0.78),
+        ).copyWith(fontSize: 10.5, letterSpacing: 1.65),
       ),
     );
   }
@@ -466,6 +450,7 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
   Widget build(BuildContext context) {
     final soon = widget.comingSoon;
     final highlight = (widget.isActive || _hovered) && !soon;
+    final highContrast = context.isHighContrast;
 
     final iconColor = widget.isActive
         ? _pink
@@ -498,12 +483,43 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
                     : ElixSidebarMetrics.navInnerPadding,
               ),
               decoration: BoxDecoration(
-                color: widget.isActive
-                    ? _pink.withValues(alpha: 0.1)
-                    : (_hovered && !soon)
-                    ? context.elixBorder.withValues(alpha: 0.15)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
+                color: highContrast
+                    ? (widget.isActive
+                          ? context.elixTextPrimary.withValues(alpha: 0.12)
+                          : Colors.transparent)
+                    : (widget.isActive ? null : Colors.transparent),
+                gradient: widget.isActive && !highContrast
+                    ? LinearGradient(
+                        colors: [
+                          _pink.withValues(alpha: 0.17),
+                          _purple.withValues(alpha: 0.08),
+                        ],
+                      )
+                    : (_hovered && !soon && !highContrast)
+                    ? LinearGradient(
+                        colors: [
+                          context.elixBorder.withValues(alpha: 0.20),
+                          context.elixBorder.withValues(alpha: 0.08),
+                        ],
+                      )
+                    : null,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color: widget.isActive
+                      ? (highContrast
+                            ? context.elixTextPrimary
+                            : _pink.withValues(alpha: 0.24))
+                      : Colors.transparent,
+                ),
+                boxShadow: widget.isActive && !highContrast
+                    ? [
+                        BoxShadow(
+                          color: _pink.withValues(alpha: 0.09),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : const [],
               ),
               child: widget.isCollapsed
                   ? Stack(
@@ -526,11 +542,7 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
                           child: Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              Icon(
-                                widget.icon,
-                                size: ElixSidebarMetrics.navIconSize,
-                                color: iconColor,
-                              ),
+                              _buildNavIcon(context, iconColor),
                               if (widget.unreadCount > 0)
                                 Positioned(
                                   top: -8,
@@ -558,8 +570,27 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
                                     width: ElixSidebarMetrics.navIndicatorWidth,
                                     height: 24,
                                     decoration: BoxDecoration(
-                                      color: _pink,
-                                      borderRadius: BorderRadius.circular(3),
+                                    gradient: highContrast
+                                        ? null
+                                        : const LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [_pink, _purple],
+                                          ),
+                                    color: highContrast
+                                        ? context.elixTextPrimary
+                                        : null,
+                                    borderRadius: BorderRadius.circular(3),
+                                    boxShadow: highContrast
+                                        ? const []
+                                        : [
+                                            BoxShadow(
+                                              color: _pink.withValues(
+                                                alpha: 0.48,
+                                              ),
+                                              blurRadius: 8,
+                                            ),
+                                          ],
                                     ),
                                   )
                                 : const SizedBox.shrink(),
@@ -569,11 +600,7 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
                           width: ElixSidebarMetrics.navIconSlot,
                           height: ElixSidebarMetrics.navIconSlot,
                           child: Center(
-                            child: Icon(
-                              widget.icon,
-                              size: ElixSidebarMetrics.navIconSize,
-                              color: iconColor,
-                            ),
+                            child: _buildNavIcon(context, iconColor),
                           ),
                         ),
                         const SizedBox(
@@ -637,5 +664,32 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
       );
     }
     return tile;
+  }
+
+  Widget _buildNavIcon(BuildContext context, Color iconColor) {
+    final highContrast = context.isHighContrast;
+    return AnimatedContainer(
+      duration: ElixMotion.duration(context, ElixMotion.standard),
+      width: ElixSidebarMetrics.navIconSlot,
+      height: ElixSidebarMetrics.navIconSlot,
+      decoration: BoxDecoration(
+        color: widget.isActive
+            ? (highContrast
+                  ? Colors.transparent
+                  : _pink.withValues(alpha: 0.11))
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+        border: widget.isActive && highContrast
+            ? Border.all(color: context.elixTextPrimary)
+            : null,
+      ),
+      child: Center(
+        child: Icon(
+          widget.icon,
+          size: ElixSidebarMetrics.navIconSize,
+          color: iconColor,
+        ),
+      ),
+    );
   }
 }

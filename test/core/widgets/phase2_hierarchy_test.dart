@@ -4,6 +4,7 @@ import 'package:elixr_application/core/shell/teacher_shell.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
+import 'package:elixr_application/core/widgets/elix_app_logo.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/elix_sidebar_chrome.dart';
 import 'package:elixr_application/features/history/widgets/history_header.dart';
@@ -274,6 +275,22 @@ void main() {
     final subtitle = tester.widget<Text>(find.text('Flair Training'));
     expect(subtitle.style!.fontFamily, ElixTypography.fontFamily);
     expect(subtitle.style!.fontFamily, isNot(ElixTypography.wordmarkFamily));
+  });
+
+  testWidgets('sidebar brand mark preserves the transparent logo artwork', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host(const ElixBrandMark(size: 58)));
+
+    expect(find.byType(ElixAppLogo), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ElixBrandMark),
+        matching: find.byType(Container),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('onboarding uses editorial hierarchy and reduced-motion dots', (
