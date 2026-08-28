@@ -12,11 +12,16 @@ void main() {
       expect(labels.contains('Assigned Movements'), isFalse);
       expect(labels.contains('Movements'), isTrue);
 
-      final teacherAccessIndex = labels.indexOf('Teacher Access');
-      expect(teacherAccessIndex, greaterThan(0));
-      expect(labels[teacherAccessIndex - 1], 'Dashboard');
-      final teacherAccess = elixSidebarItems[teacherAccessIndex];
-      expect(teacherAccess.route, '/teacher-access');
+      final classroomIndex = labels.indexOf('Classroom');
+      expect(classroomIndex, greaterThan(0));
+      expect(labels[classroomIndex - 1], 'Dashboard');
+      final classroom = elixSidebarItems[classroomIndex];
+      expect(classroom.route, '/teacher-access');
+
+      final playground = elixSidebarItems.singleWhere(
+        (item) => item.label == 'Playground',
+      );
+      expect(playground.route, '/live-practice');
 
       final sessions = elixSidebarItems.singleWhere(
         (item) => item.label == 'Sessions',

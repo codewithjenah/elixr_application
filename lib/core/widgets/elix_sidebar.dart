@@ -47,7 +47,7 @@ const elixSidebarItems = [
     group: SidebarGroup.overview,
   ),
   SidebarItem(
-    label: 'Teacher Access',
+    label: 'Classroom',
     icon: FluentIcons.people,
     route: '/teacher-access',
     group: SidebarGroup.overview,
@@ -71,7 +71,7 @@ const elixSidebarItems = [
     group: SidebarGroup.training,
   ),
   SidebarItem(
-    label: 'Live Practice',
+    label: 'Playground',
     icon: FluentIcons.video,
     route: '/live-practice',
     group: SidebarGroup.training,

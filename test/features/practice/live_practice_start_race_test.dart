@@ -311,6 +311,10 @@ void main() {
   ) async {
     await pumpScreen(tester);
 
+    expect(find.text('Playground'), findsOneWidget);
+    expect(find.text('Start Playground'), findsOneWidget);
+    expect(find.text('Free Practice'), findsNothing);
+
     screenKey.currentState!.debugStartSession();
     screenKey.currentState!.debugStartSession();
     await tester.pump();

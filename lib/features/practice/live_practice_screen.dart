@@ -645,7 +645,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
               final assignment = widget.teacherCreatedAssignment;
               final header = TrainingSessionHeader(
                 onBack: _leave,
-                title: assignment?.title ?? 'Free Practice',
+                title: assignment?.title ?? 'Playground',
                 statusPill: assignment == null
                     ? 'NO SCORING'
                     : 'TEACHER REVIEWED',
@@ -742,7 +742,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 actionArea: TrainingActionArea(
                   kind: actionKind,
                   startLabel: assignment == null
-                      ? 'Start Free Practice'
+                      ? 'Start Playground'
                       : 'Start assignment practice',
                   onPressed: switch (actionKind) {
                     TrainingActionKind.finish => _stopSession,
