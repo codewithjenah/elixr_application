@@ -4,9 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_card.dart';
+import '../../core/widgets/elix_dialog.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../services/auth_service.dart';
 import 'messages_controller.dart';
@@ -186,7 +188,10 @@ class _PeoplePane extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Messages', style: AppTheme.headingLarge),
+                const ElixEditorialHeader(
+                  heading: 'Messages',
+                  variant: ElixEditorialHeaderVariant.compact,
+                ),
                 const SizedBox(height: AppSpacing.sm),
                 TextBox(
                   controller: searchController,
@@ -311,25 +316,30 @@ class _InboxList extends StatelessWidget {
     ChatConversation conversation,
     ChatUser user,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Delete conversation?'),
-        content: Text(
-          'This removes your conversation with ${user.displayName} from your '
-          'inbox. It does not delete their copy, and this cannot be undone.',
+    final confirmed = await ElixDialog.show<bool>(
+      context,
+      title: 'Delete conversation?',
+      icon: FluentIcons.delete,
+      iconColor: context.elixColors.error,
+      headerAccentColor: context.elixColors.error,
+      content: Text(
+        'This removes your conversation with ${user.displayName} from your '
+        'inbox. It does not delete their copy, and this cannot be undone.',
+        style: AppTheme.body.copyWith(
+          color: context.elixTextSecondary,
+          height: 1.45,
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
       ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Delete'),
+        ),
+      ],
     );
     if (confirmed == true) await controller.clearConversation(conversation);
   }
@@ -383,9 +393,9 @@ class _PersonTileState extends State<_PersonTile> {
           const MenuFlyoutSeparator(),
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.delete),
-            text: const Text(
+            text: Text(
               'Delete conversation',
-              style: TextStyle(color: AppColors.error),
+              style: TextStyle(color: context.elixColors.error),
             ),
             onPressed: widget.onDelete,
           ),
@@ -396,116 +406,117 @@ class _PersonTileState extends State<_PersonTile> {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-      child: HoverButton(
-        onPressed: widget.onPressed,
-        builder: (context, states) => Container(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? AppColors.primary.withValues(alpha: 0.12)
-                : states.isHovered
-                ? context.elixBorder.withValues(alpha: 0.25)
-                : null,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Row(
-            children: [
-              _ChatAvatar(user: widget.user, size: 38),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            widget.user.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.body.copyWith(
-                              fontWeight: widget.unread > 0
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                            ),
+      child: ElixCard(
+        onTap: widget.onPressed,
+        selected: widget.selected,
+        variant: ElixCardVariant.interactive,
+        semanticLabel: '${widget.user.displayName}. ${widget.subtitle}',
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Row(
+          children: [
+            _ChatAvatar(user: widget.user, size: 38),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.user.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.body.copyWith(
+                            color: context.elixTextPrimary,
+                            fontWeight: widget.unread > 0
+                                ? FontWeight.w700
+                                : FontWeight.w600,
                           ),
                         ),
-                        if (widget.timestamp != null)
-                          Text(
-                            _compactTime(widget.timestamp!),
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            widget.subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                              fontWeight: widget.unread > 0
-                                  ? FontWeight.w600
-                                  : null,
-                            ),
-                          ),
-                        ),
-                        if (widget.unread > 0) ...[
-                          const SizedBox(width: AppSpacing.xs),
-                          Container(
-                            constraints: const BoxConstraints(minWidth: 20),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: const BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(10),
-                              ),
-                            ),
-                            child: Text(
-                              widget.unread > 99 ? '99+' : '${widget.unread}',
-                              textAlign: TextAlign.center,
-                              style: AppTheme.caption.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (widget.onDelete != null) ...[
-                const SizedBox(width: 2),
-                AnimatedOpacity(
-                  duration: const Duration(milliseconds: 120),
-                  opacity: states.isHovered || widget.selected ? 1 : 0,
-                  child: IgnorePointer(
-                    ignoring: !states.isHovered && !widget.selected,
-                    child: FlyoutTarget(
-                      controller: _menuController,
-                      child: IconButton(
-                        key: ValueKey('conversation-menu-${widget.user.id}'),
-                        icon: const Icon(FluentIcons.more_vertical, size: 16),
-                        onPressed: _showMenu,
                       ),
+                      if (widget.timestamp != null)
+                        Text(
+                          _compactTime(widget.timestamp!),
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixTextSecondary,
+                            fontWeight: widget.unread > 0
+                                ? FontWeight.w600
+                                : null,
+                          ),
+                        ),
+                      ),
+                      if (widget.unread > 0) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        Container(
+                          constraints: const BoxConstraints(minWidth: 20),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: context.elixColors.brandPrimary,
+                            borderRadius: const BorderRadius.all(
+                              Radius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            widget.unread > 99 ? '99+' : '${widget.unread}',
+                            textAlign: TextAlign.center,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixColors.onBrand,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (widget.onDelete != null) ...[
+              const SizedBox(width: 2),
+              Semantics(
+                button: true,
+                label: 'Conversation actions',
+                child: Tooltip(
+                  message: 'Conversation actions',
+                  child: FlyoutTarget(
+                    controller: _menuController,
+                    child: IconButton(
+                      key: ValueKey('conversation-menu-${widget.user.id}'),
+                      icon: Icon(
+                        FluentIcons.more_vertical,
+                        size: 16,
+                        color: highContrast
+                            ? context.elixTextPrimary
+                            : context.elixTextSecondary,
+                      ),
+                      onPressed: _showMenu,
                     ),
                   ),
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -656,26 +667,31 @@ class _ConversationPane extends StatelessWidget {
 
   Future<void> _confirmBlock(BuildContext context) async {
     final unblocking = controller.blockState.blockedByMe;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: Text(unblocking ? 'Unblock this person?' : 'Block this person?'),
-        content: Text(
-          unblocking
-              ? 'You will both be able to send messages again unless they have blocked you.'
-              : 'Neither person can send new messages while this block is active. Message history remains visible.',
+    final confirmed = await ElixDialog.show<bool>(
+      context,
+      title: unblocking ? 'Unblock this person?' : 'Block this person?',
+      icon: unblocking ? FluentIcons.unlock : FluentIcons.blocked,
+      iconColor: context.elixColors.warning,
+      headerAccentColor: context.elixColors.warning,
+      content: Text(
+        unblocking
+            ? 'You will both be able to send messages again unless they have blocked you.'
+            : 'Neither person can send new messages while this block is active. Message history remains visible.',
+        style: AppTheme.body.copyWith(
+          color: context.elixTextSecondary,
+          height: 1.45,
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(unblocking ? 'Unblock' : 'Block'),
-          ),
-        ],
       ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(unblocking ? 'Unblock' : 'Block'),
+        ),
+      ],
     );
     if (confirmed == true) await controller.toggleBlock();
   }
@@ -685,27 +701,26 @@ class _ConversationPane extends StatelessWidget {
       return;
     }
     final text = TextEditingController(text: message.body);
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Edit message'),
-        content: TextBox(
-          controller: text,
-          minLines: 2,
-          maxLines: 6,
-          maxLength: ChatMessage.maximumBodyLength,
-        ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, text.text),
-            child: const Text('Save'),
-          ),
-        ],
+    final value = await ElixDialog.show<String>(
+      context,
+      title: 'Edit message',
+      icon: FluentIcons.edit,
+      content: TextBox(
+        controller: text,
+        minLines: 2,
+        maxLines: 6,
+        maxLength: ChatMessage.maximumBodyLength,
       ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(text.text),
+          child: const Text('Save'),
+        ),
+      ],
     );
     text.dispose();
     if (value != null && value.trim() != message.body) {
@@ -717,24 +732,29 @@ class _ConversationPane extends StatelessWidget {
     if (message.isDeleted || message.deliveryState != ChatDeliveryState.sent) {
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Delete message?'),
-        content: const Text(
-          'The message body will be removed and replaced by a tombstone.',
+    final confirmed = await ElixDialog.show<bool>(
+      context,
+      title: 'Delete message?',
+      icon: FluentIcons.delete,
+      iconColor: context.elixColors.error,
+      headerAccentColor: context.elixColors.error,
+      content: Text(
+        'The message body will be removed and replaced by a tombstone.',
+        style: AppTheme.body.copyWith(
+          color: context.elixTextSecondary,
+          height: 1.45,
         ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
       ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Delete'),
+        ),
+      ],
     );
     if (confirmed == true) await controller.deleteMessage(message);
   }
@@ -842,6 +862,7 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     final metadata = <String>[
       DateFormat.jm().format(message.createdAt.toLocal()),
       if (message.isEdited) 'Edited',
@@ -853,13 +874,15 @@ class _MessageBubble extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 560),
       padding: const EdgeInsets.all(AppSpacing.sm),
       decoration: BoxDecoration(
-        color: mine
-            ? AppColors.primary.withValues(alpha: 0.16)
+        color: highContrast
+            ? context.elixCardSurface
+            : mine
+            ? context.elixColors.brandPrimary.withValues(alpha: 0.16)
             : context.elixBackground,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: message.deliveryState == ChatDeliveryState.error
-              ? AppColors.error
+              ? context.elixColors.error
               : context.elixBorder,
         ),
       ),
@@ -988,7 +1011,9 @@ class _ChatAvatar extends StatelessWidget {
         width: size,
         height: size,
         alignment: Alignment.center,
-        color: AppColors.accent.withValues(alpha: 0.18),
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixColors.brandSecondary.withValues(alpha: 0.18),
         child: avatar != null
             ? Image.network(
                 avatar,
@@ -999,7 +1024,10 @@ class _ChatAvatar extends StatelessWidget {
               )
             : Text(
                 initials,
-                style: AppTheme.caption.copyWith(fontWeight: FontWeight.w700),
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
       ),
     );

@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../constants/app_colors.dart';
+import '../theme/app_theme.dart';
 
 class MessageUnreadBadge extends StatelessWidget {
   const MessageUnreadBadge({
@@ -16,6 +16,7 @@ class MessageUnreadBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     if (count <= 0) return const SizedBox.shrink();
     final label = count > 99 ? '99+' : '$count';
+    final highContrast = context.isHighContrast;
 
     return Semantics(
       label: '$count unread ${count == 1 ? 'message' : 'messages'}',
@@ -25,14 +26,23 @@ class MessageUnreadBadge extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: AppColors.primary,
+          color: highContrast
+              ? context.elixCardSurface
+              : context.elixColors.brandPrimary,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white, width: 1),
+          border: Border.all(
+            color: highContrast
+                ? context.elixBorder
+                : context.elixColors.onBrand,
+            width: highContrast ? 2 : 1,
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: Colors.white,
+            color: highContrast
+                ? context.elixTextPrimary
+                : context.elixColors.onBrand,
             fontSize: compact ? 9 : 10,
             height: 1,
             fontWeight: FontWeight.w700,

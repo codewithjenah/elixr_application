@@ -5,11 +5,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/auth_scaffold.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_scaffold_page.dart';
 
@@ -182,13 +183,7 @@ class _LegalDocumentPageState extends State<LegalDocumentPage> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.xs),
-                      Center(
-                        child: AuthFooterLink(
-                          prompt: 'Done reading?',
-                          action: 'Go back',
-                          onTap: _goBack,
-                        ),
-                      ),
+                      Center(child: _LegalDocumentFooter(onTap: _goBack)),
                     ],
                   ),
                 ),
@@ -196,6 +191,33 @@ class _LegalDocumentPageState extends State<LegalDocumentPage> {
             },
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LegalDocumentFooter extends StatelessWidget {
+  const _LegalDocumentFooter({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: 'Done reading? Go back',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Done reading?',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          HyperlinkButton(onPressed: onTap, child: const Text('Go back')),
+        ],
       ),
     );
   }
@@ -231,56 +253,32 @@ class _LegalDocumentHeader extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 620;
-        final heading = Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(
-                  alpha: context.isHighContrast ? 1 : 0.14,
-                ),
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: context.isHighContrast
-                      ? context.elixBorder
-                      : AppColors.primary.withValues(alpha: 0.32),
-                  width: context.isHighContrast ? 2 : 1,
-                ),
-              ),
-              child: Icon(
-                FluentIcons.shield,
-                size: 21,
+        final heading = ElixEditorialHeader(
+          heading: title,
+          subtitle: subtitle,
+          variant: ElixEditorialHeaderVariant.document,
+          leading: Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: context.isHighContrast
+                  ? context.elixCardSurface
+                  : context.elixColors.brandPrimary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
                 color: context.isHighContrast
-                    ? context.elixTextPrimary
-                    : AppColors.primarySoft,
+                    ? context.elixBorder
+                    : context.elixColors.brandPrimary.withValues(alpha: 0.32),
+                width: context.isHighContrast ? 2 : 1,
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: AppTheme.brandTitle(
-                      fontSize: compact ? 26 : 30,
-                      color: context.elixTextPrimary,
-                    ).copyWith(letterSpacing: -0.4),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    subtitle,
-                    style: AppTheme.bodySecondary.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
-              ),
+            child: Icon(
+              FluentIcons.shield,
+              size: 21,
+              color: context.elixColors.brandPrimary,
             ),
-          ],
+          ),
         );
         final badges = Wrap(
           alignment: compact ? WrapAlignment.start : WrapAlignment.end,
@@ -289,12 +287,12 @@ class _LegalDocumentHeader extends StatelessWidget {
           children: [
             ElixPill(
               text: 'Last updated $lastUpdated',
-              color: AppColors.primary,
+              color: context.elixColors.brandPrimary,
               compact: true,
             ),
             ElixPill(
               text: 'Version $version',
-              color: AppColors.accent,
+              color: context.elixColors.brandSecondary,
               compact: true,
             ),
           ],
@@ -561,19 +559,23 @@ class _LegalSectionSelectorState extends State<_LegalSectionSelector> {
     final active = widget.selected || _hovered || _focused;
     final highContrast = context.isHighContrast;
     final borderColor = widget.selected
-        ? (highContrast ? context.elixBorder : AppColors.primary)
+        ? (highContrast ? context.elixBorder : context.elixColors.brandPrimary)
         : active
-        ? context.elixBorder.withValues(alpha: highContrast ? 1 : 0.8)
-        : Colors.transparent;
+        ? (highContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.8))
+        : (highContrast ? context.elixBackground : Colors.transparent);
     final backgroundColor = widget.selected
         ? (highContrast
               ? context.elixCardSurface
-              : AppColors.primary.withValues(
+              : context.elixColors.brandPrimary.withValues(
                   alpha: context.isDarkTheme ? 0.15 : 0.10,
                 ))
         : _hovered
-        ? context.elixBorder.withValues(alpha: highContrast ? 1 : 0.08)
-        : Colors.transparent;
+        ? (highContrast
+              ? context.elixCardSurface
+              : context.elixBorder.withValues(alpha: 0.08))
+        : (highContrast ? context.elixBackground : Colors.transparent);
 
     return Semantics(
       container: true,
@@ -599,7 +601,7 @@ class _LegalSectionSelectorState extends State<_LegalSectionSelector> {
             behavior: HitTestBehavior.opaque,
             onTap: widget.onPressed,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: ElixMotion.duration(context, ElixMotion.micro),
               curve: Curves.easeOutCubic,
               width: widget.compact ? null : double.infinity,
               padding: EdgeInsets.symmetric(
@@ -689,8 +691,12 @@ class _SectionNumber extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final color = selected
-        ? (highContrast ? context.elixTextPrimary : AppColors.primary)
-        : AppColors.accentSoft;
+        ? (highContrast
+              ? context.elixTextPrimary
+              : context.elixColors.brandPrimary)
+        : (highContrast
+              ? context.elixTextPrimary
+              : context.elixColors.brandSecondary);
     return Container(
       width: dense
           ? 22
@@ -704,9 +710,11 @@ class _SectionNumber extends StatelessWidget {
           : 28,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: selected
-            ? color.withValues(alpha: highContrast ? 1 : 0.14)
-            : context.elixBorder.withValues(alpha: highContrast ? 1 : 0.3),
+        color: highContrast
+            ? context.elixCardSurface
+            : selected
+            ? color.withValues(alpha: 0.14)
+            : context.elixBorder.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: selected ? color : context.elixBorder,
@@ -759,7 +767,7 @@ class _LegalSectionCard extends StatelessWidget {
                 size: 17,
                 color: context.isHighContrast
                     ? context.elixTextPrimary
-                    : AppColors.accentSoft,
+                    : context.elixColors.brandSecondary,
               ),
               const SizedBox(width: AppSpacing.sm),
               Text(
@@ -776,7 +784,7 @@ class _LegalSectionCard extends StatelessWidget {
           SizedBox(height: compact ? AppSpacing.xs : AppSpacing.sm),
           Expanded(
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
+              duration: ElixMotion.duration(context, ElixMotion.route),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (child, animation) {
@@ -805,7 +813,9 @@ class _LegalSectionCard extends StatelessWidget {
           SizedBox(height: compact ? AppSpacing.xs : AppSpacing.sm),
           Container(
             height: 1,
-            color: context.elixBorder.withValues(alpha: 0.45),
+            color: context.isHighContrast
+                ? context.elixBorder
+                : context.elixBorder.withValues(alpha: 0.45),
           ),
           SizedBox(height: compact ? AppSpacing.xs : AppSpacing.sm),
           Text(

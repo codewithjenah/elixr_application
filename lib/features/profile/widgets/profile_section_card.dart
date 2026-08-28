@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 
@@ -27,11 +26,14 @@ class ProfileSectionCard extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? AppColors.panelSurface
-            : context.elixCardSurface,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.5),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,11 +47,7 @@ class ProfileSectionCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: context.elixTextPrimary,
-                      ),
+                      style: AppTheme.cardTitle(color: context.elixTextPrimary),
                     ),
                     if (subtitle != null) ...[
                       const SizedBox(height: 4),

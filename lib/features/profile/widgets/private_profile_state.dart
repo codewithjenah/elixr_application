@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 
@@ -21,27 +20,28 @@ class PrivateProfileState extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? AppColors.panelSurface
-            : context.elixCardSurface,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixColors.brandSecondary.withValues(alpha: 0.28),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Column(
         children: [
           Icon(
             FluentIcons.lock,
             size: 40,
-            color: AppColors.accent.withValues(alpha: 0.85),
+            color: context.isHighContrast
+                ? context.elixTextPrimary
+                : context.elixColors.brandSecondary,
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
             'This profile is locked',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
+            style: AppTheme.cardTitle(color: context.elixTextPrimary),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(

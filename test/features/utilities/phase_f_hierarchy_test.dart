@@ -1,13 +1,9 @@
-import 'dart:io';
-
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/data/models/achievement_claim.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
-import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/models/user_cosmetics.dart';
-import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/legal/privacy_policy_screen.dart';
 import 'package:elixr_application/features/messages/messages_screen.dart';
 import 'package:elixr_application/features/profile/widgets/profile_header.dart';
@@ -18,7 +14,6 @@ import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_core/elixr_core.dart';
-import 'package:elixr_core/legal/legal_documents.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -96,7 +91,9 @@ void main() {
     expect(title.style!.fontFamily, isNot(AppTheme.brandFontFamily));
     expect(find.text('Find a Teacher or Trainee'), findsOneWidget);
     expect(
-      find.text('Enter at least 2 characters. Email search is exact and private.'),
+      find.text(
+        'Enter at least 2 characters. Email search is exact and private.',
+      ),
       findsOneWidget,
     );
   });
@@ -261,17 +258,14 @@ class _PhaseFSettingsHarness {
   _PhaseFSettingsHarness(this.tester);
 
   final WidgetTester tester;
-  late Directory tempDir;
   late SettingsService settingsService;
   late AuthService authService;
   late CameraDeviceService cameraDeviceService;
 
   Future<void> setUp() async {
-    tempDir = await Directory.systemTemp.createTemp('elixr_phase_f_settings_');
-    settingsService = SettingsService(
-      settingsFile: File('${tempDir.path}/settings.json'),
-    );
-    await settingsService.initialize();
+    // This hierarchy check only reads the service defaults. Avoid async temp
+    // filesystem setup because it can stall the Windows Flutter test runner.
+    settingsService = SettingsService();
     cameraDeviceService = CameraDeviceService(
       httpGet: (_) async => '{"devices":[]}',
     );
@@ -281,9 +275,7 @@ class _PhaseFSettingsHarness {
   Future<void> tearDown() async {
     authService.dispose();
     cameraDeviceService.dispose();
-    if (await tempDir.exists()) {
-      await tempDir.delete(recursive: true);
-    }
+    settingsService.dispose();
   }
 
   Widget wrap(Widget child, {Size size = const Size(1400, 900)}) {

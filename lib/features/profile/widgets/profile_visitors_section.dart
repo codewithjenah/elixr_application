@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_card.dart';
 import '../../../data/models/profile_visit.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
 import '../../leaderboard/widgets/leaderboard_identity.dart';
@@ -44,10 +44,10 @@ class _ProfileVisitorsSectionState extends State<ProfileVisitorsSection> {
       title: 'Profile Visitors',
       subtitle: 'Players who recently viewed your profile.',
       child: switch (widget.state) {
-        ProfileVisitorsState.loading => const Center(
+        ProfileVisitorsState.loading => Center(
           child: Padding(
             padding: EdgeInsets.all(AppSpacing.md),
-            child: ProgressRing(activeColor: AppColors.primary),
+            child: ProgressRing(activeColor: context.elixColors.brandPrimary),
           ),
         ),
         ProfileVisitorsState.empty => Text(
@@ -103,75 +103,56 @@ class _VisitorRow extends StatelessWidget {
           )
         : 'Recently';
 
-    return HoverButton(
-      onPressed: onTap,
-      cursor: SystemMouseCursors.click,
+    return ElixCard(
+      onTap: onTap,
+      variant: ElixCardVariant.interactive,
       semanticLabel: "View ${visitor.displayName}'s profile",
-      builder: (context, states) {
-        final highlighted =
-            states.isHovered || states.isPressed || states.isFocused;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm,
-            vertical: AppSpacing.sm,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          LeaderboardInitialsAvatar(
+            initials: LeaderboardPresentation.initialsFor(visitor.displayName),
+            accent: context.elixColors.brandSecondary,
+            size: 36,
+            profilePictureUrl: visitor.profilePictureUrl,
           ),
-          decoration: BoxDecoration(
-            color: highlighted
-                ? (context.isDarkTheme
-                      ? context.elixCardSurface.withValues(alpha: 0.55)
-                      : context.elixBackground.withValues(alpha: 0.85))
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              LeaderboardInitialsAvatar(
-                initials: LeaderboardPresentation.initialsFor(
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
                   visitor.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.body.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: context.elixTextPrimary,
+                  ),
                 ),
-                accent: AppColors.accent,
-                size: 36,
-                profilePictureUrl: visitor.profilePictureUrl,
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      visitor.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: context.elixTextPrimary,
-                      ),
-                    ),
-                    Text(
-                      'Last visited $label',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Last visited $label',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Icon(
-                FluentIcons.chevron_right,
-                size: 12,
-                color: context.elixTextSecondary,
-              ),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+          const SizedBox(width: AppSpacing.sm),
+          Icon(
+            FluentIcons.chevron_right,
+            size: 12,
+            color: context.elixTextSecondary,
+          ),
+        ],
+      ),
     );
   }
 }

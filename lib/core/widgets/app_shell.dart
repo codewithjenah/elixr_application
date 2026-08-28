@@ -7,6 +7,8 @@ import '../../services/auth_service.dart';
 import '../../services/settings_service.dart';
 import '../../services/tutorial_progress_service.dart';
 import '../theme/app_theme.dart';
+import 'elix_dialog.dart';
+import 'elix_primary_button.dart';
 import 'elix_sidebar.dart';
 
 class AppShell extends StatefulWidget {
@@ -23,24 +25,29 @@ class _AppShellState extends State<AppShell> {
   bool _onboardingShown = false;
 
   Future<void> _confirmAndLogout() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('Log out?'),
-        content: const Text(
-          'Are you sure you want to log out of your ELIXR account?',
+    final shouldLogout = await ElixDialog.show<bool>(
+      context,
+      title: 'Log out?',
+      icon: FluentIcons.sign_out,
+      content: Text(
+        'Are you sure you want to log out of your ELIXR account?',
+        style: AppTheme.body.copyWith(
+          fontSize: 14,
+          color: context.elixTextSecondary,
+          height: 1.45,
         ),
-        actions: [
-          Button(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          FilledButton(
-            child: const Text('Log out'),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
       ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        ElixPrimaryButton(
+          label: 'Log out',
+          expanded: false,
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+      ],
     );
 
     if (shouldLogout != true || !mounted) return;

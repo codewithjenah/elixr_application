@@ -1,10 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/constants/movements.dart';
 import '../../../core/constants/music_tracks.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../movements/movements_presentation.dart';
 import 'practice_preferences_controller.dart';
@@ -55,7 +55,9 @@ class PracticePreferencesEditor extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: Text(
                   'Select at least one movement.',
-                  style: AppTheme.caption.copyWith(color: AppColors.error),
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixColors.error,
+                  ),
                 ),
               ),
             const SizedBox(height: AppSpacing.sm),
@@ -75,7 +77,7 @@ class PracticePreferencesEditor extends StatelessWidget {
                   _SelectChip(
                     label: '${seconds}s',
                     selected: draft.intervalSeconds == seconds,
-                    color: AppColors.accent,
+                    color: context.elixColors.brandSecondary,
                     onTap: () => controller.setInterval(seconds),
                   ),
               ],
@@ -97,14 +99,14 @@ class PracticePreferencesEditor extends StatelessWidget {
                   _SelectChip(
                     label: 'Shuffle',
                     selected: draft.musicTrackId == null,
-                    color: AppColors.primarySoft,
+                    color: context.elixColors.brandPrimary,
                     onTap: () => controller.setMusicTrackId(null),
                   ),
                   for (final track in musicTrackCatalog)
                     _SelectChip(
                       label: track.displayName,
                       selected: draft.musicTrackId == track.id,
-                      color: AppColors.primarySoft,
+                      color: context.elixColors.brandPrimary,
                       onTap: () => controller.setMusicTrackId(track.id),
                     ),
                 ],
@@ -132,7 +134,9 @@ class _DifficultyGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = difficultyAccentColor(difficulty);
+    final accent = context.isHighContrast
+        ? context.elixTextPrimary
+        : difficultyAccentColor(difficulty);
     final movements = movementsByDifficulty(difficulty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,8 +227,13 @@ class _MovementRow extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.14),
+                color: context.isHighContrast
+                    ? context.elixCardSurface
+                    : accent.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(999),
+                border: context.isHighContrast
+                    ? Border.all(color: context.elixBorder)
+                    : null,
               ),
               child: Text(
                 '#$order',
@@ -280,38 +289,94 @@ class _SelectChip extends StatefulWidget {
 
 class _SelectChipState extends State<_SelectChip> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final selected = widget.selected;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: selected
-                ? widget.color.withValues(
-                    alpha: context.isDarkTheme ? 0.22 : 0.16,
-                  )
-                : (_hovered ? context.elixCardSurface : context.elixBackground),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected
-                  ? widget.color.withValues(alpha: 0.55)
-                  : context.elixBorder,
-            ),
+    final highContrast = context.isHighContrast;
+    final highlighted = _hovered || _focused;
+    final fill = highContrast
+        ? context.elixCardSurface
+        : selected
+        ? widget.color.withValues(alpha: context.isDarkTheme ? 0.22 : 0.16)
+        : highlighted
+        ? context.elixColors.interactiveHover
+        : context.elixBackground;
+    final borderColor = _focused
+        ? context.elixColors.focusRing
+        : highContrast
+        ? context.elixBorder
+        : selected
+        ? widget.color.withValues(alpha: 0.55)
+        : context.elixBorder;
+
+    return Semantics(
+      button: true,
+      enabled: true,
+      selected: selected,
+      label: widget.label,
+      onTap: widget.onTap,
+      child: FocusableActionDetector(
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        mouseCursor: SystemMouseCursors.click,
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
           ),
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: selected ? widget.color : context.elixTextSecondary,
+        },
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: ElixMotion.duration(context, ElixMotion.micro),
+              curve: ElixMotion.microCurve,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: fill,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: borderColor,
+                  width: _focused
+                      ? (highContrast
+                            ? ElixFocus.ringWidthHighContrast
+                            : ElixFocus.ringWidth)
+                      : (highContrast ? ElixFocus.ringWidth : 1),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: selected
+                          ? (highContrast
+                                ? context.elixTextPrimary
+                                : widget.color)
+                          : context.elixTextSecondary,
+                    ),
+                  ),
+                  if (selected) ...[
+                    const SizedBox(width: 6),
+                    Icon(
+                      FluentIcons.check_mark,
+                      size: 12,
+                      color: highContrast
+                          ? context.elixTextPrimary
+                          : widget.color,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),

@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_name.dart';
@@ -866,10 +865,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
       children: [
         Text(
           'Avatar customization',
-          style: AppTheme.headingMedium.copyWith(
-            color: context.elixTextPrimary,
-            fontSize: 16,
-          ),
+          style: AppTheme.cardTitle(color: context.elixTextPrimary),
         ),
         const SizedBox(height: AppSpacing.md),
         Center(
@@ -905,8 +901,13 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                         width: avatarDiameter,
                         height: avatarDiameter,
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.45),
+                          color: context.isHighContrast
+                              ? context.elixCardSurface
+                              : Colors.black.withValues(alpha: 0.45),
                           shape: BoxShape.circle,
+                          border: context.isHighContrast
+                              ? Border.all(color: context.elixBorder)
+                              : null,
                         ),
                         child: const Center(
                           child: ProgressRing(strokeWidth: 2.5),
@@ -921,17 +922,19 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: AppColors.primary,
+                          color: context.elixColors.brandPrimary,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFF1A1A1F),
+                            color: context.isHighContrast
+                                ? context.elixBorder
+                                : context.elixCardSurface,
                             width: 2,
                           ),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           FluentIcons.camera,
                           size: 16,
-                          color: AppColors.textPrimary,
+                          color: context.elixColors.onBrand,
                         ),
                       ),
                     ),
@@ -958,8 +961,8 @@ class AccountProfileSectionState extends State<AccountProfileSection>
                   key: const Key('account_profile_remove_photo'),
                   onPressed: avatarDisabled ? null : _removeProfilePicture,
                   style: ButtonStyle(
-                    foregroundColor: const WidgetStatePropertyAll(
-                      AppColors.error,
+                    foregroundColor: WidgetStatePropertyAll(
+                      context.elixColors.error,
                     ),
                   ),
                   child: const Text('Remove photo'),
@@ -985,7 +988,9 @@ class AccountProfileSectionState extends State<AccountProfileSection>
               child: Text(
                 'Complete a practice session to create your leaderboard profile '
                 'before equipping frames.',
-                style: AppTheme.caption.copyWith(color: AppColors.warning),
+                style: AppTheme.caption.copyWith(
+                  color: context.elixColors.warning,
+                ),
               ),
             ),
           if (_frameError != null && !_leaderboardMissing)
@@ -993,7 +998,9 @@ class AccountProfileSectionState extends State<AccountProfileSection>
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: Text(
                 _frameError!,
-                style: AppTheme.caption.copyWith(color: AppColors.error),
+                style: AppTheme.caption.copyWith(
+                  color: context.elixColors.error,
+                ),
               ),
             ),
           ProfileFrameSelector(
@@ -1149,8 +1156,8 @@ Future<bool> _confirmRemoveProfilePicture(BuildContext context) async {
     context,
     title: 'Remove profile photo?',
     icon: FluentIcons.warning,
-    iconColor: AppColors.error,
-    headerAccentColor: AppColors.error,
+    iconColor: context.elixColors.error,
+    headerAccentColor: context.elixColors.error,
     maxWidth: 420,
     barrierDismissible: false,
     content: Text(

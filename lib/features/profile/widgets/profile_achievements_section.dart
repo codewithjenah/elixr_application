@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/profile_border_frame.dart';
@@ -72,12 +71,18 @@ class _ClaimedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final milestone = context.elixColors.milestone;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.sm),
       decoration: BoxDecoration(
         color: context.elixBackground,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : milestone.withValues(alpha: 0.35),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Row(
         children: [
@@ -90,7 +95,9 @@ class _ClaimedBadge extends StatelessWidget {
                 size: 36,
                 equippedBorderId: achievement.rewardBorderId,
                 child: ColoredBox(
-                  color: AppColors.success.withValues(alpha: 0.12),
+                  color: context.isHighContrast
+                      ? context.elixCardSurface
+                      : milestone.withValues(alpha: 0.12),
                   child: Image.asset(
                     achievement.iconAssetPath,
                     fit: BoxFit.contain,

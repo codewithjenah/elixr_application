@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/profile_border_frame.dart';
 import '../../../data/models/profile_border.dart';
 import '../../../data/models/profile_frame_presentation.dart';
@@ -279,7 +279,7 @@ class _FrameTileState extends State<_FrameTile> {
               message:
                   '${widget.border.displayName} · ${widget.border.rarityLabel}',
               child: Opacity(
-                opacity: widget.unlocked ? 1 : 0.55,
+                opacity: context.isHighContrast || widget.unlocked ? 1 : 0.55,
                 child: widget.unlocked
                     ? _tileShell(
                         context: context,
@@ -295,9 +295,7 @@ class _FrameTileState extends State<_FrameTile> {
                               equippedBorderId: widget.border.id,
                               animate: widget.selected && widget.unlocked,
                               child: ColoredBox(
-                                color: context.isDarkTheme
-                                    ? AppColors.cardSurface
-                                    : AppColors.cardSurfaceLight,
+                                color: context.elixCardSurface,
                                 child: Center(
                                   child: Text(
                                     'FL',
@@ -316,8 +314,13 @@ class _FrameTileState extends State<_FrameTile> {
                                 height: 44,
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.35),
+                                  color: context.isHighContrast
+                                      ? context.elixCardSurface
+                                      : Colors.black.withValues(alpha: 0.35),
                                   shape: BoxShape.circle,
+                                  border: context.isHighContrast
+                                      ? Border.all(color: context.elixBorder)
+                                      : null,
                                 ),
                                 child: const SizedBox(
                                   width: 16,
@@ -365,9 +368,7 @@ class _FrameTileState extends State<_FrameTile> {
                                 equippedBorderId: widget.border.id,
                                 animate: false,
                                 child: ColoredBox(
-                                  color: context.isDarkTheme
-                                      ? AppColors.cardSurface
-                                      : AppColors.cardSurfaceLight,
+                                  color: context.elixCardSurface,
                                   child: Center(
                                     child: Text(
                                       'FL',
@@ -406,37 +407,64 @@ Widget _tileShell({
   required Widget child,
   Color? accent,
 }) {
-  final borderColor = selected
-      ? AppColors.primary.withValues(alpha: 0.9)
+  final highContrast = context.isHighContrast;
+  final borderColor = highContrast
+      ? context.elixBorder
+      : selected
+      ? context.elixColors.brandPrimary
       : hovered && !locked
-      ? (accent ?? AppColors.accent).withValues(alpha: 0.6)
+      ? (accent ?? context.elixColors.brandSecondary).withValues(alpha: 0.6)
       : context.elixBorder.withValues(alpha: 0.75);
 
   return AnimatedContainer(
-    duration: const Duration(milliseconds: 160),
+    duration: ElixMotion.duration(context, ElixMotion.standard),
     width: 64,
     height: 72,
     padding: const EdgeInsets.all(6),
     decoration: BoxDecoration(
-      color: selected
-          ? AppColors.primary.withValues(
+      color: highContrast
+          ? context.elixCardSurface
+          : selected
+          ? context.elixColors.brandPrimary.withValues(
               alpha: context.isDarkTheme ? 0.16 : 0.09,
             )
           : context.elixCardSurface,
       borderRadius: BorderRadius.circular(12),
       border: Border.all(
         color: borderColor,
-        width: selected ? 1.8 : (hovered ? 1.5 : 1),
+        width: highContrast
+            ? (hovered || selected ? ElixFocus.ringWidthHighContrast : 2)
+            : (selected ? 1.8 : (hovered ? 1.5 : 1)),
       ),
-      boxShadow: [
+      boxShadow: highContrast
+          ? const []
+          : [
+              if (selected)
+                BoxShadow(
+                  color: context.elixColors.brandPrimary.withValues(
+                    alpha: 0.22,
+                  ),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+            ],
+    ),
+    child: Stack(
+      children: [
+        Center(child: child),
         if (selected)
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.22),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: Icon(
+              FluentIcons.check_mark,
+              size: 12,
+              color: highContrast
+                  ? context.elixTextPrimary
+                  : context.elixColors.brandPrimary,
+            ),
           ),
       ],
     ),
-    child: Center(child: child),
   );
 }

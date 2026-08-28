@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/movement_image.dart';
@@ -70,7 +69,12 @@ class _MovementTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.elixBackground,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.4)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.4),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Row(
         children: [
@@ -78,7 +82,9 @@ class _MovementTile extends StatelessWidget {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.12),
+              color: context.isHighContrast
+                  ? context.elixCardSurface
+                  : context.elixColors.success.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
             ),
             child: MovementImage(

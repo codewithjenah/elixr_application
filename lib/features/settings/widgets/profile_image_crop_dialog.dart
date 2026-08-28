@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
@@ -48,7 +47,9 @@ class ProfileImageCropDialog extends StatefulWidget {
     return showDialog<PendingProfileCrop>(
       context: context,
       barrierDismissible: true,
-      barrierColor: const Color(0xCC000000),
+      barrierColor: context.isHighContrast
+          ? Colors.black
+          : const Color(0xCC000000),
       builder: (ctx) => ProfileImageCropDialog(
         sourceBytes: sourceBytes,
         applyHook: applyHook,
@@ -229,10 +230,17 @@ class _ProfileImageCropDialogState extends State<ProfileImageCropDialog> {
                 controller: _controller,
                 shape: BoxShape.rectangle,
                 backgroundColor: Colors.black,
-                dimColor: const Color.fromRGBO(0, 0, 0, 0.55),
+                dimColor: context.isHighContrast
+                    ? Colors.black
+                    : const Color.fromRGBO(0, 0, 0, 0.55),
                 padding: EdgeInsets.zero,
-                helper: const IgnorePointer(
-                  child: CustomPaint(painter: _CircularGuidePainter()),
+                helper: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _CircularGuidePainter(
+                      highContrast: context.isHighContrast,
+                      guideColor: context.elixTextPrimary,
+                    ),
+                  ),
                 ),
                 child: Image.memory(
                   widget.sourceBytes,
@@ -275,7 +283,13 @@ class _ProfileImageCropDialogState extends State<ProfileImageCropDialog> {
 }
 
 class _CircularGuidePainter extends CustomPainter {
-  const _CircularGuidePainter();
+  const _CircularGuidePainter({
+    required this.highContrast,
+    required this.guideColor,
+  });
+
+  final bool highContrast;
+  final Color guideColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -290,7 +304,10 @@ class _CircularGuidePainter extends CustomPainter {
 
     canvas.drawPath(
       overlay,
-      Paint()..color = const Color.fromRGBO(0, 0, 0, 0.35),
+      Paint()
+        ..color = highContrast
+            ? Colors.black
+            : const Color.fromRGBO(0, 0, 0, 0.35),
     );
     canvas.drawCircle(
       center,
@@ -298,7 +315,7 @@ class _CircularGuidePainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
-        ..color = AppColors.textPrimary.withValues(alpha: 0.9),
+        ..color = highContrast ? guideColor : guideColor.withValues(alpha: 0.9),
     );
   }
 

@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/material.dart' show Material, MaterialType;
 
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import 'elix_editorial_header.dart';
@@ -52,7 +51,9 @@ class ElixDialog extends StatelessWidget {
     return showDialog<T>(
       context: context,
       barrierDismissible: barrierDismissible,
-      barrierColor: const Color(0xCC000000),
+      barrierColor: context.isHighContrast
+          ? Colors.black
+          : const Color(0xCC000000),
       builder: (ctx) => Center(
         child: ElixDialog(
           title: title,
@@ -82,7 +83,7 @@ class ElixDialog extends StatelessWidget {
       context,
       title: title,
       icon: icon,
-      iconColor: iconColor ?? AppColors.primary,
+      iconColor: iconColor ?? context.elixColors.brandPrimary,
       headerAccentColor: headerAccentColor,
       maxWidth: 400,
       content: Text(
@@ -109,8 +110,8 @@ class ElixDialog extends StatelessWidget {
       title: 'Success',
       message: message,
       icon: FluentIcons.status_circle_checkmark,
-      iconColor: AppColors.success,
-      headerAccentColor: AppColors.success,
+      iconColor: context.elixColors.success,
+      headerAccentColor: context.elixColors.success,
     );
   }
 
@@ -127,7 +128,7 @@ class ElixDialog extends StatelessWidget {
       title: title,
       subtitle: 'Confirm your identity',
       icon: FluentIcons.lock_solid,
-      iconColor: AppColors.primary,
+      iconColor: context.elixColors.brandPrimary,
       maxWidth: 420,
       barrierDismissible: false,
       content: StatefulBuilder(
@@ -207,7 +208,7 @@ class ElixDialog extends StatelessWidget {
           'Open that inbox, including Spam or Promotions, and tap the link. '
           'Your current sign-in email stays active until the new address is verified.',
       icon: FluentIcons.mail,
-      iconColor: AppColors.primary,
+      iconColor: context.elixColors.brandPrimary,
     );
   }
 
@@ -222,7 +223,7 @@ class ElixDialog extends StatelessWidget {
           'Firebase sent a verification link (not a numeric code) to $email. '
           'Check Spam or Promotions if you do not see it within a few minutes.',
       icon: FluentIcons.mail,
-      iconColor: AppColors.primary,
+      iconColor: context.elixColors.brandPrimary,
     );
   }
 
@@ -232,8 +233,8 @@ class ElixDialog extends StatelessWidget {
       title: 'Password updated',
       subtitle: 'Your sign-in password has been changed',
       icon: FluentIcons.completed_solid,
-      iconColor: AppColors.success,
-      headerAccentColor: AppColors.success,
+      iconColor: context.elixColors.success,
+      headerAccentColor: context.elixColors.success,
       maxWidth: 420,
       content: Builder(
         builder: (ctx) {
@@ -257,10 +258,15 @@ class ElixDialog extends StatelessWidget {
                   vertical: AppSpacing.sm + 4,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.08),
+                  color: ctx.isHighContrast
+                      ? ctx.elixCardSurface
+                      : ctx.elixColors.success.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: AppColors.success.withValues(alpha: 0.22),
+                    color: ctx.isHighContrast
+                        ? ctx.elixBorder
+                        : ctx.elixColors.success.withValues(alpha: 0.22),
+                    width: ctx.isHighContrast ? 2 : 1,
                   ),
                 ),
                 child: Row(
@@ -270,13 +276,18 @@ class ElixDialog extends StatelessWidget {
                       width: 28,
                       height: 28,
                       decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.14),
+                        color: ctx.isHighContrast
+                            ? ctx.elixCardSurface
+                            : ctx.elixColors.success.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(8),
+                        border: ctx.isHighContrast
+                            ? Border.all(color: ctx.elixBorder)
+                            : null,
                       ),
-                      child: const Icon(
+                      child: Icon(
                         FluentIcons.lock_solid,
                         size: 14,
-                        color: AppColors.success,
+                        color: ctx.elixColors.success,
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm + 2),
@@ -312,16 +323,18 @@ class ElixDialog extends StatelessWidget {
       title: 'Error',
       message: message,
       icon: FluentIcons.status_circle_error_x,
-      iconColor: AppColors.error,
+      iconColor: context.elixColors.error,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final accent = headerAccentColor ?? AppColors.primary;
+    final accent = headerAccentColor ?? context.elixColors.brandPrimary;
     final highContrast = context.isHighContrast;
-    final iconTone = iconColor ?? AppColors.primary;
+    final iconTone = highContrast
+        ? context.elixTextPrimary
+        : (iconColor ?? context.elixColors.brandPrimary);
 
     return Material(
       type: MaterialType.transparency,
@@ -335,14 +348,18 @@ class ElixDialog extends StatelessWidget {
           color: context.elixCardSurface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: highContrast ? accent : accent.withValues(alpha: 0.22),
+            color: highContrast
+                ? context.elixBorder
+                : accent.withValues(alpha: 0.22),
             width: highContrast ? 2 : 1,
           ),
           boxShadow: highContrast
               ? const []
               : [
                   BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.08),
+                    color: context.elixColors.brandPrimary.withValues(
+                      alpha: 0.08,
+                    ),
                     blurRadius: 40,
                     spreadRadius: 2,
                   ),
@@ -394,7 +411,10 @@ class ElixDialog extends StatelessWidget {
                                 : iconTone.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(12),
                             border: highContrast
-                                ? Border.all(color: iconTone)
+                                ? Border.all(
+                                    color: context.elixBorder,
+                                    width: 2,
+                                  )
                                 : null,
                           ),
                           child: Icon(icon, color: iconTone, size: 22),

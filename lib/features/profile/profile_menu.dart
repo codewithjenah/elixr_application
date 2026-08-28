@@ -5,10 +5,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
 import '../../data/models/leaderboard_entry.dart';
@@ -56,7 +56,11 @@ class ProfileMenu {
             child: GestureDetector(
               onTap: dismiss,
               behavior: HitTestBehavior.opaque,
-              child: Container(color: Colors.black.withValues(alpha: 0.45)),
+              child: Container(
+                color: context.isHighContrast
+                    ? Colors.black
+                    : Colors.black.withValues(alpha: 0.45),
+              ),
             ),
           ),
           Positioned(
@@ -65,13 +69,18 @@ class ProfileMenu {
             width: menuWidth,
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 200),
+              duration: ElixMotion.duration(context, ElixMotion.standard),
               curve: Curves.easeOutCubic,
-              builder: (context, value, child) => Transform.scale(
-                scale: 0.92 + (0.08 * value),
-                alignment: Alignment.bottomLeft,
-                child: Opacity(opacity: value, child: child),
-              ),
+              builder: (context, value, child) {
+                final highContrast = context.isHighContrast;
+                return Transform.scale(
+                  scale: 0.92 + (0.08 * value),
+                  alignment: Alignment.bottomLeft,
+                  child: highContrast
+                      ? child
+                      : Opacity(opacity: value, child: child),
+                );
+              },
               child: _ProfileMenuCard(
                 hostContext: anchorContext,
                 onDismiss: dismiss,
@@ -173,21 +182,27 @@ class _ProfileMenuCardState extends State<_ProfileMenuCard> {
     final role = user?.role ?? 'Trainee';
     final initials = userInitials(name);
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
 
     return Container(
       decoration: BoxDecoration(
         color: context.elixCardSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
+          color: highContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: isDark ? 0.55 : 1),
+          width: highContrast ? 2 : 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        boxShadow: highContrast
+            ? const []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -260,84 +275,127 @@ class _ProfileMenuHeader extends StatefulWidget {
 
 class _ProfileMenuHeaderState extends State<_ProfileMenuHeader> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-          decoration: BoxDecoration(
-            color: _hovered
-                ? (isDark
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : AppColors.primary.withValues(alpha: 0.06))
-                : Colors.transparent,
+    return Semantics(
+      button: true,
+      enabled: true,
+      label: '${widget.name}, ${widget.subtitle}',
+      onTap: widget.onTap,
+      child: FocusableActionDetector(
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        mouseCursor: SystemMouseCursors.click,
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
           ),
-          child: Row(
-            children: [
-              ProfileAvatarWidget(
-                networkImageUrl: widget.user?.profilePictureUrl,
-                legacyLocalPath: widget.user?.profilePicturePath,
-                initials: widget.initials,
-                radius: 22,
-                equippedBorderId: widget.equippedBorderId,
-                animateBorder: true,
+        },
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: ElixMotion.duration(context, ElixMotion.micro),
+              padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+              decoration: BoxDecoration(
+                color: highContrast
+                    ? context.elixCardSurface
+                    : _hovered
+                    ? (isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : context.elixColors.brandPrimary.withValues(
+                              alpha: 0.06,
+                            ))
+                    : Colors.transparent,
+                border: _focused
+                    ? Border.all(
+                        color: context.elixColors.focusRing,
+                        width: highContrast
+                            ? ElixFocus.ringWidthHighContrast
+                            : ElixFocus.ringWidth,
+                      )
+                    : null,
               ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.name,
-                      style: AppTheme.body.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        color: context.elixTextPrimary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        widget.subtitle,
-                        style: AppTheme.caption.copyWith(
-                          fontSize: 11,
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w500,
+              child: Row(
+                children: [
+                  ProfileAvatarWidget(
+                    networkImageUrl: widget.user?.profilePictureUrl,
+                    legacyLocalPath: widget.user?.profilePicturePath,
+                    initials: widget.initials,
+                    radius: 22,
+                    equippedBorderId: widget.equippedBorderId,
+                    animateBorder: true,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.name,
+                          style: AppTheme.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            color: context.elixTextPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        const SizedBox(height: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: highContrast
+                                ? context.elixCardSurface
+                                : context.elixColors.brandPrimary.withValues(
+                                    alpha: 0.14,
+                                  ),
+                            borderRadius: BorderRadius.circular(20),
+                            border: highContrast
+                                ? Border.all(color: context.elixBorder)
+                                : null,
+                          ),
+                          child: Text(
+                            widget.subtitle,
+                            style: AppTheme.caption.copyWith(
+                              fontSize: 11,
+                              color: highContrast
+                                  ? context.elixTextPrimary
+                                  : context.elixColors.brandPrimary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Icon(
+                    FluentIcons.chevron_right,
+                    size: 12,
+                    color: highContrast
+                        ? context.elixTextPrimary
+                        : context.elixTextSecondary.withValues(
+                            alpha: _hovered ? 0.9 : 0.55,
+                          ),
+                  ),
+                ],
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Icon(
-                FluentIcons.chevron_right,
-                size: 12,
-                color: context.elixTextSecondary.withValues(
-                  alpha: _hovered ? 0.9 : 0.55,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -366,82 +424,121 @@ class _ProfileMenuItem extends StatefulWidget {
 
 class _ProfileMenuItemState extends State<_ProfileMenuItem> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
-    final color = widget.isDestructive
-        ? AppColors.error
+    final highContrast = context.isHighContrast;
+    final color = widget.isDestructive && !highContrast
+        ? context.elixColors.error
         : context.elixTextPrimary;
-    final iconBg = widget.isDestructive
-        ? AppColors.error.withValues(alpha: _hovered ? 0.14 : 0.08)
+    final iconBg = highContrast
+        ? context.elixCardSurface
+        : widget.isDestructive
+        ? context.elixColors.error.withValues(alpha: _hovered ? 0.14 : 0.08)
         : context.elixBorder.withValues(alpha: isDark ? 0.4 : 0.3);
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          constraints: const BoxConstraints(minHeight: 42),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm + 2,
-            vertical: 8,
+    return Semantics(
+      button: true,
+      enabled: true,
+      label: widget.description == null
+          ? widget.label
+          : '${widget.label}. ${widget.description}',
+      onTap: widget.onTap,
+      child: FocusableActionDetector(
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        mouseCursor: SystemMouseCursors.click,
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
           ),
-          decoration: BoxDecoration(
-            color: _hovered
-                ? (widget.isDestructive
-                      ? AppColors.error.withValues(alpha: isDark ? 0.1 : 0.07)
-                      : (isDark
-                            ? Colors.white.withValues(alpha: 0.05)
-                            : context.elixBorder.withValues(alpha: 0.28)))
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(widget.icon, size: 15, color: color),
+        },
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: ElixMotion.duration(context, ElixMotion.micro),
+              constraints: const BoxConstraints(minHeight: 42),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm + 2,
+                vertical: 8,
               ),
-              const SizedBox(width: AppSpacing.sm + 2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      widget.label,
-                      style: AppTheme.body.copyWith(
-                        fontSize: 14,
-                        color: color,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+              decoration: BoxDecoration(
+                color: highContrast
+                    ? context.elixCardSurface
+                    : _hovered
+                    ? (widget.isDestructive
+                          ? context.elixColors.error.withValues(
+                              alpha: isDark ? 0.1 : 0.07,
+                            )
+                          : (isDark
+                                ? Colors.white.withValues(alpha: 0.05)
+                                : context.elixBorder.withValues(alpha: 0.28)))
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                border: _focused
+                    ? Border.all(
+                        color: context.elixColors.focusRing,
+                        width: highContrast
+                            ? ElixFocus.ringWidthHighContrast
+                            : ElixFocus.ringWidth,
+                      )
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: iconBg,
+                      borderRadius: BorderRadius.circular(8),
+                      border: highContrast
+                          ? Border.all(color: context.elixBorder)
+                          : null,
                     ),
-                    if (widget.description != null) ...[
-                      const SizedBox(height: 1),
-                      Text(
-                        widget.description!,
-                        style: AppTheme.caption.copyWith(
-                          fontSize: 11,
-                          color: context.elixTextSecondary,
+                    child: Icon(widget.icon, size: 15, color: color),
+                  ),
+                  const SizedBox(width: AppSpacing.sm + 2),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          widget.label,
+                          style: AppTheme.body.copyWith(
+                            fontSize: 14,
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
+                        if (widget.description != null) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            widget.description!,
+                            style: AppTheme.caption.copyWith(
+                              fontSize: 11,
+                              color: context.elixTextSecondary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -457,7 +554,9 @@ class _MenuDivider extends StatelessWidget {
     return Container(
       height: 1,
       margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      color: context.elixBorder.withValues(alpha: 0.45),
+      color: context.isHighContrast
+          ? context.elixBorder
+          : context.elixBorder.withValues(alpha: 0.45),
     );
   }
 }

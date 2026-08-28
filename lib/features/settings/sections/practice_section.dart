@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_dialog.dart';
@@ -433,7 +432,7 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
           statusText,
           style: AppTheme.caption.copyWith(
             color: warning || cameras.state == CameraDiscoveryState.error
-                ? AppColors.warning
+                ? context.elixColors.warning
                 : context.elixTextSecondary,
           ),
         ),
@@ -450,7 +449,7 @@ class _CameraSourcePreferenceState extends State<_CameraSourcePreference> {
           const SizedBox(height: 4),
           Text(
             '${settings.selectedCameraDisplayName ?? 'Selected camera'} is no longer available',
-            style: AppTheme.caption.copyWith(color: AppColors.warning),
+            style: AppTheme.caption.copyWith(color: context.elixColors.warning),
           ),
         ],
         const SizedBox(height: 4),

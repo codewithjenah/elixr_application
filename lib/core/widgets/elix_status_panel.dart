@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import 'elix_panel_card.dart';
@@ -33,7 +32,12 @@ class ElixStatusPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (icon != null) ...[
-            Icon(icon, color: isError ? AppColors.error : AppColors.primary),
+            Icon(
+              icon,
+              color: isError
+                  ? context.elixColors.error
+                  : context.elixColors.brandPrimary,
+            ),
             const SizedBox(height: AppSpacing.sm),
           ],
           if (title != null) ...[
@@ -48,7 +52,9 @@ class ElixStatusPanel extends StatelessWidget {
           Text(
             message,
             style: AppTheme.body.copyWith(
-              color: isError ? AppColors.error : context.elixTextSecondary,
+              color: isError
+                  ? context.elixColors.error
+                  : context.elixTextSecondary,
             ),
           ),
           if (actionLabel != null && onAction != null) ...[

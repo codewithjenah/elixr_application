@@ -5,10 +5,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/profile_visit.dart';
 import '../../data/repositories/public_profile_repository.dart';
@@ -259,8 +259,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final controller = _controller!;
     switch (controller.loadState) {
       case ProfileLoadState.loading:
-        return const Center(
-          child: ProgressRing(activeColor: AppColors.primary),
+        return Center(
+          child: ProgressRing(activeColor: context.elixColors.brandPrimary),
         );
       case ProfileLoadState.notFound:
         return _NotFoundState(onBack: _handleBack);
@@ -433,16 +433,25 @@ class _PreviewBanner extends StatelessWidget {
         vertical: AppSpacing.sm + 2,
       ),
       decoration: BoxDecoration(
-        color: AppColors.accent.withValues(alpha: 0.12),
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixColors.brandSecondary.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixColors.brandSecondary.withValues(alpha: 0.28),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Row(
         children: [
           Icon(
             FluentIcons.view,
             size: 14,
-            color: AppColors.accentSoft.withValues(alpha: 0.95),
+            color: context.isHighContrast
+                ? context.elixTextPrimary
+                : context.elixColors.brandSecondary,
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -490,13 +499,9 @@ class _ProfilePageHeader extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
-          child: Text(
-            title,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: context.elixTextPrimary,
-            ),
+          child: ElixEditorialHeader(
+            heading: title,
+            variant: ElixEditorialHeaderVariant.compact,
           ),
         ),
       ],

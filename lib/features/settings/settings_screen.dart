@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../data/models/leaderboard_entry.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
@@ -93,7 +93,9 @@ class SettingsScreen extends StatefulWidget {
     return showDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierColor: const Color(0x99000000),
+      barrierColor: context.isHighContrast
+          ? Colors.black
+          : const Color(0x99000000),
       builder: (_) => SettingsScreen(
         initialSection: initialSection,
         audience: isTeacher
@@ -269,14 +271,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       width: sidebarWidth,
       decoration: BoxDecoration(
-        color: widget.embedded
+        color: widget.embedded && !context.isHighContrast
             ? const Color(0x00000000)
             : context.elixPanelSurface,
         border: Border(
           right: BorderSide(
-            color: context.elixBorder.withValues(
-              alpha: widget.embedded ? 0.35 : 0.5,
-            ),
+            color: context.isHighContrast
+                ? context.elixBorder
+                : context.elixBorder.withValues(
+                    alpha: widget.embedded ? 0.35 : 0.5,
+                  ),
           ),
         ),
       ),
@@ -291,45 +295,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 AppSpacing.lg,
                 AppSpacing.md,
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(settingsRadiusSm),
-                    ),
-                    child: const Icon(
-                      FluentIcons.settings,
-                      size: 16,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm + 2),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Settings',
-                          style: AppTheme.headingMedium.copyWith(
-                            fontSize: 20,
-                            color: context.elixTextPrimary,
+              child: ElixEditorialHeader(
+                heading: 'Settings',
+                subtitle: 'Manage your Elixr experience',
+                variant: ElixEditorialHeaderVariant.compact,
+                leading: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: context.isHighContrast
+                        ? context.elixCardSurface
+                        : context.elixColors.brandPrimary.withValues(
+                            alpha: 0.14,
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Manage your Elixr experience',
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
+                    borderRadius: BorderRadius.circular(settingsRadiusSm),
+                    border: context.isHighContrast
+                        ? Border.all(color: context.elixBorder, width: 2)
+                        : null,
                   ),
-                ],
+                  child: Icon(
+                    FluentIcons.settings,
+                    size: 16,
+                    color: context.elixColors.brandPrimary,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -400,7 +389,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: context.elixBorder.withValues(alpha: 0.4),
+                color: context.isHighContrast
+                    ? context.elixBorder
+                    : context.elixBorder.withValues(alpha: 0.4),
               ),
             ),
           ),
@@ -458,7 +449,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       decoration: AppTheme.cardDecoration(context).copyWith(
         borderRadius: BorderRadius.circular(20),
-        boxShadow: widget.embedded
+        boxShadow: widget.embedded || context.isHighContrast
             ? const []
             : [
                 BoxShadow(

@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/public_profile.dart';
 import '../../leaderboard/leaderboard_presentation.dart';
 import '../../leaderboard/widgets/leaderboard_identity.dart';
@@ -51,11 +53,14 @@ class ProfileHeader extends StatelessWidget {
         vertical: AppSpacing.md + 4,
       ),
       decoration: BoxDecoration(
-        color: context.isDarkTheme
-            ? AppColors.panelSurface
-            : context.elixCardSurface,
+        color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.55),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -120,13 +125,15 @@ class _AvatarBlock extends StatefulWidget {
 
 class _AvatarBlockState extends State<_AvatarBlock> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     const avatarSize = 100.0;
+    final interactive = widget.onEditAvatar != null;
     final avatar = LeaderboardInitialsAvatar(
       initials: LeaderboardPresentation.initialsFor(widget.displayName),
-      accent: AppColors.primary,
+      accent: context.elixColors.brandPrimary,
       size: avatarSize,
       profilePictureUrl: widget.profilePictureUrl,
       equippedBorderId: widget.equippedBorderId,
@@ -139,40 +146,72 @@ class _AvatarBlockState extends State<_AvatarBlock> {
     }
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
+      onEnter: interactive ? (_) => setState(() => _hovered = true) : null,
+      onExit: interactive ? (_) => setState(() => _hovered = false) : null,
+      cursor: interactive ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: Semantics(
-        button: true,
+        button: interactive,
+        enabled: interactive,
         label: 'Edit profile picture',
-        child: Tooltip(
-          message: 'Edit profile picture',
-          child: GestureDetector(
-            onTap: widget.onEditAvatar,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                avatar,
-                AnimatedOpacity(
-                  opacity: _hovered ? 1 : 0,
-                  duration: const Duration(milliseconds: 120),
-                  child: IgnorePointer(
-                    child: Container(
-                      width: avatarSize,
-                      height: avatarSize,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withValues(alpha: 0.42),
-                      ),
-                      child: const Icon(
-                        FluentIcons.camera,
-                        size: 22,
-                        color: Colors.white,
+        onTap: interactive ? widget.onEditAvatar : null,
+        child: Focus(
+          canRequestFocus: interactive,
+          onFocusChange: (value) => setState(() => _focused = value),
+          onKeyEvent: (_, event) {
+            if (interactive &&
+                event is KeyDownEvent &&
+                (event.logicalKey == LogicalKeyboardKey.enter ||
+                    event.logicalKey == LogicalKeyboardKey.space)) {
+              if (interactive) widget.onEditAvatar!();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: Tooltip(
+            message: 'Edit profile picture',
+            child: GestureDetector(
+              onTap: interactive ? widget.onEditAvatar : null,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  avatar,
+                  if (interactive && (_hovered || _focused))
+                    IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: 1,
+                        duration: ElixMotion.duration(
+                          context,
+                          ElixMotion.micro,
+                        ),
+                        child: Container(
+                          width: avatarSize,
+                          height: avatarSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: context.isHighContrast
+                                ? context.elixCardSurface
+                                : Colors.black.withValues(alpha: 0.42),
+                            border: _focused
+                                ? Border.all(
+                                    color: context.elixColors.focusRing,
+                                    width: context.isHighContrast
+                                        ? ElixFocus.ringWidthHighContrast
+                                        : ElixFocus.ringWidth,
+                                  )
+                                : null,
+                          ),
+                          child: Icon(
+                            FluentIcons.camera,
+                            size: 22,
+                            color: context.isHighContrast
+                                ? context.elixTextPrimary
+                                : Colors.white,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -215,16 +254,9 @@ class _IdentityBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-            height: 1.15,
-            color: context.elixTextPrimary,
-          ),
+        ElixEditorialHeader(
+          heading: displayName,
+          variant: ElixEditorialHeaderVariant.compact,
         ),
         if (metaParts.isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -264,9 +296,16 @@ class _TeacherBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: context.elixBackground.withValues(alpha: 0.55),
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixBackground.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.55),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -301,9 +340,16 @@ class _VisibilityBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: context.elixBackground.withValues(alpha: 0.55),
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixBackground.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixBorder.withValues(alpha: 0.55),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

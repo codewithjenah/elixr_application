@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_dialog.dart';
 import '../../../data/models/public_profile.dart';
 import '../../../services/session_service.dart';
 import '../../../data/repositories/public_profile_repository.dart';
@@ -119,25 +120,30 @@ class PrivacySectionState extends State<PrivacySection> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => ContentDialog(
-        title: const Text('Delete saved movement images?'),
-        content: const Text(
-          'Turning this off permanently deletes your saved confirmed-movement '
-          'images. Your session scores and feedback will remain.',
+    final confirmed = await ElixDialog.show<bool>(
+      context,
+      title: 'Delete saved movement images?',
+      icon: FluentIcons.warning,
+      iconColor: context.elixColors.warning,
+      headerAccentColor: context.elixColors.warning,
+      content: Text(
+        'Turning this off permanently deletes your saved confirmed-movement '
+        'images. Your session scores and feedback will remain.',
+        style: AppTheme.body.copyWith(
+          color: context.elixTextSecondary,
+          height: 1.45,
         ),
-        actions: [
-          Button(
-            child: const Text('Keep images'),
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-          ),
-          FilledButton(
-            child: const Text('Delete images and turn off'),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-          ),
-        ],
       ),
+      actions: [
+        Button(
+          child: const Text('Keep images'),
+          onPressed: () => Navigator.of(context).pop(false),
+        ),
+        FilledButton(
+          child: const Text('Delete images and turn off'),
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+      ],
     );
     if (confirmed == true && mounted) await _setEvidenceEnabled(false);
   }

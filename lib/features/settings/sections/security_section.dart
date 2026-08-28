@@ -3,9 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../services/auth_service.dart';
@@ -219,15 +219,22 @@ class SecuritySectionState extends State<SecuritySection> {
                             width: 32,
                             height: 32,
                             decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.14),
+                              color: context.isHighContrast
+                                  ? context.elixCardSurface
+                                  : context.elixColors.brandPrimary.withValues(
+                                      alpha: 0.14,
+                                    ),
                               borderRadius: BorderRadius.circular(
                                 settingsRadiusSm,
                               ),
+                              border: context.isHighContrast
+                                  ? Border.all(color: context.elixBorder)
+                                  : null,
                             ),
-                            child: const Icon(
+                            child: Icon(
                               FluentIcons.lock_solid,
                               size: 16,
-                              color: AppColors.primary,
+                              color: context.elixColors.brandPrimary,
                             ),
                           ),
                           const SizedBox(width: AppSpacing.sm + 4),
@@ -362,15 +369,24 @@ class SecuritySectionState extends State<SecuritySection> {
                           width: 32,
                           height: 32,
                           decoration: BoxDecoration(
-                            color: AppColors.error.withValues(alpha: 0.14),
+                            color: context.isHighContrast
+                                ? context.elixCardSurface
+                                : context.elixColors.error.withValues(
+                                    alpha: 0.14,
+                                  ),
                             borderRadius: BorderRadius.circular(
                               settingsRadiusSm,
                             ),
+                            border: context.isHighContrast
+                                ? Border.all(color: context.elixBorder)
+                                : null,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             FluentIcons.delete,
                             size: 16,
-                            color: AppColors.error,
+                            color: context.isHighContrast
+                                ? context.elixTextPrimary
+                                : context.elixColors.error,
                           ),
                         ),
                         const SizedBox(width: AppSpacing.sm + 4),
@@ -405,10 +421,16 @@ class SecuritySectionState extends State<SecuritySection> {
                           : _confirmAndDeleteAccount,
                       style: ButtonStyle(
                         backgroundColor: WidgetStatePropertyAll(
-                          AppColors.error.withValues(alpha: 0.12),
+                          context.isHighContrast
+                              ? context.elixCardSurface
+                              : context.elixColors.error.withValues(
+                                  alpha: 0.12,
+                                ),
                         ),
-                        foregroundColor: const WidgetStatePropertyAll(
-                          AppColors.error,
+                        foregroundColor: WidgetStatePropertyAll(
+                          context.isHighContrast
+                              ? context.elixTextPrimary
+                              : context.elixColors.error,
                         ),
                       ),
                       child: _deletingAccount
@@ -455,9 +477,16 @@ class _SecurityIntroBanner extends StatelessWidget {
         vertical: AppSpacing.sm + 4,
       ),
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.06),
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixColors.brandPrimary.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(settingsRadiusMd),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+        border: Border.all(
+          color: context.isHighContrast
+              ? context.elixBorder
+              : context.elixColors.brandPrimary.withValues(alpha: 0.18),
+          width: context.isHighContrast ? 2 : 1,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -466,13 +495,18 @@ class _SecurityIntroBanner extends StatelessWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.14),
+              color: context.isHighContrast
+                  ? context.elixCardSurface
+                  : context.elixColors.brandPrimary.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(settingsRadiusSm),
+              border: context.isHighContrast
+                  ? Border.all(color: context.elixBorder)
+                  : null,
             ),
-            child: const Icon(
+            child: Icon(
               FluentIcons.shield_solid,
               size: 16,
-              color: AppColors.primary,
+              color: context.elixColors.brandPrimary,
             ),
           ),
           const SizedBox(width: AppSpacing.sm + 4),
@@ -532,10 +566,11 @@ class _PasswordFieldState extends State<_PasswordField> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
+    final highContrast = context.isHighContrast;
     final statusColor = widget.statusIsSuccess == true
-        ? AppColors.success
+        ? context.elixColors.success
         : widget.statusIsSuccess == false
-        ? AppColors.warning
+        ? context.elixColors.warning
         : context.elixTextSecondary;
 
     return Column(
@@ -549,17 +584,26 @@ class _PasswordFieldState extends State<_PasswordField> {
         Focus(
           onFocusChange: (value) => setState(() => _focused = value),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
+            duration: ElixMotion.duration(context, ElixMotion.standard),
             curve: Curves.easeOut,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
-              color: isDark
+              color: highContrast
+                  ? context.elixCardSurface
+                  : isDark
                   ? Colors.white.withValues(alpha: _focused ? 0.05 : 0.025)
                   : Colors.black.withValues(alpha: _focused ? 0.025 : 0.015),
               border: Border.all(
-                color: _focused
-                    ? AppColors.primary.withValues(alpha: 0.55)
+                color: highContrast
+                    ? (_focused
+                          ? context.elixColors.focusRing
+                          : context.elixBorder)
+                    : _focused
+                    ? context.elixColors.brandPrimary.withValues(alpha: 0.55)
                     : context.elixBorder.withValues(alpha: isDark ? 0.55 : 0.8),
+                width: highContrast && _focused
+                    ? ElixFocus.ringWidthHighContrast
+                    : 1,
               ),
             ),
             child: TextBox(
@@ -574,8 +618,8 @@ class _PasswordFieldState extends State<_PasswordField> {
                 padding: const EdgeInsets.only(left: AppSpacing.sm + 2),
                 child: Icon(
                   widget.icon,
-                  color: _focused
-                      ? AppColors.primary
+                  color: _focused && !highContrast
+                      ? context.elixColors.brandPrimary
                       : context.elixTextSecondary,
                   size: 16,
                 ),
@@ -633,7 +677,9 @@ class _PasswordRequirement extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = met
-        ? AppColors.success
+        ? context.elixColors.success
+        : context.isHighContrast
+        ? context.elixTextPrimary
         : context.elixTextSecondary.withValues(alpha: 0.85);
 
     return Row(
@@ -679,7 +725,9 @@ class _DeleteAccountConfirm {
     final phrase = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      barrierColor: const Color(0xCC000000),
+      barrierColor: context.isHighContrast
+          ? Colors.black
+          : const Color(0xCC000000),
       builder: (ctx) => Center(child: _DeleteAccountDialog(email: email)),
     );
     if (phrase == null || !context.mounted) return null;
@@ -691,7 +739,9 @@ class _DeleteAccountConfirm {
     final password = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      barrierColor: const Color(0xCC000000),
+      barrierColor: context.isHighContrast
+          ? Colors.black
+          : const Color(0xCC000000),
       builder: (ctx) => Center(child: _DeletePasswordDialog(email: email)),
     );
     if (password == null) return null;
@@ -792,31 +842,32 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       );
     }
     if (phrase != _requiredPhrase) {
-      return const _DeleteInputStatus(
+      return _DeleteInputStatus(
         key: ValueKey('delete-phrase-mismatch'),
         icon: FluentIcons.status_error_full,
         message:
             "Doesn't match yet. Check for missing words, spaces, or an email typo.",
-        color: AppColors.error,
+        color: context.elixColors.error,
       );
     }
-    return const _DeleteInputStatus(
+    return _DeleteInputStatus(
       key: ValueKey('delete-phrase-match'),
       icon: FluentIcons.check_mark,
       message: 'Phrase matches.',
-      color: AppColors.success,
+      color: context.elixColors.success,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return ElixDialog(
       key: const ValueKey('delete-phrase-dialog'),
       title: 'Delete account permanently?',
       subtitle: 'This cannot be undone',
       icon: FluentIcons.delete,
-      iconColor: AppColors.error,
-      headerAccentColor: AppColors.error,
+      iconColor: context.elixColors.error,
+      headerAccentColor: context.elixColors.error,
       maxWidth: 620,
       maxHeight: MediaQuery.sizeOf(context).height - (AppSpacing.lg * 2),
       content: Column(
@@ -862,10 +913,15 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             width: double.infinity,
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: AppColors.error.withValues(alpha: 0.08),
+              color: highContrast
+                  ? context.elixCardSurface
+                  : context.elixColors.error.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: AppColors.error.withValues(alpha: 0.28),
+                color: highContrast
+                    ? context.elixBorder
+                    : context.elixColors.error.withValues(alpha: 0.28),
+                width: highContrast ? 2 : 1,
               ),
             ),
             child: Column(
@@ -874,7 +930,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 Text(
                   'TYPE THIS EXACTLY',
                   style: AppTheme.caption.copyWith(
-                    color: AppColors.error,
+                    color: highContrast
+                        ? context.elixTextPrimary
+                        : context.elixColors.error,
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1.2,
@@ -984,12 +1042,13 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return ElixDialog(
       title: 'Confirm your identity',
       subtitle: 'Step 2 of 2 · Final security check',
       icon: FluentIcons.lock,
-      iconColor: AppColors.error,
-      headerAccentColor: AppColors.error,
+      iconColor: context.elixColors.error,
+      headerAccentColor: context.elixColors.error,
       maxWidth: 440,
       maxHeight: 560,
       scrollableContent: true,
@@ -1001,21 +1060,28 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
             width: double.infinity,
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: AppColors.error.withValues(alpha: 0.07),
+              color: highContrast
+                  ? context.elixCardSurface
+                  : context.elixColors.error.withValues(alpha: 0.07),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: AppColors.error.withValues(alpha: 0.22),
+                color: highContrast
+                    ? context.elixBorder
+                    : context.elixColors.error.withValues(alpha: 0.22),
+                width: highContrast ? 2 : 1,
               ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(top: 2),
                   child: Icon(
                     FluentIcons.warning,
                     size: 16,
-                    color: AppColors.error,
+                    color: highContrast
+                        ? context.elixTextPrimary
+                        : context.elixColors.error,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),

@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
@@ -201,7 +200,7 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
   bool _hovered = false;
   bool _focused = false;
 
-  static const _duration = Duration(milliseconds: 150);
+  static const _duration = ElixMotion.micro;
 
   @override
   Widget build(BuildContext context) {
@@ -218,8 +217,10 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
       ),
       child: Semantics(
         button: true,
+        enabled: true,
         selected: selected,
         label: widget.label,
+        onTap: widget.onTap,
         child: Focus(
           onFocusChange: (value) => setState(() => _focused = value),
           onKeyEvent: (node, event) {
@@ -246,7 +247,9 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                   vertical: AppSpacing.sm,
                 ),
                 decoration: BoxDecoration(
-                  color: selected
+                  color: context.isHighContrast
+                      ? context.elixCardSurface
+                      : selected
                       ? context.elixColors.brandPrimary.withValues(alpha: 0.08)
                       : _hovered
                       ? (isDark
@@ -254,6 +257,14 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                             : Colors.black.withValues(alpha: 0.03))
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
+                  border: _focused
+                      ? Border.all(
+                          color: context.elixColors.focusRing,
+                          width: context.isHighContrast
+                              ? ElixFocus.ringWidthHighContrast
+                              : ElixFocus.ringWidth,
+                        )
+                      : null,
                 ),
                 child: Row(
                   children: [
@@ -273,12 +284,17 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                       width: 28,
                       height: 28,
                       decoration: BoxDecoration(
-                        color: selected
+                        color: context.isHighContrast
+                            ? context.elixCardSurface
+                            : selected
                             ? context.elixColors.brandPrimary.withValues(
                                 alpha: 0.16,
                               )
                             : context.elixBorder.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(settingsRadiusSm),
+                        border: context.isHighContrast
+                            ? Border.all(color: context.elixBorder)
+                            : null,
                       ),
                       child: Icon(
                         widget.icon,
@@ -392,39 +408,34 @@ class SettingsDiscardConfirm {
     BuildContext context, {
     String message = 'You have unsaved changes. Discard them and close?',
   }) async {
-    final result = await showDialog<bool>(
-      context: context,
+    final result = await ElixDialog.show<bool>(
+      context,
+      title: 'Discard unsaved changes?',
+      subtitle: 'Your edits will be lost',
+      icon: FluentIcons.warning,
+      iconColor: context.elixColors.warning,
+      headerAccentColor: context.elixColors.warning,
+      maxWidth: 420,
       barrierDismissible: false,
-      barrierColor: const Color(0xCC000000),
-      builder: (ctx) => Center(
-        child: ElixDialog(
-          title: 'Discard unsaved changes?',
-          subtitle: 'Your edits will be lost',
-          icon: FluentIcons.warning,
-          iconColor: AppColors.warning,
-          headerAccentColor: AppColors.warning,
-          maxWidth: 420,
-          content: Text(
-            message,
-            style: AppTheme.body.copyWith(
-              fontSize: 14,
-              color: ctx.elixTextSecondary,
-              height: 1.45,
-            ),
-          ),
-          actions: [
-            Button(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElixPrimaryButton(
-              label: 'Discard',
-              expanded: false,
-              onPressed: () => Navigator.of(ctx).pop(true),
-            ),
-          ],
+      content: Text(
+        message,
+        style: AppTheme.body.copyWith(
+          fontSize: 14,
+          color: context.elixTextSecondary,
+          height: 1.45,
         ),
       ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        ElixPrimaryButton(
+          label: 'Discard',
+          expanded: false,
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+      ],
     );
     return result == true;
   }

@@ -32,14 +32,23 @@ class ProfileStatsSection extends StatelessWidget {
       summary?.totalDurationSeconds ?? 0,
     );
 
+    final milestone = context.elixColors.milestone;
     final tiles = [
-      _StatData(label: 'Rank', value: rankLabel),
+      _StatData(
+        label: 'Rank',
+        value: rankLabel,
+        valueColor: rank == 1 ? milestone : null,
+      ),
       _StatData(label: 'Sessions', value: '${entry.sessionsCompleted}'),
       _StatData(
         label: 'Average Score',
         value: entry.averageScore.toStringAsFixed(0),
       ),
-      _StatData(label: 'Best Score', value: '${entry.bestScore}'),
+      _StatData(
+        label: 'Best Score',
+        value: '${entry.bestScore}',
+        valueColor: entry.bestScore > 0 ? milestone : null,
+      ),
       _StatData(label: 'Practice Time', value: practiceTime),
     ];
 
@@ -63,7 +72,11 @@ class ProfileStatsSection extends StatelessWidget {
               for (final tile in tiles)
                 SizedBox(
                   width: tileWidth,
-                  child: _StatTile(label: tile.label, value: tile.value),
+                  child: _StatTile(
+                    label: tile.label,
+                    value: tile.value,
+                    valueColor: tile.valueColor,
+                  ),
                 ),
             ],
           );
@@ -74,17 +87,19 @@ class ProfileStatsSection extends StatelessWidget {
 }
 
 class _StatData {
-  const _StatData({required this.label, required this.value});
+  const _StatData({required this.label, required this.value, this.valueColor});
 
   final String label;
   final String value;
+  final Color? valueColor;
 }
 
 class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value});
+  const _StatTile({required this.label, required this.value, this.valueColor});
 
   final String label;
   final String value;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -114,12 +129,10 @@ class _StatTile extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-              color: context.elixTextPrimary,
-            ),
+            style: AppTheme.metric(
+              context,
+              color: valueColor ?? context.elixTextPrimary,
+            ).copyWith(fontSize: 20, height: 1.1),
           ),
         ],
       ),
