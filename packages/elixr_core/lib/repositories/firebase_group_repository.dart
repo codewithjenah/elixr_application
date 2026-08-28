@@ -534,6 +534,30 @@ class FirebaseGroupRepository implements GroupRepository {
     });
   }
 
+  @override
+  Future<void> leaveMembership({
+    required String membershipId,
+    required String traineeId,
+  }) async {
+    final ref = _memberships.doc(membershipId);
+    final snapshot = await ref.get();
+    final membership = snapshot.exists
+        ? GroupMembership.tryFromMap(
+            snapshot.data() ?? const {},
+            id: membershipId,
+          )
+        : null;
+    if (membership == null ||
+        membership.traineeId != traineeId ||
+        membership.status != GroupMembershipStatus.approved) {
+      throw const GroupException(GroupError.notFound);
+    }
+    await ref.update({
+      'status': GroupMembershipStatus.removed.name,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> _updateStatus({
     required String membershipId,
     required String teacherId,

@@ -104,4 +104,13 @@ abstract class GroupRepository {
     required String membershipId,
     required String traineeId,
   });
+
+  /// Lets an approved Trainee leave their own class membership.
+  ///
+  /// The membership is retained as `removed` so the Trainee can request to
+  /// join again later using a current class code.
+  Future<void> leaveMembership({
+    required String membershipId,
+    required String traineeId,
+  });
 }

@@ -1,4 +1,5 @@
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
@@ -20,6 +22,7 @@ import 'trainee_class_card.dart';
 
 const double _accessWideBreakpoint = 1080;
 const double _accessCompactBreakpoint = 760;
+const double _accessControlsBreakpoint = 1180;
 
 /// Reusable Teacher Access body hosted by the trainee shell destination.
 class TeacherAccessSection extends StatefulWidget {
@@ -147,17 +150,17 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                   ],
-                  _JoinTeacherCard(controller: controller, compact: compact),
-                  const SizedBox(height: AppSpacing.lg),
-                  _PendingJoinsCard(controller: controller),
+                  _AccessControls(
+                    controller: controller,
+                    compact: compact,
+                    sideBySide: width >= _accessControlsBreakpoint,
+                  ),
                   const SizedBox(height: AppSpacing.lg),
                   if (controller.approvedGroupMemberships.isEmpty) ...[
                     const _EmptyClassesCard(),
                     const SizedBox(height: AppSpacing.lg),
                   ] else ...[
-                    _ClassesHeading(
-                      count: controller.approvedGroupMemberships.length,
-                    ),
+                    const _ClassesHeading(),
                     const SizedBox(height: AppSpacing.md),
                     _ApprovedClassesGrid(
                       controller: controller,
@@ -172,6 +175,43 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
           },
         );
       },
+    );
+  }
+}
+
+class _AccessControls extends StatelessWidget {
+  const _AccessControls({
+    required this.controller,
+    required this.compact,
+    required this.sideBySide,
+  });
+
+  final TeacherAccessController controller;
+  final bool compact;
+  final bool sideBySide;
+
+  @override
+  Widget build(BuildContext context) {
+    final join = _JoinTeacherCard(controller: controller, compact: compact);
+    final pending = _PendingJoinsCard(controller: controller);
+
+    if (!sideBySide) {
+      return Column(
+        children: [
+          join,
+          const SizedBox(height: AppSpacing.md),
+          pending,
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: join),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(child: pending),
+      ],
     );
   }
 }
@@ -269,69 +309,265 @@ class _JoinTeacherCardState extends State<_JoinTeacherCard> {
 
   @override
   Widget build(BuildContext context) {
-    return ElixPanelCard(
-      showAccentBar: true,
+    return _AccessAccordionCard(
+      key: const Key('teacher_access_join_card'),
+      toggleKey: const Key('teacher_access_join_toggle'),
+      title: 'Join a class',
+      subtitle: 'Enter the code shared by your teacher',
+      icon: FluentIcons.add_friend,
       accent: AppColors.primary,
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: _JoinCardBody(
+        controller: controller,
+        textController: _textController,
+        compact: widget.compact,
+      ),
+    );
+  }
+}
+
+class _AccessAccordionCard extends StatefulWidget {
+  const _AccessAccordionCard({
+    super.key,
+    required this.toggleKey,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.child,
+  });
+
+  final Key toggleKey;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final Widget child;
+
+  @override
+  State<_AccessAccordionCard> createState() => _AccessAccordionCardState();
+}
+
+class _AccessAccordionCardState extends State<_AccessAccordionCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _expandAnimation;
+  bool _expanded = false;
+  bool _focused = false;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _expandAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    if (!_expanded) FocusScope.of(context).unfocus();
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      _controller.value = _expanded ? 1 : 0;
+    } else if (_expanded) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    return ElixPanelCard(
+      padding: EdgeInsets.zero,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(14),
+          Semantics(
+            button: true,
+            expanded: _expanded,
+            label: '${_expanded ? 'Collapse' : 'Expand'} ${widget.title}',
+            child: FocusableActionDetector(
+              onShowFocusHighlight: (focused) {
+                setState(() => _focused = focused);
+              },
+              actions: <Type, Action<Intent>>{
+                ActivateIntent: CallbackAction<ActivateIntent>(
+                  onInvoke: (_) {
+                    _toggle();
+                    return null;
+                  },
                 ),
-                child: const Icon(
-                  FluentIcons.add_friend,
-                  color: AppColors.primary,
-                  size: 20,
+              },
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                onEnter: (_) => setState(() => _hovered = true),
+                onExit: (_) => setState(() => _hovered = false),
+                child: GestureDetector(
+                  key: widget.toggleKey,
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggle,
+                  child: AnimatedContainer(
+                    duration: reduceMotion
+                        ? Duration.zero
+                        : ElixMotion.standard,
+                    constraints: const BoxConstraints(minHeight: 76),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: 13,
+                    ),
+                    decoration: BoxDecoration(
+                      color: highContrast
+                          ? context.elixCardSurface
+                          : widget.accent.withValues(
+                              alpha: _expanded ? 0.075 : (_hovered ? 0.04 : 0),
+                            ),
+                      borderRadius: BorderRadius.vertical(
+                        top: const Radius.circular(15),
+                        bottom: Radius.circular(_expanded ? 0 : 15),
+                      ),
+                      border: _focused
+                          ? Border.all(
+                              color: context.elixColors.focusRing,
+                              width: highContrast
+                                  ? ElixFocus.ringWidthHighContrast
+                                  : ElixFocus.ringWidth,
+                            )
+                          : null,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: widget.accent,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: widget.accent.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Icon(
+                            widget.icon,
+                            color: widget.accent,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.title,
+                                style: AppTheme.headingMedium.copyWith(
+                                  fontSize: 16,
+                                  color: context.elixTextPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.caption.copyWith(
+                                  color: context.elixTextSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        AnimatedRotation(
+                          turns: _expanded ? 0.5 : 0,
+                          duration: reduceMotion
+                              ? Duration.zero
+                              : const Duration(milliseconds: 220),
+                          curve: Curves.easeInOutCubic,
+                          child: Icon(
+                            FluentIcons.chevron_down,
+                            size: 14,
+                            color: context.elixTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Join a class',
-                      style: AppTheme.headingMedium.copyWith(
-                        fontSize: 18,
-                        color: context.elixTextPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      controller.joinStep == JoinTeacherStep.enterCode
-                          ? 'Type the class code your teacher gave you.'
-                          : 'Send a join request? Your teacher needs to accept '
-                                'you before you can see this class.',
-                      style: AppTheme.bodySecondary.copyWith(
-                        color: context.elixTextSecondary,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: AppSpacing.lg),
-          if (controller.joinStep == JoinTeacherStep.enterCode)
-            _JoinCodeEntry(
-              controller: controller,
-              textController: _textController,
-              compact: widget.compact,
-            )
-          else
-            _JoinConfirmActions(controller: controller),
+          ClipRect(
+            child: SizeTransition(
+              sizeFactor: _expandAnimation,
+              alignment: Alignment.topCenter,
+              child: ExcludeSemantics(
+                excluding: !_expanded,
+                child: IgnorePointer(
+                  ignoring: !_expanded,
+                  child: Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(minHeight: 64),
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        top: BorderSide(
+                          color: context.elixBorder.withValues(alpha: 0.65),
+                        ),
+                      ),
+                    ),
+                    child: widget.child,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+}
+
+class _JoinCardBody extends StatelessWidget {
+  const _JoinCardBody({
+    required this.controller,
+    required this.textController,
+    required this.compact,
+  });
+
+  final TeacherAccessController controller;
+  final TextEditingController textController;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return controller.joinStep == JoinTeacherStep.enterCode
+        ? _JoinCodeEntry(
+            controller: controller,
+            textController: textController,
+            compact: compact,
+          )
+        : _JoinConfirmActions(controller: controller);
   }
 }
 
@@ -484,10 +720,15 @@ class _PendingJoinsCard extends StatelessWidget {
         ),
       );
     }
-    return _AccessSectionPanel(
+    return _AccessAccordionCard(
+      key: const Key('teacher_access_pending_card'),
+      toggleKey: const Key('teacher_access_pending_toggle'),
       title: 'Waiting to join',
+      subtitle: groups.isEmpty
+          ? 'No requests awaiting teacher approval'
+          : '${groups.length} ${groups.length == 1 ? 'request' : 'requests'} awaiting approval',
       icon: FluentIcons.inbox,
-      count: controller.pendingJoinCount,
+      accent: AppColors.accent,
       child: rows.isEmpty
           ? const _EmptyHint(
               key: Key('teacher_access_pending_empty'),
@@ -506,7 +747,6 @@ class _EmptyClassesCard extends StatelessWidget {
     return const _AccessSectionPanel(
       title: 'Your classes',
       icon: FluentIcons.completed,
-      count: 0,
       child: _EmptyHint(
         message: 'You are not in a class yet. Join with a class code above.',
       ),
@@ -515,16 +755,11 @@ class _EmptyClassesCard extends StatelessWidget {
 }
 
 class _ClassesHeading extends StatelessWidget {
-  const _ClassesHeading({required this.count});
-
-  final int count;
+  const _ClassesHeading();
 
   @override
   Widget build(BuildContext context) {
-    return ElixSectionHeader(
-      heading: 'Your classes',
-      actions: [ElixPill(text: '$count', color: AppColors.accent)],
-    );
+    return const ElixSectionHeader(heading: 'Your classes');
   }
 }
 
@@ -584,6 +819,19 @@ class _ApprovedClassesGrid extends StatelessWidget {
                             text: const Text('Open class'),
                             onPressed: () => openClass(membership.groupId),
                           ),
+                          MenuFlyoutItem(
+                            key: Key(
+                              'teacher_access_leave_group_${membership.id}',
+                            ),
+                            text: const Text('Leave class'),
+                            onPressed: controller.busy
+                                ? null
+                                : () => _confirmLeaveClass(
+                                    context,
+                                    controller,
+                                    membership,
+                                  ),
+                          ),
                         ],
                 ),
               ),
@@ -599,13 +847,11 @@ class _AccessSectionPanel extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.child,
-    this.count,
   });
 
   final String title;
   final IconData icon;
   final Widget child;
-  final int? count;
 
   @override
   Widget build(BuildContext context) {
@@ -629,8 +875,6 @@ class _AccessSectionPanel extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (count != null)
-                  ElixPill(text: '$count', color: AppColors.accent),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
@@ -711,6 +955,37 @@ class _AccessListRow extends StatelessWidget {
 String _formatTime(DateTime? value) {
   if (value == null) return 'recently';
   return DateFormat.yMMMd().add_jm().format(value.toLocal());
+}
+
+Future<void> _confirmLeaveClass(
+  BuildContext context,
+  TeacherAccessController controller,
+  GroupMembership membership,
+) async {
+  final className =
+      controller.groupNamesById[membership.groupId]?.name ?? 'this class';
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: Text('Leave $className?'),
+      content: const Text(
+        'You will no longer see this class or its assignments. You can ask '
+        'to join again later with a current class code.',
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          key: const Key('teacher_access_confirm_leave'),
+          child: const Text('Leave class'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.leaveApprovedGroup(membership);
 }
 
 T? _maybeRead<T>(BuildContext context) {

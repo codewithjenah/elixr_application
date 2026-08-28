@@ -433,4 +433,10 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
     required String membershipId,
     required String traineeId,
   }) => throw UnimplementedError();
+
+  @override
+  Future<void> leaveMembership({
+    required String membershipId,
+    required String traineeId,
+  }) => throw UnimplementedError();
 }

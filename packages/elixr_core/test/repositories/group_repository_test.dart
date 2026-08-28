@@ -161,6 +161,42 @@ void main() {
     expect(second.isPending, isTrue);
   });
 
+  test('approved Trainee can leave and request to rejoin a class', () async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = (await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    ))!;
+    final membership = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite.normalizedCode,
+    );
+    await groupRepository.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+
+    await groupRepository.leaveMembership(
+      membershipId: membership.id,
+      traineeId: 'trainee-1',
+    );
+    expect(
+      groupRepository.memberships[membership.id]?.status,
+      GroupMembershipStatus.removed,
+    );
+
+    final rejoin = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite.normalizedCode,
+    );
+    expect(rejoin.isPending, isTrue);
+  });
+
   test('removal does not modify teacher_student_links consents', () async {
     await relationshipRepository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',

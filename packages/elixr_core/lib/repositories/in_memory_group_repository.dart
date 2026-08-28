@@ -468,6 +468,18 @@ class InMemoryGroupRepository implements GroupRepository {
     to: GroupMembershipStatus.cancelled,
   );
 
+  @override
+  Future<void> leaveMembership({
+    required String membershipId,
+    required String traineeId,
+  }) => _transition(
+    membershipId: membershipId,
+    participantId: traineeId,
+    teacherOwned: false,
+    from: GroupMembershipStatus.approved,
+    to: GroupMembershipStatus.removed,
+  );
+
   Future<void> _transition({
     required String membershipId,
     required String participantId,

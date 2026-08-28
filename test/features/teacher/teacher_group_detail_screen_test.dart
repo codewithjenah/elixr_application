@@ -130,6 +130,7 @@ void main() {
       find.byKey(Key('teacher_group_remove_${approved.id}')),
       findsOneWidget,
     );
+    expect(find.text('Remove from class'), findsOneWidget);
   });
 
   testWidgets('back returns to the groups card grid', (tester) async {

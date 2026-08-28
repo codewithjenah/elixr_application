@@ -519,4 +519,10 @@ class _ControllableGroupRepository implements GroupRepository {
     required String traineeId,
   }) =>
       inner.cancelMembership(membershipId: membershipId, traineeId: traineeId);
+
+  @override
+  Future<void> leaveMembership({
+    required String membershipId,
+    required String traineeId,
+  }) => inner.leaveMembership(membershipId: membershipId, traineeId: traineeId);
 }

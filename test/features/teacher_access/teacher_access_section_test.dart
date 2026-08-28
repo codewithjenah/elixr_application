@@ -101,6 +101,8 @@ void main() {
       groupRepository: groupRepository,
       joinCodeResolver: joinCodeResolver,
     );
+    await tester.tap(find.byKey(const Key('teacher_access_join_toggle')));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('teacher_access_roster_code')),
       invite!.displayCode,
@@ -244,6 +246,47 @@ void main() {
         find.byKey(const Key('teacher_access_roster_code')),
         findsOneWidget,
       );
+
+      final joinCard = tester.getRect(
+        find.byKey(const Key('teacher_access_join_card')),
+      );
+      final pendingCard = tester.getRect(
+        find.byKey(const Key('teacher_access_pending_card')),
+      );
+      expect(pendingCard.top, joinCard.top);
+      expect(pendingCard.left, greaterThan(joinCard.right));
+      expect(pendingCard.width, joinCard.width);
+      expect(pendingCard.height, joinCard.height);
+      expect(joinCard.height, lessThan(140));
+      expect(pendingCard.height, lessThan(140));
+
+      await tester.tap(find.byKey(const Key('teacher_access_join_toggle')));
+      await tester.pumpAndSettle();
+      final expandedJoinCard = tester.getRect(
+        find.byKey(const Key('teacher_access_join_card')),
+      );
+      expect(expandedJoinCard.height, greaterThan(joinCard.height));
+
+      await tester.tap(find.byKey(const Key('teacher_access_join_toggle')));
+      await tester.pumpAndSettle();
+      final collapsedJoinCard = tester.getRect(
+        find.byKey(const Key('teacher_access_join_card')),
+      );
+      expect(collapsedJoinCard.height, joinCard.height);
+
+      await tester.tap(find.byKey(const Key('teacher_access_pending_toggle')));
+      await tester.pumpAndSettle();
+      final expandedPendingCard = tester.getRect(
+        find.byKey(const Key('teacher_access_pending_card')),
+      );
+      expect(expandedPendingCard.height, greaterThan(pendingCard.height));
+
+      await tester.tap(find.byKey(const Key('teacher_access_pending_toggle')));
+      await tester.pumpAndSettle();
+      final collapsedPendingCard = tester.getRect(
+        find.byKey(const Key('teacher_access_pending_card')),
+      );
+      expect(collapsedPendingCard.height, pendingCard.height);
     },
   );
 
@@ -358,5 +401,55 @@ void main() {
     await tester.tap(find.byKey(Key('teacher_access_group_${groupA.id}')));
     await tester.pump();
     expect(openedGroupId, groupA.id);
+  });
+
+  testWidgets('Trainee can leave an approved class from its card menu', (
+    tester,
+  ) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    final membership = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await groupRepository.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+      onOpenClass: (_) {},
+    );
+
+    await tester.tap(find.byKey(Key('class_card_more_${group.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(Key('teacher_access_leave_group_${membership.id}')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Leave BSHM 4A?'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('teacher_access_confirm_leave')));
+    await tester.pumpAndSettle();
+
+    expect(
+      groupRepository.memberships[membership.id]?.status,
+      GroupMembershipStatus.removed,
+    );
+    expect(
+      find.byKey(Key('teacher_access_group_${group.id}')),
+      findsNothing,
+    );
   });
 }

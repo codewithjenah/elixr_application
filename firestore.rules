@@ -2712,6 +2712,9 @@ service cloud.firestore {
           (resource.data.status == 'pending'
             && request.resource.data.status == 'cancelled'
             && membershipIdentitySnapshotsUnchanged())
+          || (resource.data.status == 'approved'
+            && request.resource.data.status == 'removed'
+            && membershipIdentitySnapshotsUnchanged())
           || (resource.data.status != 'approved'
             && (resource.data.status != 'pending'
               || resource.data.get('request_version', 0) != 1)

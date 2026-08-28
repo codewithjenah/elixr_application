@@ -294,7 +294,7 @@ class _GroupDetailBody extends StatelessWidget {
             onPressed: controller.busy
                 ? null
                 : () => _confirmRemoveMember(context, controller, membership),
-            child: const Text('Remove'),
+            child: const Text('Remove from class'),
           ),
         ),
       ],
@@ -497,7 +497,7 @@ Future<void> _confirmRemoveMember(
           onPressed: () => Navigator.pop(context, false),
         ),
         FilledButton(
-          child: const Text('Remove member'),
+          child: const Text('Remove from class'),
           onPressed: () => Navigator.pop(context, true),
         ),
       ],

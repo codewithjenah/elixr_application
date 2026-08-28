@@ -238,6 +238,17 @@ class _SpyGroupRepository implements GroupRepository {
       traineeId: traineeId,
     );
   }
+
+  @override
+  Future<void> leaveMembership({
+    required String membershipId,
+    required String traineeId,
+  }) {
+    return inner.leaveMembership(
+      membershipId: membershipId,
+      traineeId: traineeId,
+    );
+  }
 }
 
 void main() {

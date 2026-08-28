@@ -195,6 +195,19 @@ class TeacherAccessController extends ChangeNotifier {
         .toList();
   }, 'Could not cancel that group request.');
 
+  Future<void> leaveApprovedGroup(GroupMembership membership) => _run(() async {
+    await groupRepository.leaveMembership(
+      membershipId: membership.id,
+      traineeId: traineeId,
+    );
+    approvedGroupMemberships = approvedGroupMemberships
+        .where((item) => item.id != membership.id)
+        .toList();
+    groupNamesById.remove(membership.groupId);
+    assignmentsByGroupId = {...assignmentsByGroupId}
+      ..remove(membership.groupId);
+  }, 'Could not leave this class.');
+
   Future<void> _run(Future<void> Function() action, String failure) async {
     if (busy) return;
     busy = true;
