@@ -91,7 +91,26 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
       animation: controller,
       builder: (context, _) {
         return ElixScaffoldPage(
-          header: ElixEditorialPageHeader(
+          content: _ClassDetailBody(controller: controller),
+        );
+      },
+    );
+  }
+}
+
+class _ClassDetailBody extends StatelessWidget {
+  const _ClassDetailBody({required this.controller});
+
+  final TraineeClassDetailController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      key: const Key('teacher_access_class_page_scroll'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ElixEditorialPageHeader(
             heading: controller.className,
             eyebrow: 'CLASSROOM',
             subtitle: 'Review assignments and activity for this class.',
@@ -108,92 +127,73 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
               ],
             ),
           ),
-          content: _ClassDetailBody(controller: controller),
-        );
-      },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: _buildPageContent(),
+          ),
+        ],
+      ),
     );
   }
-}
 
-class _ClassDetailBody extends StatelessWidget {
-  const _ClassDetailBody({required this.controller});
-
-  final TraineeClassDetailController controller;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildPageContent() {
     if (controller.loading) {
       return const Center(child: ProgressRing());
     }
     if (controller.unauthorized) {
-      return const Padding(
-        padding: EdgeInsets.all(AppSpacing.lg),
-        child: ElixStatusPanel(
-          key: Key('teacher_access_class_unauthorized'),
-          message:
-              'This class is not available. You need an approved membership '
-              'to open it.',
-          isError: true,
-        ),
+      return const ElixStatusPanel(
+        key: Key('teacher_access_class_unauthorized'),
+        message:
+            'This class is not available. You need an approved membership '
+            'to open it.',
+        isError: true,
       );
     }
     if (controller.errorMessage != null &&
         controller.classmates.isEmpty &&
         (controller.assignments?.items.isEmpty ?? true)) {
-      return Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: ElixStatusPanel(
-          message: controller.errorMessage!,
-          isError: true,
-        ),
-      );
+      return ElixStatusPanel(message: controller.errorMessage!, isError: true);
     }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TraineeClassHeroBanner(
-            groupId: controller.groupId,
-            title: controller.className,
-            subtitle: controller.teacherDisplayName,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              _ClassDetailTab(
-                key: const Key('teacher_access_class_tab_classwork'),
-                label: 'Classwork',
-                icon: FluentIcons.education,
-                selected: controller.tab == TraineeClassDetailTab.classwork,
-                onPressed: () =>
-                    controller.setTab(TraineeClassDetailTab.classwork),
-              ),
-              _ClassDetailTab(
-                key: const Key('teacher_access_class_tab_people'),
-                label: 'People',
-                icon: FluentIcons.people,
-                selected: controller.tab == TraineeClassDetailTab.people,
-                onPressed: () =>
-                    controller.setTab(TraineeClassDetailTab.people),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          if (controller.errorMessage != null) ...[
-            ElixStatusPanel(message: controller.errorMessage!, isError: true),
-            const SizedBox(height: AppSpacing.md),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TraineeClassHeroBanner(
+          groupId: controller.groupId,
+          title: controller.className,
+          subtitle: controller.teacherDisplayName,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            _ClassDetailTab(
+              key: const Key('teacher_access_class_tab_classwork'),
+              label: 'Classwork',
+              icon: FluentIcons.education,
+              selected: controller.tab == TraineeClassDetailTab.classwork,
+              onPressed: () =>
+                  controller.setTab(TraineeClassDetailTab.classwork),
+            ),
+            _ClassDetailTab(
+              key: const Key('teacher_access_class_tab_people'),
+              label: 'People',
+              icon: FluentIcons.people,
+              selected: controller.tab == TraineeClassDetailTab.people,
+              onPressed: () => controller.setTab(TraineeClassDetailTab.people),
+            ),
           ],
-          Expanded(
-            child: controller.tab == TraineeClassDetailTab.classwork
-                ? _ClassworkPane(controller: controller)
-                : _PeoplePane(controller: controller),
-          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        if (controller.errorMessage != null) ...[
+          ElixStatusPanel(message: controller.errorMessage!, isError: true),
+          const SizedBox(height: AppSpacing.md),
         ],
-      ),
+        controller.tab == TraineeClassDetailTab.classwork
+            ? _ClassworkPane(controller: controller)
+            : _PeoplePane(controller: controller),
+      ],
     );
   }
 }
@@ -231,7 +231,10 @@ class _ClassworkPane extends StatelessWidget {
         ),
       );
     }
-    return AssignedMovementList(items: assignments.items, showGroupName: false);
+    return AssignedMovementContent(
+      items: assignments.items,
+      showGroupName: false,
+    );
   }
 }
 
@@ -256,70 +259,74 @@ class _PeoplePane extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      itemCount: controller.classmates.length,
-      separatorBuilder: (context, index) =>
-          const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final member = controller.classmates[index];
-        final isYou = member.traineeId == controller.traineeId;
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: context.elixCardSurface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isYou
-                  ? AppColors.primary.withValues(
-                      alpha: context.isHighContrast ? 1 : 0.35,
-                    )
-                  : context.elixBorder.withValues(alpha: 0.7),
-            ),
-          ),
-          child: Row(
-            children: [
-              ProfileAvatarWidget(
-                key: Key(
-                  'teacher_access_classmate_avatar_'
-                  '${controller.groupId}_${member.traineeId}',
+    return Column(
+      children: [
+        for (var index = 0; index < controller.classmates.length; index++) ...[
+          if (index > 0) const SizedBox(height: AppSpacing.sm),
+          Builder(
+            builder: (context) {
+              final member = controller.classmates[index];
+              final isYou = member.traineeId == controller.traineeId;
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: context.elixCardSurface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isYou
+                        ? AppColors.primary.withValues(
+                            alpha: context.isHighContrast ? 1 : 0.35,
+                          )
+                        : context.elixBorder.withValues(alpha: 0.7),
+                  ),
                 ),
-                radius: 18,
-                showBorder: false,
-                initials: userInitials(member.traineeDisplayName),
-                networkImageUrl: controller.profilePictureUrlFor(
-                  member.traineeId,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      isYou
-                          ? '${member.traineeDisplayName} (you)'
-                          : member.traineeDisplayName,
-                      style: AppTheme.body.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: context.elixTextPrimary,
+                    ProfileAvatarWidget(
+                      key: Key(
+                        'teacher_access_classmate_avatar_'
+                        '${controller.groupId}_${member.traineeId}',
+                      ),
+                      radius: 18,
+                      showBorder: false,
+                      initials: userInitials(member.traineeDisplayName),
+                      networkImageUrl: controller.profilePictureUrlFor(
+                        member.traineeId,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isYou ? 'You are in this class' : 'In this class',
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
-                        height: 1.4,
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isYou
+                                ? '${member.traineeDisplayName} (you)'
+                                : member.traineeDisplayName,
+                            style: AppTheme.body.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: context.elixTextPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isYou ? 'You are in this class' : 'In this class',
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              );
+            },
           ),
-        );
-      },
+        ],
+      ],
     );
   }
 }

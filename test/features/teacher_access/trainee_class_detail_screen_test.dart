@@ -176,6 +176,50 @@ void main() {
     expect(find.text('Ada Lovelace (you)'), findsNothing);
   });
 
+  testWidgets('the page header and classwork share one vertical scroll', (
+    tester,
+  ) async {
+    final group = await approvedClass(name: 'BSHM 4A');
+    for (var index = 0; index < 8; index++) {
+      assignmentRepository.seedAssignment(
+        _assignment(
+          id: 'asg-$index',
+          groupId: group.id,
+          title: 'Movement $index',
+        ),
+      );
+    }
+    final controller = TraineeClassDetailController(
+      groupId: group.id,
+      traineeId: 'trainee-1',
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    await pumpClassDetail(
+      tester,
+      controller: controller,
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+
+    final header = find.text('CLASSROOM');
+    final initialHeaderTop = tester.getTopLeft(header).dy;
+    await tester.drag(
+      find.byKey(const Key('teacher_access_class_page_scroll')),
+      const Offset(0, -400),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(header).dy, lessThan(initialHeaderTop));
+    expect(
+      find.byKey(const Key('assigned_movement_card_asg-7')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('people tab lists classmates for that class only', (
     tester,
   ) async {

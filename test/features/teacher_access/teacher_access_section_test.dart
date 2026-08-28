@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_controller.dart';
 import 'package:elixr_application/features/teacher_access/teacher_access_section.dart';
 import 'package:elixr_application/services/join_code_resolver.dart';
@@ -39,11 +44,37 @@ Future<void> pumpAccess(
   await tester.pump(const Duration(milliseconds: 100));
 }
 
+class _FakeTeacherProfiles extends PublicProfileRepository {
+  final _controllers = <String, StreamController<PublicProfile?>>{};
+
+  @override
+  Stream<PublicProfile?> watchProfileRoot(String userId) {
+    return _controllers
+        .putIfAbsent(
+          userId,
+          () => StreamController<PublicProfile?>.broadcast(sync: true),
+        )
+        .stream;
+  }
+
+  void emit(String userId, PublicProfile? profile) {
+    _controllers[userId]?.add(profile);
+  }
+
+  void dispose() {
+    for (final controller in _controllers.values) {
+      unawaited(controller.close());
+    }
+    _controllers.clear();
+  }
+}
+
 void main() {
   late InMemoryTeacherRelationshipRepository relationshipRepository;
   late InMemoryGroupRepository groupRepository;
   late InMemoryClassroomAssignmentRepository assignments;
   late JoinCodeResolver joinCodeResolver;
+  late _FakeTeacherProfiles profiles;
   late TeacherAccessController controller;
 
   setUp(() async {
@@ -64,6 +95,7 @@ void main() {
       now: () => DateTime.utc(2026, 8, 16),
     );
     joinCodeResolver = JoinCodeResolver(groupRepository: groupRepository);
+    profiles = _FakeTeacherProfiles();
     await relationshipRepository.createOrRotateRosterInvite(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
@@ -74,11 +106,13 @@ void main() {
       traineeId: 'trainee-1',
       traineeDisplayName: 'Ada Lovelace',
       assignmentRepository: assignments,
+      publicProfileRepository: profiles,
     );
   });
 
   tearDown(() {
     controller.dispose();
+    profiles.dispose();
     relationshipRepository.dispose();
     groupRepository.dispose();
     assignments.dispose();
@@ -403,6 +437,59 @@ void main() {
     expect(openedGroupId, groupA.id);
   });
 
+  testWidgets('approved class card displays the teacher profile picture', (
+    tester,
+  ) async {
+    final group = await groupRepository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSHM 4A',
+    );
+    final invite = await groupRepository.getActiveGroupInvite(
+      groupId: group.id,
+    );
+    final membership = await groupRepository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await groupRepository.approveMembership(
+      membershipId: membership.id,
+      teacherId: 'teacher-1',
+    );
+
+    await pumpAccess(
+      tester,
+      controller,
+      groupRepository: groupRepository,
+      joinCodeResolver: joinCodeResolver,
+    );
+    profiles.emit(
+      'teacher-1',
+      const PublicProfile(
+        userId: 'teacher-1',
+        displayName: 'Grace Hopper',
+        visibility: ProfileVisibility.public,
+        profilePictureUrl: 'https://example.test/grace.png',
+      ),
+    );
+    await tester.pump();
+
+    final avatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(Key('teacher_access_group_teacher_avatar_${group.id}')),
+    );
+    expect(avatar.networkImageUrl, 'https://example.test/grace.png');
+
+    profiles.emit('teacher-1', null);
+    await tester.pump();
+
+    final fallbackAvatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(Key('teacher_access_group_teacher_avatar_${group.id}')),
+    );
+    expect(fallbackAvatar.networkImageUrl, isNull);
+    expect(fallbackAvatar.initials, 'GH');
+  });
+
   testWidgets('Trainee can leave an approved class from its card menu', (
     tester,
   ) async {
@@ -447,9 +534,6 @@ void main() {
       groupRepository.memberships[membership.id]?.status,
       GroupMembershipStatus.removed,
     );
-    expect(
-      find.byKey(Key('teacher_access_group_${group.id}')),
-      findsNothing,
-    );
+    expect(find.byKey(Key('teacher_access_group_${group.id}')), findsNothing);
   });
 }

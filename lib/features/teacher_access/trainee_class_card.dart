@@ -295,6 +295,9 @@ class TraineeClassCard extends StatelessWidget {
                     ),
                     child: ClipOval(
                       child: ProfileAvatarWidget(
+                        key: Key(
+                          'teacher_access_group_teacher_avatar_$groupId',
+                        ),
                         radius: _avatarRadius - 3,
                         showBorder: false,
                         initials: initials,

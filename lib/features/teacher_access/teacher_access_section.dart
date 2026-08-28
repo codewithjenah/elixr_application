@@ -15,6 +15,7 @@ import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_stat_card.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/join_code_resolver.dart';
 import 'teacher_access_controller.dart';
@@ -83,6 +84,7 @@ class TeacherAccessSectionState extends State<TeacherAccessSection> {
       traineeId: userId,
       traineeDisplayName: user!.fullName,
       assignmentRepository: _maybeRead<ClassroomAssignmentRepository>(context),
+      publicProfileRepository: _maybeRead<PublicProfileRepository>(context),
     );
     _owned!.addListener(_onControllerTick);
     _active = _owned;
@@ -811,6 +813,9 @@ class _ApprovedClassesGrid extends StatelessWidget {
                     controller.assignmentsFor(membership.groupId),
                   ),
                   ownerInitials: userInitials(membership.teacherDisplayName),
+                  ownerPhotoUrl: controller.teacherProfilePictureUrlFor(
+                    membership.teacherId,
+                  ),
                   onOpen: () => openClass?.call(membership.groupId),
                   menuItems: openClass == null
                       ? null

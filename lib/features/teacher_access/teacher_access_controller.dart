@@ -8,7 +8,9 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/models/group_assignment.dart';
+import '../../data/models/public_profile.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/public_profile_repository.dart';
 import '../../services/join_code_resolver.dart';
 
 enum JoinTeacherStep { enterCode, confirm }
@@ -21,6 +23,7 @@ class TeacherAccessController extends ChangeNotifier {
     required this.traineeDisplayName,
     this.onJoinCompleted,
     this.assignmentRepository,
+    this.publicProfileRepository,
   });
 
   final GroupRepository groupRepository;
@@ -29,11 +32,15 @@ class TeacherAccessController extends ChangeNotifier {
   final String traineeDisplayName;
   final VoidCallback? onJoinCompleted;
   final ClassroomAssignmentRepository? assignmentRepository;
+  final PublicProfileRepository? publicProfileRepository;
 
   List<GroupMembership> pendingGroupMemberships = const [];
   List<GroupMembership> approvedGroupMemberships = const [];
   final Map<String, ElixrGroup> groupNamesById = {};
   Map<String, List<GroupAssignment>> assignmentsByGroupId = const {};
+  final Map<String, String> _teacherProfilePictureUrls = {};
+  final Map<String, StreamSubscription<PublicProfile?>> _teacherProfileSubs =
+      {};
   int _assignmentLoadGen = 0;
   bool loading = false;
   bool busy = false;
@@ -48,6 +55,12 @@ class TeacherAccessController extends ChangeNotifier {
 
   List<GroupAssignment> assignmentsFor(String groupId) {
     return assignmentsByGroupId[groupId] ?? const [];
+  }
+
+  String? teacherProfilePictureUrlFor(String teacherId) {
+    final url = _teacherProfilePictureUrls[teacherId]?.trim();
+    if (url == null || url.isEmpty) return null;
+    return url;
   }
 
   int get pendingJoinCount => pendingGroupMemberships.length;
@@ -71,6 +84,7 @@ class TeacherAccessController extends ChangeNotifier {
                 for (final membership in memberships)
                   if (membership.isApproved) membership,
               ];
+              _syncTeacherProfileWatches();
               if (!firstGroups.isCompleted) firstGroups.complete();
               _safeNotifyListeners();
               unawaited(_refreshGroupNames(memberships));
@@ -203,6 +217,7 @@ class TeacherAccessController extends ChangeNotifier {
     approvedGroupMemberships = approvedGroupMemberships
         .where((item) => item.id != membership.id)
         .toList();
+    _syncTeacherProfileWatches();
     groupNamesById.remove(membership.groupId);
     assignmentsByGroupId = {...assignmentsByGroupId}
       ..remove(membership.groupId);
@@ -261,6 +276,63 @@ class TeacherAccessController extends ChangeNotifier {
     }
   }
 
+  void _syncTeacherProfileWatches() {
+    final repository = publicProfileRepository;
+    final teacherIds = {
+      for (final membership in approvedGroupMemberships) membership.teacherId,
+    };
+    if (repository == null) {
+      _cancelTeacherProfileWatches();
+      return;
+    }
+
+    final staleIds = _teacherProfileSubs.keys
+        .where((id) => !teacherIds.contains(id))
+        .toList(growable: false);
+    for (final id in staleIds) {
+      unawaited(_teacherProfileSubs.remove(id)?.cancel());
+      _teacherProfilePictureUrls.remove(id);
+    }
+
+    for (final teacherId in teacherIds) {
+      if (_teacherProfileSubs.containsKey(teacherId)) continue;
+      _teacherProfileSubs[teacherId] = repository
+          .watchProfileRoot(teacherId)
+          .listen(
+            (profile) {
+              if (_disposed) return;
+              final trimmed = profile?.profilePictureUrl?.trim();
+              final next = (trimmed == null || trimmed.isEmpty)
+                  ? null
+                  : trimmed;
+              final previous = _teacherProfilePictureUrls[teacherId];
+              if (previous == next) return;
+              if (next == null) {
+                _teacherProfilePictureUrls.remove(teacherId);
+              } else {
+                _teacherProfilePictureUrls[teacherId] = next;
+              }
+              _safeNotifyListeners();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!kDebugMode) return;
+              debugPrint(
+                '[TeacherAccess] teacher profile watch failed for '
+                '$teacherId: $error\n$stackTrace',
+              );
+            },
+          );
+    }
+  }
+
+  void _cancelTeacherProfileWatches() {
+    for (final subscription in _teacherProfileSubs.values) {
+      unawaited(subscription.cancel());
+    }
+    _teacherProfileSubs.clear();
+    _teacherProfilePictureUrls.clear();
+  }
+
   void _safeNotifyListeners() {
     if (!_disposed) notifyListeners();
   }
@@ -270,6 +342,7 @@ class TeacherAccessController extends ChangeNotifier {
     _disposed = true;
     _assignmentLoadGen++;
     unawaited(_groupMembershipsSub?.cancel());
+    _cancelTeacherProfileWatches();
     super.dispose();
   }
 }

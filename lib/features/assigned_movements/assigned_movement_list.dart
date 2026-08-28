@@ -101,6 +101,94 @@ class AssignedMovementList extends StatelessWidget {
   }
 }
 
+/// Assignment sections without their own scroll view.
+///
+/// Use this when the surrounding page owns vertical scrolling so headers and
+/// classwork move together instead of competing for the available viewport.
+class AssignedMovementContent extends StatelessWidget {
+  const AssignedMovementContent({
+    super.key,
+    required this.items,
+    this.showGroupName = true,
+  });
+
+  final List<AssignedMovementItem> items;
+  final bool showGroupName;
+
+  @override
+  Widget build(BuildContext context) {
+    final official = [
+      for (final item in items)
+        if (item.assignment.isOfficial) item,
+    ];
+    final teacherCreated = [
+      for (final item in items)
+        if (!item.assignment.isOfficial) item,
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= _classworkWideBreakpoint
+            ? 3
+            : width >= _classworkCompactBreakpoint
+            ? 2
+            : 1;
+        final cardWidth = (width - (AppSpacing.md * (columns - 1))) / columns;
+
+        Widget cardGrid(List<AssignedMovementItem> sectionItems) {
+          return Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Wrap(
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.md,
+              children: [
+                for (final item in sectionItems)
+                  SizedBox(
+                    width: cardWidth,
+                    height: 268,
+                    child: _AssignedMovementCard(
+                      item: item,
+                      showGroupName: showGroupName,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (official.isNotEmpty) ...[
+              const _OriginSectionHeader(
+                sectionKey: Key('assigned_movements_official_section'),
+                title: 'Official ELIXR',
+                subtitle:
+                    'Live guided practice. ELIXR scores your form. No submission clip.',
+                accent: AppColors.accent,
+              ),
+              cardGrid(official),
+              if (teacherCreated.isNotEmpty)
+                const SizedBox(height: AppSpacing.xl),
+            ],
+            if (teacherCreated.isNotEmpty) ...[
+              const _OriginSectionHeader(
+                sectionKey: Key('assigned_movements_teacher_section'),
+                title: 'Teacher-created',
+                subtitle:
+                    'Record a clip for your teacher to review. Preview it after you submit.',
+                accent: AppColors.primary,
+              ),
+              cardGrid(teacherCreated),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _OriginSectionHeader extends StatelessWidget {
   const _OriginSectionHeader({
     required this.sectionKey,
