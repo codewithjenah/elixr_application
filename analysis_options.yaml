@@ -9,6 +9,13 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # Standalone packages with their own pubspec and dedicated CI jobs.
+    # Root flutter analyze must not load them under this app's dependencies.
+    - packages/elixr_core/**
+    - scripts/legacy_coaching_provenance/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

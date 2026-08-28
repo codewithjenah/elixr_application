@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import numpy as np
 import pytest
@@ -42,6 +43,11 @@ class StubCamera:
         self.used_fallback = False
         self.last_captured_at_monotonic = None
         self.last_capture_sequence = None
+        # Same monotonic clock domain as production CameraCapture and
+        # SubmissionRecorder.start(). Hard-coded stamps such as 1000.0+N
+        # look like a future capture on a fresh runner whose uptime is
+        # below 1000s, so the recorder immediately hits the duration cap.
+        self._capture_origin_monotonic = time.monotonic()
         StubCamera.instances.append(self)
 
     def open(self) -> bool:
@@ -50,7 +56,13 @@ class StubCamera:
 
     def read(self):
         self.read_count += 1
-        self.last_captured_at_monotonic = 1000.0 + self.read_count
+        now = time.monotonic()
+        previous = self.last_captured_at_monotonic
+        origin = self._capture_origin_monotonic
+        stamp = max(now, origin + (self.read_count * 1e-6))
+        if previous is not None and stamp <= previous:
+            stamp = previous + 1e-6
+        self.last_captured_at_monotonic = stamp
         self.last_capture_sequence = self.read_count
         return _frame()
 
@@ -153,6 +165,22 @@ def _patch_vision(monkeypatch):
         lambda current_frame, *a, **k: current_frame,
     )
     monkeypatch.setattr(websocket_api, "CAMERA_REOPEN_DELAY_S", 0)
+
+
+def test_stub_camera_capture_timestamps_use_monotonic_clock_domain():
+    """Fake capture stamps must share time.monotonic() with SubmissionRecorder."""
+    before = time.monotonic()
+    camera = StubCamera()
+    camera.read()
+    first = camera.last_captured_at_monotonic
+    after = time.monotonic()
+    assert first is not None
+    assert before <= first <= after + 1e-4
+    camera.read()
+    second = camera.last_captured_at_monotonic
+    assert second is not None
+    assert second > first
+    assert second <= time.monotonic() + 1e-4
 
 
 def _prepare_payload(**overrides):
