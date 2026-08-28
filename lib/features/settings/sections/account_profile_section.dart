@@ -812,11 +812,13 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           label: 'First Name',
           controller: _firstNameController,
           icon: FluentIcons.contact,
+          placeholder: 'e.g. Juan',
         );
         final lastNameField = SettingsFormField(
           label: 'Last Name',
           controller: _lastNameController,
           icon: FluentIcons.contact,
+          placeholder: 'e.g. Dela Cruz',
         );
 
         return Column(
@@ -841,6 +843,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
               label: 'Middle Name (Optional)',
               controller: _middleNameController,
               icon: FluentIcons.contact,
+              placeholder: 'e.g. Santos (optional)',
             ),
           ],
         );
@@ -1088,6 +1091,7 @@ class AccountProfileSectionState extends State<AccountProfileSection>
           label: 'Email',
           controller: _emailController,
           icon: FluentIcons.mail,
+          placeholder: 'you@example.com',
           keyboardType: TextInputType.emailAddress,
           enabled: !googleOnly,
         ),

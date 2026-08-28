@@ -207,64 +207,16 @@ class SecuritySectionState extends State<SecuritySection> {
             Align(
               alignment: Alignment.centerLeft,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
+                constraints: const BoxConstraints(
+                  maxWidth: settingsMaxBodyWidth,
+                ),
                 child: SettingsGroup(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: context.isHighContrast
-                                  ? context.elixCardSurface
-                                  : context.elixColors.brandPrimary.withValues(
-                                      alpha: 0.14,
-                                    ),
-                              borderRadius: BorderRadius.circular(
-                                settingsRadiusSm,
-                              ),
-                              border: context.isHighContrast
-                                  ? Border.all(color: context.elixBorder)
-                                  : null,
-                            ),
-                            child: Icon(
-                              FluentIcons.lock_solid,
-                              size: 16,
-                              color: context.elixColors.brandPrimary,
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.sm + 4),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Change password',
-                                  style: AppTheme.body.copyWith(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: context.elixTextPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Enter your current password, then choose a new password.',
-                                  style: AppTheme.caption.copyWith(
-                                    color: context.elixTextSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      _PasswordField(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final currentPasswordField = _PasswordField(
                         label: 'Current password',
+                        placeholder: 'Enter your current password',
                         controller: _currentPasswordController,
                         icon: FluentIcons.lock,
                         onSubmitted: (_) {
@@ -272,83 +224,156 @@ class SecuritySectionState extends State<SecuritySection> {
                             _savePassword();
                           }
                         },
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _PasswordField(
+                      );
+                      final newPasswordField = _PasswordField(
                         label: 'New password',
+                        placeholder: 'Create a new password',
                         controller: _newPasswordController,
                         icon: FluentIcons.lock_solid,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Wrap(
-                        spacing: AppSpacing.md,
-                        runSpacing: AppSpacing.xs,
+                      );
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _PasswordRequirement(
-                            label: 'At least 8 characters',
-                            met: hasMinLength,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: context.isHighContrast
+                                      ? context.elixCardSurface
+                                      : context.elixColors.brandPrimary
+                                            .withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(
+                                    settingsRadiusSm,
+                                  ),
+                                  border: context.isHighContrast
+                                      ? Border.all(color: context.elixBorder)
+                                      : null,
+                                ),
+                                child: Icon(
+                                  FluentIcons.lock_solid,
+                                  size: 16,
+                                  color: context.elixColors.brandPrimary,
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.sm + 4),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Change password',
+                                      style: AppTheme.body.copyWith(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: context.elixTextPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Enter your current password, then choose a new one.',
+                                      style: AppTheme.caption.copyWith(
+                                        color: context.elixTextSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          _PasswordRequirement(
-                            label: 'Contains a letter',
-                            met: hasLetter,
+                          const SizedBox(height: AppSpacing.md),
+                          if (constraints.maxWidth >= 560)
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: currentPasswordField),
+                                const SizedBox(width: AppSpacing.md),
+                                Expanded(child: newPasswordField),
+                              ],
+                            )
+                          else ...[
+                            currentPasswordField,
+                            const SizedBox(height: AppSpacing.sm),
+                            newPasswordField,
+                          ],
+                          const SizedBox(height: AppSpacing.sm),
+                          Wrap(
+                            spacing: AppSpacing.md,
+                            runSpacing: AppSpacing.xs,
+                            children: [
+                              _PasswordRequirement(
+                                label: 'At least 8 characters',
+                                met: hasMinLength,
+                              ),
+                              _PasswordRequirement(
+                                label: 'Contains a letter',
+                                met: hasLetter,
+                              ),
+                              _PasswordRequirement(
+                                label: 'Contains a number',
+                                met: hasNumber,
+                              ),
+                              _PasswordRequirement(
+                                label: 'Passwords must match',
+                                met: passwordsMatch,
+                              ),
+                            ],
                           ),
-                          _PasswordRequirement(
-                            label: 'Contains a number',
-                            met: hasNumber,
+                          const SizedBox(height: AppSpacing.md),
+                          _PasswordField(
+                            label: 'Confirm new password',
+                            placeholder: 'Re-enter your new password',
+                            controller: _confirmPasswordController,
+                            icon: FluentIcons.lock_solid,
+                            statusText: confirmStatus,
+                            statusIsSuccess: confirmSuccess,
+                            onSubmitted: (_) {
+                              if (_canSubmitPassword && !_savingPassword) {
+                                _savePassword();
+                              }
+                            },
                           ),
-                          _PasswordRequirement(
-                            label: 'Passwords must match',
-                            met: passwordsMatch,
+                          const SizedBox(height: AppSpacing.md),
+                          FilledButton(
+                            onPressed: _savingPassword || !_canSubmitPassword
+                                ? null
+                                : _savePassword,
+                            child: _savingPassword
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const ProgressRing(strokeWidth: 2),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Text(
+                                        'Updating password...',
+                                        style: AppTheme.body.copyWith(
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(FluentIcons.accept, size: 14),
+                                      SizedBox(width: AppSpacing.sm),
+                                      Text('Update password'),
+                                    ],
+                                  ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'After updating, use your new password the next time you sign in.',
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _PasswordField(
-                        label: 'Confirm new password',
-                        controller: _confirmPasswordController,
-                        icon: FluentIcons.lock_solid,
-                        statusText: confirmStatus,
-                        statusIsSuccess: confirmSuccess,
-                        onSubmitted: (_) {
-                          if (_canSubmitPassword && !_savingPassword) {
-                            _savePassword();
-                          }
-                        },
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      FilledButton(
-                        onPressed: _savingPassword || !_canSubmitPassword
-                            ? null
-                            : _savePassword,
-                        child: _savingPassword
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const ProgressRing(strokeWidth: 2),
-                                  const SizedBox(width: AppSpacing.sm),
-                                  Text(
-                                    'Updating password...',
-                                    style: AppTheme.body.copyWith(fontSize: 14),
-                                  ),
-                                ],
-                              )
-                            : const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(FluentIcons.accept, size: 14),
-                                  SizedBox(width: AppSpacing.sm),
-                                  Text('Update password'),
-                                ],
-                              ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        'After updating, use your new password the next time you sign in.',
-                        style: AppTheme.caption.copyWith(
-                          color: context.elixTextSecondary,
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -357,7 +382,7 @@ class SecuritySectionState extends State<SecuritySection> {
           Align(
             alignment: Alignment.centerLeft,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
+              constraints: const BoxConstraints(maxWidth: settingsMaxBodyWidth),
               child: SettingsGroup(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -541,6 +566,7 @@ class _SecurityIntroBanner extends StatelessWidget {
 class _PasswordField extends StatefulWidget {
   const _PasswordField({
     required this.label,
+    required this.placeholder,
     required this.controller,
     required this.icon,
     this.statusText,
@@ -549,6 +575,7 @@ class _PasswordField extends StatefulWidget {
   });
 
   final String label;
+  final String placeholder;
   final TextEditingController controller;
   final IconData icon;
   final String? statusText;
@@ -608,6 +635,7 @@ class _PasswordFieldState extends State<_PasswordField> {
             ),
             child: TextBox(
               controller: widget.controller,
+              placeholder: widget.placeholder,
               obscureText: _obscured,
               onSubmitted: widget.onSubmitted,
               padding: const EdgeInsets.symmetric(

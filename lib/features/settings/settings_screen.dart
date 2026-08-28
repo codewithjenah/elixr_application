@@ -43,7 +43,9 @@ class SettingsScreen extends StatefulWidget {
   /// Trainee sees the training panes; teacher omits Practice.
   final SettingsAudience audience;
 
-  /// When true, fill the parent with no dialog card, header, or close button.
+  /// When true, fill the parent without the outer dialog card or close button.
+  /// The internal Settings rail remains visible so page-hosted Teacher Settings
+  /// keeps the same visual language as the overlay.
   final bool embedded;
 
   /// Page-hosted close (`/teacher/settings` deep link). Overlay hosts omit
@@ -191,6 +193,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _section = section);
   }
 
+  String get _audienceLabel =>
+      widget.audience == SettingsAudience.teacher ? 'Teacher' : 'Trainee';
+
+  Color _audienceAccent(BuildContext context) =>
+      widget.audience == SettingsAudience.teacher
+      ? context.elixColors.brandSecondary
+      : context.elixColors.brandPrimary;
+
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
@@ -266,100 +276,174 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildSidebar() {
-    const sidebarWidth = 220.0;
+    const sidebarWidth = 244.0;
+    final accent = _audienceAccent(context);
 
     return Container(
       width: sidebarWidth,
-      decoration: BoxDecoration(
-        color: widget.embedded && !context.isHighContrast
-            ? const Color(0x00000000)
-            : context.elixPanelSurface,
-        border: Border(
-          right: BorderSide(
-            color: context.isHighContrast
-                ? context.elixBorder
-                : context.elixBorder.withValues(
-                    alpha: widget.embedded ? 0.35 : 0.5,
-                  ),
-          ),
-        ),
-      ),
+      decoration: _sidebarDecoration(context, accent),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!widget.embedded) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                AppSpacing.lg,
-                AppSpacing.lg,
-                AppSpacing.md,
-              ),
-              child: ElixEditorialHeader(
-                heading: 'Settings',
-                subtitle: 'Manage your Elixr experience',
-                variant: ElixEditorialHeaderVariant.compact,
-                leading: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: context.isHighContrast
-                        ? context.elixCardSurface
-                        : context.elixColors.brandPrimary.withValues(
-                            alpha: 0.14,
-                          ),
-                    borderRadius: BorderRadius.circular(settingsRadiusSm),
-                    border: context.isHighContrast
-                        ? Border.all(color: context.elixBorder, width: 2)
-                        : null,
-                  ),
-                  child: Icon(
-                    FluentIcons.settings,
-                    size: 16,
-                    color: context.elixColors.brandPrimary,
-                  ),
-                ),
+          _buildSidebarHeader(context, accent),
+          const SizedBox(height: AppSpacing.lg),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Text(
+              widget.audience == SettingsAudience.teacher
+                  ? 'TEACHER WORKSPACE'
+                  : 'YOUR WORKSPACE',
+              style: AppTheme.eyebrow(
+                color: accent,
+              ).copyWith(fontSize: 10, letterSpacing: 1.2),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final section in _visibleSections)
+                    SettingsNavItem(
+                      icon: section.icon,
+                      label: section.title,
+                      isSelected: _section == section,
+                      onTap: () => _openSection(section),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: AppSpacing.xs),
+          ),
+          if (widget.embeddedFooter != null) ...[
+            widget.embeddedFooter!,
           ] else
             const SizedBox(height: AppSpacing.md),
-          for (final section in _visibleSections)
-            SettingsNavItem(
-              icon: section.icon,
-              label: section.title,
-              isSelected: _section == section,
-              onTap: () => _openSection(section),
-            ),
-          if (widget.embeddedFooter != null) ...[
-            const Spacer(),
-            widget.embeddedFooter!,
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildCompactNav() {
-    return ComboBox<SettingsSection>(
-      value: _section,
-      isExpanded: true,
-      items: [
-        for (final section in _visibleSections)
-          ComboBoxItem<SettingsSection>(
-            value: section,
-            child: Row(
-              children: [
-                Icon(section.icon, size: 14),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(child: Text(section.title)),
-              ],
+  Widget _buildSidebarHeader(BuildContext context, Color accent) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.lg,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ElixEditorialHeader(
+            heading: 'Settings',
+            subtitle: 'Manage your Elixr experience',
+            variant: ElixEditorialHeaderVariant.compact,
+            leading: SettingsIconBadge(
+              icon: FluentIcons.settings,
+              accent: accent,
             ),
           ),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            height: 1.5,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(2),
+              gradient: LinearGradient(
+                colors: [
+                  accent.withValues(alpha: context.isHighContrast ? 1 : 0.85),
+                  context.elixColors.brandSecondary.withValues(
+                    alpha: context.isHighContrast ? 1 : 0.35,
+                  ),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  BoxDecoration _sidebarDecoration(BuildContext context, Color accent) {
+    final highContrast = context.isHighContrast;
+    final base = context.elixPanelSurface;
+    return BoxDecoration(
+      color: highContrast ? base : null,
+      gradient: highContrast
+          ? null
+          : LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.alphaBlend(accent.withValues(alpha: 0.1), base),
+                base,
+                Color.alphaBlend(
+                  context.elixColors.brandSecondary.withValues(alpha: 0.07),
+                  base,
+                ),
+              ],
+              stops: const [0, 0.48, 1],
+            ),
+      border: Border(
+        right: BorderSide(
+          color: highContrast
+              ? context.elixBorder
+              : accent.withValues(alpha: widget.embedded ? 0.24 : 0.32),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactNav() {
+    final accent = _audienceAccent(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'SETTINGS SECTION',
+          style: AppTheme.eyebrow(
+            color: accent,
+          ).copyWith(fontSize: 10, letterSpacing: 1.2),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: context.isHighContrast
+                ? context.elixCardSurface
+                : context.elixPanelSurface.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(settingsRadiusMd),
+            border: Border.all(
+              color: context.isHighContrast
+                  ? context.elixBorder
+                  : accent.withValues(alpha: 0.24),
+              width: context.isHighContrast ? 2 : 1,
+            ),
+          ),
+          child: ComboBox<SettingsSection>(
+            value: _section,
+            isExpanded: true,
+            items: [
+              for (final section in _visibleSections)
+                ComboBoxItem<SettingsSection>(
+                  value: section,
+                  child: Row(
+                    children: [
+                      Icon(section.icon, size: 14),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(child: Text(section.title)),
+                    ],
+                  ),
+                ),
+            ],
+            onChanged: (value) {
+              if (value != null) _openSection(value);
+            },
+          ),
+        ),
       ],
-      onChanged: (value) {
-        if (value != null) _openSection(value);
-      },
     );
   }
 
@@ -367,26 +451,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         isWide ? AppSpacing.xl : AppSpacing.lg,
-        AppSpacing.lg,
+        isWide ? AppSpacing.xl : AppSpacing.lg,
         isWide ? AppSpacing.xl : AppSpacing.lg,
         AppSpacing.lg,
       ),
-      child: child,
+      child: Align(alignment: Alignment.topCenter, child: child),
     );
   }
 
   Widget _buildContent({required bool isWide}) {
+    final accent = _audienceAccent(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           padding: EdgeInsets.fromLTRB(
             isWide ? AppSpacing.xl : AppSpacing.lg,
-            AppSpacing.lg,
+            isWide ? AppSpacing.xl : AppSpacing.lg,
             AppSpacing.md,
-            AppSpacing.lg,
+            isWide ? AppSpacing.xl : AppSpacing.lg,
           ),
           decoration: BoxDecoration(
+            gradient: context.isHighContrast
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      accent.withValues(alpha: 0.08),
+                      Colors.transparent,
+                    ],
+                  ),
             border: Border(
               bottom: BorderSide(
                 color: context.isHighContrast
@@ -409,14 +504,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SettingsSectionHeader(
                       title: _section.title,
                       description: _section.description,
+                      eyebrow: '$_audienceLabel settings',
+                      icon: _section.icon,
+                      iconColor: accent,
                     ),
                   ],
                 ),
               ),
               if (!widget.embedded)
-                IconButton(
-                  icon: const Icon(FluentIcons.cancel, size: 16),
-                  onPressed: _requestClose,
+                Tooltip(
+                  message: 'Close settings',
+                  child: IconButton(
+                    icon: const Icon(FluentIcons.cancel, size: 16),
+                    onPressed: _requestClose,
+                  ),
                 ),
             ],
           ),
@@ -446,10 +547,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _decorateSurface({required Widget child}) {
+    final accent = _audienceAccent(context);
+    final highContrast = context.isHighContrast;
     return Container(
-      decoration: AppTheme.cardDecoration(context).copyWith(
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        gradient: highContrast
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.alphaBlend(
+                    accent.withValues(alpha: 0.045),
+                    context.elixCardSurface,
+                  ),
+                  context.elixCardSurface,
+                  Color.alphaBlend(
+                    context.elixColors.brandSecondary.withValues(alpha: 0.035),
+                    context.elixCardSurface,
+                  ),
+                ],
+                stops: const [0, 0.52, 1],
+              ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: widget.embedded || context.isHighContrast
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : accent.withValues(alpha: widget.embedded ? 0.16 : 0.24),
+          width: highContrast ? 2 : 1,
+        ),
+        boxShadow: widget.embedded || highContrast
             ? const []
             : [
                 BoxShadow(
@@ -462,7 +590,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: child,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (!highContrast) ...[
+            Positioned(
+              top: -130,
+              right: -100,
+              child: _surfaceOrb(color: accent, size: 300),
+            ),
+            Positioned(
+              bottom: -170,
+              left: -130,
+              child: _surfaceOrb(
+                color: context.elixColors.brandSecondary,
+                size: 340,
+              ),
+            ),
+          ],
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _surfaceOrb({required Color color, required double size}) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [
+              color.withValues(alpha: 0.12),
+              color.withValues(alpha: 0.025),
+              Colors.transparent,
+            ],
+            stops: const [0, 0.46, 1],
+          ),
+        ),
+      ),
     );
   }
 

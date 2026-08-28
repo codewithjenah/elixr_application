@@ -31,9 +31,28 @@ class SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElixPanelCard(
-      padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
-      child: child,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(settingsRadiusLg),
+      child: Stack(
+        children: [
+          ElixPanelCard(
+            padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
+            child: child,
+          ),
+          Positioned(
+            top: 1,
+            bottom: 1,
+            left: 1,
+            child: Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: context.elixColors.brandPrimary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -123,17 +142,67 @@ class SettingsSectionHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.description,
+    this.eyebrow,
+    this.icon,
+    this.iconColor,
   });
 
   final String title;
   final String? description;
+  final String? eyebrow;
+  final IconData? icon;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
     return ElixEditorialHeader(
       heading: title,
       subtitle: description,
+      eyebrow: eyebrow,
       variant: ElixEditorialHeaderVariant.compact,
+      leading: icon == null
+          ? null
+          : SettingsIconBadge(icon: icon!, accent: iconColor),
+    );
+  }
+}
+
+/// Accent-backed icon treatment for the active Settings pane.
+class SettingsIconBadge extends StatelessWidget {
+  const SettingsIconBadge({super.key, required this.icon, this.accent});
+
+  final IconData icon;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final tone = accent ?? context.elixColors.brandPrimary;
+
+    return Container(
+      width: 46,
+      height: 46,
+      decoration: BoxDecoration(
+        color: highContrast ? context.elixCardSurface : null,
+        gradient: highContrast
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  tone.withValues(alpha: 0.22),
+                  tone.withValues(alpha: 0.06),
+                ],
+              ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : tone.withValues(alpha: 0.3),
+          width: highContrast ? 2 : 1,
+        ),
+      ),
+      child: Icon(icon, size: 20, color: tone),
     );
   }
 }
@@ -204,7 +273,6 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkTheme;
     final selected = widget.isSelected;
     final highlighted = selected || _hovered || _focused;
 
@@ -250,11 +318,9 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                   color: context.isHighContrast
                       ? context.elixCardSurface
                       : selected
-                      ? context.elixColors.brandPrimary.withValues(alpha: 0.08)
+                      ? context.elixColors.interactiveSelected
                       : _hovered
-                      ? (isDark
-                            ? Colors.white.withValues(alpha: 0.04)
-                            : Colors.black.withValues(alpha: 0.03))
+                      ? context.elixColors.interactiveHover
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                   border: _focused
@@ -263,6 +329,12 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                           width: context.isHighContrast
                               ? ElixFocus.ringWidthHighContrast
                               : ElixFocus.ringWidth,
+                        )
+                      : selected && !context.isHighContrast
+                      ? Border.all(
+                          color: context.elixColors.brandPrimary.withValues(
+                            alpha: 0.22,
+                          ),
                         )
                       : null,
                 ),
@@ -284,13 +356,23 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                       width: 28,
                       height: 28,
                       decoration: BoxDecoration(
-                        color: context.isHighContrast
+                        color: context.isHighContrast || selected
                             ? context.elixCardSurface
-                            : selected
-                            ? context.elixColors.brandPrimary.withValues(
-                                alpha: 0.16,
-                              )
                             : context.elixBorder.withValues(alpha: 0.18),
+                        gradient: context.isHighContrast || !selected
+                            ? null
+                            : LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  context.elixColors.brandPrimary.withValues(
+                                    alpha: 0.23,
+                                  ),
+                                  context.elixColors.brandSecondary.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                ],
+                              ),
                         borderRadius: BorderRadius.circular(settingsRadiusSm),
                         border: context.isHighContrast
                             ? Border.all(color: context.elixBorder)
@@ -323,6 +405,14 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                         ),
                       ),
                     ),
+                    if (selected) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Icon(
+                        FluentIcons.chevron_right,
+                        size: 12,
+                        color: context.elixColors.brandPrimary,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -341,6 +431,7 @@ class SettingsFormField extends StatelessWidget {
     required this.label,
     required this.controller,
     required this.icon,
+    this.placeholder,
     this.keyboardType = TextInputType.text,
     this.obscureText = false,
     this.enabled = true,
@@ -350,6 +441,7 @@ class SettingsFormField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final IconData icon;
+  final String? placeholder;
   final TextInputType keyboardType;
   final bool obscureText;
   final bool enabled;
@@ -380,6 +472,7 @@ class SettingsFormField extends StatelessWidget {
               Expanded(
                 child: TextBox(
                   controller: controller,
+                  placeholder: placeholder,
                   keyboardType: keyboardType,
                   obscureText: obscureText,
                   enabled: enabled,
