@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
+import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
@@ -158,7 +159,7 @@ void main() {
 
     expect(find.byType(ElixEditorialHeader), findsOneWidget);
     expect(
-      find.text('Train. Flip. Master.', findRichText: true),
+      find.text(AppConstants.appTagline, findRichText: true),
       findsOneWidget,
     );
     expect(find.text('Good Morning, Ada', findRichText: true), findsOneWidget);
@@ -168,7 +169,7 @@ void main() {
     );
     expect(find.text('3 sessions completed'), findsOneWidget);
 
-    final span = _headlineSpan(tester, 'Train. Flip. Master.');
+    final span = _headlineSpan(tester, AppConstants.appTagline);
     expect(span.style!.fontSize, 52);
     expect(span.style!.color, Colors.white);
     expect((span.children!.last as TextSpan).style!.color, AppColors.primary);
@@ -196,7 +197,7 @@ void main() {
     );
     await tester.pump();
 
-    final span = _headlineSpan(tester, 'Train. Flip. Master.');
+    final span = _headlineSpan(tester, AppConstants.appTagline);
     expect(span.style!.fontSize, 40);
     expect(find.text('1 session completed'), findsOneWidget);
   });

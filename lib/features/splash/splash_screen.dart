@@ -227,7 +227,7 @@ class _SplashScreenState extends State<SplashScreen>
                           child: FadeTransition(
                             opacity: _taglineOpacity,
                             child: Text(
-                              'Bottle flair training, reimagined',
+                              AppConstants.appTagline,
                               style: AppTheme.bodySecondary.copyWith(
                                 letterSpacing: 1.2,
                               ),

@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/elix_design_tokens.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
@@ -188,8 +189,9 @@ class DashboardHero extends StatelessWidget {
                               ),
                               const SizedBox(height: 8),
                               ElixEditorialHeader(
-                                heading: 'Train. Flip. ',
-                                accentHeading: 'Master.',
+                                heading: AppConstants.appTaglineHeading,
+                                accentHeading:
+                                    AppConstants.appTaglineAccentHeading,
                                 variant: ElixEditorialHeaderVariant.hero,
                                 headingColor: onPhoto ? Colors.white : null,
                               ),

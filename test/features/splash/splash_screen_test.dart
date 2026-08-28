@@ -48,6 +48,7 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 2200));
     expect(completionCount, 0);
+    expect(find.text(AppConstants.appTagline), findsOneWidget);
     expect(find.text('Preparing your session…'), findsOneWidget);
     expect(
       find.image(const AssetImage(AppConstants.appLogoAsset)),

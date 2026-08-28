@@ -539,8 +539,17 @@ class _BrandContent extends StatelessWidget {
             color: brandColor,
           ).copyWith(letterSpacing: compact ? 4 : 6),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          AppConstants.appTagline,
+          style: AppTheme.supporting(color: context.elixTextSecondary).copyWith(
+            fontSize: compact ? 11 : 13,
+            letterSpacing: compact ? 0.3 : 0.5,
+          ),
+          textAlign: TextAlign.center,
+        ),
         if (title != null && !compact) ...[
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: AppSpacing.lg),
           ElixEditorialHeader(
             heading: parts!.heading,
             accentHeading: parts.accentHeading,

@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
+import 'package:elixr_application/core/constants/app_constants.dart';
 import 'package:elixr_application/core/shell/teacher_shell.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
@@ -244,6 +245,7 @@ void main() {
 
       expect(find.byType(ElixEditorialHeader), findsWidgets);
       expect(find.text('Own the pour.', findRichText: true), findsOneWidget);
+      expect(find.text(AppConstants.appTagline), findsOneWidget);
       expect(find.text('Welcome back', findRichText: true), findsOneWidget);
 
       final brandHeading = tester.widget<Text>(
