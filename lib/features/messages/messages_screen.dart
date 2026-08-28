@@ -92,8 +92,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) => ElixScaffoldPage(
+        padding: EdgeInsets.zero,
         content: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.pageTopInset,
+            AppSpacing.lg,
+            AppSpacing.lg,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/shell/teacher_shell.dart';
+import 'package:elixr_application/core/constants/app_spacing.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,10 @@ void main() {
     expect(
       FluentTheme.of(scaffoldContext).scaffoldBackgroundColor,
       Colors.transparent,
+    );
+    expect(
+      tester.getTopLeft(find.byType(PageHeader)).dy,
+      AppSpacing.pageTopInset,
     );
     expect(find.text('Ambient content'), findsOneWidget);
   });

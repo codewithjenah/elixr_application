@@ -6,6 +6,9 @@ abstract final class AppSpacing {
   static const xl = 32.0;
   static const xxl = 48.0;
 
+  /// Shared vertical start for top-level page and hero headers.
+  static const pageTopInset = xl;
+
   /// Guided practice dashboard layout.
   static const practiceDesktopBreakpoint = 1180.0;
   static const practiceCompactBreakpoint = 820.0;

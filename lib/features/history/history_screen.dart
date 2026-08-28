@@ -325,11 +325,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (widget.embedded) return body;
 
     return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
       content: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
-            AppSpacing.xl,
+            AppSpacing.pageTopInset,
             AppSpacing.xl,
             0,
           ),

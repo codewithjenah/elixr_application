@@ -34,7 +34,7 @@ class LearningCenterScreen extends StatelessWidget {
             return ListView(
               padding: EdgeInsets.fromLTRB(
                 horizontalPadding,
-                AppSpacing.xl,
+                AppSpacing.pageTopInset,
                 horizontalPadding,
                 AppSpacing.xxl,
               ),

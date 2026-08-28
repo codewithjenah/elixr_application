@@ -39,8 +39,14 @@ class MovementLessonScreen extends StatelessWidget {
     }
     final lesson = MovementLesson.forMovement(item);
     return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
       content: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.pageTopInset,
+          AppSpacing.lg,
+          AppSpacing.lg,
+        ),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1180),

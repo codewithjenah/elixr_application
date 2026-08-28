@@ -148,11 +148,17 @@ class _ProgressScreenState extends State<ProgressScreen> {
   @override
   Widget build(BuildContext context) {
     return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
       content: SafeArea(
         child: _loading
             ? const Center(child: ProgressRing())
             : SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.xl),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.pageTopInset,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

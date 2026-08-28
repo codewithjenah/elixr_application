@@ -414,7 +414,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
         : SingleChildScrollView(
             padding: widget.embedded
                 ? const EdgeInsets.only(bottom: AppSpacing.xl)
-                : const EdgeInsets.all(AppSpacing.xl),
+                : const EdgeInsets.fromLTRB(
+                    AppSpacing.xl,
+                    AppSpacing.pageTopInset,
+                    AppSpacing.xl,
+                    AppSpacing.xl,
+                  ),
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(

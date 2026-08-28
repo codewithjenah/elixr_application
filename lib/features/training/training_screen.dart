@@ -51,7 +51,7 @@ class TrainingScreen extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
-            AppSpacing.xl,
+            AppSpacing.pageTopInset,
             AppSpacing.xl,
             0,
           ),

@@ -85,8 +85,14 @@ class _AssignmentDetailScreenState extends State<AssignmentDetailScreen> {
       animation: controller,
       builder: (context, _) {
         return ElixScaffoldPage(
+          padding: EdgeInsets.zero,
           content: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.pageTopInset,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
             child: _Body(
               controller: controller,
               selectedAttemptId: _selectedAttemptId,

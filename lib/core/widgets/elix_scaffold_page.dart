@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 
 /// Standard ELIXR page surface with the application-wide ambient background.
@@ -34,7 +35,8 @@ class ElixScaffoldPage extends StatelessWidget {
           header: header,
           content: content,
           bottomBar: bottomBar,
-          padding: padding,
+          padding:
+              padding ?? const EdgeInsets.only(top: AppSpacing.pageTopInset),
           resizeToAvoidBottomInset: resizeToAvoidBottomInset,
         ),
       ),

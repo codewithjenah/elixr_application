@@ -1,3 +1,4 @@
+import 'package:elixr_application/core/constants/app_spacing.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_scaffold_page.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -33,5 +34,39 @@ void main() {
         .whereType<BoxDecoration>()
         .firstWhere((decoration) => decoration.color != null);
     expect(decoration.gradient, isNull);
+  });
+
+  testWidgets('uses the shared top-level page inset by default', (
+    tester,
+  ) async {
+    const headerKey = Key('page-header');
+
+    await tester.pumpWidget(
+      const FluentApp(
+        home: ElixScaffoldPage(header: SizedBox(key: headerKey, height: 40)),
+      ),
+    );
+
+    expect(
+      tester.getTopLeft(find.byKey(headerKey)).dy,
+      AppSpacing.pageTopInset,
+    );
+  });
+
+  testWidgets('allows immersive pages to opt out of the shared inset', (
+    tester,
+  ) async {
+    const headerKey = Key('immersive-page-header');
+
+    await tester.pumpWidget(
+      const FluentApp(
+        home: ElixScaffoldPage(
+          padding: EdgeInsets.zero,
+          header: SizedBox(key: headerKey, height: 40),
+        ),
+      ),
+    );
+
+    expect(tester.getTopLeft(find.byKey(headerKey)).dy, 0);
   });
 }

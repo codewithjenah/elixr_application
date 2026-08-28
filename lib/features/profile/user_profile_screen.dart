@@ -214,6 +214,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         : (_isTeacherViewer ? 'Profile' : 'Player Profile');
 
     return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
       content: SafeArea(
         child: ListenableBuilder(
           listenable: controller,
@@ -225,9 +226,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   maxWidth: _kProfileContentMaxWidth,
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: _kProfilePagePadding,
-                    vertical: AppSpacing.xl,
+                  padding: const EdgeInsets.fromLTRB(
+                    _kProfilePagePadding,
+                    AppSpacing.pageTopInset,
+                    _kProfilePagePadding,
+                    AppSpacing.xl,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

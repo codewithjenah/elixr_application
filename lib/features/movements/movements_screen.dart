@@ -100,7 +100,7 @@ class _MovementsScreenState extends State<MovementsScreen> {
             return SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
                 horizontalPadding,
-                AppSpacing.xl,
+                AppSpacing.pageTopInset,
                 horizontalPadding,
                 AppSpacing.xxl,
               ),

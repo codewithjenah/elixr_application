@@ -137,6 +137,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   @override
   Widget build(BuildContext context) {
     return ElixScaffoldPage(
+      padding: EdgeInsets.zero,
       content: SafeArea(
         child: LayoutBuilder(
           builder: (context, viewportConstraints) {
@@ -147,7 +148,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             return Padding(
               padding: EdgeInsets.fromLTRB(
                 horizontalPadding,
-                horizontalPadding,
+                AppSpacing.pageTopInset,
                 horizontalPadding,
                 0,
               ),

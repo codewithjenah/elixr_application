@@ -63,8 +63,14 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
       animation: controller,
       builder: (context, _) {
         return ElixScaffoldPage(
+          padding: EdgeInsets.zero,
           content: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.pageTopInset,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
