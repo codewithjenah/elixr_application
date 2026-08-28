@@ -48,6 +48,7 @@ class _AppShellState extends State<AppShell> {
           onPressed: () => Navigator.of(context).pop(true),
         ),
       ],
+      uniformActionSize: const Size(128, 56),
     );
 
     if (shouldLogout != true || !mounted) return;

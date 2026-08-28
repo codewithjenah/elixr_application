@@ -54,6 +54,8 @@ class ElixEditorialHeader extends StatelessWidget {
     this.accentHeading,
     this.subtitle,
     this.headingColor,
+    this.headingTextStyle,
+    this.headingMaxLines,
     this.leading,
     this.actions = const [],
   });
@@ -64,6 +66,8 @@ class ElixEditorialHeader extends StatelessWidget {
   final String? accentHeading;
   final String? subtitle;
   final Color? headingColor;
+  final TextStyle? headingTextStyle;
+  final int? headingMaxLines;
   final Widget? leading;
   final List<Widget> actions;
 
@@ -74,8 +78,8 @@ class ElixEditorialHeader extends StatelessWidget {
       accentHeading: accentHeading,
       eyebrow: eyebrow,
       subtitle: subtitle,
-      headingStyle: _headingStyle(context),
-      headingMaxLines: _headingMaxLines(context),
+      headingStyle: headingTextStyle ?? _headingStyle(context),
+      headingMaxLines: headingMaxLines ?? _headingMaxLines(context),
       leading: leading,
     );
     if (actions.isEmpty) return copy;

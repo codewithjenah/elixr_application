@@ -136,7 +136,7 @@ TextSpan _headlineSpan(WidgetTester tester, String plain) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('trainee hero uses editorial 52px accent heading on desktop', (
+  testWidgets('trainee hero keeps the tagline on one smaller desktop line', (
     tester,
   ) async {
     await _setSurface(tester, const Size(1100, 800));
@@ -170,12 +170,33 @@ void main() {
     expect(find.text('3 sessions completed'), findsOneWidget);
 
     final span = _headlineSpan(tester, AppConstants.appTagline);
-    expect(span.style!.fontSize, 52);
+    expect(span.style!.fontSize, 44);
     expect(span.style!.color, Colors.white);
     expect((span.children!.last as TextSpan).style!.color, AppColors.primary);
+    expect(
+      tester
+          .widget<Text>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is Text &&
+                  widget.textSpan?.toPlainText() == AppConstants.appTagline,
+            ),
+          )
+          .maxLines,
+      1,
+    );
+
+    final greeting = tester.widget<RichText>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText() == 'Good Morning, Ada',
+      ),
+    );
+    expect(greeting.text.style!.fontSize, 16);
   });
 
-  testWidgets('trainee hero uses compact 40px headline under 900px', (
+  testWidgets('trainee hero uses a smaller compact one-line headline', (
     tester,
   ) async {
     await _setSurface(tester, const Size(800, 800));
@@ -198,7 +219,19 @@ void main() {
     await tester.pump();
 
     final span = _headlineSpan(tester, AppConstants.appTagline);
-    expect(span.style!.fontSize, 40);
+    expect(span.style!.fontSize, 36);
+    expect(
+      tester
+          .widget<Text>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is Text &&
+                  widget.textSpan?.toPlainText() == AppConstants.appTagline,
+            ),
+          )
+          .maxLines,
+      1,
+    );
     expect(find.text('1 session completed'), findsOneWidget);
   });
 

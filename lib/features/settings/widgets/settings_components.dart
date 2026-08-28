@@ -529,6 +529,7 @@ class SettingsDiscardConfirm {
           onPressed: () => Navigator.of(context).pop(true),
         ),
       ],
+      uniformActionSize: const Size(128, 56),
     );
     return result == true;
   }

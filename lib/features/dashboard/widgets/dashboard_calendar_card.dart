@@ -32,9 +32,13 @@ class DashboardCalendarCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ElixSectionHeader(
-            heading: 'Practice Calendar',
-            actions: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Expanded(
+                child: ElixSectionHeader(heading: 'Practice Calendar'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
               HyperlinkButton(
                 onPressed: onViewCalendar,
                 style: ButtonStyle(

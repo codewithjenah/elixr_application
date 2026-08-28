@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/data/models/session.dart';
 import 'package:elixr_application/features/calendar/utils/calendar_metrics.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_calendar_card.dart';
@@ -112,6 +113,45 @@ void main() {
     expect(navigated, ['/training?view=planner&date=$expected']);
     expect(expected.split('-')[1].length, 2);
     expect(expected.split('-')[2].length, 2);
+  });
+
+  testWidgets('calendar header is aligned at dashboard rail width', (
+    tester,
+  ) async {
+    await _setSurface(tester);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 350,
+              child: DashboardCalendarCard(
+                practicedDays: const {},
+                onViewCalendar: () {},
+                onDateSelected: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final heading = find.widgetWithText(ElixSectionHeader, 'Practice Calendar');
+    final link = find.widgetWithText(HyperlinkButton, 'View Planner');
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getCenter(heading).dy,
+      closeTo(tester.getCenter(link).dy, 0.01),
+    );
+    expect(
+      tester.getCenter(link).dx,
+      greaterThan(tester.getCenter(heading).dx),
+    );
   });
 
   test('Dashboard and Calendar share streak and date utilities', () {

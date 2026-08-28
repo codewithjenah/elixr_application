@@ -16,6 +16,7 @@ class ElixDialog extends StatelessWidget {
     this.headerAccentColor,
     required this.content,
     this.actions,
+    this.uniformActionSize,
     this.maxWidth = 480,
     this.maxHeight,
     this.scrollableContent = false,
@@ -28,6 +29,12 @@ class ElixDialog extends StatelessWidget {
   final Color? headerAccentColor;
   final Widget content;
   final List<Widget>? actions;
+
+  /// Applies the same tight size to every action in the footer.
+  ///
+  /// Confirmation dialogs use this to keep secondary and primary actions
+  /// visually balanced even when their labels or button implementations differ.
+  final Size? uniformActionSize;
   final double maxWidth;
   final double? maxHeight;
 
@@ -44,6 +51,7 @@ class ElixDialog extends StatelessWidget {
     Color? headerAccentColor,
     required Widget content,
     List<Widget>? actions,
+    Size? uniformActionSize,
     double maxWidth = 480,
     double? maxHeight,
     bool barrierDismissible = true,
@@ -63,6 +71,7 @@ class ElixDialog extends StatelessWidget {
           headerAccentColor: headerAccentColor,
           content: content,
           actions: actions,
+          uniformActionSize: uniformActionSize,
           maxWidth: maxWidth,
           maxHeight: maxHeight,
         ),
@@ -458,7 +467,13 @@ class ElixDialog extends StatelessWidget {
                           children: [
                             for (var i = 0; i < actions!.length; i++) ...[
                               if (i > 0) const SizedBox(width: AppSpacing.sm),
-                              actions![i],
+                              if (uniformActionSize == null)
+                                actions![i]
+                              else
+                                SizedBox.fromSize(
+                                  size: uniformActionSize,
+                                  child: actions![i],
+                                ),
                             ],
                           ],
                         ),

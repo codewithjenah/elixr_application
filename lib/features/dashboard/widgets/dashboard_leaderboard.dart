@@ -134,20 +134,7 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ElixSectionHeader(
-          heading: 'Top Players',
-          actions: [
-            const DashboardPill(
-              text: 'All Time',
-              color: AppColors.warning,
-              compact: true,
-            ),
-            HyperlinkButton(
-              onPressed: () => context.go('/leaderboard'),
-              child: const Text('View leaderboard'),
-            ),
-          ],
-        ),
+        _LeaderboardHeader(onViewLeaderboard: () => context.go('/leaderboard')),
         const SizedBox(height: AppSpacing.sm),
         if (_loading)
           const DashboardPanelCard(
@@ -236,6 +223,66 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _LeaderboardHeader extends StatelessWidget {
+  const _LeaderboardHeader({required this.onViewLeaderboard});
+
+  final VoidCallback onViewLeaderboard;
+
+  @override
+  Widget build(BuildContext context) {
+    final actionItems = <Widget>[
+      const DashboardPill(
+        text: 'All Time',
+        color: AppColors.warning,
+        compact: true,
+      ),
+      HyperlinkButton(
+        onPressed: onViewLeaderboard,
+        child: const Text('View leaderboard'),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const ElixSectionHeader(heading: 'Top Players'),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: actionItems,
+              ),
+            ],
+          );
+        }
+
+        final actions = Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            actionItems.first,
+            const SizedBox(width: AppSpacing.sm),
+            actionItems.last,
+          ],
+        );
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Expanded(child: ElixSectionHeader(heading: 'Top Players')),
+            const SizedBox(width: AppSpacing.md),
+            actions,
+          ],
+        );
+      },
     );
   }
 }

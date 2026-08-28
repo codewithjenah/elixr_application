@@ -3,6 +3,7 @@ import 'package:elixr_application/data/models/leaderboard_award_plan.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
 import 'package:elixr_application/features/dashboard/widgets/dashboard_leaderboard.dart';
+import 'package:elixr_application/features/dashboard/widgets/dashboard_panel_card.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_identity.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podium.dart';
 import 'package:elixr_application/features/profile/profile_route_args.dart';
@@ -228,5 +229,31 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(LeaderboardPodium), findsNothing);
     expect(find.text('Alice'), findsOneWidget);
+  });
+
+  testWidgets('wide header actions share the same visual center', (
+    tester,
+  ) async {
+    await _setSurface(tester);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: DashboardLeaderboard(
+            currentUserId: 'viewer',
+            displayName: 'Viewer User',
+            repository: _FakeLeaderboardRepository(entries),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pill = find.widgetWithText(DashboardPill, 'All Time');
+    final link = find.widgetWithText(HyperlinkButton, 'View leaderboard');
+
+    expect(tester.getCenter(pill).dy, closeTo(tester.getCenter(link).dy, 0.01));
+    expect(tester.getCenter(link).dx, greaterThan(tester.getCenter(pill).dx));
   });
 }

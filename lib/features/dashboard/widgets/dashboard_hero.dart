@@ -41,6 +41,7 @@ class DashboardHero extends StatelessWidget {
   static const double _bannerWidthToHeight = 3.4;
   static const double _minImageLedHeight = 280.0;
   static const double _maxBannerHeight = 340.0;
+  static const double _heroContentMaxWidth = 720.0;
 
   /// Keeps the bartender's face and pour action in frame when cover-cropping.
   static const Alignment _bannerAlignment = Alignment(0.58, -0.38);
@@ -157,7 +158,9 @@ class DashboardHero extends StatelessWidget {
                       return Align(
                         alignment: Alignment.centerLeft,
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 540),
+                          constraints: const BoxConstraints(
+                            maxWidth: _heroContentMaxWidth,
+                          ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -165,7 +168,8 @@ class DashboardHero extends StatelessWidget {
                               RichText(
                                 text: TextSpan(
                                   style: TextStyle(
-                                    fontSize: 13,
+                                    fontSize: 16,
+                                    height: 1.2,
                                     fontWeight: FontWeight.w600,
                                     color: onPhoto
                                         ? const Color(0xB3FFFFFF)
@@ -188,12 +192,27 @@ class DashboardHero extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              ElixEditorialHeader(
-                                heading: AppConstants.appTaglineHeading,
-                                accentHeading:
-                                    AppConstants.appTaglineAccentHeading,
-                                variant: ElixEditorialHeaderVariant.hero,
-                                headingColor: onPhoto ? Colors.white : null,
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: ElixEditorialHeader(
+                                  heading: AppConstants.appTaglineHeading,
+                                  accentHeading:
+                                      AppConstants.appTaglineAccentHeading,
+                                  variant: ElixEditorialHeaderVariant.hero,
+                                  headingColor: onPhoto ? Colors.white : null,
+                                  headingTextStyle:
+                                      AppTheme.displayHero(
+                                        context,
+                                        color: onPhoto ? Colors.white : null,
+                                      ).copyWith(
+                                        fontSize:
+                                            ElixTypography.isCompact(context)
+                                            ? 36
+                                            : 44,
+                                      ),
+                                  headingMaxLines: 1,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
