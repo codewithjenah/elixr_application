@@ -17,7 +17,7 @@ void main() {
     groupRepository = InMemoryGroupRepository(
       generateNormalizedCode: () => codes[codeIndex++ % codes.length],
       now: () => DateTime.utc(2026, 8, 19, 8),
-      generateGroupId: () => 'group-${codeIndex}',
+      generateGroupId: () => 'group-$codeIndex',
     );
     relationshipRepository = InMemoryTeacherRelationshipRepository(
       generateNormalizedCode: () => 'RSTU23456ABC',

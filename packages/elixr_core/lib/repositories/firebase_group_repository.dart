@@ -91,9 +91,7 @@ class FirebaseGroupRepository implements GroupRepository {
         .map(
           (snapshot) => [
             for (final doc in snapshot.docs)
-              if (ElixrGroup.tryFromMap(doc.data(), id: doc.id)
-                  case final group?)
-                group,
+              ?ElixrGroup.tryFromMap(doc.data(), id: doc.id),
           ],
         );
   }
@@ -249,9 +247,7 @@ class FirebaseGroupRepository implements GroupRepository {
         .map(
           (snapshot) => [
             for (final doc in snapshot.docs)
-              if (GroupMembership.tryFromMap(doc.data(), id: doc.id)
-                  case final membership?)
-                membership,
+              ?GroupMembership.tryFromMap(doc.data(), id: doc.id),
           ],
         );
   }
@@ -267,9 +263,7 @@ class FirebaseGroupRepository implements GroupRepository {
         .map(
           (snapshot) => [
             for (final doc in snapshot.docs)
-              if (GroupMembership.tryFromMap(doc.data(), id: doc.id)
-                  case final membership?)
-                membership,
+              ?GroupMembership.tryFromMap(doc.data(), id: doc.id),
           ],
         );
   }
@@ -285,9 +279,7 @@ class FirebaseGroupRepository implements GroupRepository {
         .map(
           (snapshot) => [
             for (final doc in snapshot.docs)
-              if (GroupMembership.tryFromMap(doc.data(), id: doc.id)
-                  case final membership?)
-                membership,
+              ?GroupMembership.tryFromMap(doc.data(), id: doc.id),
           ],
         );
   }
@@ -306,9 +298,7 @@ class FirebaseGroupRepository implements GroupRepository {
         .map(
           (snapshot) => [
             for (final doc in snapshot.docs)
-              if (GroupMembership.tryFromMap(doc.data(), id: doc.id)
-                  case final membership?)
-                membership,
+              ?GroupMembership.tryFromMap(doc.data(), id: doc.id),
           ],
         );
   }

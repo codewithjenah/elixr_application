@@ -33,7 +33,6 @@ class InMemoryGroupRepository implements GroupRepository {
   final Map<String, String> activeInviteByGroup = {};
   final Map<String, GroupMembership> memberships = {};
   final Map<String, ClassroomTeacherAccessContext> classroomAccessContexts = {};
-  int _groupCounter = 0;
 
   /// Legacy `teacher_invites` codes reserved for cross-namespace collision tests.
   @visibleForTesting
@@ -145,7 +144,6 @@ class InMemoryGroupRepository implements GroupRepository {
     }
     final timestamp = now;
     final id = _generateGroupId();
-    _groupCounter++;
     final group = ElixrGroup(
       id: id,
       teacherId: teacherId,

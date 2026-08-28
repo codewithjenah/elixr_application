@@ -98,8 +98,9 @@ class _MovementCardState extends State<MovementCard>
     );
     // Standalone cards (including legacy widget tests) retain the original
     // practice wording. In the app, the router still enforces the lesson gate.
-    if (tutorial == null)
+    if (tutorial == null) {
       return _practiced ? 'Practice again' : 'Start practice';
+    }
     if (tutorial.hasCompletedLesson(widget.movement.name)) {
       return _practiced ? 'Practice again' : 'Start practice';
     }
