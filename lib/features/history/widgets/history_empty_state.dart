@@ -116,12 +116,14 @@ class HistoryNoResultsState extends StatelessWidget {
 }
 
 class HistoryLoadingSkeleton extends StatelessWidget {
-  const HistoryLoadingSkeleton({super.key});
+  const HistoryLoadingSkeleton({super.key, this.padding});
+
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+      padding: padding ?? const EdgeInsets.only(bottom: AppSpacing.xl),
       children: [
         Wrap(
           spacing: AppSpacing.sm,

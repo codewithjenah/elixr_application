@@ -110,6 +110,18 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('page scroll viewport reaches the right edge', (tester) async {
+    groups.seedGroup(activeGroup());
+    await pumpBoard(tester);
+
+    final screenRect = tester.getRect(find.byType(TeacherLeaderboardScreen));
+    final scrollRect = tester.getRect(
+      find.byKey(const Key('teacher_leaderboard_page_scroll')),
+    );
+    expect(scrollRect.left, screenRect.left);
+    expect(scrollRect.right, screenRect.right);
+  });
+
   testWidgets(
     'global stranger opens the public profile instead of student detail',
     (tester) async {

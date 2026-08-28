@@ -13,9 +13,14 @@ import '../../../data/repositories/assignment_submission_repository.dart';
 import 'teacher_movements_controller.dart';
 
 class TeacherReviewsPane extends StatefulWidget {
-  const TeacherReviewsPane({super.key, required this.controller});
+  const TeacherReviewsPane({
+    super.key,
+    required this.controller,
+    this.padding = EdgeInsets.zero,
+  });
 
   final TeacherMovementsController controller;
+  final EdgeInsetsGeometry padding;
 
   @override
   State<TeacherReviewsPane> createState() => _TeacherReviewsPaneState();
@@ -99,14 +104,17 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
   Widget build(BuildContext context) {
     final selected = controller.selectedReview;
     if (selected != null) {
-      return _Detail(
-        controller: controller,
-        attempt: selected,
-        feedback: _feedback,
-        playable: _playable,
-        playableError: _playableError,
-        playbackSession: _playbackSession,
-        onBack: () => _openReview(null),
+      return Padding(
+        padding: widget.padding,
+        child: _Detail(
+          controller: controller,
+          attempt: selected,
+          feedback: _feedback,
+          playable: _playable,
+          playableError: _playableError,
+          playbackSession: _playbackSession,
+          onBack: () => _openReview(null),
+        ),
       );
     }
     final queue = controller.reviewQueue;
@@ -121,6 +129,7 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
       );
     }
     return ListView.separated(
+      padding: widget.padding,
       itemCount: queue.length,
       separatorBuilder: (context, index) =>
           const SizedBox(height: AppSpacing.sm),

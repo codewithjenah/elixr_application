@@ -324,84 +324,97 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       ),
       content: _loadingSessions
           ? const Center(child: ProgressRing())
-          : Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
-                child: ListView(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  children: [
-                    _HeaderSummary(
-                      claimedCount: claimedCount,
-                      totalCount: achievementCatalog.length,
-                      unlockedBorderCount: _unlockedBorderCount,
-                      totalBorders: profileBorderCatalog.length,
-                      overallProgress: _overallProgress,
-                      initials: initials,
-                      networkImageUrl: user?.profilePictureUrl,
-                      legacyLocalPath: user?.profilePicturePath,
-                      equippedBorderId: _leaderboardEntry?.equippedBorderId,
-                      leaderboardMissing: _leaderboardMissing,
+          : ListView(
+              key: const Key('achievements_page_scroll'),
+              padding: EdgeInsets.zero,
+              children: [
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: _kMaxContentWidth,
                     ),
-                    if (_actionError != null) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      InfoBar(
-                        title: const Text('Something went wrong'),
-                        content: Text(_actionError!),
-                        severity: InfoBarSeverity.error,
-                        isLong: true,
-                        action: Button(
-                          onPressed: () {
-                            unawaited(_loadSessions(_userId));
-                            setState(() => _actionError = null);
-                          },
-                          child: const Text('Retry'),
-                        ),
-                        onClose: () => setState(() => _actionError = null),
-                      ),
-                    ],
-                    const SizedBox(height: AppSpacing.lg),
-                    _AchievementsSectionToolbar(
-                      filter: _filter,
-                      filterCounts: filterCounts,
-                      onFilterChanged: (filter) =>
-                          setState(() => _filter = filter),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final filtered = _filteredViews;
-                        if (filtered.isEmpty) {
-                          return _EmptyFilterState(filter: _filter);
-                        }
-                        final columns = _achievementColumnCount(
-                          constraints.maxWidth,
-                        );
-                        return GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: filtered.length,
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: columns,
-                                mainAxisExtent: _kAchievementCardExtent,
-                                mainAxisSpacing: _kAchievementGridGap,
-                                crossAxisSpacing: _kAchievementGridGap,
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _HeaderSummary(
+                            claimedCount: claimedCount,
+                            totalCount: achievementCatalog.length,
+                            unlockedBorderCount: _unlockedBorderCount,
+                            totalBorders: profileBorderCatalog.length,
+                            overallProgress: _overallProgress,
+                            initials: initials,
+                            networkImageUrl: user?.profilePictureUrl,
+                            legacyLocalPath: user?.profilePicturePath,
+                            equippedBorderId:
+                                _leaderboardEntry?.equippedBorderId,
+                            leaderboardMissing: _leaderboardMissing,
+                          ),
+                          if (_actionError != null) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            InfoBar(
+                              title: const Text('Something went wrong'),
+                              content: Text(_actionError!),
+                              severity: InfoBarSeverity.error,
+                              isLong: true,
+                              action: Button(
+                                onPressed: () {
+                                  unawaited(_loadSessions(_userId));
+                                  setState(() => _actionError = null);
+                                },
+                                child: const Text('Retry'),
                               ),
-                          itemBuilder: (context, index) {
-                            final view = filtered[index];
-                            return AchievementCard(
-                              view: view,
-                              claiming: _claimingId == view.definition.id,
-                              onClaim: () => _claim(view.definition.id),
-                            );
-                          },
-                        );
-                      },
+                              onClose: () =>
+                                  setState(() => _actionError = null),
+                            ),
+                          ],
+                          const SizedBox(height: AppSpacing.lg),
+                          _AchievementsSectionToolbar(
+                            filter: _filter,
+                            filterCounts: filterCounts,
+                            onFilterChanged: (filter) =>
+                                setState(() => _filter = filter),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final filtered = _filteredViews;
+                              if (filtered.isEmpty) {
+                                return _EmptyFilterState(filter: _filter);
+                              }
+                              final columns = _achievementColumnCount(
+                                constraints.maxWidth,
+                              );
+                              return GridView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: filtered.length,
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: columns,
+                                      mainAxisExtent: _kAchievementCardExtent,
+                                      mainAxisSpacing: _kAchievementGridGap,
+                                      crossAxisSpacing: _kAchievementGridGap,
+                                    ),
+                                itemBuilder: (context, index) {
+                                  final view = filtered[index];
+                                  return AchievementCard(
+                                    view: view,
+                                    claiming: _claimingId == view.definition.id,
+                                    onClaim: () => _claim(view.definition.id),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
     );
   }

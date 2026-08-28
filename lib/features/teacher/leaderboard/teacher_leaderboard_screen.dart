@@ -97,35 +97,45 @@ class _TeacherLeaderboardScreenState extends State<TeacherLeaderboardScreen> {
             subtitle: 'Celebrate steady training progress.',
           ),
           scrollable: false,
+          contentPadding: EdgeInsets.zero,
           content: LayoutBuilder(
             builder: (context, constraints) {
               final horizontalPadding =
                   LeaderboardScreenLayout.horizontalPaddingFor(
                     constraints.maxWidth,
                   );
-              return Padding(
-                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _Toolbar(controller: controller),
-                    const SizedBox(height: AppSpacing.lg),
-                    Expanded(
-                      child: controller.loading
-                          ? const Center(child: ProgressRing())
-                          : controller.errorMessage != null
-                          ? _MessageState(
-                              message: controller.errorMessage!,
-                              actionLabel: 'Retry',
-                              onAction: controller.retry,
-                            )
-                          : _Board(
-                              controller: controller,
-                              onTapPlayer: _onTapPlayer,
-                            ),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      AppSpacing.lg,
+                      horizontalPadding,
+                      0,
                     ),
-                  ],
-                ),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _Toolbar(controller: controller),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Expanded(
+                    child: controller.loading
+                        ? const Center(child: ProgressRing())
+                        : controller.errorMessage != null
+                        ? _MessageState(
+                            message: controller.errorMessage!,
+                            actionLabel: 'Retry',
+                            onAction: controller.retry,
+                          )
+                        : _Board(
+                            controller: controller,
+                            horizontalPadding: horizontalPadding,
+                            onTapPlayer: _onTapPlayer,
+                          ),
+                  ),
+                ],
               );
             },
           ),
@@ -185,10 +195,20 @@ class _Toolbar extends StatelessWidget {
 }
 
 class _Board extends StatelessWidget {
-  const _Board({required this.controller, required this.onTapPlayer});
+  const _Board({
+    required this.controller,
+    required this.horizontalPadding,
+    required this.onTapPlayer,
+  });
 
   final TeacherLeaderboardController controller;
+  final double horizontalPadding;
   final ValueChanged<LeaderboardEntry> onTapPlayer;
+
+  Widget _padded(Widget child) => Padding(
+    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+    child: child,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -213,7 +233,7 @@ class _Board extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PeriodHeader(controller: controller, refreshEnabled: false),
+          _padded(_PeriodHeader(controller: controller, refreshEnabled: false)),
           const Expanded(child: Center(child: ProgressRing())),
         ],
       );
@@ -227,7 +247,7 @@ class _Board extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PeriodHeader(controller: controller),
+          _padded(_PeriodHeader(controller: controller)),
           Expanded(
             child: _MessageState(
               message: controller.isGlobal
@@ -245,7 +265,7 @@ class _Board extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PeriodHeader(controller: controller),
+          _padded(_PeriodHeader(controller: controller)),
           Expanded(child: _MessageState(message: _emptyCopy(controller))),
         ],
       );
@@ -254,28 +274,35 @@ class _Board extends StatelessWidget {
     final podium = LeaderboardPresentation.podiumOf(entries);
     final rows = LeaderboardPresentation.rankedRowsOf(entries);
     return CustomScrollView(
+      key: const Key('teacher_leaderboard_page_scroll'),
       slivers: [
-        SliverToBoxAdapter(child: _PeriodHeader(controller: controller)),
+        SliverToBoxAdapter(
+          child: _padded(_PeriodHeader(controller: controller)),
+        ),
         const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
         SliverToBoxAdapter(
-          child: LeaderboardPodium(
-            podium: podium,
-            currentUserId: null,
-            period: controller.period,
-            onTapPlayer: (entry, _) => onTapPlayer(entry),
+          child: _padded(
+            LeaderboardPodium(
+              podium: podium,
+              currentUserId: null,
+              period: controller.period,
+              onTapPlayer: (entry, _) => onTapPlayer(entry),
+            ),
           ),
         ),
         if (rows.isNotEmpty) ...[
           const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
           SliverToBoxAdapter(
-            child: LeaderboardRankingsSection(
-              rows: rows,
-              currentUserId: null,
-              period: controller.period,
-              footer: controller.isGlobal
-                  ? _LoadMoreFooter(controller: controller)
-                  : const SizedBox.shrink(),
-              onTapPlayer: (entry, _) => onTapPlayer(entry),
+            child: _padded(
+              LeaderboardRankingsSection(
+                rows: rows,
+                currentUserId: null,
+                period: controller.period,
+                footer: controller.isGlobal
+                    ? _LoadMoreFooter(controller: controller)
+                    : const SizedBox.shrink(),
+                onTapPlayer: (entry, _) => onTapPlayer(entry),
+              ),
             ),
           ),
         ],

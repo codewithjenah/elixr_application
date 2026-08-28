@@ -68,6 +68,7 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
             subtitle: 'Review your active trainee roster.',
           ),
           scrollable: false,
+          contentPadding: EdgeInsets.zero,
           content: controller.loading
               ? const Center(child: ProgressRing())
               : controller.errorMessage != null
@@ -76,11 +77,22 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
                   onRetry: controller.retry,
                 )
               : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _Toolbar(
-                      controller: controller,
-                      searchController: _searchController,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                        0,
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: _Toolbar(
+                          controller: controller,
+                          searchController: _searchController,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Expanded(
@@ -171,40 +183,57 @@ class _GroupedStudentRoster extends StatelessWidget {
   Widget build(BuildContext context) {
     final rosters = controller.visibleGroupRosters;
     return CustomScrollView(
+      key: const Key('teacher_students_page_scroll'),
       slivers: [
-        for (var index = 0; index < rosters.length; index++) ...[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.only(
-                top: index == 0 ? 0 : AppSpacing.lg,
-                bottom: AppSpacing.sm,
-              ),
-              child: _GroupRosterHeader(roster: rosters[index]),
-            ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            0,
+            AppSpacing.lg,
+            AppSpacing.lg,
           ),
-          if (rosters[index].memberships.isEmpty)
-            const SliverToBoxAdapter(child: SizedBox.shrink())
-          else
-            SliverList(
-              delegate: SliverChildBuilderDelegate((context, studentIndex) {
-                final membership = rosters[index].memberships[studentIndex];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: _StudentRow(
-                    membership: membership,
-                    onOpen: () {
-                      context.go(
-                        AppRoutePaths.teacherStudentDetail(
-                          membership.traineeId,
-                          groupId: membership.groupId,
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              for (var index = 0; index < rosters.length; index++) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      top: index == 0 ? 0 : AppSpacing.lg,
+                      bottom: AppSpacing.sm,
+                    ),
+                    child: _GroupRosterHeader(roster: rosters[index]),
+                  ),
+                ),
+                if (rosters[index].memberships.isEmpty)
+                  const SliverToBoxAdapter(child: SizedBox.shrink())
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate((
+                      context,
+                      studentIndex,
+                    ) {
+                      final membership =
+                          rosters[index].memberships[studentIndex];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: _StudentRow(
+                          membership: membership,
+                          onOpen: () {
+                            context.go(
+                              AppRoutePaths.teacherStudentDetail(
+                                membership.traineeId,
+                                groupId: membership.groupId,
+                              ),
+                            );
+                          },
                         ),
                       );
-                    },
+                    }, childCount: rosters[index].memberships.length),
                   ),
-                );
-              }, childCount: rosters[index].memberships.length),
-            ),
-        ],
+              ],
+            ],
+          ),
+        ),
       ],
     );
   }

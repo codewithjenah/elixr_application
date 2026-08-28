@@ -2,6 +2,8 @@ import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/profile_border_frame.dart';
 import 'package:elixr_application/data/models/leaderboard_entry.dart';
 import 'package:elixr_application/data/models/leaderboard_period.dart';
+import 'package:elixr_application/data/repositories/leaderboard_repository.dart';
+import 'package:elixr_application/features/leaderboard/leaderboard_list_controller.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_presentation.dart';
 import 'package:elixr_application/features/leaderboard/leaderboard_screen.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_header.dart';
@@ -10,9 +12,12 @@ import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podiu
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_podium_card.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_rank_row.dart';
 import 'package:elixr_application/features/leaderboard/widgets/leaderboard_rankings_section.dart';
+import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 LeaderboardEntry entry({
   required String id,
@@ -68,6 +73,8 @@ Future<void> setSurface(WidgetTester tester, Size size) async {
     await tester.binding.setSurfaceSize(null);
   });
 }
+
+class _UnusedAuthRepository extends Fake implements AuthRepositoryBase {}
 
 void main() {
   group('LeaderboardInitialsAvatar', () {
@@ -937,6 +944,53 @@ void main() {
   });
 
   group('responsive leaderboard composition', () {
+    testWidgets('page scroll viewport reaches the right edge', (tester) async {
+      await setSurface(tester, const Size(1200, 800));
+      final controller = LeaderboardListController(
+        fetchPageForPeriod: ({required period, startAfter}) async =>
+            LeaderboardPage(
+              entries: [
+                entry(id: '1', name: 'First', xp: 400),
+                entry(id: '2', name: 'Second', xp: 300),
+                entry(id: '3', name: 'Third', xp: 200),
+                entry(id: '4', name: 'Fourth', xp: 100),
+              ],
+              nextCursor: null,
+              hasMore: false,
+            ),
+      );
+      final auth = AuthService(repository: _UnusedAuthRepository());
+      addTearDown(controller.dispose);
+      addTearDown(auth.dispose);
+
+      await tester.pumpWidget(
+        FluentApp(
+          theme: AppTheme.dark,
+          home: ChangeNotifierProvider.value(
+            value: auth,
+            child: LeaderboardScreen(controller: controller),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final pageRect = tester.getRect(find.byType(LeaderboardScreen));
+      final scrollRect = tester.getRect(
+        find.byKey(const Key('leaderboard_page_scroll')),
+      );
+      expect(scrollRect.left, pageRect.left);
+      expect(scrollRect.right, pageRect.right);
+
+      final headerRect = tester.getRect(find.byType(LeaderboardHeader));
+      expect(
+        headerRect.left,
+        greaterThanOrEqualTo(
+          pageRect.left +
+              LeaderboardScreenLayout.horizontalPaddingFor(pageRect.width),
+        ),
+      );
+    });
+
     testWidgets('target desktop and narrow widths render without overflow', (
       tester,
     ) async {

@@ -134,6 +134,7 @@ class TeacherScaffoldPage extends StatelessWidget {
     required this.header,
     required this.content,
     this.scrollable = true,
+    this.contentPadding = _pagePadding,
   });
 
   /// Any header widget is accepted so existing [PageHeader] callers stay
@@ -147,15 +148,20 @@ class TeacherScaffoldPage extends StatelessWidget {
   /// padding, without an outer vertical scroll view.
   final bool scrollable;
 
+  /// Spacing applied inside the document scroll view, or around bounded
+  /// viewport content. Set this to zero when the child owns a full-width page
+  /// scroll view and applies spacing inside its list/slivers.
+  final EdgeInsetsGeometry contentPadding;
+
   static const EdgeInsets _pagePadding = EdgeInsets.all(AppSpacing.lg);
 
   @override
   Widget build(BuildContext context) {
-    final paddedContent = Padding(padding: _pagePadding, child: content);
+    final paddedContent = Padding(padding: contentPadding, child: content);
     return ElixScaffoldPage(
       header: header,
       content: scrollable
-          ? SingleChildScrollView(padding: _pagePadding, child: content)
+          ? SingleChildScrollView(padding: contentPadding, child: content)
           : paddedContent,
     );
   }

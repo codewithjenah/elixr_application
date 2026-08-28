@@ -64,25 +64,25 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
       builder: (context, _) {
         return ElixScaffoldPage(
           padding: EdgeInsets.zero,
-          content: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.pageTopInset,
-              AppSpacing.lg,
-              AppSpacing.lg,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ElixEditorialHeader(
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.pageTopInset,
+                  AppSpacing.lg,
+                  0,
+                ),
+                child: ElixEditorialHeader(
                   heading: 'Assigned Movements',
                   subtitle:
                       'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.',
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Expanded(child: _Body(controller: controller)),
-              ],
-            ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Expanded(child: _Body(controller: controller)),
+            ],
           ),
         );
       },
@@ -121,6 +121,14 @@ class _Body extends StatelessWidget {
         ),
       );
     }
-    return AssignedMovementList(items: controller.items);
+    return AssignedMovementList(
+      items: controller.items,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
+    );
   }
 }

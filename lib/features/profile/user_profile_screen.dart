@@ -219,38 +219,46 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         child: ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
-            return Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: _kProfileContentMaxWidth,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    _kProfilePagePadding,
-                    AppSpacing.pageTopInset,
-                    _kProfilePagePadding,
-                    AppSpacing.xl,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _ProfilePageHeader(title: pageTitle, onBack: _handleBack),
-                      if (controller.isSelf && _previewAsVisitor) ...[
-                        const SizedBox(height: AppSpacing.md),
-                        _PreviewBanner(
-                          onExit: _exitPreviewAsVisitor,
-                          viewerIsTeacher: _isTeacherViewer,
-                        ),
-                      ],
-                      const SizedBox(height: AppSpacing.lg),
-                      Expanded(
-                        child: _buildBody(context, authUser?.profilePictureUrl),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: _kProfileContentMaxWidth,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        _kProfilePagePadding,
+                        AppSpacing.pageTopInset,
+                        _kProfilePagePadding,
+                        0,
                       ),
-                    ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _ProfilePageHeader(
+                            title: pageTitle,
+                            onBack: _handleBack,
+                          ),
+                          if (controller.isSelf && _previewAsVisitor) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            _PreviewBanner(
+                              onExit: _exitPreviewAsVisitor,
+                              viewerIsTeacher: _isTeacherViewer,
+                            ),
+                          ],
+                          const SizedBox(height: AppSpacing.lg),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                Expanded(
+                  child: _buildBody(context, authUser?.profilePictureUrl),
+                ),
+              ],
             );
           },
         ),
@@ -288,68 +296,92 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         final wide = constraints.maxWidth >= _kProfileWideBreakpoint;
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.only(right: _kProfileScrollbarGutter),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ProfileHeader(
-                displayName: displayName,
-                profilePictureUrl: resolvedPicture,
-                equippedBorderId: entry?.equippedBorderId,
-                level: entry?.level,
-                totalXp: entry?.totalXp,
-                rank: controller.rank,
-                showUnrankedLabel: entry != null && controller.rank == null,
-                visibility: showOwnerUi ? root?.visibility : null,
-                showOwnerActions: showOwnerUi,
-                isTeacher: _ownerIsTeacher,
-                onEditProfile: showOwnerUi ? _openAccountProfileSettings : null,
-                onPreviewProfile: showOwnerUi ? _enterPreviewAsVisitor : null,
-                onPrivacy: showOwnerUi ? _openPrivacySettings : null,
-                onEditAvatar: showOwnerUi ? _openAccountProfileSettings : null,
+          key: const Key('profile_page_scroll'),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: _kProfileContentMaxWidth,
               ),
-              const SizedBox(height: AppSpacing.lg),
-              if (canViewDetails && !_ownerIsTeacher && entry != null)
-                ProfileStatsSection(
-                  leaderboardEntry: entry,
-                  rank: controller.rank,
-                  summary: controller.summary,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  _kProfilePagePadding,
+                  0,
+                  _kProfilePagePadding + _kProfileScrollbarGutter,
+                  0,
                 ),
-              if (canViewDetails && !_ownerIsTeacher && entry != null)
-                const SizedBox(height: AppSpacing.lg),
-              if (!canViewDetails)
-                PrivateProfileState(ownerIsTeacher: _ownerIsTeacher)
-              else if (_ownerIsTeacher) ...[
-                const TeacherProfileState(),
-                if (showOwnerUi) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  ProfileVisitorsSection(
-                    state: controller.visitorsState,
-                    visitors: controller.visitors,
-                    onVisitorTap: _openVisitorProfile,
-                  ),
-                ],
-              ] else
-                _ProfileContentLayout(
-                  wide: wide,
-                  showVisitorsColumn: showOwnerUi,
-                  achievements: ProfileAchievementsSection(
-                    achievements: controller.claimedAchievements,
-                  ),
-                  movements: CompletedMovementsSection(
-                    movementNames:
-                        controller.summary?.completedMovementNames ?? const [],
-                  ),
-                  visitors: showOwnerUi
-                      ? ProfileVisitorsSection(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ProfileHeader(
+                      displayName: displayName,
+                      profilePictureUrl: resolvedPicture,
+                      equippedBorderId: entry?.equippedBorderId,
+                      level: entry?.level,
+                      totalXp: entry?.totalXp,
+                      rank: controller.rank,
+                      showUnrankedLabel:
+                          entry != null && controller.rank == null,
+                      visibility: showOwnerUi ? root?.visibility : null,
+                      showOwnerActions: showOwnerUi,
+                      isTeacher: _ownerIsTeacher,
+                      onEditProfile: showOwnerUi
+                          ? _openAccountProfileSettings
+                          : null,
+                      onPreviewProfile: showOwnerUi
+                          ? _enterPreviewAsVisitor
+                          : null,
+                      onPrivacy: showOwnerUi ? _openPrivacySettings : null,
+                      onEditAvatar: showOwnerUi
+                          ? _openAccountProfileSettings
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    if (canViewDetails && !_ownerIsTeacher && entry != null)
+                      ProfileStatsSection(
+                        leaderboardEntry: entry,
+                        rank: controller.rank,
+                        summary: controller.summary,
+                      ),
+                    if (canViewDetails && !_ownerIsTeacher && entry != null)
+                      const SizedBox(height: AppSpacing.lg),
+                    if (!canViewDetails)
+                      PrivateProfileState(ownerIsTeacher: _ownerIsTeacher)
+                    else if (_ownerIsTeacher) ...[
+                      const TeacherProfileState(),
+                      if (showOwnerUi) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        ProfileVisitorsSection(
                           state: controller.visitorsState,
                           visitors: controller.visitors,
                           onVisitorTap: _openVisitorProfile,
-                        )
-                      : null,
+                        ),
+                      ],
+                    ] else
+                      _ProfileContentLayout(
+                        wide: wide,
+                        showVisitorsColumn: showOwnerUi,
+                        achievements: ProfileAchievementsSection(
+                          achievements: controller.claimedAchievements,
+                        ),
+                        movements: CompletedMovementsSection(
+                          movementNames:
+                              controller.summary?.completedMovementNames ??
+                              const [],
+                        ),
+                        visitors: showOwnerUi
+                            ? ProfileVisitorsSection(
+                                state: controller.visitorsState,
+                                visitors: controller.visitors,
+                                onVisitorTap: _openVisitorProfile,
+                              )
+                            : null,
+                      ),
+                    const SizedBox(height: AppSpacing.xl),
+                  ],
                 ),
-              const SizedBox(height: AppSpacing.xl),
-            ],
+              ),
+            ),
           ),
         );
       },

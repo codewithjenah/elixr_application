@@ -413,7 +413,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ? _CalendarErrorState(onRetry: () => _loadCalendar(fullScreen: true))
         : SingleChildScrollView(
             padding: widget.embedded
-                ? const EdgeInsets.only(bottom: AppSpacing.xl)
+                ? const EdgeInsets.fromLTRB(
+                    AppSpacing.xl,
+                    0,
+                    AppSpacing.xl,
+                    AppSpacing.xl,
+                  )
                 : const EdgeInsets.fromLTRB(
                     AppSpacing.xl,
                     AppSpacing.pageTopInset,

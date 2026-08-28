@@ -247,70 +247,98 @@ class _HistoryScreenState extends State<HistoryScreen> {
         : DateFormat.yMMMMd().format(_dateFilter!);
 
     final body = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        HistoryHeader(
-          loading: _loading,
-          onRefresh: _loadSessions,
-          showTitle: !widget.embedded,
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            widget.embedded ? 0 : AppSpacing.pageTopInset,
+            AppSpacing.xl,
+            0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              HistoryHeader(
+                loading: _loading,
+                onRefresh: _loadSessions,
+                showTitle: !widget.embedded,
+              ),
+              if (hasSessions) ...[
+                SizedBox(
+                  height: widget.embedded ? AppSpacing.sm : AppSpacing.lg,
+                ),
+                HistorySummarySection(
+                  totalSessions: _sessions.length,
+                  rubricSessionCount: rubricTotals.length,
+                  averageRubricTotal: _average(rubricTotals),
+                  bestRubricTotal: _best(rubricTotals),
+                  legacySessionCount: legacyScores.length,
+                  averageLegacyScore: _average(legacyScores),
+                  bestLegacyScore: _best(legacyScores),
+                  totalDurationSeconds: totalDurationSeconds,
+                  matchingCount: _hasResultFilter ? _filtered.length : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                HistoryFilterBar(
+                  difficultyFilter: _difficultyFilter,
+                  searchQuery: _searchQuery,
+                  sortMode: _sortMode,
+                  dateFilterLabel: dateFilterLabel,
+                  hasActiveFilters: _hasActiveFilters,
+                  onDifficultyChanged: (v) {
+                    setState(() {
+                      _difficultyFilter = v;
+                      _applyFiltersAndSort();
+                    });
+                  },
+                  onSearchChanged: (v) {
+                    setState(() {
+                      _searchQuery = v;
+                      _applyFiltersAndSort();
+                    });
+                  },
+                  onSortChanged: (v) {
+                    setState(() {
+                      _sortMode = v;
+                      _applyFiltersAndSort();
+                    });
+                  },
+                  onClearFilters: _clearFilters,
+                  onDateFilterCleared: () {
+                    setState(() {
+                      _dateFilter = null;
+                      _applyFiltersAndSort();
+                    });
+                  },
+                ),
+              ],
+              const SizedBox(height: AppSpacing.lg),
+            ],
+          ),
         ),
-        if (hasSessions) ...[
-          SizedBox(height: widget.embedded ? AppSpacing.sm : AppSpacing.lg),
-          HistorySummarySection(
-            totalSessions: _sessions.length,
-            rubricSessionCount: rubricTotals.length,
-            averageRubricTotal: _average(rubricTotals),
-            bestRubricTotal: _best(rubricTotals),
-            legacySessionCount: legacyScores.length,
-            averageLegacyScore: _average(legacyScores),
-            bestLegacyScore: _best(legacyScores),
-            totalDurationSeconds: totalDurationSeconds,
-            matchingCount: _hasResultFilter ? _filtered.length : null,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          HistoryFilterBar(
-            difficultyFilter: _difficultyFilter,
-            searchQuery: _searchQuery,
-            sortMode: _sortMode,
-            dateFilterLabel: dateFilterLabel,
-            hasActiveFilters: _hasActiveFilters,
-            onDifficultyChanged: (v) {
-              setState(() {
-                _difficultyFilter = v;
-                _applyFiltersAndSort();
-              });
-            },
-            onSearchChanged: (v) {
-              setState(() {
-                _searchQuery = v;
-                _applyFiltersAndSort();
-              });
-            },
-            onSortChanged: (v) {
-              setState(() {
-                _sortMode = v;
-                _applyFiltersAndSort();
-              });
-            },
-            onClearFilters: _clearFilters,
-            onDateFilterCleared: () {
-              setState(() {
-                _dateFilter = null;
-                _applyFiltersAndSort();
-              });
-            },
-          ),
-        ],
-        const SizedBox(height: AppSpacing.lg),
         Expanded(
           child: _loading && _sessions.isEmpty
-              ? const HistoryLoadingSkeleton()
+              ? const HistoryLoadingSkeleton(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.xl,
+                    0,
+                    AppSpacing.xl,
+                    AppSpacing.xl,
+                  ),
+                )
               : _sessions.isEmpty
               ? const HistoryEmptyState()
               : _filtered.isEmpty
               ? HistoryNoResultsState(onClearFilters: _clearFilters)
               : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+                  key: const Key('history_page_scroll'),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xl,
+                    0,
+                    AppSpacing.xl,
+                    AppSpacing.xl,
+                  ),
                   itemCount: groups.length,
                   itemBuilder: (context, index) {
                     final label = groups.keys.elementAt(index);
@@ -326,17 +354,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
-      content: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            AppSpacing.pageTopInset,
-            AppSpacing.xl,
-            0,
-          ),
-          child: body,
-        ),
-      ),
+      content: SafeArea(child: body),
     );
   }
 }

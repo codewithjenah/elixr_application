@@ -20,10 +20,12 @@ class AssignedMovementList extends StatelessWidget {
     super.key,
     required this.items,
     this.showGroupName = true,
+    this.padding = EdgeInsets.zero,
   });
 
   final List<AssignedMovementItem> items;
   final bool showGroupName;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
@@ -46,34 +48,41 @@ class AssignedMovementList extends StatelessWidget {
             : 1;
         return CustomScrollView(
           slivers: [
-            if (official.isNotEmpty) ...[
-              const SliverToBoxAdapter(
-                child: _OriginSectionHeader(
-                  sectionKey: Key('assigned_movements_official_section'),
-                  title: 'Official ELIXR',
-                  subtitle:
-                      'Live guided practice. ELIXR scores your form. No submission clip.',
-                  accent: AppColors.accent,
-                ),
+            SliverPadding(
+              padding: padding,
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  if (official.isNotEmpty) ...[
+                    const SliverToBoxAdapter(
+                      child: _OriginSectionHeader(
+                        sectionKey: Key('assigned_movements_official_section'),
+                        title: 'Official ELIXR',
+                        subtitle:
+                            'Live guided practice. ELIXR scores your form. No submission clip.',
+                        accent: AppColors.accent,
+                      ),
+                    ),
+                    _cardGridSliver(official, columns),
+                    if (teacherCreated.isNotEmpty)
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.xl),
+                      ),
+                  ],
+                  if (teacherCreated.isNotEmpty) ...[
+                    const SliverToBoxAdapter(
+                      child: _OriginSectionHeader(
+                        sectionKey: Key('assigned_movements_teacher_section'),
+                        title: 'Teacher-created',
+                        subtitle:
+                            'Record a clip for your teacher to review. Preview it after you submit.',
+                        accent: AppColors.primary,
+                      ),
+                    ),
+                    _cardGridSliver(teacherCreated, columns),
+                  ],
+                ],
               ),
-              _cardGridSliver(official, columns),
-              if (teacherCreated.isNotEmpty)
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: AppSpacing.xl),
-                ),
-            ],
-            if (teacherCreated.isNotEmpty) ...[
-              const SliverToBoxAdapter(
-                child: _OriginSectionHeader(
-                  sectionKey: Key('assigned_movements_teacher_section'),
-                  title: 'Teacher-created',
-                  subtitle:
-                      'Record a clip for your teacher to review. Preview it after you submit.',
-                  accent: AppColors.primary,
-                ),
-              ),
-              _cardGridSliver(teacherCreated, columns),
-            ],
+            ),
           ],
         );
       },

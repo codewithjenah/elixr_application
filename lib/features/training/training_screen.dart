@@ -48,32 +48,37 @@ class TrainingScreen extends StatelessWidget {
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xl,
-            AppSpacing.pageTopInset,
-            AppSpacing.xl,
-            0,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _TrainingHeader(),
-              const SizedBox(height: AppSpacing.md),
-              _TrainingViewSelector(
-                view: view,
-                onChanged: (next) => _selectView(context, next),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.pageTopInset,
+                AppSpacing.xl,
+                0,
               ),
-              const SizedBox(height: AppSpacing.md),
-              Expanded(
-                child: IndexedStack(
-                  index: view.isHistory ? 1 : 0,
-                  sizing: StackFit.expand,
-                  children: [plannerView, historyView],
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _TrainingHeader(),
+                  const SizedBox(height: AppSpacing.md),
+                  _TrainingViewSelector(
+                    view: view,
+                    onChanged: (next) => _selectView(context, next),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
               ),
-            ],
-          ),
+            ),
+            Expanded(
+              child: IndexedStack(
+                index: view.isHistory ? 1 : 0,
+                sizing: StackFit.expand,
+                children: [plannerView, historyView],
+              ),
+            ),
+          ],
         ),
       ),
     );

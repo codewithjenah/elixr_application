@@ -105,6 +105,18 @@ void main() {
     },
   );
 
+  testWidgets('roster scroll viewport reaches the right edge', (tester) async {
+    seedApprovedPair();
+    await pumpStudents(tester);
+
+    final screenRect = tester.getRect(find.byType(TeacherStudentsScreen));
+    final scrollRect = tester.getRect(
+      find.byKey(const Key('teacher_students_page_scroll')),
+    );
+    expect(scrollRect.left, screenRect.left);
+    expect(scrollRect.right, screenRect.right);
+  });
+
   testWidgets('roster layout holds at 1600x900', (tester) async {
     seedApprovedPair();
     await pumpStudents(tester, size: const Size(1600, 900));

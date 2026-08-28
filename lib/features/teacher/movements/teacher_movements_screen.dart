@@ -109,31 +109,45 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
                 : null,
           ),
           scrollable: false,
+          contentPadding: EdgeInsets.zero,
           content: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  for (final tab in TeacherMovementsTab.values)
-                    ToggleButton(
-                      checked: controller.tab == tab,
-                      onChanged: (_) => controller.setTab(tab),
-                      child: Text(_tabLabel(tab)),
-                    ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              if (controller.errorMessage != null) ...[
-                InfoBar(
-                  title: const Text('Could not complete that action'),
-                  content: Text(controller.errorMessage!),
-                  severity: InfoBarSeverity.error,
-                  onClose: () {},
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  0,
                 ),
-                const SizedBox(height: AppSpacing.md),
-              ],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        for (final tab in TeacherMovementsTab.values)
+                          ToggleButton(
+                            checked: controller.tab == tab,
+                            onChanged: (_) => controller.setTab(tab),
+                            child: Text(_tabLabel(tab)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    if (controller.errorMessage != null) ...[
+                      InfoBar(
+                        title: const Text('Could not complete that action'),
+                        content: Text(controller.errorMessage!),
+                        severity: InfoBarSeverity.error,
+                        onClose: () {},
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                  ],
+                ),
+              ),
               Expanded(child: _TabBody(controller: controller)),
             ],
           ),
@@ -166,11 +180,14 @@ class _TabBody extends StatelessWidget {
         controller.myMovements.isEmpty &&
         controller.assignments.isEmpty &&
         controller.groups.isEmpty) {
-      return ElixStatusPanel(
-        message: controller.errorMessage!,
-        isError: true,
-        actionLabel: 'Retry',
-        onAction: controller.retry,
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        child: ElixStatusPanel(
+          message: controller.errorMessage!,
+          isError: true,
+          actionLabel: 'Retry',
+          onAction: controller.retry,
+        ),
       );
     }
     return switch (controller.tab) {
@@ -179,8 +196,24 @@ class _TabBody extends StatelessWidget {
       TeacherMovementsTab.assignments =>
         controller.selectedAssignmentId == null
             ? _AssignmentsList(controller: controller)
-            : TeacherAssignmentWorkPane(controller: controller),
-      TeacherMovementsTab.reviews => TeacherReviewsPane(controller: controller),
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  0,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                ),
+                child: TeacherAssignmentWorkPane(controller: controller),
+              ),
+      TeacherMovementsTab.reviews => TeacherReviewsPane(
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          0,
+          AppSpacing.lg,
+          AppSpacing.lg,
+        ),
+      ),
     };
   }
 }
@@ -194,7 +227,12 @@ class _OfficialList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.separated(
       clipBehavior: Clip.none,
-      padding: const EdgeInsets.only(top: 4, bottom: 12),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        4,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
       itemCount: controller.officialCatalog.length,
       separatorBuilder: (context, index) =>
           const SizedBox(height: AppSpacing.md),
@@ -260,14 +298,22 @@ class _MyMovementsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.myMovements.isEmpty) {
-      return const ElixStatusPanel(
-        message:
-            'No Teacher-created movements yet. Create one to assign a teacher-reviewed exercise.',
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        child: ElixStatusPanel(
+          message:
+              'No Teacher-created movements yet. Create one to assign a teacher-reviewed exercise.',
+        ),
       );
     }
     return ListView.separated(
       clipBehavior: Clip.none,
-      padding: const EdgeInsets.only(top: 4, bottom: 12),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        4,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
       itemCount: controller.myMovements.length,
       separatorBuilder: (context, index) =>
           const SizedBox(height: AppSpacing.md),
@@ -348,9 +394,12 @@ class _AssignmentsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.assignments.isEmpty) {
-      return const ElixStatusPanel(
-        message:
-            'No assignments yet. Assign an Official ELIXR or My Movement item to a class.',
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        child: ElixStatusPanel(
+          message:
+              'No assignments yet. Assign an Official ELIXR or My Movement item to a class.',
+        ),
       );
     }
     final official = [
@@ -362,6 +411,12 @@ class _AssignmentsList extends StatelessWidget {
         if (!assignment.isOfficial) assignment,
     ];
     return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
       children: [
         if (official.isNotEmpty) ...[
           const _AssignmentOriginHeader(

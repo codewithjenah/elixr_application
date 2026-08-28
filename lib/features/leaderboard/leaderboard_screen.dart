@@ -134,6 +134,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
+  EdgeInsets _pagePadding(double horizontalPadding) => EdgeInsets.fromLTRB(
+    horizontalPadding,
+    AppSpacing.pageTopInset,
+    horizontalPadding,
+    0,
+  );
+
   @override
   Widget build(BuildContext context) {
     return ElixScaffoldPage(
@@ -145,25 +152,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 LeaderboardScreenLayout.horizontalPaddingFor(
                   viewportConstraints.maxWidth,
                 );
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                AppSpacing.pageTopInset,
-                horizontalPadding,
-                0,
-              ),
-              child: ListenableBuilder(
-                listenable: _controller,
-                builder: (context, _) {
-                  final entries = _controller.entries;
-                  final period = _controller.period;
-                  final currentUser = context.read<AuthService>().currentUser;
-                  final currentUserId = currentUser?.id;
-                  final currentUserProfilePictureUrl =
-                      currentUser?.profilePictureUrl;
+            return ListenableBuilder(
+              listenable: _controller,
+              builder: (context, _) {
+                final entries = _controller.entries;
+                final period = _controller.period;
+                final currentUser = context.read<AuthService>().currentUser;
+                final currentUserId = currentUser?.id;
+                final currentUserProfilePictureUrl =
+                    currentUser?.profilePictureUrl;
 
-                  if (_controller.isInitialLoading && entries.isEmpty) {
-                    return _centered(
+                if (_controller.isInitialLoading && entries.isEmpty) {
+                  return Padding(
+                    padding: _pagePadding(horizontalPadding),
+                    child: _centered(
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -182,11 +184,14 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           ),
                         ],
                       ),
-                    );
-                  }
+                    ),
+                  );
+                }
 
-                  if (_controller.initialError != null && entries.isEmpty) {
-                    return _centered(
+                if (_controller.initialError != null && entries.isEmpty) {
+                  return Padding(
+                    padding: _pagePadding(horizontalPadding),
+                    child: _centered(
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -201,11 +206,14 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           ),
                         ],
                       ),
-                    );
-                  }
+                    ),
+                  );
+                }
 
-                  if (entries.isEmpty) {
-                    return _centered(
+                if (entries.isEmpty) {
+                  return Padding(
+                    padding: _pagePadding(horizontalPadding),
+                    child: _centered(
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -218,73 +226,83 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           const Expanded(child: _EmptyState()),
                         ],
                       ),
-                    );
-                  }
-
-                  final podium = LeaderboardPresentation.podiumOf(entries);
-                  final rows = LeaderboardPresentation.rankedRowsOf(entries);
-                  final loadMoreFooter = _LoadMoreFooter(
-                    hasMore: _controller.hasMore,
-                    isLoadingMore: _controller.isLoadingMore,
-                    loadMoreError: _controller.loadMoreError,
-                    onLoadMore: _controller.loadMore,
+                    ),
                   );
+                }
 
-                  return CustomScrollView(
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: _centered(
-                          LeaderboardHeader(
-                            period: period,
-                            onPeriodChanged: _onPeriodChanged,
-                            refreshEnabled: !_controller.isInitialLoading,
-                            onRefresh: _onRefresh,
-                          ),
-                        ),
-                      ),
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: AppSpacing.lg),
-                      ),
-                      SliverToBoxAdapter(
-                        child: _centered(
-                          LeaderboardPodium(
-                            podium: podium,
-                            currentUserId: currentUserId,
-                            currentUserProfilePictureUrl:
-                                currentUserProfilePictureUrl,
-                            period: period,
-                            variant: LeaderboardPodiumVariant.full,
-                            onTapPlayer: _onTapPlayer,
-                          ),
-                        ),
-                      ),
-                      if (rows.isNotEmpty) ...[
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: AppSpacing.lg),
-                        ),
-                        SliverToBoxAdapter(
-                          child: _centered(
-                            LeaderboardRankingsSection(
-                              rows: rows,
-                              currentUserId: currentUserId,
-                              currentUserProfilePictureUrl:
-                                  currentUserProfilePictureUrl,
-                              period: period,
-                              footer: loadMoreFooter,
-                              onTapPlayer: _onTapPlayer,
+                final podium = LeaderboardPresentation.podiumOf(entries);
+                final rows = LeaderboardPresentation.rankedRowsOf(entries);
+                final loadMoreFooter = _LoadMoreFooter(
+                  hasMore: _controller.hasMore,
+                  isLoadingMore: _controller.isLoadingMore,
+                  loadMoreError: _controller.loadMoreError,
+                  onLoadMore: _controller.loadMore,
+                );
+
+                return CustomScrollView(
+                  key: const Key('leaderboard_page_scroll'),
+                  slivers: [
+                    SliverPadding(
+                      padding: _pagePadding(horizontalPadding),
+                      sliver: SliverMainAxisGroup(
+                        slivers: [
+                          SliverToBoxAdapter(
+                            child: _centered(
+                              LeaderboardHeader(
+                                period: period,
+                                onPeriodChanged: _onPeriodChanged,
+                                refreshEnabled: !_controller.isInitialLoading,
+                                onRefresh: _onRefresh,
+                              ),
                             ),
                           ),
-                        ),
-                      ] else ...[
-                        SliverToBoxAdapter(child: _centered(loadMoreFooter)),
-                      ],
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: AppSpacing.xl),
+                          const SliverToBoxAdapter(
+                            child: SizedBox(height: AppSpacing.lg),
+                          ),
+                          SliverToBoxAdapter(
+                            child: _centered(
+                              LeaderboardPodium(
+                                podium: podium,
+                                currentUserId: currentUserId,
+                                currentUserProfilePictureUrl:
+                                    currentUserProfilePictureUrl,
+                                period: period,
+                                variant: LeaderboardPodiumVariant.full,
+                                onTapPlayer: _onTapPlayer,
+                              ),
+                            ),
+                          ),
+                          if (rows.isNotEmpty) ...[
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: AppSpacing.lg),
+                            ),
+                            SliverToBoxAdapter(
+                              child: _centered(
+                                LeaderboardRankingsSection(
+                                  rows: rows,
+                                  currentUserId: currentUserId,
+                                  currentUserProfilePictureUrl:
+                                      currentUserProfilePictureUrl,
+                                  period: period,
+                                  footer: loadMoreFooter,
+                                  onTapPlayer: _onTapPlayer,
+                                ),
+                              ),
+                            ),
+                          ] else ...[
+                            SliverToBoxAdapter(
+                              child: _centered(loadMoreFooter),
+                            ),
+                          ],
+                          const SliverToBoxAdapter(
+                            child: SizedBox(height: AppSpacing.xl),
+                          ),
+                        ],
                       ),
-                    ],
-                  );
-                },
-              ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         ),
