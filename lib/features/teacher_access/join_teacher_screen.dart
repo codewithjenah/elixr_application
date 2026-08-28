@@ -7,7 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/session_evidence_repository.dart';
@@ -72,7 +72,12 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return ElixScaffoldPage(
-      header: PageHeader(title: const _TeacherAccessPageHeader()),
+      header: const ElixEditorialPageHeader(
+        heading: 'Teacher Access',
+        eyebrow: 'CLASSROOM',
+        subtitle: 'Join a class with the code shared by your teacher.',
+        leading: Icon(FluentIcons.people, color: AppColors.primary),
+      ),
       content: controller == null
           ? const Center(child: ProgressRing())
           : SingleChildScrollView(
@@ -92,58 +97,6 @@ class _TeacherAccessScreenState extends State<TeacherAccessScreen> {
                 ),
               ),
             ),
-    );
-  }
-}
-
-class _TeacherAccessPageHeader extends StatelessWidget {
-  const _TeacherAccessPageHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(
-              alpha: context.isDarkTheme ? 0.18 : 0.10,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.28),
-            ),
-          ),
-          child: const Icon(
-            FluentIcons.people,
-            size: 18,
-            color: AppColors.primary,
-          ),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Teacher Access',
-              style: AppTheme.headingMedium.copyWith(
-                color: context.elixTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              'Join a class',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }

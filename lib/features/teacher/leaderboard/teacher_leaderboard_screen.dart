@@ -8,6 +8,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
@@ -78,7 +79,10 @@ class _TeacherLeaderboardScreenState extends State<TeacherLeaderboardScreen> {
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
-        header: PageHeader(title: Text('Leaderboard')),
+        header: ElixEditorialPageHeader(
+          heading: 'Leaderboard',
+          eyebrow: 'TEACHER WORKSPACE',
+        ),
         content: Center(child: ProgressRing()),
       );
     }
@@ -87,7 +91,11 @@ class _TeacherLeaderboardScreenState extends State<TeacherLeaderboardScreen> {
       animation: Listenable.merge([controller, controller.globalList]),
       builder: (context, _) {
         return TeacherScaffoldPage(
-          header: const PageHeader(title: Text('Leaderboard')),
+          header: const ElixEditorialPageHeader(
+            heading: 'Leaderboard',
+            eyebrow: 'TEACHER WORKSPACE',
+            subtitle: 'Celebrate steady training progress.',
+          ),
           scrollable: false,
           content: LayoutBuilder(
             builder: (context, constraints) {

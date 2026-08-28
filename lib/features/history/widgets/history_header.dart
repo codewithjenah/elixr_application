@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 
 class HistoryHeader extends StatelessWidget {
   const HistoryHeader({
@@ -23,45 +24,22 @@ class HistoryHeader extends StatelessWidget {
       return Align(alignment: Alignment.centerRight, child: refresh);
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppColors.accent.withValues(
-              alpha: context.isDarkTheme ? 0.2 : 0.12,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+    return ElixEditorialHeader(
+      heading: 'History',
+      eyebrow: 'TRAINING',
+      subtitle: 'Review and compare your previous training sessions.',
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withValues(
+            alpha: context.isDarkTheme ? 0.2 : 0.12,
           ),
-          child: Icon(
-            FluentIcons.history,
-            size: 20,
-            color: AppColors.accentSoft,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
         ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'History',
-                style: AppTheme.headingLarge.copyWith(color: AppColors.primary),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Review and compare your previous training sessions',
-                style: AppTheme.bodySecondary.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        _RefreshButton(loading: loading, onPressed: onRefresh),
-      ],
+        child: Icon(FluentIcons.history, size: 20, color: AppColors.accentSoft),
+      ),
+      actions: [_RefreshButton(loading: loading, onPressed: onRefresh)],
     );
   }
 }
@@ -93,7 +71,7 @@ class _RefreshButtonState extends State<_RefreshButton> {
           child: GestureDetector(
             onTap: widget.loading ? null : widget.onPressed,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: ElixMotion.duration(context, ElixMotion.micro),
               padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
                 color: context.elixCardSurface,
@@ -106,7 +84,7 @@ class _RefreshButtonState extends State<_RefreshButton> {
               ),
               child: AnimatedRotation(
                 turns: widget.loading ? 1 : 0,
-                duration: const Duration(milliseconds: 600),
+                duration: ElixMotion.duration(context, ElixMotion.intro),
                 child: Icon(
                   FluentIcons.refresh,
                   size: 16,

@@ -7,6 +7,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../router/app_route_paths.dart';
+import '../widgets/elix_editorial_header.dart';
 import '../widgets/elix_scaffold_page.dart';
 import 'teacher_sidebar.dart';
 
@@ -83,7 +84,11 @@ class TeacherPlaceholderScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TeacherScaffoldPage(
-      header: PageHeader(title: Text(title)),
+      header: ElixEditorialPageHeader(
+        heading: title,
+        eyebrow: 'TEACHER WORKSPACE',
+        subtitle: 'This destination is being prepared for your classroom.',
+      ),
       content: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
@@ -131,7 +136,10 @@ class TeacherScaffoldPage extends StatelessWidget {
     this.scrollable = true,
   });
 
-  final PageHeader header;
+  /// Any header widget is accepted so existing [PageHeader] callers stay
+  /// source-compatible while migrated destinations can use the editorial
+  /// hierarchy.
+  final Widget header;
   final Widget content;
 
   /// When true, content is wrapped in [SingleChildScrollView] with page

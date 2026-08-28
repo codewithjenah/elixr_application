@@ -1,11 +1,11 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../theme/elix_design_tokens.dart';
 import 'elix_app_logo.dart';
 import 'elix_scaffold_page.dart';
 
@@ -43,18 +43,19 @@ class _AuthScaffoldState extends State<AuthScaffold>
   late final AnimationController _entryController;
   late final Animation<double> _fadeAnimation;
   late final Animation<Offset> _slideAnimation;
+  bool? _reduceMotion;
 
   @override
   void initState() {
     super.initState();
     _orbController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 10),
-    )..repeat();
+      duration: ElixMotion.ambient,
+    );
 
     _entryController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: ElixMotion.intro,
     );
     _fadeAnimation = CurvedAnimation(
       parent: _entryController,
@@ -67,7 +68,21 @@ class _AuthScaffoldState extends State<AuthScaffold>
         ).animate(
           CurvedAnimation(parent: _entryController, curve: Curves.easeOutCubic),
         );
-    _entryController.forward();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion == reduceMotion) return;
+    _reduceMotion = reduceMotion;
+    if (reduceMotion) {
+      _orbController.stop();
+      _entryController.value = 1;
+      return;
+    }
+    if (!_orbController.isAnimating) _orbController.repeat();
+    if (_entryController.value == 0) _entryController.forward();
   }
 
   @override
@@ -123,7 +138,9 @@ class _AuthScaffoldState extends State<AuthScaffold>
             orbController: _orbController,
             title: widget.title,
             subtitle: widget.subtitle,
-            overlayOnly: widget.noScrollForm && constraints.maxHeight < 760,
+            overlayOnly:
+                constraints.maxHeight < 680 ||
+                (widget.noScrollForm && constraints.maxHeight < 760),
             overlay: _FormPanel(
               fadeAnimation: _fadeAnimation,
               slideAnimation: _slideAnimation,
@@ -162,8 +179,11 @@ class _BrandPanel extends StatelessWidget {
     final isDark = context.isDarkTheme;
     final highContrast = context.isHighContrast;
 
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
     return AnimatedBuilder(
-      animation: orbController,
+      animation: reducedMotion
+          ? const AlwaysStoppedAnimation(0)
+          : orbController,
       builder: (context, _) {
         final t = orbController.value * 2 * math.pi;
         return Stack(
@@ -295,8 +315,6 @@ class _FormPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkTheme;
-
     final form = FadeTransition(
       opacity: fadeAnimation,
       child: SlideTransition(
@@ -310,9 +328,9 @@ class _FormPanel extends StatelessWidget {
               if (formTitle != null) ...[
                 Text(
                   formTitle!,
-                  style: AppTheme.headingMedium.copyWith(
+                  style: AppTheme.sectionTitle(
+                    context,
                     color: context.elixTextPrimary,
-                    fontSize: 24,
                   ),
                 ),
                 if (formSubtitle != null) ...[
@@ -334,72 +352,35 @@ class _FormPanel extends StatelessWidget {
     );
 
     if (compact) {
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.14),
-              blurRadius: 24,
-              spreadRadius: -4,
-            ),
-            BoxShadow(
-              color: AppColors.accent.withValues(alpha: 0.10),
-              blurRadius: 32,
-              spreadRadius: -6,
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              width: double.infinity,
-              padding: _cardPadding,
-              decoration: BoxDecoration(
-                color: context.elixCardSurface.withValues(
-                  alpha: isDark ? 0.82 : 0.9,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: context.elixBorder.withValues(alpha: 0.5),
-                ),
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: AuthFormCard(
+          padding: _cardPadding,
+          child: LayoutBuilder(
+            builder: (context, constraints) => ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight.isFinite
+                    ? constraints.maxHeight
+                    : 420,
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: constraints.maxHeight.isFinite
-                          ? constraints.maxHeight
-                          : 420,
-                    ),
-                    child: noScroll
-                        ? Center(child: form)
-                        : _AuthFitScrollView(child: form),
-                  );
-                },
-              ),
+              child: noScroll
+                  ? Center(child: form)
+                  : _AuthFitScrollView(child: form),
             ),
           ),
         ),
       );
     }
 
+    final formCard = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: AuthFormCard(padding: _cardPadding, child: form),
+    );
     return Padding(
       padding: _panelPadding,
       child: noScroll
-          ? Center(
-              child: AuthFormCard(padding: _cardPadding, child: form),
-            )
-          : _AuthFitScrollView(
-              child: AuthFormCard(padding: _cardPadding, child: form),
-            ),
+          ? Center(child: formCard)
+          : _AuthFitScrollView(child: formCard),
     );
   }
 }
@@ -412,47 +393,10 @@ class AuthFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkTheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.14),
-            blurRadius: 24,
-            spreadRadius: -4,
-          ),
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.10),
-            blurRadius: 32,
-            spreadRadius: -6,
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Container(
-            padding: padding ?? const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: context.elixCardSurface.withValues(
-                alpha: isDark ? 0.82 : 0.9,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: context.elixBorder.withValues(alpha: isDark ? 0.5 : 0.7),
-              ),
-            ),
-            child: child,
-          ),
-        ),
-      ),
+    return Container(
+      padding: padding ?? const EdgeInsets.all(AppSpacing.md),
+      decoration: AppTheme.cardDecoration(context),
+      child: child,
     );
   }
 }
@@ -476,10 +420,7 @@ class AuthFormHeader extends StatelessWidget {
       children: [
         Text(
           title,
-          style: AppTheme.headingMedium.copyWith(
-            color: context.elixTextPrimary,
-            fontSize: 22,
-          ),
+          style: AppTheme.sectionTitle(context, color: context.elixTextPrimary),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: AppSpacing.xs),
@@ -502,8 +443,9 @@ class AuthErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final error = context.elixColors.error;
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
+      duration: ElixMotion.duration(context, ElixMotion.micro),
       child: Container(
         key: ValueKey(message),
         width: double.infinity,
@@ -512,25 +454,18 @@ class AuthErrorBanner extends StatelessWidget {
           vertical: AppSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: AppColors.error.withValues(alpha: 0.1),
+          color: error.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.error.withValues(alpha: 0.22)),
+          border: Border.all(color: error.withValues(alpha: 0.22)),
         ),
         child: Row(
           children: [
-            const Icon(
-              FluentIcons.status_circle_error_x,
-              color: AppColors.error,
-              size: 16,
-            ),
+            Icon(FluentIcons.status_circle_error_x, color: error, size: 16),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Text(
                 message,
-                style: AppTheme.body.copyWith(
-                  color: AppColors.error,
-                  fontSize: 13,
-                ),
+                style: AppTheme.body.copyWith(color: error, fontSize: 13),
               ),
             ),
           ],
@@ -561,6 +496,7 @@ class _AuthFooterLinkState extends State<AuthFooterLink> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.elixColors;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -581,12 +517,12 @@ class _AuthFooterLinkState extends State<AuthFooterLink> {
                 TextSpan(
                   text: widget.action,
                   style: TextStyle(
-                    color: _hovered ? AppColors.primarySoft : AppColors.primary,
+                    color: _hovered ? colors.brandHover : colors.brandPrimary,
                     fontWeight: FontWeight.w600,
                     decoration: _hovered
                         ? TextDecoration.underline
                         : TextDecoration.none,
-                    decorationColor: AppColors.primary,
+                    decorationColor: colors.brandPrimary,
                   ),
                 ),
               ],
@@ -607,6 +543,7 @@ class _BrandContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brandColor = context.elixColors.brandPrimary;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -618,7 +555,7 @@ class _BrandContent extends StatelessWidget {
             fontSize: compact ? 32 : 42,
             fontWeight: FontWeight.w800,
             letterSpacing: compact ? 4 : 6,
-            color: AppColors.primary,
+            color: brandColor,
           ),
         ),
         if (title != null && !compact) ...[
@@ -676,7 +613,7 @@ class _FeatureRow extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 16, color: AppColors.primary),
+        Icon(icon, size: 16, color: context.elixColors.brandPrimary),
         const SizedBox(width: AppSpacing.sm),
         Text(
           label,

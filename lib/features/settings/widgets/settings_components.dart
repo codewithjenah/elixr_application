@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_dialog.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 
@@ -29,14 +32,8 @@ class SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return ElixPanelCard(
       padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: context.elixBackground,
-        borderRadius: BorderRadius.circular(settingsRadiusLg),
-        border: Border.all(color: context.elixBorder.withValues(alpha: 0.5)),
-      ),
       child: child,
     );
   }
@@ -134,26 +131,10 @@ class SettingsSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: AppTheme.headingMedium.copyWith(
-            fontSize: 22,
-            color: context.elixTextPrimary,
-          ),
-        ),
-        if (description != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            description!,
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-        ],
-      ],
+    return ElixEditorialHeader(
+      heading: title,
+      subtitle: description,
+      variant: ElixEditorialHeaderVariant.compact,
     );
   }
 }
@@ -171,7 +152,9 @@ class SettingsStatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isError ? AppColors.error : AppColors.warning;
+    final color = isError
+        ? context.elixColors.error
+        : context.elixColors.warning;
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.sm),
       child: Row(
@@ -256,7 +239,7 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
               onTap: widget.onTap,
               behavior: HitTestBehavior.opaque,
               child: AnimatedContainer(
-                duration: _duration,
+                duration: ElixMotion.duration(context, _duration),
                 curve: Curves.easeOut,
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.sm + 2,
@@ -264,7 +247,7 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                 ),
                 decoration: BoxDecoration(
                   color: selected
-                      ? AppColors.primary.withValues(alpha: 0.08)
+                      ? context.elixColors.brandPrimary.withValues(alpha: 0.08)
                       : _hovered
                       ? (isDark
                             ? Colors.white.withValues(alpha: 0.04)
@@ -275,13 +258,13 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                 child: Row(
                   children: [
                     AnimatedContainer(
-                      duration: _duration,
+                      duration: ElixMotion.duration(context, _duration),
                       width: 3,
                       height: 28,
                       margin: const EdgeInsets.only(right: AppSpacing.sm),
                       decoration: BoxDecoration(
                         color: selected
-                            ? AppColors.primary
+                            ? context.elixColors.brandPrimary
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(2),
                       ),
@@ -291,7 +274,9 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                       height: 28,
                       decoration: BoxDecoration(
                         color: selected
-                            ? AppColors.primary.withValues(alpha: 0.16)
+                            ? context.elixColors.brandPrimary.withValues(
+                                alpha: 0.16,
+                              )
                             : context.elixBorder.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(settingsRadiusSm),
                       ),
@@ -299,7 +284,7 @@ class _SettingsNavItemState extends State<SettingsNavItem> {
                         widget.icon,
                         size: 15,
                         color: selected
-                            ? AppColors.primary
+                            ? context.elixColors.brandPrimary
                             : highlighted
                             ? context.elixTextPrimary
                             : context.elixTextSecondary,

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/utils/user_name.dart';
 import '../../core/widgets/profile_avatar.dart';
@@ -297,38 +298,28 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     final filterCounts = _filterCounts;
 
     return ElixScaffoldPage(
-      header: PageHeader(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(
-                  alpha: context.isDarkTheme ? 0.18 : 0.10,
-                ),
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.26),
-                ),
-              ),
-              child: const Icon(
-                FluentIcons.trophy2,
-                size: 18,
-                color: AppColors.primary,
-              ),
+      header: ElixEditorialPageHeader(
+        heading: 'Achievements',
+        eyebrow: 'MILESTONES',
+        subtitle: 'Track your training milestones and earned rewards.',
+        leading: Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(
+              alpha: context.isDarkTheme ? 0.18 : 0.10,
             ),
-            const SizedBox(width: 11),
-            Text(
-              'Achievements',
-              style: AppTheme.headingMedium.copyWith(
-                color: context.elixTextPrimary,
-              ),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.26),
             ),
-          ],
+          ),
+          child: const Icon(
+            FluentIcons.trophy2,
+            size: 18,
+            color: AppColors.primary,
+          ),
         ),
       ),
       content: _loadingSessions

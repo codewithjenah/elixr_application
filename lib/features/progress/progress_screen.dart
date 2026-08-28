@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
@@ -155,48 +156,28 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.accent.withValues(
-                              alpha: context.isDarkTheme ? 0.18 : 0.10,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppColors.accent.withValues(alpha: 0.26),
-                            ),
+                    ElixEditorialHeader(
+                      heading: 'Progress',
+                      eyebrow: 'TRAINING',
+                      subtitle: 'Track your training performance over time.',
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(
+                            alpha: context.isDarkTheme ? 0.18 : 0.10,
                           ),
-                          child: const Icon(
-                            FluentIcons.bar_chart_vertical_fill,
-                            size: 20,
-                            color: AppColors.accentSoft,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.accent.withValues(alpha: 0.26),
                           ),
                         ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Progress',
-                                style: AppTheme.headingLarge.copyWith(
-                                  color: _pink,
-                                ),
-                              ),
-                              const SizedBox(height: AppSpacing.xs),
-                              Text(
-                                'Track your training performance over time',
-                                style: AppTheme.bodySecondary,
-                              ),
-                            ],
-                          ),
+                        child: const Icon(
+                          FluentIcons.bar_chart_vertical_fill,
+                          size: 20,
+                          color: AppColors.accentSoft,
                         ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: AppSpacing.xl),
                     const SizedBox(height: AppSpacing.xl),
                     MovementMasterySection(
                       masteries: _trainingRecommendation?.masteries ?? const [],

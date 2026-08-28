@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_app_logo.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 
@@ -37,6 +38,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   bool _animationDone = false;
   bool _completionScheduled = false;
+  bool? _reduceMotion;
 
   @override
   void initState() {
@@ -48,15 +50,15 @@ class _SplashScreenState extends State<SplashScreen>
     _ambientController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
-    )..repeat();
+    );
     _shimmerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
-    )..repeat();
+    );
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3000),
-    )..repeat(reverse: true);
+    );
 
     _logoScale = Tween<double>(begin: 0.7, end: 1.0).animate(
       CurvedAnimation(
@@ -86,11 +88,33 @@ class _SplashScreenState extends State<SplashScreen>
     _pulseScale = Tween<double>(begin: 1.0, end: 1.04).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+  }
 
-    _logoController.forward().then((_) {
-      if (mounted) setState(() => _animationDone = true);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion == reduceMotion) return;
+    _reduceMotion = reduceMotion;
+    if (reduceMotion) {
+      _ambientController.stop();
+      _shimmerController.stop();
+      _pulseController.stop();
+      _logoController.stop();
+      _logoController.value = 1;
+      _animationDone = true;
       _tryFinish();
-    });
+      return;
+    }
+    if (!_ambientController.isAnimating) _ambientController.repeat();
+    if (!_shimmerController.isAnimating) _shimmerController.repeat();
+    if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
+    if (!_animationDone) {
+      _logoController.forward().then((_) {
+        if (mounted) setState(() => _animationDone = true);
+        _tryFinish();
+      });
+    }
   }
 
   @override
@@ -104,9 +128,12 @@ class _SplashScreenState extends State<SplashScreen>
   void _tryFinish() {
     if (_animationDone && widget.authReady && !_completionScheduled) {
       _completionScheduled = true;
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) widget.onFinished();
-      });
+      Future.delayed(
+        ElixMotion.duration(context, const Duration(milliseconds: 500)),
+        () {
+          if (mounted) widget.onFinished();
+        },
+      );
     }
   }
 
@@ -123,6 +150,7 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     final isDark = context.isDarkTheme;
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
       content: Stack(
@@ -140,7 +168,9 @@ class _SplashScreenState extends State<SplashScreen>
           // Floating ambient orbs — dual pink+purple identity.
           if (!highContrast)
             AnimatedBuilder(
-              animation: _ambientController,
+              animation: reducedMotion
+                  ? const AlwaysStoppedAnimation(0)
+                  : _ambientController,
               builder: (context, _) {
                 final t = _ambientController.value * 2 * math.pi;
                 return Stack(
@@ -187,10 +217,10 @@ class _SplashScreenState extends State<SplashScreen>
                       children: [
                         Transform.scale(
                           scale: _pulseScale.value,
-                          child: _buildLogoMark(),
+                          child: _buildLogoMark(context),
                         ),
                         const SizedBox(height: AppSpacing.lg + AppSpacing.sm),
-                        _buildTitle(),
+                        _buildTitle(context),
                         const SizedBox(height: AppSpacing.sm),
                         SlideTransition(
                           position: _taglineSlide,
@@ -242,45 +272,49 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildLogoMark() {
+  Widget _buildLogoMark(BuildContext context) {
     final glow = 0.5 + math.sin(_shimmerController.value * 2 * math.pi) * 0.25;
     return Container(
       width: 128,
       height: 128,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(
-              alpha: (glow * 0.7).clamp(0.0, 1.0),
-            ),
-            blurRadius: 40,
-            spreadRadius: 2,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        boxShadow: context.isHighContrast
+            ? const []
+            : [
+                BoxShadow(
+                  color: AppColors.primary.withValues(
+                    alpha: (glow * 0.25).clamp(0.0, 1.0),
+                  ),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
       ),
       child: const ElixAppLogo(size: 128, borderRadius: 28),
     );
   }
 
-  Widget _buildTitle() {
+  Widget _buildTitle(BuildContext context) {
     final shimmer = _shimmerController.value;
     final pulse = (1 - (shimmer - 0.5).abs() * 2).clamp(0.0, 1.0);
-    final color = Color.lerp(AppColors.primary, AppColors.primarySoft, pulse)!;
+    final color = context.isHighContrast
+        ? context.elixColors.brandPrimary
+        : Color.lerp(AppColors.primary, AppColors.primarySoft, pulse)!;
     return Text(
       AppConstants.appName,
-      style: AppTheme.headingLarge.copyWith(
-        fontSize: 46,
-        fontWeight: FontWeight.w800,
+      style: AppTheme.displayHero(context, color: color).copyWith(
         letterSpacing: 8,
-        color: color,
-        shadows: [
-          Shadow(
-            color: AppColors.primary.withValues(alpha: 0.4 + pulse * 0.3),
-            blurRadius: 24,
-          ),
-        ],
+        shadows: context.isHighContrast
+            ? null
+            : [
+                Shadow(
+                  color: AppColors.primary.withValues(
+                    alpha: 0.18 + pulse * 0.12,
+                  ),
+                  blurRadius: 16,
+                ),
+              ],
       ),
     );
   }

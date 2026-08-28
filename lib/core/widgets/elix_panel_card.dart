@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../theme/elix_design_tokens.dart';
 
 /// Neutral panel surface used by Trainee dashboard and Teacher destinations.
 ///
@@ -29,9 +30,9 @@ class ElixPanelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkTheme;
-    final surface = isDark ? AppColors.panelSurface : context.elixCardSurface;
-    final borderColor = context.elixBorder.withValues(alpha: isDark ? 0.55 : 1);
+    final highContrast = context.isHighContrast;
+    final surface = context.elixPanelSurface;
+    final borderColor = context.elixColors.borderSubtle;
     final content = Padding(
       padding: padding ?? const EdgeInsets.all(AppSpacing.md),
       child: child,
@@ -42,7 +43,7 @@ class ElixPanelCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: borderColor, width: highContrast ? 2 : 1),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -77,22 +78,32 @@ class ElixPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 10,
         vertical: compact ? 3 : 5,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: highContrast
+            ? context.elixCardSurface
+            : color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.32)),
+        border: Border.all(
+          color: highContrast
+              ? context.elixBorder
+              : color.withValues(alpha: 0.32),
+          width: highContrast ? 2 : 1,
+        ),
       ),
       child: Text(
         text,
         style: TextStyle(
           fontSize: compact ? 10 : 11,
           fontWeight: FontWeight.w600,
-          color: Color.lerp(color, context.elixTextPrimary, 0.25),
+          color: highContrast
+              ? context.elixTextPrimary
+              : Color.lerp(color, context.elixTextPrimary, 0.25),
         ),
       ),
     );
@@ -107,12 +118,14 @@ class ElixHoverSurface extends StatefulWidget {
     required this.onTap,
     this.borderRadius = 12,
     this.enabled = true,
+    this.semanticLabel,
   });
 
   final Widget child;
   final VoidCallback onTap;
   final double borderRadius;
   final bool enabled;
+  final String? semanticLabel;
 
   @override
   State<ElixHoverSurface> createState() => _ElixHoverSurfaceState();
@@ -120,36 +133,66 @@ class ElixHoverSurface extends StatefulWidget {
 
 class _ElixHoverSurfaceState extends State<ElixHoverSurface> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.enabled) return widget.child;
-
-    final isDark = context.isDarkTheme;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            color: _hovered
-                ? (isDark
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : Colors.black.withValues(alpha: 0.03))
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(widget.borderRadius),
-            border: Border.all(
-              color: _hovered
-                  ? context.elixBorder.withValues(alpha: isDark ? 0.75 : 1)
-                  : Colors.transparent,
+    final highContrast = context.isHighContrast;
+    final enabled = widget.enabled;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.semanticLabel,
+      onTap: enabled ? widget.onTap : null,
+      child: Focus(
+        canRequestFocus: enabled,
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        onKeyEvent: (_, event) {
+          if (!enabled || event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.enter ||
+              event.logicalKey == LogicalKeyboardKey.space) {
+            widget.onTap();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: MouseRegion(
+          onEnter: enabled ? (_) => setState(() => _hovered = true) : null,
+          onExit: (_) => setState(() => _hovered = false),
+          cursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.forbidden,
+          child: GestureDetector(
+            onTap: enabled ? widget.onTap : null,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: ElixMotion.duration(context, ElixMotion.standard),
+              curve: ElixMotion.standardCurve,
+              decoration: BoxDecoration(
+                color: highContrast
+                    ? context.elixColors.surfaceBase
+                    : (_hovered && enabled
+                          ? context.elixColors.interactiveHover
+                          : Colors.transparent),
+                borderRadius: BorderRadius.circular(widget.borderRadius),
+                border: Border.all(
+                  color: _focused
+                      ? context.elixColors.focusRing
+                      : (_hovered && enabled
+                            ? (highContrast
+                                  ? context.elixBorder
+                                  : context.elixColors.borderStrong)
+                            : (highContrast
+                                  ? context.elixBorder
+                                  : Colors.transparent)),
+                  width: _focused
+                      ? (highContrast ? 4 : 2)
+                      : (highContrast ? 2 : 1),
+                ),
+              ),
+              child: widget.child,
             ),
           ),
-          child: widget.child,
         ),
       ),
     );

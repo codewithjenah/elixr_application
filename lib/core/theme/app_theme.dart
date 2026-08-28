@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
+import 'elix_design_tokens.dart';
 
 /// Theme extension so [ElixThemeContext] can detect high-contrast mode.
 @immutable
@@ -29,59 +30,26 @@ extension ElixThemeContext on BuildContext {
       FluentTheme.of(this).extension<ElixContrastTheme>()?.highContrast ??
       false;
 
-  Color get elixBackground {
+  ElixSemanticColors get elixColors {
     if (isHighContrast) {
       return isDarkTheme
-          ? AppColors.backgroundHighContrastDark
-          : AppColors.backgroundHighContrastLight;
+          ? ElixSemanticColors.highContrastDark
+          : ElixSemanticColors.highContrastLight;
     }
-    return isDarkTheme ? AppColors.background : AppColors.backgroundLight;
+    return isDarkTheme ? ElixSemanticColors.dark : ElixSemanticColors.light;
   }
 
-  Color get elixCardSurface {
-    if (isHighContrast) {
-      return isDarkTheme
-          ? AppColors.cardSurfaceHighContrastDark
-          : AppColors.cardSurfaceHighContrastLight;
-    }
-    return isDarkTheme ? AppColors.cardSurface : AppColors.cardSurfaceLight;
-  }
+  Color get elixBackground => elixColors.canvas;
 
-  Color get elixPanelSurface {
-    if (isHighContrast) {
-      return isDarkTheme
-          ? AppColors.cardSurfaceHighContrastDark
-          : AppColors.cardSurfaceHighContrastLight;
-    }
-    return isDarkTheme ? AppColors.panelSurface : AppColors.panelSurfaceLight;
-  }
+  Color get elixCardSurface => elixColors.surfaceRaised;
 
-  Color get elixTextPrimary {
-    if (isHighContrast) {
-      return isDarkTheme
-          ? AppColors.textPrimaryHighContrastDark
-          : AppColors.textPrimaryHighContrastLight;
-    }
-    return isDarkTheme ? AppColors.textPrimary : AppColors.textPrimaryLight;
-  }
+  Color get elixPanelSurface => elixColors.surfaceTinted;
 
-  Color get elixTextSecondary {
-    if (isHighContrast) {
-      return isDarkTheme
-          ? AppColors.textSecondaryHighContrastDark
-          : AppColors.textSecondaryHighContrastLight;
-    }
-    return isDarkTheme ? AppColors.textSecondary : AppColors.textSecondaryLight;
-  }
+  Color get elixTextPrimary => elixColors.textPrimary;
 
-  Color get elixBorder {
-    if (isHighContrast) {
-      return isDarkTheme
-          ? AppColors.borderHighContrastDark
-          : AppColors.borderHighContrastLight;
-    }
-    return isDarkTheme ? AppColors.border : AppColors.borderLight;
-  }
+  Color get elixTextSecondary => elixColors.textSecondary;
+
+  Color get elixBorder => elixColors.borderSubtle;
 }
 
 abstract final class AppTheme {
@@ -92,6 +60,7 @@ abstract final class AppTheme {
       cardSurface: AppColors.cardSurface,
       textPrimary: AppColors.textPrimary,
       textSecondary: AppColors.textSecondary,
+      colors: ElixSemanticColors.dark,
       highContrast: false,
     );
   }
@@ -103,6 +72,7 @@ abstract final class AppTheme {
       cardSurface: AppColors.cardSurfaceLight,
       textPrimary: AppColors.textPrimaryLight,
       textSecondary: AppColors.textSecondaryLight,
+      colors: ElixSemanticColors.light,
       highContrast: false,
     );
   }
@@ -114,6 +84,7 @@ abstract final class AppTheme {
       cardSurface: AppColors.cardSurfaceHighContrastDark,
       textPrimary: AppColors.textPrimaryHighContrastDark,
       textSecondary: AppColors.textSecondaryHighContrastDark,
+      colors: ElixSemanticColors.highContrastDark,
       highContrast: true,
     );
   }
@@ -125,6 +96,7 @@ abstract final class AppTheme {
       cardSurface: AppColors.cardSurfaceHighContrastLight,
       textPrimary: AppColors.textPrimaryHighContrastLight,
       textSecondary: AppColors.textSecondaryHighContrastLight,
+      colors: ElixSemanticColors.highContrastLight,
       highContrast: true,
     );
   }
@@ -135,37 +107,59 @@ abstract final class AppTheme {
     required Color cardSurface,
     required Color textPrimary,
     required Color textSecondary,
+    required ElixSemanticColors colors,
     required bool highContrast,
   }) {
     return FluentThemeData(
       brightness: brightness,
       accentColor: AccentColor.swatch({
-        'normal': AppColors.primary,
-        'dark': AppColors.primary,
-        'light': AppColors.primarySoft,
+        'normal': colors.brandPrimary,
+        'dark': colors.brandPrimary,
+        'light': colors.brandSecondary,
       }),
       scaffoldBackgroundColor: background,
       micaBackgroundColor: cardSurface,
       extensions: [ElixContrastTheme(highContrast: highContrast)],
       typography: Typography.raw(
         title: TextStyle(
+          fontFamily: ElixTypography.fontFamily,
+          fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
           fontSize: 28,
           fontWeight: FontWeight.bold,
         ),
         subtitle: TextStyle(
+          fontFamily: ElixTypography.fontFamily,
+          fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
           fontSize: 20,
           fontWeight: FontWeight.w600,
         ),
-        body: TextStyle(color: textPrimary, fontSize: 16),
-        bodyLarge: TextStyle(color: textSecondary, fontSize: 14),
+        body: TextStyle(
+          fontFamily: ElixTypography.fontFamily,
+          fontFamilyFallback: ElixTypography.fontFallbacks,
+          color: textPrimary,
+          fontSize: 16,
+        ),
+        bodyLarge: TextStyle(
+          fontFamily: ElixTypography.fontFamily,
+          fontFamilyFallback: ElixTypography.fontFallbacks,
+          color: textSecondary,
+          fontSize: 14,
+        ),
         bodyStrong: TextStyle(
+          fontFamily: ElixTypography.fontFamily,
+          fontFamilyFallback: ElixTypography.fontFallbacks,
           color: textPrimary,
           fontSize: 16,
           fontWeight: FontWeight.w600,
         ),
-        caption: TextStyle(color: textSecondary, fontSize: 12),
+        caption: TextStyle(
+          fontFamily: ElixTypography.fontFamily,
+          fontFamilyFallback: ElixTypography.fontFallbacks,
+          color: textSecondary,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -260,17 +254,60 @@ abstract final class AppTheme {
         ],
       );
 
-  static TextStyle get headingLarge =>
-      const TextStyle(fontSize: 28, fontWeight: FontWeight.bold);
+  static TextStyle get headingLarge => const TextStyle(
+    fontFamily: ElixTypography.fontFamily,
+    fontFamilyFallback: ElixTypography.fontFallbacks,
+    fontSize: 28,
+    fontWeight: FontWeight.bold,
+  );
 
-  static TextStyle get headingMedium =>
-      const TextStyle(fontSize: 20, fontWeight: FontWeight.w600);
+  static TextStyle get headingMedium => const TextStyle(
+    fontFamily: ElixTypography.fontFamily,
+    fontFamilyFallback: ElixTypography.fontFallbacks,
+    fontSize: 20,
+    fontWeight: FontWeight.w600,
+  );
 
-  static TextStyle get body => const TextStyle(fontSize: 16);
+  static TextStyle get body => const TextStyle(
+    fontFamily: ElixTypography.fontFamily,
+    fontFamilyFallback: ElixTypography.fontFallbacks,
+    fontSize: 16,
+  );
 
-  static TextStyle get bodySecondary => const TextStyle(fontSize: 14);
+  static TextStyle get bodySecondary => const TextStyle(
+    fontFamily: ElixTypography.fontFamily,
+    fontFamilyFallback: ElixTypography.fontFallbacks,
+    fontSize: 14,
+  );
 
-  static TextStyle get caption => const TextStyle(fontSize: 12);
+  static TextStyle get caption => const TextStyle(
+    fontFamily: ElixTypography.fontFamily,
+    fontFamilyFallback: ElixTypography.fontFallbacks,
+    fontSize: 12,
+  );
+
+  static TextStyle displayHero(BuildContext context, {Color? color}) =>
+      ElixTypography.displayHero(context, color: color);
+
+  static TextStyle pageTitle(BuildContext context, {Color? color}) =>
+      ElixTypography.pageTitle(context, color: color);
+
+  static TextStyle sectionTitle(BuildContext context, {Color? color}) =>
+      ElixTypography.sectionTitle(context, color: color);
+
+  static TextStyle cardTitle({Color? color}) =>
+      ElixTypography.cardTitle(color: color);
+
+  static TextStyle supporting({Color? color}) =>
+      ElixTypography.supporting(color: color);
+
+  static TextStyle eyebrow({Color? color}) =>
+      ElixTypography.eyebrow(color: color);
+
+  static TextStyle metric(BuildContext context, {Color? color}) =>
+      ElixTypography.metric(context, color: color);
+
+  static TextStyle label({Color? color}) => ElixTypography.label(color: color);
 
   /// Subtle ambient wash used behind every primary ELIXR page.
   static BoxDecoration ambientPageBackground(BuildContext context) {

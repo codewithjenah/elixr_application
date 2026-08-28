@@ -4,13 +4,15 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../calendar/calendar_screen.dart';
 import '../history/history_screen.dart';
 import 'training_view.dart';
 
-const _pink = AppColors.primary;
 const _violet = AppColors.accentSoft;
+const _pink = AppColors.primary;
 
 /// Top-level Training shell. Planner and History stay distinct internal views.
 class TrainingScreen extends StatelessWidget {
@@ -83,42 +85,25 @@ class _TrainingHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppColors.accent.withValues(
-              alpha: context.isDarkTheme ? 0.18 : 0.10,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.accent.withValues(alpha: 0.26)),
+    return ElixEditorialHeader(
+      heading: 'Sessions',
+      eyebrow: 'TRAINING',
+      subtitle: 'Plan your practice and review completed sessions.',
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withValues(
+            alpha: context.isDarkTheme ? 0.18 : 0.10,
           ),
-          child: const Icon(
-            FluentIcons.calendar_agenda,
-            size: 20,
-            color: _violet,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.26)),
         ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Sessions',
-                style: AppTheme.headingLarge.copyWith(color: _pink),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Plan your practice and review completed sessions.',
-                style: AppTheme.bodySecondary,
-              ),
-            ],
-          ),
+        child: const Icon(
+          FluentIcons.calendar_agenda,
+          size: 20,
+          color: _violet,
         ),
-      ],
+      ),
     );
   }
 }
@@ -197,7 +182,7 @@ class _TrainingViewTabState extends State<_TrainingViewTab> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
+            duration: ElixMotion.duration(context, ElixMotion.micro),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
               color: selected

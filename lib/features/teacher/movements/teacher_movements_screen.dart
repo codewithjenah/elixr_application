@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
@@ -73,7 +74,10 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
-        header: PageHeader(title: Text('Movements')),
+        header: ElixEditorialPageHeader(
+          heading: 'Movements',
+          eyebrow: 'TEACHER WORKSPACE',
+        ),
         content: Center(child: ProgressRing()),
       );
     }
@@ -82,8 +86,10 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       animation: controller,
       builder: (context, _) {
         return TeacherScaffoldPage(
-          header: PageHeader(
-            title: const Text('Movements'),
+          header: ElixEditorialPageHeader(
+            heading: 'Movements',
+            eyebrow: 'TEACHER WORKSPACE',
+            subtitle: 'Build and assign movement practice.',
             commandBar: controller.tab == TeacherMovementsTab.mine
                 ? CommandBar(
                     mainAxisAlignment: MainAxisAlignment.end,

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/leaderboard_period.dart';
 import '../leaderboard_presentation.dart';
 
@@ -74,48 +75,25 @@ class _LeaderboardTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppColors.accent.withValues(
-              alpha: context.isDarkTheme ? 0.18 : 0.10,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.accent.withValues(alpha: 0.26)),
+    return ElixEditorialHeader(
+      heading: 'Leaderboard',
+      eyebrow: 'COMMUNITY',
+      subtitle: LeaderboardPresentation.periodSubtitle(period),
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withValues(
+            alpha: context.isDarkTheme ? 0.18 : 0.10,
           ),
-          child: const Icon(
-            FluentIcons.trophy2_solid,
-            size: 20,
-            color: AppColors.accentSoft,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.26)),
         ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Leaderboard',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.headingLarge.copyWith(color: AppColors.primary),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                LeaderboardPresentation.periodSubtitle(period),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.bodySecondary.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
-          ),
+        child: const Icon(
+          FluentIcons.trophy2_solid,
+          size: 20,
+          color: AppColors.accentSoft,
         ),
-      ],
+      ),
     );
   }
 }

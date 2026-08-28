@@ -11,6 +11,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
@@ -77,7 +78,10 @@ class _TeacherStudentDetailScreenState
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
-        header: PageHeader(title: Text('Student')),
+        header: ElixEditorialPageHeader(
+          heading: 'Student',
+          eyebrow: 'TEACHER WORKSPACE',
+        ),
         content: Center(child: ProgressRing()),
       );
     }
@@ -86,8 +90,9 @@ class _TeacherStudentDetailScreenState
       animation: controller,
       builder: (context, _) {
         return TeacherScaffoldPage(
-          header: PageHeader(
-            title: Text(controller.displayName),
+          header: ElixEditorialPageHeader(
+            heading: controller.displayName,
+            eyebrow: 'TEACHER WORKSPACE',
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [

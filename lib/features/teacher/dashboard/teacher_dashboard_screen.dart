@@ -8,6 +8,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../services/auth_service.dart';
@@ -48,7 +49,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
-        header: PageHeader(title: Text('Dashboard')),
+        header: ElixEditorialPageHeader(
+          heading: 'Dashboard',
+          eyebrow: 'TEACHER WORKSPACE',
+        ),
         content: Center(child: ProgressRing()),
       );
     }
@@ -57,7 +61,11 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       animation: controller,
       builder: (context, _) {
         return TeacherScaffoldPage(
-          header: const PageHeader(title: Text('Dashboard')),
+          header: const ElixEditorialPageHeader(
+            heading: 'Dashboard',
+            eyebrow: 'TEACHER WORKSPACE',
+            subtitle: 'Keep your groups and student activity in view.',
+          ),
           content: controller.loading
               ? const Center(child: ProgressRing())
               : controller.errorMessage != null
@@ -146,7 +154,10 @@ class _DashboardBody extends StatelessWidget {
                 ],
               ),
             const SizedBox(height: AppSpacing.xl),
-            Text('Groups overview', style: AppTheme.headingMedium),
+            const ElixSectionHeader(
+              heading: 'Groups overview',
+              eyebrow: 'CLASSROOM',
+            ),
             const SizedBox(height: AppSpacing.md),
             if (controller.groupSummaries.isEmpty)
               Text(
@@ -158,7 +169,10 @@ class _DashboardBody extends StatelessWidget {
                 (summary) => _GroupOverviewRow(summary: summary),
               ),
             const SizedBox(height: AppSpacing.xl),
-            Text('Pending join requests', style: AppTheme.headingMedium),
+            const ElixSectionHeader(
+              heading: 'Pending join requests',
+              eyebrow: 'INBOX',
+            ),
             const SizedBox(height: AppSpacing.md),
             if (controller.pendingQueue.isEmpty)
               Text(
@@ -204,15 +218,14 @@ class _MetricCard extends StatelessWidget {
                 children: [
                   Text(
                     value,
-                    style: AppTheme.headingLarge.copyWith(
+                    style: AppTheme.metric(
+                      context,
                       color: context.elixTextPrimary,
                     ),
                   ),
                   Text(
                     label,
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
+                    style: AppTheme.label(color: context.elixTextSecondary),
                   ),
                 ],
               ),

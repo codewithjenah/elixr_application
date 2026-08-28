@@ -9,6 +9,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
@@ -70,7 +71,10 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
-        header: PageHeader(title: Text('Groups')),
+        header: ElixEditorialPageHeader(
+          heading: 'Groups',
+          eyebrow: 'TEACHER WORKSPACE',
+        ),
         content: Center(child: ProgressRing()),
       );
     }
@@ -79,8 +83,10 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
       animation: controller,
       builder: (context, _) {
         return TeacherScaffoldPage(
-          header: PageHeader(
-            title: const Text('Groups'),
+          header: ElixEditorialPageHeader(
+            heading: 'Groups',
+            eyebrow: 'TEACHER WORKSPACE',
+            subtitle: 'Organize your trainee classes and access.',
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [

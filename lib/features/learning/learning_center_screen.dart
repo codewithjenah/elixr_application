@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../data/models/movement.dart';
@@ -278,44 +279,12 @@ class _SectionHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                eyebrow,
-                style: AppTheme.caption.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.35,
-                ),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                title,
-                style: AppTheme.headingLarge.copyWith(
-                  color: context.elixTextPrimary,
-                  fontSize: 24,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                subtitle,
-                style: AppTheme.bodySecondary.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (trailing != null) ...[
-          const SizedBox(width: AppSpacing.md),
-          trailing!,
-        ],
-      ],
+    return ElixEditorialHeader(
+      heading: title,
+      eyebrow: eyebrow,
+      subtitle: subtitle,
+      variant: ElixEditorialHeaderVariant.compact,
+      actions: trailing == null ? const [] : [trailing!],
     );
   }
 }

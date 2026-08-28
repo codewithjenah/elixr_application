@@ -11,6 +11,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
@@ -91,7 +92,10 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
-        header: PageHeader(title: Text('Group')),
+        header: ElixEditorialPageHeader(
+          heading: 'Group',
+          eyebrow: 'TEACHER WORKSPACE',
+        ),
         content: Center(child: ProgressRing()),
       );
     }
@@ -101,8 +105,9 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
       builder: (context, _) {
         final group = controller.selectedGroup;
         return TeacherScaffoldPage(
-          header: PageHeader(
-            title: Text(group?.name ?? 'Group'),
+          header: ElixEditorialPageHeader(
+            heading: group?.name ?? 'Group',
+            eyebrow: 'TEACHER WORKSPACE',
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [

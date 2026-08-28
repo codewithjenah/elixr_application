@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../movements_presentation.dart';
 
 class MovementsHeader extends StatelessWidget {
@@ -63,65 +64,26 @@ class _TitleBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.accent.withValues(
-                  alpha: context.isDarkTheme ? 0.18 : 0.10,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.accent.withValues(alpha: 0.26),
-                ),
-              ),
-              child: const Icon(
-                FluentIcons.more_sports,
-                size: 20,
-                color: AppColors.accentSoft,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'TRAINING LIBRARY',
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 2.2,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'Movements',
-                    style: AppTheme.brandTitle(
-                      fontSize: 34,
-                      color: context.elixTextPrimary,
-                    ).copyWith(letterSpacing: -0.5),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'Build your flair foundation, sharpen your control, and master every level.',
-                    style: AppTheme.bodySecondary.copyWith(
-                      color: context.elixTextSecondary,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    return ElixEditorialHeader(
+      heading: 'Movements',
+      eyebrow: 'TRAINING LIBRARY',
+      subtitle:
+          'Build your flair foundation, sharpen your control, and master every level.',
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withValues(
+            alpha: context.isDarkTheme ? 0.18 : 0.10,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.26)),
         ),
-      ],
+        child: const Icon(
+          FluentIcons.more_sports,
+          size: 20,
+          color: AppColors.accentSoft,
+        ),
+      ),
     );
   }
 }

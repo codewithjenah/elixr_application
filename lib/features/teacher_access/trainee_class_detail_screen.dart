@@ -8,6 +8,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/profile_avatar.dart';
@@ -90,8 +91,10 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
       animation: controller,
       builder: (context, _) {
         return ElixScaffoldPage(
-          header: PageHeader(
-            title: Text(controller.className),
+          header: ElixEditorialPageHeader(
+            heading: controller.className,
+            eyebrow: 'CLASSROOM',
+            subtitle: 'Review assignments and activity for this class.',
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
