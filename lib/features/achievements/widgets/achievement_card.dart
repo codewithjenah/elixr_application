@@ -38,7 +38,7 @@ class _AchievementCardState extends State<AchievementCard> {
   Color _accentColor(BuildContext context) {
     return switch (widget.view.state) {
       AchievementState.claimable => AppColors.primary,
-      AchievementState.claimed => AppColors.success,
+      AchievementState.claimed => context.elixColors.milestone,
       AchievementState.inProgress => AppColors.accent,
       AchievementState.locked => context.elixTextSecondary,
     };
@@ -563,7 +563,7 @@ class _StateChip extends StatelessWidget {
       AchievementState.locked => ('Locked', context.elixTextSecondary),
       AchievementState.inProgress => ('In Progress', AppColors.accent),
       AchievementState.claimable => ('Claimable', AppColors.primary),
-      AchievementState.claimed => ('Claimed', AppColors.success),
+      AchievementState.claimed => ('Claimed', context.elixColors.milestone),
     };
 
     return Container(

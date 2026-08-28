@@ -8,7 +8,6 @@ const _pink = AppColors.primary;
 const _purple = AppColors.accent;
 const _violet = AppColors.accentSoft;
 const _cyan = AppColors.primarySoft;
-const _amber = AppColors.warning;
 
 class CalendarSummaryCards extends StatelessWidget {
   const CalendarSummaryCards({
@@ -65,7 +64,7 @@ class CalendarSummaryCards extends StatelessWidget {
                 ? 'Completed plan day'
                 : 'Completed plan days',
             icon: FluentIcons.lightning_bolt,
-            accent: _amber,
+            accent: context.elixColors.milestone,
           ),
         ];
 
@@ -137,13 +136,15 @@ class _SummaryCard extends StatelessWidget {
         color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: accent.withValues(alpha: 0.22)),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: context.isHighContrast
+            ? const []
+            : [
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.07),
+                  blurRadius: 18,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -176,11 +177,9 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
+            style: AppTheme.metric(
+              context,
               color: accent == _pink ? _violet : accent,
-              height: 1.1,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../movements/movements_presentation.dart';
 import '../training_recommendation.dart';
 
@@ -19,11 +19,7 @@ class MovementMasterySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHeader(
-          icon: FluentIcons.medal,
-          title: 'Movement Mastery',
-          accent: AppColors.primarySoft,
-        ),
+        const ElixSectionHeader(heading: 'Movement Mastery'),
         const SizedBox(height: AppSpacing.md),
         for (final difficulty in _difficultyGroups) ...[
           _DifficultyGroup(
@@ -35,38 +31,6 @@ class MovementMasterySection extends StatelessWidget {
           if (difficulty != _difficultyGroups.last)
             const SizedBox(height: AppSpacing.md),
         ],
-      ],
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.accent,
-  });
-
-  final IconData icon;
-  final String title;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 3,
-          height: 20,
-          decoration: BoxDecoration(
-            color: accent,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Icon(icon, size: 16, color: accent),
-        const SizedBox(width: AppSpacing.sm),
-        Text(title, style: AppTheme.headingMedium),
       ],
     );
   }

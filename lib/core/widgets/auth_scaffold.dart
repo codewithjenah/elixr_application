@@ -7,6 +7,7 @@ import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/elix_design_tokens.dart';
 import 'elix_app_logo.dart';
+import 'elix_editorial_header.dart';
 import 'elix_scaffold_page.dart';
 
 class AuthScaffold extends StatefulWidget {
@@ -326,22 +327,11 @@ class _FormPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (formTitle != null) ...[
-                Text(
-                  formTitle!,
-                  style: AppTheme.sectionTitle(
-                    context,
-                    color: context.elixTextPrimary,
-                  ),
+                ElixEditorialHeader(
+                  heading: formTitle!,
+                  subtitle: formSubtitle,
+                  variant: ElixEditorialHeaderVariant.compact,
                 ),
-                if (formSubtitle != null) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    formSubtitle!,
-                    style: AppTheme.bodySecondary.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
                 SizedBox(height: _headerGap),
               ],
               child,
@@ -415,23 +405,10 @@ class AuthFormHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: AppTheme.sectionTitle(context, color: context.elixTextPrimary),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            subtitle!,
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-            ),
-          ),
-        ],
-      ],
+    return ElixEditorialHeader(
+      heading: title,
+      subtitle: subtitle,
+      variant: ElixEditorialHeaderVariant.compact,
     );
   }
 }
@@ -444,6 +421,7 @@ class AuthErrorBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final error = context.elixColors.error;
+    final highContrast = context.isHighContrast;
     return AnimatedSwitcher(
       duration: ElixMotion.duration(context, ElixMotion.micro),
       child: Container(
@@ -454,9 +432,13 @@ class AuthErrorBanner extends StatelessWidget {
           vertical: AppSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: error.withValues(alpha: 0.1),
+          color: highContrast
+              ? context.elixCardSurface
+              : error.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: error.withValues(alpha: 0.22)),
+          border: Border.all(
+            color: highContrast ? error : error.withValues(alpha: 0.22),
+          ),
         ),
         child: Row(
           children: [
@@ -544,6 +526,7 @@ class _BrandContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brandColor = context.elixColors.brandPrimary;
+    final parts = title == null ? null : _brandTitleParts(title!);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -551,32 +534,24 @@ class _BrandContent extends StatelessWidget {
         SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
         Text(
           AppConstants.appName,
-          style: AppTheme.headingLarge.copyWith(
+          style: AppTheme.brandTitle(
             fontSize: compact ? 32 : 42,
-            fontWeight: FontWeight.w800,
-            letterSpacing: compact ? 4 : 6,
             color: brandColor,
-          ),
+          ).copyWith(letterSpacing: compact ? 4 : 6),
         ),
         if (title != null && !compact) ...[
           const SizedBox(height: AppSpacing.xl),
-          Text(
-            title!,
-            style: AppTheme.headingMedium.copyWith(
-              color: context.elixTextPrimary,
-              fontSize: 26,
-            ),
-            textAlign: TextAlign.center,
+          ElixEditorialHeader(
+            heading: parts!.heading,
+            accentHeading: parts.accentHeading,
+            subtitle: subtitle,
+            variant: ElixEditorialHeaderVariant.hero,
           ),
-        ],
-        if (subtitle != null && !compact) ...[
+        ] else if (subtitle != null && !compact) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
             subtitle!,
-            style: AppTheme.bodySecondary.copyWith(
-              color: context.elixTextSecondary,
-              fontSize: 15,
-            ),
+            style: AppTheme.supporting(color: context.elixTextSecondary),
             textAlign: TextAlign.center,
           ),
         ],
@@ -602,6 +577,18 @@ class _BrandContent extends StatelessWidget {
   }
 }
 
+({String heading, String? accentHeading}) _brandTitleParts(String title) {
+  final text = title.trim();
+  final space = text.lastIndexOf(' ');
+  if (space <= 0) {
+    return (heading: text, accentHeading: null);
+  }
+  return (
+    heading: text.substring(0, space + 1),
+    accentHeading: text.substring(space + 1),
+  );
+}
+
 class _FeatureRow extends StatelessWidget {
   const _FeatureRow({required this.icon, required this.label});
 
@@ -615,10 +602,14 @@ class _FeatureRow extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: context.elixColors.brandPrimary),
         const SizedBox(width: AppSpacing.sm),
-        Text(
-          label,
-          style: AppTheme.bodySecondary.copyWith(
-            color: context.elixTextSecondary,
+        Flexible(
+          child: Text(
+            label,
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

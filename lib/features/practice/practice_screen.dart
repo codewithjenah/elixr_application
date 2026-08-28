@@ -1206,22 +1206,20 @@ class _PracticeScreenState extends State<PracticeScreen>
                             assessment != null
                                 ? '${assessment.total} / ${RubricScale.maxTotal}'
                                 : '—',
-                            style: AppTheme.headingMedium.copyWith(
-                              fontSize: 22,
+                            style: AppTheme.sectionTitle(
+                              context,
                               color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
-                            ),
+                            ).copyWith(fontWeight: FontWeight.w800),
                           ),
                         );
                       },
                     )
                   : Text(
                       '—',
-                      style: AppTheme.headingMedium.copyWith(
-                        fontSize: 22,
+                      style: AppTheme.sectionTitle(
+                        context,
                         color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
+                      ).copyWith(fontWeight: FontWeight.w800),
                     ),
               performanceBar: isTrainingActive
                   ? ValueListenableBuilder<RubricAssessment?>(

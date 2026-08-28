@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../theme/elix_design_tokens.dart';
 import 'elix_app_logo.dart';
 import 'message_unread_badge.dart';
 
@@ -201,19 +202,9 @@ class ElixBrandWordmark extends StatelessWidget {
         const SizedBox(height: 5),
         Text(
           subtitle,
-          style: TextStyle(
-            fontFamily: AppTheme.brandFontFamily,
-            fontFamilyFallback: AppTheme.brandFontFallbacks,
+          style: AppTheme.eyebrow(
             color: Color.lerp(context.elixTextSecondary, _pink, 0.22),
-            fontSize: 10.5,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.7,
-            height: 1.1,
-            fontVariations: const [
-              FontVariation('wght', 600),
-              FontVariation('wdth', 90),
-            ],
-          ),
+          ).copyWith(fontSize: 10.5, letterSpacing: 1.7, height: 1.1),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -293,7 +284,7 @@ class _ElixSidebarCollapseButtonState extends State<ElixSidebarCollapseButton> {
           child: GestureDetector(
             onTap: widget.onTap,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: ElixMotion.duration(context, ElixMotion.micro),
               width: _buttonSize,
               height: _buttonSize,
               decoration: BoxDecoration(
@@ -309,7 +300,7 @@ class _ElixSidebarCollapseButtonState extends State<ElixSidebarCollapseButton> {
               ),
               child: Center(
                 child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 150),
+                  duration: ElixMotion.duration(context, ElixMotion.micro),
                   child: Icon(
                     widget.isCollapsed
                         ? FluentIcons.open_pane_mirrored
@@ -438,12 +429,7 @@ class ElixSidebarGroupLabel extends StatelessWidget {
       ),
       child: Text(
         title.toUpperCase(),
-        style: AppTheme.caption.copyWith(
-          color: context.elixTextSecondary,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.2,
-          fontSize: 10,
-        ),
+        style: AppTheme.eyebrow(color: context.elixTextSecondary),
       ),
     );
   }

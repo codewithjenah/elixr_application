@@ -81,6 +81,7 @@ class _TeacherStudentDetailScreenState
         header: ElixEditorialPageHeader(
           heading: 'Student',
           eyebrow: 'TEACHER WORKSPACE',
+          variant: ElixEditorialHeaderVariant.compact,
         ),
         content: Center(child: ProgressRing()),
       );
@@ -93,6 +94,7 @@ class _TeacherStudentDetailScreenState
           header: ElixEditorialPageHeader(
             heading: controller.displayName,
             eyebrow: 'TEACHER WORKSPACE',
+            variant: ElixEditorialHeaderVariant.compact,
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [

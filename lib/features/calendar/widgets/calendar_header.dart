@@ -38,11 +38,7 @@ class CalendarHeader extends StatelessWidget {
           child: Text(
             DateFormat.yMMMM().format(visibleMonth),
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: context.elixTextPrimary,
-            ),
+            style: AppTheme.cardTitle(color: context.elixTextPrimary),
           ),
         ),
         Tooltip(

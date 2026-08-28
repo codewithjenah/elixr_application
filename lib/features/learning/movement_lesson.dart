@@ -7,6 +7,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/movement_image.dart';
@@ -171,33 +172,11 @@ class _Header extends StatelessWidget {
   const _Header({required this.movement, required this.difficulty});
   final String movement, difficulty;
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'MOVEMENT LESSON',
-        style: AppTheme.caption.copyWith(
-          letterSpacing: 1.1,
-          fontWeight: FontWeight.w700,
-          color: AppColors.primary,
-        ),
-      ),
-      const SizedBox(height: 4),
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              movement,
-              style: AppTheme.headingLarge.copyWith(
-                fontSize: 34,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          _Pill(text: difficulty, color: AppColors.success),
-        ],
-      ),
-    ],
+  Widget build(BuildContext context) => ElixEditorialHeader(
+    heading: movement,
+    eyebrow: 'MOVEMENT LESSON',
+    variant: ElixEditorialHeaderVariant.compact,
+    actions: [_Pill(text: difficulty, color: AppColors.success)],
   );
 }
 

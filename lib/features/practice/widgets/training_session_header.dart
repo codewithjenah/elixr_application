@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../services/websocket_service.dart';
 import 'training_connection_badge.dart';
 
@@ -60,19 +61,13 @@ class TrainingSessionHeader extends StatelessWidget {
         Row(
           children: [
             Flexible(
-              child: Text(
-                title,
-                style: AppTheme.headingLarge.copyWith(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  // The session header sits on the saturated practice
-                  // backdrop in both theme modes, so theme-default dark text
-                  // is not reliably legible in light mode.
-                  color: AppColors.textPrimary,
-                  height: 1.15,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
+              child: ElixEditorialHeader(
+                heading: title,
+                variant: ElixEditorialHeaderVariant.compact,
+                // The session header sits on the saturated practice
+                // backdrop in both theme modes, so theme-default dark text
+                // is not reliably legible in light mode.
+                headingColor: AppColors.textPrimary,
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
@@ -82,10 +77,9 @@ class TrainingSessionHeader extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           instruction,
-          style: AppTheme.bodySecondary.copyWith(
+          style: AppTheme.supporting(
             color: AppColors.textSecondary,
-            height: 1.35,
-          ),
+          ).copyWith(height: 1.35),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -154,6 +148,8 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
         ? const Color(0xFF1E1A28)
         : context.elixBorder.withValues(alpha: 0.12);
 
+    final highContrast = context.isHighContrast;
+
     return Semantics(
       button: true,
       label: 'Back',
@@ -194,8 +190,9 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
                               ),
                         width: focused ? 1.5 : 1,
                       ),
-                      boxShadow: _hovering && !_pressed
-                          ? [
+                      boxShadow: highContrast || !(_hovering && !_pressed)
+                          ? null
+                          : [
                               BoxShadow(
                                 color: AppColors.primary.withValues(
                                   alpha: 0.12,
@@ -203,8 +200,7 @@ class _HeaderBackButtonState extends State<_HeaderBackButton> {
                                 blurRadius: 10,
                                 offset: const Offset(0, 2),
                               ),
-                            ]
-                          : null,
+                            ],
                     ),
                     child: Icon(
                       FluentIcons.chrome_back,

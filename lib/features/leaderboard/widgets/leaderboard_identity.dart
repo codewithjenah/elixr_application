@@ -10,10 +10,10 @@ abstract final class LeaderboardRankStyle {
   static const silver = Color(0xFFB8C0CC);
   static const bronze = Color(0xFFCD7F32);
 
-  static Color medalForRank(int rank) {
+  static Color medalForRank(BuildContext context, int rank) {
     switch (rank) {
       case 1:
-        return AppColors.warning;
+        return context.elixColors.milestone;
       case 2:
         return silver;
       case 3:

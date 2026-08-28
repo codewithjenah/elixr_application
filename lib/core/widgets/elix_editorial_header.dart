@@ -53,6 +53,7 @@ class ElixEditorialHeader extends StatelessWidget {
     this.eyebrow,
     this.accentHeading,
     this.subtitle,
+    this.headingColor,
     this.leading,
     this.actions = const [],
   });
@@ -62,6 +63,7 @@ class ElixEditorialHeader extends StatelessWidget {
   final String? eyebrow;
   final String? accentHeading;
   final String? subtitle;
+  final Color? headingColor;
   final Widget? leading;
   final List<Widget> actions;
 
@@ -110,7 +112,7 @@ class ElixEditorialHeader extends StatelessWidget {
   }
 
   TextStyle _headingStyle(BuildContext context) {
-    final color = context.elixTextPrimary;
+    final color = headingColor ?? context.elixTextPrimary;
     return switch (variant) {
       ElixEditorialHeaderVariant.hero => AppTheme.displayHero(
         context,
@@ -165,6 +167,43 @@ class ElixSectionHeader extends StatelessWidget {
   );
 }
 
+/// Uppercase eyebrow label with the short Midnight Pour rule.
+class ElixEyebrow extends StatelessWidget {
+  const ElixEyebrow({super.key, required this.label, this.color});
+
+  static const ruleKey = ValueKey<String>('elix-eyebrow-rule');
+  static const ruleWidth = 24.0;
+  static const ruleHeight = 1.5;
+
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = color ?? context.elixColors.brandPrimary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: AppTheme.eyebrow(color: tone),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        ExcludeSemantics(
+          child: Container(
+            key: ruleKey,
+            width: ruleWidth,
+            height: ruleHeight,
+            color: tone,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _HeaderCopy extends StatelessWidget {
   const _HeaderCopy({
     required this.heading,
@@ -190,33 +229,36 @@ class _HeaderCopy extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (eyebrow != null) ...[
-          Text(
-            eyebrow!,
-            style: AppTheme.eyebrow(color: context.elixColors.brandPrimary),
-          ),
+          ElixEyebrow(label: eyebrow!),
           const SizedBox(height: AppSpacing.xs),
         ],
         Semantics(
           header: true,
           label: '$heading${accentHeading ?? ''}',
           child: ExcludeSemantics(
-            child: Text.rich(
-              TextSpan(
-                style: headingStyle,
-                children: [
-                  TextSpan(text: heading),
-                  if (accentHeading != null)
+            child: accentHeading == null
+                ? Text(
+                    heading,
+                    style: headingStyle,
+                    maxLines: headingMaxLines,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : Text.rich(
                     TextSpan(
-                      text: accentHeading,
-                      style: headingStyle.copyWith(
-                        color: context.elixColors.brandPrimary,
-                      ),
+                      style: headingStyle,
+                      children: [
+                        TextSpan(text: heading),
+                        TextSpan(
+                          text: accentHeading,
+                          style: headingStyle.copyWith(
+                            color: context.elixColors.brandPrimary,
+                          ),
+                        ),
+                      ],
                     ),
-                ],
-              ),
-              maxLines: headingMaxLines,
-              overflow: TextOverflow.ellipsis,
-            ),
+                    maxLines: headingMaxLines,
+                    overflow: TextOverflow.ellipsis,
+                  ),
           ),
         ),
         if (subtitle != null) ...[

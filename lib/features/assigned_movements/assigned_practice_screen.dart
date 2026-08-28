@@ -8,6 +8,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/constants/movements.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assessment_mode.dart';
 import '../../data/models/group_assignment.dart';
@@ -254,6 +255,62 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
   }
 }
 
+/// Prop choice shown before official guided practice when more than one
+/// training prop is supported. Start still mounts [PracticeScreen].
+class AssignedPracticePropPicker extends StatelessWidget {
+  const AssignedPracticePropPicker({
+    super.key,
+    required this.movementName,
+    required this.selectedProp,
+    required this.supportedProps,
+    required this.onPropChanged,
+    required this.onStart,
+    required this.onBack,
+  });
+
+  final String movementName;
+  final TrainingProp selectedProp;
+  final List<TrainingProp> supportedProps;
+  final ValueChanged<TrainingProp> onPropChanged;
+  final VoidCallback onStart;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        ElixEditorialHeader(
+          heading: movementName,
+          variant: ElixEditorialHeaderVariant.compact,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        InfoLabel(
+          label: 'Training prop',
+          child: ComboBox<TrainingProp>(
+            value: selectedProp,
+            items: [
+              for (final prop in supportedProps)
+                ComboBoxItem(value: prop, child: Text(prop.displayLabel)),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              onPropChanged(value);
+            },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        FilledButton(
+          onPressed: onStart,
+          child: const Text('Start guided practice'),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Button(onPressed: onBack, child: const Text('Back')),
+      ],
+    );
+  }
+}
+
 class _OfficialAssignedPractice extends StatefulWidget {
   const _OfficialAssignedPractice({
     required this.assignment,
@@ -298,39 +355,13 @@ class _OfficialAssignedPracticeState extends State<_OfficialAssignedPractice> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(widget.movementName, style: AppTheme.headingLarge),
-                const SizedBox(height: AppSpacing.md),
-                InfoLabel(
-                  label: 'Training prop',
-                  child: ComboBox<TrainingProp>(
-                    value: _prop,
-                    items: [
-                      for (final prop in widget.supportedProps)
-                        ComboBoxItem(
-                          value: prop,
-                          child: Text(prop.displayLabel),
-                        ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() => _prop = value);
-                    },
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                FilledButton(
-                  onPressed: () => setState(() => _started = true),
-                  child: const Text('Start guided practice'),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Button(
-                  onPressed: () => context.go(AppRoutePaths.assignedMovements),
-                  child: const Text('Back'),
-                ),
-              ],
+            child: AssignedPracticePropPicker(
+              movementName: widget.movementName,
+              selectedProp: _prop,
+              supportedProps: widget.supportedProps,
+              onPropChanged: (value) => setState(() => _prop = value),
+              onStart: () => setState(() => _started = true),
+              onBack: () => context.go(AppRoutePaths.assignedMovements),
             ),
           ),
         ),

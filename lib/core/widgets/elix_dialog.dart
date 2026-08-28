@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' show Material, MaterialType;
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../theme/app_theme.dart';
+import 'elix_editorial_header.dart';
 import 'elix_primary_button.dart';
 
 class ElixDialog extends StatelessWidget {
@@ -319,6 +320,8 @@ class ElixDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final accent = headerAccentColor ?? AppColors.primary;
+    final highContrast = context.isHighContrast;
+    final iconTone = iconColor ?? AppColors.primary;
 
     return Material(
       type: MaterialType.transparency,
@@ -331,19 +334,24 @@ class ElixDialog extends StatelessWidget {
         decoration: BoxDecoration(
           color: context.elixCardSurface,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: accent.withValues(alpha: 0.22)),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.08),
-              blurRadius: 40,
-              spreadRadius: 2,
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.5),
-              blurRadius: 32,
-              offset: const Offset(0, 16),
-            ),
-          ],
+          border: Border.all(
+            color: highContrast ? accent : accent.withValues(alpha: 0.22),
+            width: highContrast ? 2 : 1,
+          ),
+          boxShadow: highContrast
+              ? const []
+              : [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.08),
+                    blurRadius: 40,
+                    spreadRadius: 2,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 32,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
@@ -360,48 +368,37 @@ class ElixDialog extends StatelessWidget {
                   AppSpacing.xl,
                   AppSpacing.md,
                 ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      accent.withValues(alpha: 0.12),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    if (icon != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(AppSpacing.sm),
-                        decoration: BoxDecoration(
-                          color: (iconColor ?? AppColors.primary).withValues(
-                            alpha: 0.15,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          icon,
-                          color: iconColor ?? AppColors.primary,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                    ],
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title, style: AppTheme.headingLarge),
-                          if (subtitle != null) ...[
-                            const SizedBox(height: AppSpacing.xs),
-                            Text(subtitle!, style: AppTheme.bodySecondary),
+                decoration: highContrast
+                    ? null
+                    : BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            accent.withValues(alpha: 0.12),
+                            Colors.transparent,
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                child: ElixEditorialHeader(
+                  heading: title,
+                  subtitle: subtitle,
+                  variant: ElixEditorialHeaderVariant.compact,
+                  leading: icon == null
+                      ? null
+                      : Container(
+                          padding: const EdgeInsets.all(AppSpacing.sm),
+                          decoration: BoxDecoration(
+                            color: highContrast
+                                ? context.elixCardSurface
+                                : iconTone.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: highContrast
+                                ? Border.all(color: iconTone)
+                                : null,
+                          ),
+                          child: Icon(icon, color: iconTone, size: 22),
+                        ),
                 ),
               ),
               if (scrollableContent)

@@ -1,9 +1,12 @@
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/shell/teacher_shell.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/auth_scaffold.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/elix_sidebar_chrome.dart';
 import 'package:elixr_application/features/history/widgets/history_header.dart';
+import 'package:elixr_application/features/onboarding/onboarding_overlay.dart';
 import 'package:elixr_application/features/settings/widgets/settings_components.dart';
 import 'package:elixr_application/features/splash/splash_screen.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -185,6 +188,153 @@ void main() {
       );
     },
   );
+
+  testWidgets('splash and auth wordmarks use Bahnschrift', (tester) async {
+    tester.view.physicalSize = const Size(1100, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      _host(
+        SplashScreen(onFinished: _noop, authReady: false),
+        reducedMotion: true,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.text('ELIXR')).style!.fontFamily,
+      ElixTypography.wordmarkFamily,
+    );
+
+    await tester.pumpWidget(
+      _host(
+        const AuthScaffold(
+          title: 'Own the pour.',
+          formTitle: 'Welcome back',
+          child: Text('Auth form'),
+        ),
+      ),
+    );
+    expect(
+      tester.widget<Text>(find.text('ELIXR')).style!.fontFamily,
+      ElixTypography.wordmarkFamily,
+    );
+  });
+
+  testWidgets(
+    'auth brand uses a hero accent heading and editorial form title',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        _host(
+          const AuthScaffold(
+            title: 'Own the pour.',
+            subtitle: 'Continue your training.',
+            formTitle: 'Welcome back',
+            formSubtitle: 'Enter your account details',
+            child: Text('Auth form'),
+          ),
+        ),
+      );
+
+      expect(find.byType(ElixEditorialHeader), findsWidgets);
+      expect(find.text('Own the pour.', findRichText: true), findsOneWidget);
+      expect(find.text('Welcome back', findRichText: true), findsOneWidget);
+
+      final brandHeading = tester.widget<Text>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              widget.textSpan?.toPlainText() == 'Own the pour.',
+        ),
+      );
+      final brandSpan = brandHeading.textSpan! as TextSpan;
+      expect(brandSpan.style!.fontSize, 52);
+      expect(
+        (brandSpan.children!.last as TextSpan).style!.color,
+        AppColors.primary,
+      );
+    },
+  );
+
+  testWidgets('sidebar subtitle stays on the UI face, not the wordmark face', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(const ElixBrandWordmark(subtitle: 'Flair Training')),
+    );
+
+    final subtitle = tester.widget<Text>(find.text('Flair Training'));
+    expect(subtitle.style!.fontFamily, ElixTypography.fontFamily);
+    expect(subtitle.style!.fontFamily, isNot(ElixTypography.wordmarkFamily));
+  });
+
+  testWidgets('onboarding uses editorial hierarchy and reduced-motion dots', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+        home: Builder(
+          builder: (context) => Button(
+            onPressed: () => OnboardingOverlay.show(context),
+            child: const Text('Show tutorial'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Show tutorial'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Prepare your space', findRichText: true), findsOneWidget);
+    expect(find.byType(ElixEditorialHeader), findsOneWidget);
+    expect(
+      tester.widgetList<AnimatedContainer>(
+        find.descendant(
+          of: find.byKey(OnboardingOverlay.stepDotsKey),
+          matching: find.byType(AnimatedContainer),
+        ),
+      ),
+      everyElement(
+        isA<AnimatedContainer>().having(
+          (container) => container.duration,
+          'duration',
+          Duration.zero,
+        ),
+      ),
+    );
+  });
+
+  testWidgets('auth error surfaces stay opaque in high contrast', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        const AuthErrorBanner(message: 'Try again'),
+        theme: AppTheme.highContrastDark,
+      ),
+    );
+
+    final banner = tester.widget<Container>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).border != null,
+      ),
+    );
+    expect((banner.decoration as BoxDecoration).color!.a, 1);
+  });
 }
 
 void _noop() {}

@@ -303,19 +303,23 @@ class _SplashScreenState extends State<SplashScreen>
         : Color.lerp(AppColors.primary, AppColors.primarySoft, pulse)!;
     return Text(
       AppConstants.appName,
-      style: AppTheme.displayHero(context, color: color).copyWith(
-        letterSpacing: 8,
-        shadows: context.isHighContrast
-            ? null
-            : [
-                Shadow(
-                  color: AppColors.primary.withValues(
-                    alpha: 0.18 + pulse * 0.12,
-                  ),
-                  blurRadius: 16,
-                ),
-              ],
-      ),
+      style:
+          AppTheme.brandTitle(
+            fontSize: ElixTypography.isCompact(context) ? 40 : 52,
+            color: color,
+          ).copyWith(
+            letterSpacing: 8,
+            shadows: context.isHighContrast
+                ? null
+                : [
+                    Shadow(
+                      color: AppColors.primary.withValues(
+                        alpha: 0.18 + pulse * 0.12,
+                      ),
+                      blurRadius: 16,
+                    ),
+                  ],
+          ),
     );
   }
 

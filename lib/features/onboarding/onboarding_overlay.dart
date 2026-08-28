@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/elix_design_tokens.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../services/settings_service.dart';
@@ -24,6 +25,8 @@ class _OnboardingStep {
 /// First-launch tutorial carousel shown once after successful login/registration.
 class OnboardingOverlay {
   const OnboardingOverlay._();
+
+  static const stepDotsKey = ValueKey<String>('onboarding-step-dots');
 
   static const steps = <_OnboardingStep>[
     _OnboardingStep(
@@ -179,12 +182,13 @@ class _StepProgressDots extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      key: OnboardingOverlay.stepDotsKey,
       children: [
         for (var i = 0; i < count; i++) ...[
           if (i > 0) const SizedBox(width: AppSpacing.xs + 2),
           AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
+            duration: ElixMotion.duration(context, ElixMotion.standard),
+            curve: ElixMotion.standardCurve,
             width: i == currentIndex ? 22 : 8,
             height: 8,
             decoration: BoxDecoration(

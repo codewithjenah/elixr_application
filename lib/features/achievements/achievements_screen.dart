@@ -748,7 +748,7 @@ class _HeaderSummary extends StatelessWidget {
                       label: 'Claimed',
                       value: '$claimedCount / $totalCount',
                       icon: FluentIcons.trophy2,
-                      color: AppColors.primary,
+                      color: context.elixColors.milestone,
                     ),
                     _StatBlock(
                       label: 'Frames',
@@ -878,7 +878,7 @@ class _StatBlock extends StatelessWidget {
                 value,
                 style: AppTheme.caption.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: context.elixTextPrimary,
+                  color: color,
                 ),
               ),
             ],

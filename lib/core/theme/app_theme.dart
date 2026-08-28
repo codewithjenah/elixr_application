@@ -236,9 +236,9 @@ abstract final class AppTheme {
   }
 
   /// Geometric Windows display face for ELIXR wordmarks.
-  static const brandFontFamily = 'Bahnschrift';
+  static const brandFontFamily = ElixTypography.wordmarkFamily;
 
-  static const brandFontFallbacks = ['Segoe UI Variable Display', 'Segoe UI'];
+  static const brandFontFallbacks = ElixTypography.wordmarkFallbacks;
 
   static TextStyle brandTitle({double fontSize = 28, Color? color}) =>
       TextStyle(

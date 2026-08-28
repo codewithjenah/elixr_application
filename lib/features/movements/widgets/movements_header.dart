@@ -126,11 +126,7 @@ class _TrainingOverview extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       '${summary.practicedCount} / ${summary.totalMovements}',
-                      style: TextStyle(
-                        color: context.elixTextPrimary,
-                        fontSize: 25,
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: AppTheme.metric(context),
                     ),
                   ],
                 ),

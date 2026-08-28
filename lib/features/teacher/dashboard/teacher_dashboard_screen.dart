@@ -3,13 +3,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
+import '../../../core/widgets/elix_stat_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../services/auth_service.dart';
 import '../students/teacher_student_models.dart';
@@ -52,6 +52,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
         header: ElixEditorialPageHeader(
           heading: 'Dashboard',
           eyebrow: 'TEACHER WORKSPACE',
+          variant: ElixEditorialHeaderVariant.hero,
         ),
         content: Center(child: ProgressRing()),
       );
@@ -65,6 +66,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             heading: 'Dashboard',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle: 'Keep your groups and student activity in view.',
+            variant: ElixEditorialHeaderVariant.hero,
           ),
           content: controller.loading
               ? const Center(child: ProgressRing())
@@ -107,7 +109,7 @@ class _DashboardBody extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: _MetricCard(
+                    child: ElixStatCard(
                       label: 'Active groups',
                       value: '${controller.activeGroupCount}',
                       icon: FluentIcons.people,
@@ -115,7 +117,7 @@ class _DashboardBody extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: _MetricCard(
+                    child: ElixStatCard(
                       label: 'Approved students',
                       value: '${controller.approvedStudentCount}',
                       icon: FluentIcons.contact,
@@ -123,7 +125,7 @@ class _DashboardBody extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: _MetricCard(
+                    child: ElixStatCard(
                       label: 'Pending requests',
                       value: '${controller.pendingRequestCount}',
                       icon: FluentIcons.inbox,
@@ -136,20 +138,29 @@ class _DashboardBody extends StatelessWidget {
                 spacing: AppSpacing.md,
                 runSpacing: AppSpacing.md,
                 children: [
-                  _MetricCard(
-                    label: 'Active groups',
-                    value: '${controller.activeGroupCount}',
-                    icon: FluentIcons.people,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 200),
+                    child: ElixStatCard(
+                      label: 'Active groups',
+                      value: '${controller.activeGroupCount}',
+                      icon: FluentIcons.people,
+                    ),
                   ),
-                  _MetricCard(
-                    label: 'Approved students',
-                    value: '${controller.approvedStudentCount}',
-                    icon: FluentIcons.contact,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 200),
+                    child: ElixStatCard(
+                      label: 'Approved students',
+                      value: '${controller.approvedStudentCount}',
+                      icon: FluentIcons.contact,
+                    ),
                   ),
-                  _MetricCard(
-                    label: 'Pending requests',
-                    value: '${controller.pendingRequestCount}',
-                    icon: FluentIcons.inbox,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 200),
+                    child: ElixStatCard(
+                      label: 'Pending requests',
+                      value: '${controller.pendingRequestCount}',
+                      icon: FluentIcons.inbox,
+                    ),
                   ),
                 ],
               ),
@@ -186,53 +197,6 @@ class _DashboardBody extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 200),
-      child: ElixPanelCard(
-        expand: false,
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Row(
-          children: [
-            Icon(icon, size: 28, color: AppColors.primary),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: AppTheme.metric(
-                      context,
-                      color: context.elixTextPrimary,
-                    ),
-                  ),
-                  Text(
-                    label,
-                    style: AppTheme.label(color: context.elixTextSecondary),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

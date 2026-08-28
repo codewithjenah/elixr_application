@@ -95,6 +95,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         header: ElixEditorialPageHeader(
           heading: 'Group',
           eyebrow: 'TEACHER WORKSPACE',
+          variant: ElixEditorialHeaderVariant.compact,
         ),
         content: Center(child: ProgressRing()),
       );
@@ -108,6 +109,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
           header: ElixEditorialPageHeader(
             heading: group?.name ?? 'Group',
             eyebrow: 'TEACHER WORKSPACE',
+            variant: ElixEditorialHeaderVariant.compact,
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [

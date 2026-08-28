@@ -17,12 +17,12 @@ import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import 'training_recommendation.dart';
 import 'widgets/movement_mastery_section.dart';
+import 'widgets/progress_overview_stats.dart';
 
 // Neon accent palette shared with the dashboard.
 const _purple = AppColors.accent;
 const _violet = AppColors.accentSoft;
 const _pink = AppColors.primary;
-const _cyan = AppColors.primarySoft;
 const _amber = AppColors.warning;
 
 class ProgressScreen extends StatefulWidget {
@@ -186,74 +186,20 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     if (_stats!.totalSessions == 0)
                       _EmptyState()
                     else ...[
-                      // ── Stat grid ──────────────────────────────────────
-                      IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: 'Overall Performance',
-                                value: _overallPerformanceLabel,
-                                icon: FluentIcons.favorite_star_fill,
-                                accent: _pink,
-                                smallValue: true,
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: _StatCard(
-                                label: _averageLabel,
-                                value: _averageValue,
-                                icon: FluentIcons.chart_template,
-                                accent: _violet,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: _StatCard(
-                                label: _bestLabel,
-                                value: _bestValue,
-                                icon: FluentIcons.trophy2_solid,
-                                accent: _amber,
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: _StatCard(
-                                label: 'Total Sessions',
-                                value: '${_stats!.totalSessions}',
-                                icon: FluentIcons.timer,
-                                accent: _purple,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _StatCard(
-                        label: 'Most Practiced',
-                        value: _stats!.mostPracticedMovement ?? '—',
-                        icon: FluentIcons.crown_solid,
-                        accent: _cyan,
-                        smallValue: true,
+                      ProgressOverviewStats(
+                        overallPerformanceLabel: _overallPerformanceLabel,
+                        averageLabel: _averageLabel,
+                        averageValue: _averageValue,
+                        bestLabel: _bestLabel,
+                        bestValue: _bestValue,
+                        totalSessions: _stats!.totalSessions,
+                        mostPracticed: _stats!.mostPracticedMovement ?? '—',
                       ),
                       const SizedBox(height: AppSpacing.xl),
 
                       // ── Rubric trend (Assessment V2 only) ───────────────
                       if (_rubricChronological.length >= 2) ...[
-                        const _SectionHeader(
-                          icon: FluentIcons.line_chart,
-                          title: 'Rubric Trend',
-                          accent: _pink,
-                        ),
+                        const ElixSectionHeader(heading: 'Rubric Trend'),
                         const SizedBox(height: AppSpacing.md),
                         _PanelCard(
                           accent: _pink,
@@ -274,11 +220,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                       ],
 
                       // ── Difficulty breakdown ────────────────────────────
-                      const _SectionHeader(
-                        icon: FluentIcons.chart_template,
-                        title: 'Difficulty Breakdown',
-                        accent: _amber,
-                      ),
+                      const ElixSectionHeader(heading: 'Difficulty Breakdown'),
                       const SizedBox(height: AppSpacing.md),
                       _PanelCard(
                         accent: _amber,
@@ -290,11 +232,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                       const SizedBox(height: AppSpacing.xl),
 
                       // ── Chart section ───────────────────────────────────
-                      const _SectionHeader(
-                        icon: FluentIcons.bar_chart_vertical,
-                        title: 'Sessions by Movement',
-                        accent: _purple,
-                      ),
+                      const ElixSectionHeader(heading: 'Sessions by Movement'),
                       const SizedBox(height: AppSpacing.md),
                       _PanelCard(
                         accent: _purple,
@@ -327,13 +265,11 @@ class _PanelCard extends StatelessWidget {
     required this.child,
     this.accent = _purple,
     this.padding = const EdgeInsets.all(AppSpacing.lg),
-    this.glow = false,
   });
 
   final Widget child;
   final Color accent;
   final EdgeInsetsGeometry padding;
-  final bool glow;
 
   @override
   Widget build(BuildContext context) {
@@ -345,127 +281,16 @@ class _PanelCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.elixPanelSurface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: accent.withValues(alpha: glow ? 0.55 : 0.22)),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
         boxShadow: [
           BoxShadow(
-            color: accent.withValues(alpha: glow ? 0.22 : 0.07),
-            blurRadius: glow ? 24 : 18,
+            color: accent.withValues(alpha: 0.07),
+            blurRadius: 18,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: child,
-    );
-  }
-}
-
-// ── Section header ───────────────────────────────────────────────────────────
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.accent,
-  });
-
-  final IconData icon;
-  final String title;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 3,
-          height: 20,
-          decoration: BoxDecoration(
-            color: accent,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Icon(icon, size: 16, color: accent),
-        const SizedBox(width: AppSpacing.sm),
-        Text(title, style: AppTheme.headingMedium),
-      ],
-    );
-  }
-}
-
-// ── Stat card (hover-interactive) ────────────────────────────────────────────
-
-class _StatCard extends StatefulWidget {
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.accent,
-    this.smallValue = false,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color accent;
-  final bool smallValue;
-
-  @override
-  State<_StatCard> createState() => _StatCardState();
-}
-
-class _StatCardState extends State<_StatCard> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: _PanelCard(
-        accent: widget.accent,
-        glow: _hovered,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: widget.accent.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(widget.icon, color: widget.accent, size: 15),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  widget.value,
-                  style: TextStyle(
-                    fontSize: widget.smallValue ? 16 : 24,
-                    fontWeight: FontWeight.w800,
-                    color: widget.accent,
-                    height: 1,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

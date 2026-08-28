@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/leaderboard_award_plan.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/repositories/leaderboard_repository.dart';
@@ -133,60 +134,19 @@ class _DashboardLeaderboardState extends State<DashboardLeaderboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final header = Row(
-              children: [
-                Icon(
-                  FluentIcons.trophy2,
-                  size: 16,
-                  color: AppColors.accentSoft.withValues(alpha: 0.95),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Flexible(
-                  child: Text(
-                    'Top Players',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: context.elixTextPrimary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const DashboardPill(
-                  text: 'All Time',
-                  color: AppColors.warning,
-                  compact: true,
-                ),
-                if (constraints.maxWidth >= 420) ...[
-                  const Spacer(),
-                  HyperlinkButton(
-                    onPressed: () => context.go('/leaderboard'),
-                    child: const Text('View leaderboard'),
-                  ),
-                ],
-              ],
-            );
-
-            if (constraints.maxWidth >= 420) return header;
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                header,
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: HyperlinkButton(
-                    onPressed: () => context.go('/leaderboard'),
-                    child: const Text('View leaderboard'),
-                  ),
-                ),
-              ],
-            );
-          },
+        ElixSectionHeader(
+          heading: 'Top Players',
+          actions: [
+            const DashboardPill(
+              text: 'All Time',
+              color: AppColors.warning,
+              compact: true,
+            ),
+            HyperlinkButton(
+              onPressed: () => context.go('/leaderboard'),
+              child: const Text('View leaderboard'),
+            ),
+          ],
         ),
         const SizedBox(height: AppSpacing.sm),
         if (_loading)
@@ -298,7 +258,7 @@ class _PlayerSpotlight extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isYou = currentUserId != null && entry.userId == currentUserId;
-    final medal = LeaderboardRankStyle.medalForRank(rank);
+    final medal = LeaderboardRankStyle.medalForRank(context, rank);
     final pictureUrl = isYou
         ? currentUserProfilePictureUrl
         : entry.profilePictureUrl;
@@ -431,7 +391,7 @@ class _PlayerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isYou = currentUserId != null && entry.userId == currentUserId;
-    final medal = LeaderboardRankStyle.medalForRank(rank);
+    final medal = LeaderboardRankStyle.medalForRank(context, rank);
     final pictureUrl = isYou
         ? (currentUserProfilePictureUrl ?? entry.profilePictureUrl)
         : entry.profilePictureUrl;

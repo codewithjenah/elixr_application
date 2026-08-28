@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/repositories/progress_repository.dart';
 import 'dashboard_panel_card.dart';
 
@@ -59,6 +60,7 @@ class DashboardTrainingOverview extends StatelessWidget {
         subLabel: 'Personal record',
         icon: FluentIcons.trophy2,
         accent: AppColors.warning,
+        milestone: true,
       ),
       _MetricData(
         label: 'Top Move',
@@ -74,14 +76,7 @@ class DashboardTrainingOverview extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Training Overview',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: context.elixTextPrimary,
-            ),
-          ),
+          const ElixSectionHeader(heading: 'Training Overview'),
           const SizedBox(height: AppSpacing.md),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -147,6 +142,7 @@ class _MetricData {
     required this.accent,
     this.valueSuffix,
     this.flexibleValue = false,
+    this.milestone = false,
   });
 
   final String label;
@@ -156,6 +152,7 @@ class _MetricData {
   final Color accent;
   final String? valueSuffix;
   final bool flexibleValue;
+  final bool milestone;
 }
 
 class _MetricDivider extends StatelessWidget {
@@ -186,6 +183,11 @@ class _MetricZone extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = data.milestone ? context.elixColors.milestone : data.accent;
+    final valueStyle = data.flexibleValue
+        ? AppTheme.cardTitle(color: context.elixTextPrimary)
+        : AppTheme.metric(context, color: context.elixTextPrimary);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Column(
@@ -198,20 +200,21 @@ class _MetricZone extends StatelessWidget {
                 height: 28,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: data.accent.withValues(alpha: 0.12),
+                  color: context.isHighContrast
+                      ? context.elixCardSurface
+                      : accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
+                  border: context.isHighContrast
+                      ? Border.all(color: accent)
+                      : null,
                 ),
-                child: Icon(data.icon, size: 13, color: data.accent),
+                child: Icon(data.icon, size: 13, color: accent),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   data.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: context.elixTextSecondary,
-                  ),
+                  style: AppTheme.label(color: context.elixTextSecondary),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -219,36 +222,25 @@ class _MetricZone extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          RichText(
-            maxLines: data.flexibleValue ? 2 : 1,
-            overflow: TextOverflow.ellipsis,
-            text: TextSpan(
+          Text.rich(
+            TextSpan(
+              style: valueStyle,
               children: [
-                TextSpan(
-                  text: data.value,
-                  style: TextStyle(
-                    fontSize: data.flexibleValue ? 18 : 26,
-                    fontWeight: FontWeight.w800,
-                    color: context.elixTextPrimary,
-                    height: 1.15,
-                  ),
-                ),
+                TextSpan(text: data.value),
                 if (data.valueSuffix != null)
                   TextSpan(
                     text: data.valueSuffix,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: context.elixTextSecondary,
-                    ),
+                    style: AppTheme.label(color: context.elixTextSecondary),
                   ),
               ],
             ),
+            maxLines: data.flexibleValue ? 2 : 1,
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
           Text(
             data.subLabel,
-            style: TextStyle(fontSize: 11, color: context.elixTextSecondary),
+            style: AppTheme.supporting(color: context.elixTextSecondary),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

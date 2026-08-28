@@ -50,6 +50,8 @@ class ElixSemanticColors {
   final Color brandSecondary;
   final Color onBrand;
   final Color focusRing;
+
+  /// Warm gold for earned ranks and milestones. Not a primary brand colour.
   final Color milestone;
   final Color warning;
   final Color success;
@@ -76,7 +78,7 @@ class ElixSemanticColors {
     brandSecondary: AppColors.accent,
     onBrand: Color(0xFF1C1017),
     focusRing: Color(0xFFFFFFFF),
-    milestone: Color(0xFFA78BFA),
+    milestone: Color(0xFFD7B15A),
     warning: AppColors.warning,
     success: AppColors.success,
     error: AppColors.error,
@@ -103,7 +105,7 @@ class ElixSemanticColors {
     brandSecondary: AppColors.accent,
     onBrand: Color(0xFF1C1017),
     focusRing: Color(0xFF1C1C22),
-    milestone: Color(0xFF6D46D9),
+    milestone: Color(0xFF8A6412),
     warning: Color(0xFFB75B00),
     success: Color(0xFF087A50),
     error: Color(0xFFC92F4A),
@@ -159,7 +161,7 @@ class ElixSemanticColors {
     brandSecondary: Color(0xFF000000),
     onBrand: Color(0xFFFFFFFF),
     focusRing: Color(0xFF000000),
-    milestone: Color(0xFF0000CC),
+    milestone: Color(0xFF7A5200),
     warning: Color(0xFF7A3000),
     success: Color(0xFF006B24),
     error: Color(0xFFB00020),
@@ -191,11 +193,43 @@ abstract final class ElixMotion {
       MediaQuery.disableAnimationsOf(context) ? Duration.zero : value;
 }
 
+/// Visible keyboard focus treatment. High contrast uses a thicker ring so
+/// focus is never colour-only.
+abstract final class ElixFocus {
+  static const ringWidth = 2.0;
+  static const ringWidthHighContrast = 4.0;
+}
+
+/// Status roles that must always ship with a non-colour cue (icon, mark, or
+/// border change). [milestone] is warm gold for earned ranks only.
+enum ElixTone { selected, warning, success, error, milestone }
+
+abstract final class ElixToneCues {
+  static IconData icon(ElixTone tone) => switch (tone) {
+    ElixTone.selected => FluentIcons.check_mark,
+    ElixTone.warning => FluentIcons.warning,
+    ElixTone.success => FluentIcons.completed_solid,
+    ElixTone.error => FluentIcons.error_badge,
+    ElixTone.milestone => FluentIcons.trophy2,
+  };
+
+  static Color color(ElixSemanticColors palette, ElixTone tone) =>
+      switch (tone) {
+        ElixTone.selected => palette.brandPrimary,
+        ElixTone.warning => palette.warning,
+        ElixTone.success => palette.success,
+        ElixTone.error => palette.error,
+        ElixTone.milestone => palette.milestone,
+      };
+}
+
 /// ELIXR's semantic type scale. It is intentionally separate from Fluent's
 /// typography slots so later screen migration can be incremental.
 abstract final class ElixTypography {
   static const fontFamily = 'Manrope';
+  static const wordmarkFamily = 'Bahnschrift';
   static const fontFallbacks = ['Segoe UI Variable Text', 'Segoe UI'];
+  static const wordmarkFallbacks = ['Segoe UI Variable Display', 'Segoe UI'];
   static const compactBreakpoint = 900.0;
 
   static bool isCompact(BuildContext context) =>

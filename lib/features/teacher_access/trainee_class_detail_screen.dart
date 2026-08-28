@@ -95,6 +95,7 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
             heading: controller.className,
             eyebrow: 'CLASSROOM',
             subtitle: 'Review assignments and activity for this class.',
+            variant: ElixEditorialHeaderVariant.compact,
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [

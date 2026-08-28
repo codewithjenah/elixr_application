@@ -42,7 +42,7 @@ class _LeaderboardPodiumCardState extends State<LeaderboardPodiumCard> {
   Widget build(BuildContext context) {
     final isFirst = widget.rank == 1;
     final compact = widget.variant == LeaderboardPodiumVariant.compact;
-    final accent = LeaderboardRankStyle.medalForRank(widget.rank);
+    final accent = LeaderboardRankStyle.medalForRank(context, widget.rank);
     final metrics = LeaderboardPresentation.metricsFor(
       widget.entry,
       widget.period,
@@ -211,9 +211,8 @@ class _LeaderboardPodiumCardState extends State<LeaderboardPodiumCard> {
                         '${metrics.xp} XP',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: compact ? 14 : 16,
-                          fontWeight: FontWeight.w800,
+                        style: AppTheme.metric(
+                          context,
                           color: isFirst ? accent : AppColors.primarySoft,
                         ),
                       ),

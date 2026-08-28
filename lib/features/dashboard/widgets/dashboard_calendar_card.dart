@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../calendar/utils/calendar_metrics.dart';
 import 'dashboard_panel_card.dart';
 
@@ -31,24 +32,9 @@ class DashboardCalendarCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                FluentIcons.calendar,
-                size: 14,
-                color: AppColors.accentSoft.withValues(alpha: 0.95),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Practice Calendar',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: context.elixTextPrimary,
-                  ),
-                ),
-              ),
+          ElixSectionHeader(
+            heading: 'Practice Calendar',
+            actions: [
               HyperlinkButton(
                 onPressed: onViewCalendar,
                 style: ButtonStyle(

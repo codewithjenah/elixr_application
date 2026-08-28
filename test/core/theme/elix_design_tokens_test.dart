@@ -1,6 +1,8 @@
+import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -149,5 +151,88 @@ void main() {
     expect(compact.$1.letterSpacing, -0.7);
     expect(compact.$2.fontSize, 36);
     expect(ElixTypography.eyebrow().letterSpacing, 1.4);
+  });
+
+  test('milestone is warm gold, not a second brand colour', () {
+    for (final mode in [ElixSemanticColors.dark, ElixSemanticColors.light]) {
+      expect(mode.milestone, isNot(mode.brandPrimary));
+      expect(mode.milestone, isNot(mode.brandSecondary));
+      expect(mode.milestone, isNot(mode.warning));
+      expect(mode.milestone, isNot(AppColors.accentSoft));
+      // Warm gold keeps red and green above blue. Violet/navy do the reverse.
+      expect(mode.milestone.r, greaterThan(mode.milestone.b));
+      expect(mode.milestone.g, greaterThan(mode.milestone.b));
+      expect(
+        contrastRatio(mode.milestone, mode.canvas),
+        greaterThanOrEqualTo(4.5),
+      );
+    }
+  });
+
+  test('wordmark family stays Bahnschrift and UI family stays Manrope', () {
+    expect(ElixTypography.fontFamily, 'Manrope');
+    expect(ElixTypography.wordmarkFamily, 'Bahnschrift');
+    expect(AppTheme.brandFontFamily, ElixTypography.wordmarkFamily);
+    expect(AppTheme.brandTitle().fontFamily, 'Bahnschrift');
+    expect(ElixTypography.body().fontFamily, 'Manrope');
+  });
+
+  test('motion tokens match the Midnight Pour durations', () {
+    expect(ElixMotion.micro, const Duration(milliseconds: 120));
+    expect(ElixMotion.standard, const Duration(milliseconds: 180));
+    expect(ElixMotion.route, const Duration(milliseconds: 280));
+    expect(ElixMotion.intro, const Duration(milliseconds: 360));
+  });
+
+  test('focus ring widths are distinct in high contrast', () {
+    expect(ElixFocus.ringWidth, 2);
+    expect(ElixFocus.ringWidthHighContrast, 4);
+  });
+
+  test('tone cues never use the same icon for warning and selected', () {
+    expect(
+      ElixToneCues.icon(ElixTone.warning),
+      isNot(ElixToneCues.icon(ElixTone.selected)),
+    );
+    expect(
+      ElixToneCues.icon(ElixTone.warning),
+      isNot(ElixToneCues.icon(ElixTone.success)),
+    );
+    expect(
+      ElixToneCues.color(ElixSemanticColors.dark, ElixTone.warning),
+      ElixSemanticColors.dark.warning,
+    );
+    expect(
+      ElixToneCues.color(ElixSemanticColors.dark, ElixTone.milestone),
+      ElixSemanticColors.dark.milestone,
+    );
+  });
+
+  testWidgets('page titles keep using font size tokens under 1.3 text scale', (
+    tester,
+  ) async {
+    late TextStyle title;
+    await tester.pumpWidget(
+      FluentApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(1100, 700),
+            textScaler: TextScaler.linear(1.3),
+          ),
+          child: Builder(
+            builder: (context) {
+              title = ElixTypography.pageTitle(context);
+              return Text('Progress', style: title);
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(title.fontSize, 36);
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.text('Progress'),
+    );
+    expect(paragraph.textScaler.scale(36), closeTo(46.8, 0.001));
   });
 }

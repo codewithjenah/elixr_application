@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/leaderboard_entry.dart';
 import '../../../data/models/leaderboard_period.dart';
 import '../leaderboard_presentation.dart';
@@ -59,14 +60,7 @@ class LeaderboardRankingsSection extends StatelessWidget {
               AppSpacing.md,
               AppSpacing.sm,
             ),
-            child: Text(
-              'Rankings',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
-              ),
-            ),
+            child: const ElixSectionHeader(heading: 'Rankings'),
           ),
           Container(
             color: context.elixCardSurface.withValues(

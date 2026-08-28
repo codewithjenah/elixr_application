@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/models/rubric_assessment.dart';
 
 /// Falling confetti rendered with a custom painter (no extra dependencies).
@@ -382,9 +383,12 @@ class RankBadge extends StatelessWidget {
 
   final PerformanceLevel? level;
 
-  static (String, Color) rankFor(PerformanceLevel? level) => switch (level) {
+  static (String, Color) rankFor(
+    PerformanceLevel? level, {
+    required Color milestone,
+  }) => switch (level) {
     null => ('—', AppColors.textSecondary),
-    PerformanceLevel.mastered => (level.shortLabel, AppColors.warning),
+    PerformanceLevel.mastered => (level.shortLabel, milestone),
     PerformanceLevel.proficient => (level.shortLabel, AppColors.success),
     PerformanceLevel.competent => (level.shortLabel, AppColors.primary),
     PerformanceLevel.developing => (level.shortLabel, AppColors.primarySoft),
@@ -393,7 +397,11 @@ class RankBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (rank, color) = rankFor(level);
+    final (rank, color) = rankFor(
+      level,
+      milestone: context.elixColors.milestone,
+    );
+    final highContrast = context.isHighContrast;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       width: 52,
@@ -401,10 +409,13 @@ class RankBadge extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: color.withValues(alpha: 0.12),
-        border: Border.all(color: color.withValues(alpha: 0.6), width: 2),
-        boxShadow: [
-          BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 14),
-        ],
+        border: Border.all(
+          color: color.withValues(alpha: highContrast ? 1 : 0.6),
+          width: 2,
+        ),
+        boxShadow: highContrast
+            ? const <BoxShadow>[]
+            : [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 14)],
       ),
       child: Center(
         child: Text(

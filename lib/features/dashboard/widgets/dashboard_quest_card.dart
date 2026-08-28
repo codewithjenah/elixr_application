@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/manila_day.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../data/models/daily_quest_board.dart';
 import '../../../data/models/quest_claim.dart';
 import '../../../data/models/session.dart';
@@ -196,28 +197,13 @@ class _DashboardQuestCardState extends State<DashboardQuestCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                FluentIcons.lightning_bolt,
-                size: 14,
-                color: AppColors.warning.withValues(alpha: 0.95),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  "Today's Quests",
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: context.elixTextPrimary,
-                  ),
-                ),
-              ),
+          ElixSectionHeader(
+            heading: "Today's Quests",
+            actions: [
               if (widget.streakDays > 0)
                 DashboardPill(
                   text: '${widget.streakDays}-day streak',
-                  color: AppColors.warning,
+                  color: context.elixColors.milestone,
                   compact: true,
                 ),
             ],

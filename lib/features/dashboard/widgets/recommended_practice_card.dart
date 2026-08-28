@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../movements/movements_presentation.dart';
 import '../../progress/training_recommendation.dart';
 import 'dashboard_panel_card.dart';
@@ -65,15 +66,7 @@ class _RecommendedPracticeCardState extends State<RecommendedPracticeCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "COACH'S FOCUS",
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-              color: context.elixTextSecondary,
-            ),
-          ),
+          const ElixEyebrow(label: "COACH'S FOCUS"),
           const SizedBox(height: 6),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

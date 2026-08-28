@@ -7,6 +7,7 @@ import '../../core/constants/movements.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elix_stat_card.dart';
 import '../../core/widgets/movement_image.dart';
 import '../../data/models/movement.dart';
 import 'rubric_guide.dart';
@@ -88,6 +89,7 @@ class _LearningHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -98,72 +100,46 @@ class _LearningHero extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final compact = constraints.maxWidth < 760;
-          final intro = Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.primary, AppColors.accent],
-                  ),
-                  borderRadius: BorderRadius.circular(15),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.24),
-                      blurRadius: 18,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  FluentIcons.education,
-                  size: 24,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'LEARNING CENTER',
-                      style: AppTheme.caption.copyWith(
-                        color: AppColors.primarySoft,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.8,
+          final stacked = constraints.maxWidth < 760;
+          final intro = ElixEditorialHeader(
+            heading: 'Help & Tutorials',
+            eyebrow: 'LEARNING CENTER',
+            subtitle:
+                'Learn the flow, understand your score, and build every movement with confidence.',
+            leading: Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: highContrast ? context.elixColors.brandPrimary : null,
+                gradient: highContrast
+                    ? null
+                    : const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [AppColors.primary, AppColors.accent],
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      'Help & Tutorials',
-                      style: AppTheme.brandTitle(
-                        fontSize: compact ? 28 : 34,
-                        color: context.elixTextPrimary,
-                      ).copyWith(letterSpacing: -0.5),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'Learn the flow, understand your score, and build every movement with confidence.',
-                      style: AppTheme.bodySecondary.copyWith(
-                        color: context.elixTextSecondary,
-                        height: 1.45,
-                      ),
-                    ),
-                  ],
-                ),
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: highContrast
+                    ? const []
+                    : [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.24),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
               ),
-            ],
+              child: const Icon(
+                FluentIcons.education,
+                size: 24,
+                color: Colors.white,
+              ),
+            ),
           );
           final overview = _HeroOverview(lessonCount: lessonCount);
 
-          if (compact) {
+          if (stacked) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -194,70 +170,22 @@ class _HeroOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.elixBackground.withValues(alpha: 0.42),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.accent.withValues(alpha: 0.22)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _HeroMetric(
-              icon: FluentIcons.library,
-              value: '$lessonCount',
-              label: 'Lessons',
-            ),
-          ),
-          Container(
-            width: 1,
-            height: 44,
-            color: context.elixBorder.withValues(alpha: 0.7),
-          ),
-          const Expanded(
-            child: _HeroMetric(
-              icon: FluentIcons.completed_solid,
-              value: '4',
-              label: 'Score criteria',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeroMetric extends StatelessWidget {
-  const _HeroMetric({
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       children: [
-        Icon(icon, size: 16, color: AppColors.accentSoft),
-        const SizedBox(height: 5),
-        Text(
-          value,
-          style: TextStyle(
-            color: context.elixTextPrimary,
-            fontSize: 21,
-            fontWeight: FontWeight.w800,
+        Expanded(
+          child: ElixStatCard(
+            label: 'Lessons',
+            value: '$lessonCount',
+            icon: FluentIcons.library,
           ),
         ),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        const SizedBox(width: AppSpacing.sm),
+        const Expanded(
+          child: ElixStatCard(
+            label: 'Score criteria',
+            value: '4',
+            icon: FluentIcons.completed_solid,
+          ),
         ),
       ],
     );

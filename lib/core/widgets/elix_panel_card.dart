@@ -186,8 +186,10 @@ class _ElixHoverSurfaceState extends State<ElixHoverSurface> {
                                   ? context.elixBorder
                                   : Colors.transparent)),
                   width: _focused
-                      ? (highContrast ? 4 : 2)
-                      : (highContrast ? 2 : 1),
+                      ? (highContrast
+                            ? ElixFocus.ringWidthHighContrast
+                            : ElixFocus.ringWidth)
+                      : (highContrast ? ElixFocus.ringWidth : 1),
                 ),
               ),
               child: widget.child,

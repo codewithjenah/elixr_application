@@ -2,6 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/elix_design_tokens.dart';
+import '../../../core/widgets/elix_editorial_header.dart';
 import '../../progress/training_recommendation.dart';
 
 const _pink = AppColors.primary;
@@ -75,6 +78,7 @@ class DashboardHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
     return LayoutBuilder(
       builder: (context, constraints) {
         final minImageLedHeight = (constraints.maxWidth / _bannerWidthToHeight)
@@ -84,52 +88,60 @@ class DashboardHero extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           child: Container(
             decoration: BoxDecoration(
+              color: highContrast ? context.elixCardSurface : null,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              border: Border.all(
+                color: highContrast
+                    ? context.elixBorder
+                    : Colors.white.withValues(alpha: 0.08),
+                width: highContrast ? 2 : 1,
+              ),
             ),
             child: Stack(
               clipBehavior: Clip.hardEdge,
               children: [
                 // Establishes minimum banner height without clipping overflowing content.
                 SizedBox(height: minImageLedHeight, width: double.infinity),
-                Positioned.fill(
-                  child: Image.asset(
-                    'assets/banner.png',
-                    fit: BoxFit.cover,
-                    alignment: _bannerAlignment,
+                if (!highContrast) ...[
+                  const Positioned.fill(
+                    child: Image(
+                      image: AssetImage('assets/banner.png'),
+                      fit: BoxFit.cover,
+                      alignment: _bannerAlignment,
+                    ),
                   ),
-                ),
-                // Left-weighted readability wash; keeps the bartender clear on the right.
-                const Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        stops: [0.0, 0.42, 0.70, 1.0],
-                        colors: [
-                          Color(0xF20D0D0F),
-                          Color(0xB313091F),
-                          Color(0x4013091F),
-                          Color(0x0A13091F),
-                        ],
+                  // Left-weighted readability wash; keeps the bartender clear on the right.
+                  const Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          stops: [0.0, 0.42, 0.70, 1.0],
+                          colors: [
+                            Color(0xF20D0D0F),
+                            Color(0xB313091F),
+                            Color(0x4013091F),
+                            Color(0x0A13091F),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                // Soft bottom vignette for chip/CTA legibility without darkening the art.
-                const Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        stops: [0.55, 1.0],
-                        colors: [Color(0x00000000), Color(0x33000000)],
+                  // Soft bottom vignette for chip/CTA legibility without darkening the art.
+                  const Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: [0.55, 1.0],
+                          colors: [Color(0x00000000), Color(0x33000000)],
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
                 Padding(
                   padding: const EdgeInsets.fromLTRB(28, 26, 28, 26),
                   child: LayoutBuilder(
@@ -138,8 +150,8 @@ class DashboardHero extends StatelessWidget {
                       final inlineCtas = contentWidth >= _inlineCtaBreakpoint;
                       final stretchStacked =
                           contentWidth < _narrowCtaBreakpoint;
-                      final headlineSize = contentWidth < 700 ? 36.0 : 39.0;
                       final primaryLabel = _primaryLabelFor(contentWidth);
+                      final onPhoto = !highContrast;
 
                       return Align(
                         alignment: Alignment.centerLeft,
@@ -151,19 +163,23 @@ class DashboardHero extends StatelessWidget {
                             children: [
                               RichText(
                                 text: TextSpan(
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Color(0xB3FFFFFF),
+                                    color: onPhoto
+                                        ? const Color(0xB3FFFFFF)
+                                        : context.elixTextSecondary,
                                   ),
                                   children: [
                                     TextSpan(text: '$greeting, '),
                                     TextSpan(
                                       text: firstName,
                                       style: TextStyle(
-                                        color: AppColors.primarySoft.withValues(
-                                          alpha: 0.92,
-                                        ),
+                                        color: onPhoto
+                                            ? AppColors.primarySoft.withValues(
+                                                alpha: 0.92,
+                                              )
+                                            : context.elixColors.brandPrimary,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -171,33 +187,21 @@ class DashboardHero extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              Text.rich(
-                                TextSpan(
-                                  style: TextStyle(
-                                    fontSize: headlineSize,
-                                    fontWeight: FontWeight.w900,
-                                    height: 1.05,
-                                    letterSpacing: -0.5,
-                                  ),
-                                  children: const [
-                                    TextSpan(
-                                      text: 'Train. Flip. ',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                    TextSpan(
-                                      text: 'Master.',
-                                      style: TextStyle(color: _pink),
-                                    ),
-                                  ],
-                                ),
+                              ElixEditorialHeader(
+                                heading: 'Train. Flip. ',
+                                accentHeading: 'Master.',
+                                variant: ElixEditorialHeaderVariant.hero,
+                                headingColor: onPhoto ? Colors.white : null,
                               ),
                               const SizedBox(height: 8),
-                              const Text(
+                              Text(
                                 'Build consistency, one movement at a time.',
                                 style: TextStyle(
                                   fontSize: 13,
                                   height: 1.35,
-                                  color: Color(0xB3FFFFFF),
+                                  color: onPhoto
+                                      ? const Color(0xB3FFFFFF)
+                                      : context.elixTextSecondary,
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -343,9 +347,11 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
 
   @override
   Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final colors = context.elixColors;
     final decoration = BoxDecoration(
       borderRadius: BorderRadius.circular(11),
-      gradient: widget.primary
+      gradient: widget.primary && !highContrast
           ? LinearGradient(
               colors: _hovered
                   ? const [Color(0xFFFF6A9E), Color(0xFF9B74F0)]
@@ -353,14 +359,19 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
             )
           : null,
       color: widget.primary
-          ? null
-          : Colors.white.withValues(alpha: _hovered ? 0.14 : 0.07),
-      border: widget.primary
+          ? (highContrast ? colors.brandPrimary : null)
+          : (highContrast
+                ? colors.surfaceRaised
+                : Colors.white.withValues(alpha: _hovered ? 0.14 : 0.07)),
+      border: widget.primary && !highContrast
           ? null
           : Border.all(
-              color: Colors.white.withValues(alpha: _hovered ? 0.32 : 0.16),
+              color: highContrast
+                  ? colors.borderStrong
+                  : Colors.white.withValues(alpha: _hovered ? 0.32 : 0.16),
+              width: highContrast ? 2 : 1,
             ),
-      boxShadow: widget.primary
+      boxShadow: widget.primary && !highContrast
           ? [
               BoxShadow(
                 color: _pink.withValues(alpha: _hovered ? 0.22 : 0.12),
@@ -368,20 +379,22 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
                 offset: const Offset(0, 2),
               ),
             ]
-          : null,
+          : const [],
     );
 
     final labelStyle = TextStyle(
       fontSize: 12.5,
       fontWeight: FontWeight.w600,
-      color: Colors.white.withValues(alpha: widget.primary ? 1 : 0.92),
+      color: widget.primary && highContrast
+          ? colors.onBrand
+          : Colors.white.withValues(alpha: widget.primary ? 1 : 0.92),
     );
 
     // Flexible + loose keeps the CTA content-sized when space allows, and
     // prevents RenderFlex overflow when the parent caps width.
     final button = AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
+      duration: ElixMotion.duration(context, ElixMotion.standard),
+      curve: ElixMotion.standardCurve,
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: decoration,
@@ -390,7 +403,13 @@ class _HeroActionButtonState extends State<_HeroActionButton> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (widget.icon != null) ...[
-            Icon(widget.icon, size: 11.5, color: Colors.white),
+            Icon(
+              widget.icon,
+              size: 11.5,
+              color: widget.primary && highContrast
+                  ? colors.onBrand
+                  : Colors.white,
+            ),
             const SizedBox(width: 7),
           ],
           Flexible(

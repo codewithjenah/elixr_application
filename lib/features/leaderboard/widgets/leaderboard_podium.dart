@@ -13,8 +13,8 @@ abstract final class LeaderboardPodiumLayout {
   static const double fullWideMin = 860;
   static const double compactWideMin = 720;
   static const double mediumMin = 560;
-  static const double fullCardHeight = 284;
-  static const double compactCardHeight = 252;
+  static const double fullCardHeight = 296;
+  static const double compactCardHeight = 276;
 }
 
 class LeaderboardPodium extends StatelessWidget {

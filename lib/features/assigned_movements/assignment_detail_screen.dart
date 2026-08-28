@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -206,11 +207,11 @@ class _AssignmentHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(assignment.displayTitle, style: AppTheme.headingLarge),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            '${assignment.teacherDisplayName} · ${assignment.groupName}',
-            style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+          ElixEditorialHeader(
+            heading: assignment.displayTitle,
+            variant: ElixEditorialHeaderVariant.compact,
+            subtitle:
+                '${assignment.teacherDisplayName} · ${assignment.groupName}',
           ),
           const SizedBox(height: AppSpacing.sm),
           Wrap(

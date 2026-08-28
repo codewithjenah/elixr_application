@@ -248,7 +248,8 @@ class TrainingCameraWorkspace extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             Text(
               isFatal ? 'Session error' : 'Connection error',
-              style: AppTheme.headingMedium.copyWith(
+              style: AppTheme.sectionTitle(
+                context,
                 color: AppColors.textPrimary,
               ),
               textAlign: TextAlign.center,

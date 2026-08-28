@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -67,13 +68,10 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Assigned Movements', style: AppTheme.headingLarge),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.',
-                  style: AppTheme.body.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
+                ElixEditorialHeader(
+                  heading: 'Assigned Movements',
+                  subtitle:
+                      'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.',
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(child: _Body(controller: controller)),

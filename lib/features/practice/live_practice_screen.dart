@@ -700,27 +700,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
               final panel = TrainingSessionPanel(
                 phase: _panelPhase(),
-                metrics: Column(
-                  children: [
-                    Text(
-                      'ELAPSED',
-                      style: AppTheme.caption.copyWith(
-                        color: AppColors.primarySoft,
-                        letterSpacing: 1.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      _formatDuration(_run.elapsedSeconds),
-                      style: AppTheme.headingMedium.copyWith(
-                        fontSize: 40,
-                        letterSpacing: 2,
-                        fontWeight: FontWeight.w900,
-                        color: context.elixTextPrimary,
-                      ),
-                    ),
-                  ],
+                metrics: LivePracticeElapsedMetric(
+                  elapsedDisplay: _formatDuration(_run.elapsedSeconds),
                 ),
                 statusContent: TrainingStatusRow(
                   detection: resolveDetectionStatus(

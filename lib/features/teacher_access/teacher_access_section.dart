@@ -9,8 +9,10 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
+import '../../core/widgets/elix_stat_card.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/session_evidence_repository.dart';
@@ -214,77 +216,23 @@ class _AccessMetricsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _MetricTile(
-            label: 'Waiting',
-            value: '${controller.pendingJoinCount}',
-            icon: FluentIcons.inbox,
-          ),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: _MetricTile(
-            label: 'My classes',
-            value: '${controller.approvedGroupMemberships.length}',
-            icon: FluentIcons.completed,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return ElixPanelCard(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.lg,
-      ),
+    return IntrinsicHeight(
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
+          Expanded(
+            child: ElixStatCard(
+              label: 'Waiting',
+              value: '${controller.pendingJoinCount}',
+              icon: FluentIcons.inbox,
             ),
-            child: Icon(icon, size: 18, color: AppColors.primary),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: AppTheme.headingLarge.copyWith(
-                    color: context.elixTextPrimary,
-                  ),
-                ),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
+            child: ElixStatCard(
+              label: 'My classes',
+              value: '${controller.approvedGroupMemberships.length}',
+              icon: FluentIcons.completed,
             ),
           ),
         ],
@@ -610,18 +558,9 @@ class _ClassesHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          'Your classes',
-          style: AppTheme.headingMedium.copyWith(
-            fontSize: 16,
-            color: context.elixTextPrimary,
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        ElixPill(text: '$count', color: AppColors.accent),
-      ],
+    return ElixSectionHeader(
+      heading: 'Your classes',
+      actions: [ElixPill(text: '$count', color: AppColors.accent)],
     );
   }
 }

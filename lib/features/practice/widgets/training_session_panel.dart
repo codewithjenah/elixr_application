@@ -339,6 +339,31 @@ class _SetupSurface extends StatelessWidget {
   }
 }
 
+/// Elapsed clock for Live / Free Practice. Callers own when the display
+/// advances; this widget only applies the metric type scale.
+class LivePracticeElapsedMetric extends StatelessWidget {
+  const LivePracticeElapsedMetric({super.key, required this.elapsedDisplay});
+
+  final String elapsedDisplay;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text('ELAPSED', style: AppTheme.eyebrow(color: AppColors.primarySoft)),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          elapsedDisplay,
+          style: AppTheme.metric(
+            context,
+            color: context.elixTextPrimary,
+          ).copyWith(letterSpacing: 2),
+        ),
+      ],
+    );
+  }
+}
+
 /// Compact elapsed / rubric metric tiles for the session panel.
 class SessionMetricTiles extends StatelessWidget {
   const SessionMetricTiles({
@@ -371,12 +396,10 @@ class SessionMetricTiles extends StatelessWidget {
                 accent: context.elixTextSecondary,
                 child: Text(
                   elapsedDisplay,
-                  style: AppTheme.headingMedium.copyWith(
-                    fontSize: 22,
-                    letterSpacing: 0.8,
+                  style: AppTheme.sectionTitle(
+                    context,
                     color: context.elixTextPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  ).copyWith(letterSpacing: 0.8),
                 ),
               ),
             ),
