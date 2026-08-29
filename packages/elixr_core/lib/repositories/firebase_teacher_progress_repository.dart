@@ -70,6 +70,52 @@ class FirebaseTeacherProgressRepository implements TeacherProgressRepository {
     }
   }
 
+  @override
+  Future<List<PublicProfileSession>> fetchSessionsInRange({
+    required String traineeId,
+    required DateTime startUtc,
+    required DateTime endUtc,
+  }) async {
+    final start = startUtc.toUtc();
+    final end = endUtc.toUtc();
+    if (!end.isAfter(start)) return const [];
+
+    final sessions = <PublicProfileSession>[];
+    DocumentSnapshot<Map<String, dynamic>>? cursor;
+    try {
+      while (true) {
+        Query<Map<String, dynamic>> query = _sessions(traineeId)
+            .where('created_at', isGreaterThanOrEqualTo: start)
+            .where('created_at', isLessThan: end)
+            .orderBy('created_at', descending: true)
+            .limit(TeacherProgressRepository.rangePageSize);
+        if (cursor != null) {
+          query = query.startAfterDocument(cursor!);
+        }
+
+        final result = await query.get(const GetOptions(source: Source.server));
+        if (result.docs.isEmpty) break;
+
+        sessions.addAll(
+          result.docs
+              .map(
+                (doc) =>
+                    PublicProfileSession.tryFromMap(doc.data(), id: doc.id),
+              )
+              .whereType<PublicProfileSession>(),
+        );
+
+        if (result.docs.length < TeacherProgressRepository.rangePageSize) {
+          break;
+        }
+        cursor = result.docs.last;
+      }
+    } on Object catch (error) {
+      throw _asProgressError(error);
+    }
+    return List<PublicProfileSession>.unmodifiable(sessions);
+  }
+
   Never _mapError(Object error, StackTrace stackTrace) =>
       throw _asProgressError(error);
   @visibleForTesting

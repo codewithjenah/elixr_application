@@ -51,6 +51,31 @@ class InMemoryTeacherProgressRepository implements TeacherProgressRepository {
       nextCursor: next < all.length ? _MemoryCursor(traineeId, next) : null,
     );
   }
+
+  @override
+  Future<List<PublicProfileSession>> fetchSessionsInRange({
+    required String traineeId,
+    required DateTime startUtc,
+    required DateTime endUtc,
+  }) async {
+    final start = startUtc.toUtc();
+    final end = endUtc.toUtc();
+    if (!end.isAfter(start)) return const [];
+
+    final inRange =
+        (sessions[traineeId] ?? const <PublicProfileSession>[])
+            .where((session) {
+              final createdAt = session.createdAt == null
+                  ? null
+                  : DateTime.tryParse(session.createdAt!);
+              return createdAt != null &&
+                  !createdAt.toUtc().isBefore(start) &&
+                  createdAt.toUtc().isBefore(end);
+            })
+            .toList(growable: false)
+          ..sort((a, b) => (b.createdAt ?? '').compareTo(a.createdAt ?? ''));
+    return List<PublicProfileSession>.unmodifiable(inRange);
+  }
 }
 
 class _MemoryCursor extends TeacherProgressCursor {

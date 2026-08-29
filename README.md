@@ -352,6 +352,35 @@ Legacy-only Teacher links retain their explicit per-Teacher sharing controls.
 Turning off the Trainee's saved-image setting denies Teacher image reads before
 retained evidence is deleted.
 
+### Teacher class performance analytics
+
+The Teacher analytics page (`/teacher/analytics`) and the dashboard's This Week
+summary derive read-only metrics from the current authorized classroom context;
+they do not create an analytics collection or persist aggregate values. The
+page watches the existing groups, memberships, assignments, and attempts, then
+fetches each unique approved Trainee's sanitized
+`public_profiles/{traineeId}/sessions` projection for the selected and prior
+periods with `created_at >= start` and `created_at < end`, ordered by
+`created_at` and paged in batches of 50. Reads are bounded to five concurrent
+Trainees and are best-effort snapshots rather than live session listeners.
+
+Only active groups and their current approved members are eligible. Because
+the existing membership schema has no separate `approved_at` field, the
+current membership `updated_at` (falling back to `created_at`) is used as the
+enrollment cutoff for excluding earlier sessions. Removing authorization
+purges the cached projection from the page. Assessment V2 rubric totals are
+the only scores used for averages, trends, and improvement; legacy percentage
+sessions and teacher-entered grades are not combined with them. Assignment
+completion uses the existing turned-in semantics and does not imply that a
+future-due assignment is expected yet.
+
+Analytics represent the current roster, not a historical class snapshot, and
+there is no per-student ranking or export. Missing or denied individual
+projections are shown as partial data with a refresh/last-updated state. The
+underlying client-written public-profile projections remain suitable for the
+controlled capstone environment but are not a server-authoritative ranking or
+tamper-proof analytics source against a hostile modified client.
+
 ### Direct Messages
 
 Both Teachers and Trainees use Messages (`/messages` and

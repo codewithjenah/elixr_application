@@ -108,7 +108,7 @@ class _ShellTestAuthRepository implements AuthRepositoryBase {
 }
 
 void main() {
-  testWidgets('teacher shell renders eight destinations', (tester) async {
+  testWidgets('teacher shell renders nine destinations', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -165,6 +165,7 @@ void main() {
     expect(find.text('Faculties'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('Leaderboard'), findsWidgets);
+    expect(find.text('Analytics'), findsOneWidget);
     expect(find.text('Movements'), findsWidgets);
     expect(find.text('Activity Center'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
@@ -189,6 +190,15 @@ void main() {
     expect(
       find.text('Available in a later ELIXR Teacher phase.'),
       findsNothing,
+    );
+
+    router.go(AppRoutePaths.teacherAnalytics);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Analytics'), findsWidgets);
+    expect(
+      find.text('Analytics is not available in this app configuration.'),
+      findsOneWidget,
     );
   });
 }

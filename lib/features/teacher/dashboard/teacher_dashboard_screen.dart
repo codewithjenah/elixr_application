@@ -1,4 +1,6 @@
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/repositories/teacher_progress_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -11,7 +13,10 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_stat_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
+import '../analytics/teacher_analytics_controller.dart';
+import '../analytics/teacher_analytics_summary.dart';
 import '../students/teacher_student_models.dart';
 import 'teacher_dashboard_controller.dart';
 
@@ -24,6 +29,7 @@ class TeacherDashboardScreen extends StatefulWidget {
 
 class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   TeacherDashboardController? _controller;
+  TeacherAnalyticsController? _analyticsController;
 
   @override
   void didChangeDependencies() {
@@ -33,14 +39,25 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     final userId = auth.currentUser?.id;
     if (userId == null) return;
     _controller = TeacherDashboardController(
-      repository: context.read(),
+      repository: context.read<GroupRepository>(),
       teacherId: userId,
     )..start();
+    final progress = _tryRead<TeacherProgressRepository>(context);
+    final assignments = _tryRead<ClassroomAssignmentRepository>(context);
+    if (progress != null && assignments != null) {
+      _analyticsController = TeacherAnalyticsController(
+        groupRepository: context.read<GroupRepository>(),
+        assignmentRepository: assignments,
+        progressRepository: progress,
+        teacherId: userId,
+      )..start();
+    }
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    _analyticsController?.dispose();
     super.dispose();
   }
 
@@ -59,7 +76,12 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     }
 
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([
+        controller,
+        ...?(_analyticsController == null
+            ? null
+            : <Listenable>[_analyticsController!]),
+      ]),
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: const ElixEditorialPageHeader(
@@ -75,7 +97,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                   message: controller.errorMessage!,
                   onRetry: controller.retry,
                 )
-              : _DashboardBody(controller: controller),
+              : _DashboardBody(
+                  controller: controller,
+                  analyticsController: _analyticsController,
+                ),
         );
       },
     );
@@ -83,9 +108,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
 }
 
 class _DashboardBody extends StatelessWidget {
-  const _DashboardBody({required this.controller});
+  const _DashboardBody({required this.controller, this.analyticsController});
 
   final TeacherDashboardController controller;
+  final TeacherAnalyticsController? analyticsController;
 
   @override
   Widget build(BuildContext context) {
@@ -164,6 +190,10 @@ class _DashboardBody extends StatelessWidget {
                   ),
                 ],
               ),
+            if (analyticsController != null) ...[
+              const SizedBox(height: AppSpacing.xl),
+              TeacherAnalyticsSummary(controller: analyticsController!),
+            ],
             const SizedBox(height: AppSpacing.xl),
             const ElixSectionHeader(
               heading: 'Groups overview',
@@ -292,5 +322,13 @@ class _ErrorState extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+T? _tryRead<T extends Object>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } on ProviderNotFoundException {
+    return null;
   }
 }

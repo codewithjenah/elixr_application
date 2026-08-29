@@ -352,6 +352,20 @@ class TrackingTeacherProgressRepository implements TeacherProgressRepository {
       startAfter: startAfter,
     );
   }
+
+  @override
+  Future<List<PublicProfileSession>> fetchSessionsInRange({
+    required String traineeId,
+    required DateTime startUtc,
+    required DateTime endUtc,
+  }) {
+    sessionFetches.add(traineeId);
+    return inner.fetchSessionsInRange(
+      traineeId: traineeId,
+      startUtc: startUtc,
+      endUtc: endUtc,
+    );
+  }
 }
 
 class TrackingTeacherEvidenceRepository implements TeacherEvidenceRepository {

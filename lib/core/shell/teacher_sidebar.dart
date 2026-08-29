@@ -62,6 +62,12 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.insights,
   ),
   TeacherSidebarItem(
+    label: 'Analytics',
+    icon: FluentIcons.analytics_view,
+    route: AppRoutePaths.teacherAnalytics,
+    group: TeacherSidebarGroup.insights,
+  ),
+  TeacherSidebarItem(
     label: 'Movements',
     icon: FluentIcons.more_sports,
     route: AppRoutePaths.teacherMovements,

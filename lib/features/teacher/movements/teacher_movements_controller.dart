@@ -166,27 +166,11 @@ class TeacherMovementsController extends ChangeNotifier {
     required String assignmentId,
     required String traineeId,
   }) {
-    AssignmentAttempt? canonical;
-    AssignmentAttempt? latest;
-    for (final attempt in attempts) {
-      if (attempt.assignmentId != assignmentId) continue;
-      if (attempt.traineeId != traineeId) continue;
-      if (attempt.isAbandonedTeacherReviewDraft) continue;
-      if (attempt.isCanonicalTeacherReviewSubmission) {
-        canonical = attempt;
-        continue;
-      }
-      if (latest == null) {
-        latest = attempt;
-        continue;
-      }
-      final attemptAt =
-          attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final latestAt =
-          latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      if (attemptAt.isAfter(latestAt)) latest = attempt;
-    }
-    return canonical ?? latest;
+    return AssignmentAttemptSemantics.latestVisible(
+      attempts: attempts,
+      assignmentId: assignmentId,
+      traineeId: traineeId,
+    );
   }
 
   TeacherAssignmentRosterCounts rosterCountsFor(String assignmentId) {
@@ -207,7 +191,7 @@ class TeacherMovementsController extends ChangeNotifier {
         assignmentId: assignmentId,
         traineeId: member.traineeId,
       );
-      if (attempt == null || !_isTurnedInAttempt(attempt)) {
+      if (attempt == null || !isAssignmentAttemptTurnedIn(attempt)) {
         notTurnedIn++;
         continue;
       }
@@ -248,17 +232,6 @@ class TeacherMovementsController extends ChangeNotifier {
       awaitingCheck: awaitingCheck,
       checked: checked,
     );
-  }
-
-  static bool _isTurnedInAttempt(AssignmentAttempt? attempt) {
-    if (attempt == null || attempt.isAbandonedTeacherReviewDraft) {
-      return false;
-    }
-    if (attempt.attemptKind == AssignmentAttemptKind.practicePointer ||
-        attempt.attemptKind == AssignmentAttemptKind.templateScore) {
-      return true;
-    }
-    return attempt.isReviewFacingSubmission;
   }
 
   List<AssignmentAttempt> get reviewQueue {

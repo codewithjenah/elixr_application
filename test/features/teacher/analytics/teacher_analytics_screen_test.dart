@@ -1,0 +1,115 @@
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/features/teacher/analytics/teacher_analytics_controller.dart';
+import 'package:elixr_application/features/teacher/analytics/teacher_analytics_screen.dart';
+import 'package:elixr_core/elixr_core.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+const _teacherId = 'teacher';
+final _now = DateTime.utc(2026, 8, 19, 10);
+
+ElixrGroup _group() => ElixrGroup(
+  id: 'group-1',
+  teacherId: _teacherId,
+  name: 'Group 1',
+  status: ElixrGroupStatus.active,
+  createdAt: DateTime.utc(2026, 8, 1),
+  updatedAt: DateTime.utc(2026, 8, 1),
+);
+
+GroupMembership _membership() => GroupMembership(
+  id: GroupMembership.documentId(groupId: 'group-1', traineeId: 'student'),
+  groupId: 'group-1',
+  teacherId: _teacherId,
+  traineeId: 'student',
+  traineeDisplayName: 'Ada Lovelace',
+  teacherDisplayName: 'Teacher',
+  status: GroupMembershipStatus.approved,
+  createdAt: DateTime.utc(2026, 8, 1),
+  updatedAt: DateTime.utc(2026, 8, 1),
+);
+
+void main() {
+  late InMemoryGroupRepository groups;
+  late InMemoryClassroomAssignmentRepository assignments;
+  late InMemoryTeacherProgressRepository progress;
+  late TeacherAnalyticsController controller;
+
+  setUp(() {
+    groups = InMemoryGroupRepository();
+    assignments = InMemoryClassroomAssignmentRepository();
+    progress = InMemoryTeacherProgressRepository();
+    groups.seedGroup(_group());
+    groups.seedMembership(_membership());
+    progress.sessions['student'] = [
+      const PublicProfileSession(
+        sessionId: 'session-1',
+        userId: 'student',
+        movementName: 'Hand Stall',
+        difficulty: 'Medium',
+        rubric: RubricAssessment(
+          technique: 2,
+          stability: 2,
+          completion: 2,
+          propPositioning: 2,
+        ),
+        assessmentVersion: 2,
+        durationSeconds: 60,
+        propType: TrainingProp.bottle,
+        createdAt: '2026-08-19T09:00:00.000Z',
+      ),
+    ];
+    controller = TeacherAnalyticsController(
+      groupRepository: groups,
+      assignmentRepository: assignments,
+      progressRepository: progress,
+      teacherId: _teacherId,
+      nowUtc: () => _now,
+    );
+  });
+
+  tearDown(() {
+    controller.dispose();
+    groups.dispose();
+    assignments.dispose();
+  });
+
+  Future<void> pumpScreen(WidgetTester tester, Size size) async {
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await controller.start();
+    await controller.setCustomRange(
+      startDate: DateTime(2026, 8, 19),
+      endDate: DateTime(2026, 8, 19),
+    );
+    await tester.pumpWidget(
+      FluentApp(
+        theme: FluentThemeData(),
+        home: TeacherAnalyticsScreen(controller: controller),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('renders a one-day chart without layout exceptions', (
+    tester,
+  ) async {
+    await pumpScreen(tester, const Size(1280, 900));
+
+    expect(find.text('Analytics'), findsOneWidget);
+    expect(find.text('Class average score'), findsOneWidget);
+    expect(find.text('Most practiced'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'wraps filters, metrics, and comparison content at narrow width',
+    (tester) async {
+      await pumpScreen(tester, const Size(640, 900));
+
+      expect(find.text('Analytics'), findsOneWidget);
+      expect(find.text('Group comparison'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}

@@ -975,3 +975,76 @@ class AssignmentAttempt {
     return null;
   }
 }
+
+/// Shared classroom completion semantics.
+///
+/// Keep this classification in the data layer so teacher roster counts and
+/// analytics use the same meaning of "turned in". Draft, in-progress,
+/// abandoned, and withdrawal-in-progress attempts are never completed work.
+abstract final class AssignmentAttemptSemantics {
+  static bool isTurnedIn(AssignmentAttempt? attempt) {
+    if (attempt == null || attempt.isAbandonedTeacherReviewDraft) return false;
+    switch (attempt.status) {
+      case AssignmentAttemptStatus.draft:
+      case AssignmentAttemptStatus.inProgress:
+      case AssignmentAttemptStatus.unsubmitting:
+        return false;
+      case AssignmentAttemptStatus.submitted:
+      case AssignmentAttemptStatus.checked:
+      case AssignmentAttemptStatus.approved:
+      case AssignmentAttemptStatus.needsRetry:
+        break;
+    }
+
+    switch (attempt.attemptKind) {
+      case AssignmentAttemptKind.practicePointer:
+      case AssignmentAttemptKind.templateScore:
+        return true;
+      case AssignmentAttemptKind.teacherReviewSubmission:
+        return attempt.isReviewFacingSubmission;
+      case AssignmentAttemptKind.teacherReviewDraft:
+        return false;
+    }
+  }
+
+  /// Selects the current attempt for one assignment/student pair using the
+  /// same canonical-submission preference as the teacher Movements view.
+  static AssignmentAttempt? latestVisible({
+    required Iterable<AssignmentAttempt> attempts,
+    required String assignmentId,
+    required String traineeId,
+  }) {
+    AssignmentAttempt? canonical;
+    AssignmentAttempt? latest;
+    for (final attempt in attempts) {
+      if (attempt.assignmentId != assignmentId ||
+          attempt.traineeId != traineeId ||
+          attempt.isAbandonedTeacherReviewDraft) {
+        continue;
+      }
+      if (attempt.isCanonicalTeacherReviewSubmission) {
+        if (canonical == null || _isLater(attempt, canonical)) {
+          canonical = attempt;
+        }
+        continue;
+      }
+      if (latest == null || _isLater(attempt, latest)) {
+        latest = attempt;
+      }
+    }
+    return canonical ?? latest;
+  }
+
+  static bool _isLater(AssignmentAttempt candidate, AssignmentAttempt other) {
+    final candidateAt =
+        candidate.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final otherAt = other.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return candidateAt.isAfter(otherAt) ||
+        (candidateAt.isAtSameMomentAs(otherAt) &&
+            candidate.id.compareTo(other.id) > 0);
+  }
+}
+
+/// Convenience function for callers that do not need the namespace.
+bool isAssignmentAttemptTurnedIn(AssignmentAttempt? attempt) =>
+    AssignmentAttemptSemantics.isTurnedIn(attempt);
