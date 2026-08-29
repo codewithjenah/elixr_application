@@ -1176,13 +1176,13 @@ Future<bool> _confirmRemoveProfilePicture(BuildContext context) async {
     actions: [
       Button(
         autofocus: true,
-        onPressed: () => Navigator.of(context).pop(false),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
         child: const Text('Cancel'),
       ),
       ElixPrimaryButton(
         label: 'Remove photo',
         expanded: false,
-        onPressed: () => Navigator.of(context).pop(true),
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
       ),
     ],
   );

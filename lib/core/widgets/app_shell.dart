@@ -39,13 +39,13 @@ class _AppShellState extends State<AppShell> {
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
           child: const Text('Cancel'),
         ),
         ElixPrimaryButton(
           label: 'Log out',
           expanded: false,
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
         ),
       ],
       uniformActionSize: const Size(128, 56),

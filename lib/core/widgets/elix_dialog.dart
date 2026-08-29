@@ -107,7 +107,7 @@ class ElixDialog extends StatelessWidget {
         ElixPrimaryButton(
           label: actionLabel,
           expanded: false,
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         ),
       ],
     );
@@ -189,7 +189,7 @@ class ElixDialog extends StatelessWidget {
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
           child: const Text('Cancel'),
         ),
         ElixPrimaryButton(
@@ -198,7 +198,7 @@ class ElixDialog extends StatelessWidget {
           onPressed: () {
             final password = passwordController.text;
             if (password.isEmpty) return;
-            Navigator.of(context).pop(password);
+            Navigator.of(context, rootNavigator: true).pop(password);
           },
         ),
       ],
@@ -320,7 +320,7 @@ class ElixDialog extends StatelessWidget {
         ElixPrimaryButton(
           label: 'Done',
           expanded: true,
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         ),
       ],
     );

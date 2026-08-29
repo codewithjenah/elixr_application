@@ -137,11 +137,11 @@ class PrivacySectionState extends State<PrivacySection> {
       actions: [
         Button(
           child: const Text('Keep images'),
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
         ),
         FilledButton(
           child: const Text('Delete images and turn off'),
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
         ),
       ],
     );

@@ -916,7 +916,7 @@ class _PracticeScreenState extends State<PracticeScreen>
             width: 198,
             height: 56,
             child: Button(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
               child: const Text(
                 'Save without image',
                 textAlign: TextAlign.center,
@@ -927,7 +927,7 @@ class _PracticeScreenState extends State<PracticeScreen>
             width: 198,
             height: 56,
             child: FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
               child: const Text(
                 'Enable & save image',
                 textAlign: TextAlign.center,

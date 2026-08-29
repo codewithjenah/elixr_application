@@ -73,7 +73,7 @@ class _MovementSetlistDialogBodyState
         if (!discard) return;
         _controller.discard();
       }
-      if (mounted) Navigator.of(context).pop(popResult);
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(popResult);
     } finally {
       _closing = false;
     }
@@ -91,7 +91,7 @@ class _MovementSetlistDialogBodyState
       switch (outcome) {
         case SettingsWriteOutcome.saved:
         case SettingsWriteOutcome.unchanged:
-          Navigator.of(context).pop(true);
+          Navigator.of(context, rootNavigator: true).pop(true);
         case SettingsWriteOutcome.writeFailed:
           setState(() {
             _saveError = 'Could not save Live Practice preferences. Try again.';

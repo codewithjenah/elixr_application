@@ -441,7 +441,7 @@ class _EvidenceThumbnail extends StatelessWidget {
             actions: [
               Button(
                 child: const Text('Close'),
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
               ),
             ],
           ),

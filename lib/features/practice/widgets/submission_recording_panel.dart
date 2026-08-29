@@ -233,11 +233,11 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
         ),
         actions: [
           Button(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
             child: const Text('Submit to Teacher'),
           ),
         ],

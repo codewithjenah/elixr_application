@@ -341,11 +341,11 @@ class _InboxList extends StatelessWidget {
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
           child: const Text('Delete'),
         ),
       ],
@@ -407,7 +407,7 @@ class _PersonTileState extends State<_PersonTile> {
               leading: const Icon(FluentIcons.contact_info),
               text: const Text('View profile'),
               onPressed: () {
-                Navigator.of(context).pop();
+                Navigator.of(context, rootNavigator: true).pop();
                 widget.onViewProfile!();
               },
             ),
@@ -707,11 +707,11 @@ class _ConversationPane extends StatelessWidget {
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
           child: Text(unblocking ? 'Unblock' : 'Block'),
         ),
       ],
@@ -736,11 +736,11 @@ class _ConversationPane extends StatelessWidget {
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(text.text),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(text.text),
           child: const Text('Save'),
         ),
       ],
@@ -770,11 +770,11 @@ class _ConversationPane extends StatelessWidget {
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
           child: const Text('Delete'),
         ),
       ],

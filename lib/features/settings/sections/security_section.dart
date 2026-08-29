@@ -1015,7 +1015,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           width: 160,
           height: 52,
           child: Button(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
             child: const Text('Cancel'),
           ),
         ),
@@ -1027,7 +1027,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             dense: true,
             expanded: false,
             onPressed: _canContinue
-                ? () => Navigator.of(context).pop(_phraseController.text.trim())
+                ? () => Navigator.of(context, rootNavigator: true).pop(_phraseController.text.trim())
                 : null,
           ),
         ),
@@ -1167,7 +1167,7 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
               onPressed: () => setState(() => _obscured = !_obscured),
             ),
             onSubmitted: _canDelete
-                ? (_) => Navigator.of(context).pop(_passwordController.text)
+                ? (_) => Navigator.of(context, rootNavigator: true).pop(_passwordController.text)
                 : null,
           ),
           _DeleteInputStatus(
@@ -1187,7 +1187,7 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
           width: 150,
           height: 52,
           child: Button(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
             child: const Text('Cancel'),
           ),
         ),
@@ -1199,7 +1199,7 @@ class _DeletePasswordDialogState extends State<_DeletePasswordDialog> {
             dense: true,
             expanded: false,
             onPressed: _canDelete
-                ? () => Navigator.of(context).pop(_passwordController.text)
+                ? () => Navigator.of(context, rootNavigator: true).pop(_passwordController.text)
                 : null,
           ),
         ),

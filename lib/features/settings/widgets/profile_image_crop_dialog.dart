@@ -130,7 +130,7 @@ class _ProfileImageCropDialogState extends State<ProfileImageCropDialog> {
         );
         return;
       }
-      Navigator.of(context).pop(result);
+      Navigator.of(context, rootNavigator: true).pop(result);
     } catch (e) {
       if (!mounted) return;
       setState(() => _applying = false);
@@ -143,7 +143,7 @@ class _ProfileImageCropDialogState extends State<ProfileImageCropDialog> {
 
   void _cancel() {
     if (_applying) return;
-    Navigator.of(context).pop();
+    Navigator.of(context, rootNavigator: true).pop();
   }
 
   @override
