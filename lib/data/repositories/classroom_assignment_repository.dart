@@ -37,7 +37,23 @@ abstract class ClassroomAssignmentRepository {
     required String assignmentId,
   });
 
+  /// Updates the fields a teacher may safely change after publishing.
+  ///
+  /// Teacher-created assignments can also change their maximum score until a
+  /// submission has been checked. Passing a null [dueAt] clears the deadline.
+  Future<GroupAssignment> updateAssignmentSettings({
+    required String teacherId,
+    required String assignmentId,
+    DateTime? dueAt,
+    int? maxScore,
+  });
+
   Future<GroupAssignment?> getAssignment({required String assignmentId});
+
+  Future<bool> hasTeacherAssignmentForMovement({
+    required String teacherId,
+    required String movementId,
+  });
 
   Stream<List<GroupAssignment>> watchTeacherAssignments({
     required String teacherId,
@@ -221,6 +237,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   DateTime? dueAt,
   required Object createdAt,
   required Object updatedAt,
+  bool includeGradingFields = true,
 }) {
   ensureTeacherAssignmentMaxScore(maxScore);
   if (movement.teacherId != teacherId || revision.teacherId != teacherId) {
@@ -261,8 +278,10 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'allowed_prop': revision.spec.requiredProp.protocolValue,
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
-    'max_score': maxScore,
-    'grading_locked': false,
+    if (includeGradingFields) ...{
+      'max_score': maxScore,
+      'grading_locked': false,
+    },
     'created_at': createdAt,
     'updated_at': updatedAt,
     'due_at': ?dueAt,

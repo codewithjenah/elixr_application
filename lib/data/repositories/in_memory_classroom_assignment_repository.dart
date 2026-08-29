@@ -162,8 +162,60 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
+  Future<GroupAssignment> updateAssignmentSettings({
+    required String teacherId,
+    required String assignmentId,
+    DateTime? dueAt,
+    int? maxScore,
+  }) async {
+    if (maxScore != null) ensureTeacherAssignmentMaxScore(maxScore);
+    final existing = assignments[assignmentId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!existing.isActive || existing.isRetiredTemplate) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (maxScore != null) {
+      if (!existing.isTeacherCreated || existing.gradingLocked) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      if (attempts.values.any(
+        (attempt) => attempt.assignmentId == assignmentId && attempt.isChecked,
+      )) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+    }
+    final updated = existing.copyWith(
+      dueAt: dueAt,
+      clearDueAt: dueAt == null,
+      maxScore: maxScore,
+      gradingLocked: maxScore == null ? null : false,
+      clearGradingLockedAt: maxScore != null,
+    );
+    assignments[assignmentId] = updated;
+    _emitTeacher(teacherId);
+    return updated;
+  }
+
+  @override
   Future<GroupAssignment?> getAssignment({required String assignmentId}) async {
     return assignments[assignmentId];
+  }
+
+  @override
+  Future<bool> hasTeacherAssignmentForMovement({
+    required String teacherId,
+    required String movementId,
+  }) async {
+    return assignments.values.any(
+      (assignment) =>
+          assignment.teacherId == teacherId &&
+          assignment.movementId == movementId,
+    );
   }
 
   @override
@@ -616,26 +668,16 @@ class InMemoryClassroomAssignmentRepository
     required String assignmentId,
     required int maxScore,
   }) async {
-    ensureTeacherAssignmentMaxScore(maxScore);
     final existing = assignments[assignmentId];
     if (existing == null) {
       throw const ClassroomException(ClassroomError.notFound);
     }
-    if (existing.teacherId != teacherId) {
-      throw const ClassroomException(ClassroomError.forbidden);
-    }
-    if (!existing.isTeacherCreated || existing.gradingLocked) {
-      throw const ClassroomException(ClassroomError.invalidState);
-    }
-    if (attempts.values.any(
-      (attempt) => attempt.assignmentId == assignmentId && attempt.isChecked,
-    )) {
-      throw const ClassroomException(ClassroomError.invalidState);
-    }
-    final updated = existing.copyWith(maxScore: maxScore);
-    assignments[assignmentId] = updated;
-    _emitTeacher(teacherId);
-    return updated;
+    return updateAssignmentSettings(
+      teacherId: teacherId,
+      assignmentId: assignmentId,
+      dueAt: existing.dueAt,
+      maxScore: maxScore,
+    );
   }
 
   @override

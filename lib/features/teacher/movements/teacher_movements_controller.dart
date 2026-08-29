@@ -19,6 +19,7 @@ import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
+import 'teacher_assignment_composer.dart';
 
 enum TeacherMovementsTab { official, mine, assignments, reviews }
 
@@ -71,6 +72,14 @@ class TeacherMovementsController extends ChangeNotifier {
   final AssignmentSubmissionRepository? submissionRepository;
   final ChatRepository? chatRepository;
 
+  late final TeacherAssignmentCreationService assignmentCreationService =
+      TeacherAssignmentCreationService(
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
+        assignmentRepository: assignmentRepository,
+        movementRepository: movementRepository,
+      );
+
   TeacherMovementsTab tab = TeacherMovementsTab.official;
   List<ElixrGroup> groups = const [];
   List<TeacherMovement> myMovements = const [];
@@ -117,6 +126,17 @@ class TeacherMovementsController extends ChangeNotifier {
   bool canManageMovement(TeacherMovement movement) {
     return movement.isActive &&
         revisionFor(movement)?.assessmentMode == AssessmentMode.teacherReviewed;
+  }
+
+  bool hasAssignmentsForMovement(TeacherMovement movement) {
+    return assignments.any(
+      (assignment) =>
+          assignment.isTeacherCreated && assignment.movementId == movement.id,
+    );
+  }
+
+  bool canDeleteMovement(TeacherMovement movement) {
+    return canManageMovement(movement) && !hasAssignmentsForMovement(movement);
   }
 
   String movementModeLabel(TeacherMovement movement) {
@@ -555,19 +575,37 @@ class TeacherMovementsController extends ChangeNotifier {
     );
   }
 
+  Future<void> deleteMovement(TeacherMovement movement) {
+    return _runWrite(() async {
+      if (!canManageMovement(movement)) {
+        throw const ClassroomException(
+          ClassroomError.invalidState,
+          'Only active teacher-reviewed movements can be deleted.',
+        );
+      }
+      if (hasAssignmentsForMovement(movement)) {
+        throw const ClassroomException(
+          ClassroomError.invalidState,
+          'This movement cannot be deleted because it is used by an assignment.',
+        );
+      }
+      await movementRepository.deleteMovement(
+        teacherId: teacherId,
+        movementId: movement.id,
+      );
+    });
+  }
+
   Future<void> assignOfficial({
     required Movement movement,
     required ElixrGroup group,
     DateTime? dueAt,
   }) {
     return _runWrite(
-      () => assignmentRepository.createOfficialAssignment(
-        teacherId: teacherId,
-        teacherDisplayName: teacherDisplayName,
+      () => assignmentCreationService.create(
         group: group,
-        officialMovementName: movement.name,
+        officialMovement: movement,
         dueAt: dueAt,
-        displayInstructions: movement.description,
       ),
     );
   }
@@ -578,24 +616,14 @@ class TeacherMovementsController extends ChangeNotifier {
     int maxScore = 100,
     DateTime? dueAt,
   }) {
-    return _runWrite(() async {
-      final revision = await movementRepository.getRevision(
-        movementId: movement.id,
-        revisionId: movement.currentRevisionId,
-      );
-      if (revision == null) {
-        throw const ClassroomException(ClassroomError.notFound);
-      }
-      await assignmentRepository.createTeacherCreatedAssignment(
-        teacherId: teacherId,
-        teacherDisplayName: teacherDisplayName,
+    return _runWrite(
+      () => assignmentCreationService.create(
         group: group,
-        movement: movement,
-        revision: revision,
+        teacherCreatedMovement: movement,
         maxScore: maxScore,
         dueAt: dueAt,
-      );
-    });
+      ),
+    );
   }
 
   Future<void> editAssignmentMaxScore({

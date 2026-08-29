@@ -1,4 +1,5 @@
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/profile_avatar.dart';
+import '../../../data/repositories/public_profile_repository.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_student_models.dart';
 import 'teacher_students_controller.dart';
@@ -34,7 +37,16 @@ class _TeacherStudentsScreenState extends State<TeacherStudentsScreen> {
     _controller = TeacherStudentsController(
       repository: context.read(),
       teacherId: userId,
+      publicProfileRepository: _maybePublicProfileRepository(context),
     )..start();
+  }
+
+  PublicProfileRepository? _maybePublicProfileRepository(BuildContext context) {
+    try {
+      return context.read<PublicProfileRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   @override
@@ -218,6 +230,9 @@ class _GroupedStudentRoster extends StatelessWidget {
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                         child: _StudentRow(
                           membership: membership,
+                          profilePictureUrl: controller.profilePictureUrlFor(
+                            membership.traineeId,
+                          ),
                           onOpen: () {
                             context.go(
                               AppRoutePaths.teacherStudentDetail(
@@ -264,9 +279,14 @@ class _GroupRosterHeader extends StatelessWidget {
 }
 
 class _StudentRow extends StatelessWidget {
-  const _StudentRow({required this.membership, required this.onOpen});
+  const _StudentRow({
+    required this.membership,
+    required this.profilePictureUrl,
+    required this.onOpen,
+  });
 
   final GroupMembership membership;
+  final String? profilePictureUrl;
   final VoidCallback onOpen;
 
   @override
@@ -277,6 +297,14 @@ class _StudentRow extends StatelessWidget {
         return ElixPanelCard(
           child: Row(
             children: [
+              ProfileAvatarWidget(
+                key: Key('teacher_student_avatar_${membership.id}'),
+                radius: 20,
+                showBorder: false,
+                initials: userInitials(membership.traineeDisplayName),
+                networkImageUrl: profilePictureUrl,
+              ),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text(
                   membership.traineeDisplayName,

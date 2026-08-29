@@ -28,6 +28,12 @@ abstract class TeacherMovementRepository {
     required String movementId,
   });
 
+  /// Permanently removes an unused Teacher-created movement and its revisions.
+  Future<void> deleteMovement({
+    required String teacherId,
+    required String movementId,
+  });
+
   Stream<List<TeacherMovement>> watchTeacherMovements({
     required String teacherId,
   });

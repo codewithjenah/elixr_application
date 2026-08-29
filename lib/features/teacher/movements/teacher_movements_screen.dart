@@ -1,4 +1,3 @@
-import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/chat_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -10,11 +9,9 @@ import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
-import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/group_assignment.dart';
-import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
@@ -22,6 +19,7 @@ import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../movements/movements_presentation.dart';
 import '../../../services/auth_service.dart';
+import 'teacher_assignment_composer.dart';
 import 'teacher_assignment_work_pane.dart';
 import 'teacher_movement_builder_dialog.dart';
 import 'teacher_movements_controller.dart';
@@ -373,15 +371,22 @@ class _MyMovementsList extends StatelessWidget {
                   child: const Text('Assign'),
                 ),
                 const SizedBox(width: AppSpacing.sm),
-                Button(
-                  onPressed: controller.busy
-                      ? null
-                      : () => _confirmArchiveMovement(
-                          context,
-                          controller,
-                          movement,
-                        ),
-                  child: const Text('Archive'),
+                Tooltip(
+                  message: controller.canDeleteMovement(movement)
+                      ? 'Permanently delete this unused movement.'
+                      : 'This movement is used by an assignment and cannot be deleted.',
+                  child: Button(
+                    onPressed:
+                        controller.busy ||
+                            !controller.canDeleteMovement(movement)
+                        ? null
+                        : () => _confirmDeleteMovement(
+                            context,
+                            controller,
+                            movement,
+                          ),
+                    child: const Text('Delete'),
+                  ),
                 ),
               ],
             ],
@@ -536,7 +541,7 @@ class _AssignmentOriginHeader extends StatelessWidget {
   }
 }
 
-Future<void> _confirmArchiveMovement(
+Future<void> _confirmDeleteMovement(
   BuildContext context,
   TeacherMovementsController controller,
   TeacherMovement movement,
@@ -544,10 +549,10 @@ Future<void> _confirmArchiveMovement(
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Archive this movement?'),
+      title: const Text('Delete this movement?'),
       content: Text(
-        '${movement.title} will no longer be available for new assignments. '
-        'Existing assignments stay pinned to their revision.',
+        '${movement.title} and all of its revisions will be permanently removed. '
+        'This cannot be undone.',
       ),
       actions: [
         Button(
@@ -556,13 +561,13 @@ Future<void> _confirmArchiveMovement(
         ),
         FilledButton(
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('Archive'),
+          child: const Text('Delete'),
         ),
       ],
     ),
   );
   if (confirmed == true) {
-    await controller.archiveMovement(movement);
+    await controller.deleteMovement(movement);
   }
 }
 
@@ -626,193 +631,17 @@ Future<void> _showAssignDialog(
   Movement? official,
   TeacherMovement? custom,
 }) async {
-  if (controller.activeGroups.isEmpty) {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => ContentDialog(
-        title: const Text('No active class'),
-        content: const Text(
-          'Create an active group before assigning a movement.',
-        ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    return;
-  }
-  ElixrGroup selected = controller.activeGroups.first;
-  DateTime? dueAt;
-  var maxScoreText = '100';
-  String? maxScoreError;
-  final maxScoreController = TextEditingController(text: maxScoreText);
-  try {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return ContentDialog(
-              title: const Text('Assign movement'),
-              constraints: const BoxConstraints(maxWidth: 520),
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    official?.name ?? custom?.title ?? '',
-                    style: AppTheme.headingMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    official == null
-                        ? controller.movementModeLabel(custom!)
-                        : 'Official ELIXR guided assessment',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  InfoLabel(
-                    label: 'Class',
-                    child: ComboBox<String>(
-                      value: selected.id,
-                      items: [
-                        for (final group in controller.activeGroups)
-                          ComboBoxItem(
-                            value: group.id,
-                            child: Text(group.name),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() {
-                          selected = controller.activeGroups.firstWhere(
-                            (group) => group.id == value,
-                          );
-                        });
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  if (custom != null) ...[
-                    InfoLabel(
-                      label: 'Maximum score (1–100)',
-                      child: TextBox(
-                        controller: maxScoreController,
-                        keyboardType: TextInputType.number,
-                        maxLength: 3,
-                        onChanged: (value) {
-                          maxScoreText = value;
-                          if (maxScoreError != null) {
-                            setState(() => maxScoreError = null);
-                          }
-                        },
-                      ),
-                    ),
-                    if (maxScoreError != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          maxScoreError!,
-                          style: AppTheme.caption.copyWith(
-                            color: AppColors.error,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-                  Checkbox(
-                    checked: dueAt != null,
-                    content: const Text('Set a due date'),
-                    onChanged: (checked) {
-                      setState(() {
-                        dueAt = checked == true
-                            ? manilaEndOfDayUtc(
-                                _manilaCivilDateNow().add(
-                                  const Duration(days: 7),
-                                ),
-                              )
-                            : null;
-                      });
-                    },
-                  ),
-                  if (dueAt != null) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    DatePicker(
-                      selected: _manilaCivilDate(dueAt!),
-                      onChanged: (value) =>
-                          setState(() => dueAt = manilaEndOfDayUtc(value)),
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                Button(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                ElixPrimaryButton(
-                  label: 'Assign',
-                  expanded: false,
-                  dense: true,
-                  onPressed: controller.busy
-                      ? null
-                      : () async {
-                          final parsedMaxScore = int.tryParse(
-                            maxScoreText.trim(),
-                          );
-                          if (custom != null &&
-                              (parsedMaxScore == null ||
-                                  parsedMaxScore < 1 ||
-                                  parsedMaxScore > 100)) {
-                            setState(
-                              () => maxScoreError =
-                                  'Enter a maximum score from 1 to 100.',
-                            );
-                            return;
-                          }
-                          if (official != null) {
-                            await controller.assignOfficial(
-                              movement: official,
-                              group: selected,
-                              dueAt: dueAt,
-                            );
-                          } else if (custom != null) {
-                            await controller.assignTeacherCreated(
-                              movement: custom,
-                              group: selected,
-                              maxScore: parsedMaxScore ?? 100,
-                              dueAt: dueAt,
-                            );
-                          }
-                          if (dialogContext.mounted) {
-                            Navigator.pop(dialogContext);
-                          }
-                        },
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  } finally {
-    maxScoreController.dispose();
-  }
-}
-
-DateTime _manilaCivilDateNow() {
-  final manila = DateTime.now().toUtc().add(const Duration(hours: 8));
-  return DateTime(manila.year, manila.month, manila.day);
-}
-
-DateTime _manilaCivilDate(DateTime utcValue) {
-  final manila = utcValue.toUtc().add(const Duration(hours: 8));
-  return DateTime(manila.year, manila.month, manila.day);
+  await showTeacherAssignmentComposer(
+    context,
+    teacherId: controller.teacherId,
+    teacherDisplayName: controller.teacherDisplayName,
+    groups: controller.activeGroups,
+    movementRepository: controller.movementRepository,
+    assignmentRepository: controller.assignmentRepository,
+    creationService: controller.assignmentCreationService,
+    officialMovement: official,
+    teacherCreatedMovement: custom,
+  );
 }
 
 class _TeacherMovementHoverCard extends StatefulWidget {

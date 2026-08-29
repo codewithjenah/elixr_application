@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/teacher/students/teacher_student_detail_screen.dart';
@@ -137,6 +138,37 @@ void main() {
       expect(find.text('Not authorized'), findsNothing);
     },
   );
+
+  testWidgets('detail header displays the trainee profile picture', (
+    tester,
+  ) async {
+    groups.seedGroup(activeGroup());
+    groups.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        traineeName: 'Ada Lovelace',
+      ),
+    );
+    await pumpDetail(tester);
+
+    profiles.emitProfile(
+      'trainee',
+      const PublicProfile(
+        userId: 'trainee',
+        displayName: 'Ada Lovelace',
+        visibility: ProfileVisibility.public,
+        profilePictureUrl: 'https://example.test/ada.png',
+      ),
+    );
+    await tester.pump();
+
+    final avatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_student_detail_avatar')),
+    );
+    expect(avatar.networkImageUrl, 'https://example.test/ada.png');
+  });
 
   testWidgets(
     'unauthorized guessed uid hides progress, coaching, and protected profile details',

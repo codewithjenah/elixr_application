@@ -1,4 +1,7 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
+import 'package:elixr_application/data/models/public_profile.dart';
+import 'package:elixr_application/data/repositories/public_profile_repository.dart';
 import 'package:elixr_application/features/teacher/students/teacher_student_models.dart';
 import 'package:elixr_application/features/teacher/students/teacher_students_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
@@ -14,10 +17,12 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late InMemoryGroupRepository repository;
+  late FakePublicProfileRepository profiles;
   late AuthService auth;
 
   setUp(() {
     repository = InMemoryGroupRepository(now: () => DateTime.utc(2026, 8, 19));
+    profiles = FakePublicProfileRepository();
     auth = phase3TeacherAuth();
   });
 
@@ -59,6 +64,7 @@ void main() {
         providers: [
           ChangeNotifierProvider<AuthService>.value(value: auth),
           Provider<GroupRepository>.value(value: repository),
+          Provider<PublicProfileRepository>.value(value: profiles),
         ],
         child: FluentApp.router(routerConfig: router),
       ),
@@ -104,6 +110,41 @@ void main() {
       expect(find.byType(CustomScrollView), findsOneWidget);
     },
   );
+
+  testWidgets('roster displays a trainee profile picture when available', (
+    tester,
+  ) async {
+    seedApprovedPair();
+    profiles.emitProfile(
+      't1',
+      const PublicProfile(
+        userId: 't1',
+        displayName: 'Ada Lovelace',
+        visibility: ProfileVisibility.public,
+        profilePictureUrl: 'https://example.test/ada.png',
+      ),
+    );
+    await pumpStudents(tester);
+    await tester.pump();
+    await tester.pump();
+
+    expect(profiles.watchedUserIds, contains('t1'));
+
+    final avatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_student_avatar_group-1_t1')),
+    );
+    expect(avatar.networkImageUrl, 'https://example.test/ada.png');
+
+    profiles.emitProfile('t1', null);
+    await tester.pump();
+    await tester.pump();
+
+    final fallbackAvatar = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_student_avatar_group-1_t1')),
+    );
+    expect(fallbackAvatar.networkImageUrl, isNull);
+    expect(fallbackAvatar.initials, 'AL');
+  });
 
   testWidgets('roster scroll viewport reaches the right edge', (tester) async {
     seedApprovedPair();

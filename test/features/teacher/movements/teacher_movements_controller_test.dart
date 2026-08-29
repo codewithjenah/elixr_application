@@ -87,6 +87,58 @@ void main() {
     expect(handStall.supportedProps, contains(TrainingProp.bottle));
   });
 
+  test('deletes only teacher-created movements with no assignments', () async {
+    final groups = InMemoryGroupRepository();
+    addTearDown(groups.dispose);
+    const group = ElixrGroup(
+      id: 'g1',
+      teacherId: 'teacher-1',
+      name: 'BSHM 4A',
+      status: ElixrGroupStatus.active,
+    );
+    groups.seedGroup(group);
+    final movements = InMemoryTeacherMovementRepository();
+    addTearDown(movements.dispose);
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(assignments.dispose);
+    final removable = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'Balance the tin upright.',
+      requiredProp: TrainingProp.bottle,
+    );
+    final assigned = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Front Flip',
+      instructions: 'Practice a controlled front flip.',
+      requiredProp: TrainingProp.bottle,
+    );
+    final controller = TeacherMovementsController(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      groupRepository: groups,
+      movementRepository: movements,
+      assignmentRepository: assignments,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    expect(controller.canDeleteMovement(removable), isTrue);
+    await controller.deleteMovement(removable);
+    expect(await movements.getMovement(movementId: removable.id), isNull);
+
+    await controller.assignTeacherCreated(movement: assigned, group: group);
+    expect(controller.hasAssignmentsForMovement(assigned), isTrue);
+    expect(controller.canDeleteMovement(assigned), isFalse);
+
+    await controller.deleteMovement(assigned);
+    expect(await movements.getMovement(movementId: assigned.id), isNotNull);
+    expect(
+      controller.errorMessage,
+      'This movement cannot be deleted because it is used by an assignment.',
+    );
+  });
+
   test(
     'review queue excludes draft and abandoned teacher_review_submission attempts',
     () async {

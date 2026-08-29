@@ -179,6 +179,14 @@
       ]
     },
     {
+      "collectionGroup": "group_assignments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teacher_id", "order": "ASCENDING" },
+        { "fieldPath": "movement_id", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "assignment_attempts",
       "queryScope": "COLLECTION",
       "fields": [

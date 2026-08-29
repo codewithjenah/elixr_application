@@ -16,6 +16,9 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
   CollectionReference<Map<String, dynamic>> get _movements =>
       _firestore.collection(FirestoreCollections.teacherMovements);
 
+  CollectionReference<Map<String, dynamic>> get _assignments =>
+      _firestore.collection(FirestoreCollections.groupAssignments);
+
   @override
   Future<TeacherMovement> createMovement({
     required String teacherId,
@@ -166,6 +169,74 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
       'status': TeacherMovementStatus.archived.name,
       'updated_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  @override
+  Future<void> deleteMovement({
+    required String teacherId,
+    required String movementId,
+  }) async {
+    final movementRef = _movements.doc(movementId);
+    final existing = await movementRef.get();
+    if (!existing.exists) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    final current = TeacherMovement.tryFromMap(
+      existing.data() ?? const {},
+      id: existing.id,
+    );
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    if (current.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final currentRevision = await getRevision(
+      movementId: movementId,
+      revisionId: current.currentRevisionId,
+    );
+    ensureRevisionAssessmentMode(
+      revision: currentRevision,
+      expected: AssessmentMode.teacherReviewed,
+    );
+
+    final linkedAssignments = await _assignments
+        .where('teacher_id', isEqualTo: teacherId)
+        .where('movement_id', isEqualTo: movementId)
+        .limit(1)
+        .get();
+    if (linkedAssignments.docs.isNotEmpty) {
+      throw const ClassroomException(
+        ClassroomError.invalidState,
+        'This movement cannot be deleted because it is used by an assignment.',
+      );
+    }
+
+    final revisions = await movementRef
+        .collection(FirestoreCollections.teacherMovementRevisions)
+        .get();
+    final revisionDocs = revisions.docs.toList()
+      ..sort((a, b) {
+        final aIsCurrent = a.id == current.currentRevisionId;
+        final bIsCurrent = b.id == current.currentRevisionId;
+        if (aIsCurrent == bIsCurrent) return 0;
+        return aIsCurrent ? 1 : -1;
+      });
+    while (revisionDocs.length > 499) {
+      final batch = _firestore.batch();
+      for (final revision in revisionDocs.take(499)) {
+        batch.delete(revision.reference);
+      }
+      await batch.commit();
+      revisionDocs.removeRange(0, 499);
+    }
+
+    final batch = _firestore.batch();
+    for (final revision in revisionDocs) {
+      batch.delete(revision.reference);
+    }
+    batch.delete(movementRef);
+    await batch.commit();
   }
 
   @override

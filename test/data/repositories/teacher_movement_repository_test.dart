@@ -64,6 +64,40 @@ void main() {
     );
   });
 
+  test('delete removes an unused movement and every revision', () async {
+    final created = await repo.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'First instructions.',
+      requiredProp: TrainingProp.bottle,
+    );
+    final edited = await repo.editMovement(
+      teacherId: 'teacher-1',
+      movementId: created.id,
+      title: 'Tin Balance v2',
+      instructions: 'Revised instructions.',
+      requiredProp: TrainingProp.shaker,
+    );
+
+    await repo.deleteMovement(teacherId: 'teacher-1', movementId: created.id);
+
+    expect(await repo.getMovement(movementId: created.id), isNull);
+    expect(
+      await repo.getRevision(
+        movementId: created.id,
+        revisionId: created.currentRevisionId,
+      ),
+      isNull,
+    );
+    expect(
+      await repo.getRevision(
+        movementId: created.id,
+        revisionId: edited.currentRevisionId,
+      ),
+      isNull,
+    );
+  });
+
   test('unrelated Teacher cannot edit another Teacher movement', () async {
     final created = await repo.createMovement(
       teacherId: 'teacher-1',

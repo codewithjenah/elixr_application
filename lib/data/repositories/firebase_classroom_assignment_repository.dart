@@ -66,7 +66,7 @@ class FirebaseClassroomAssignmentRepository
     DateTime? dueAt,
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
-    final payload = teacherCreatedAssignmentPayload(
+    var persistedPayload = teacherCreatedAssignmentPayload(
       teacherId: teacherId,
       teacherDisplayName: teacherDisplayName,
       group: group,
@@ -78,9 +78,30 @@ class FirebaseClassroomAssignmentRepository
       updatedAt: FieldValue.serverTimestamp(),
     );
     final ref = _assignments.doc();
-    await ref.set(payload);
+    try {
+      await ref.set(persistedPayload);
+    } on FirebaseException catch (error) {
+      // Older deployments predate the optional grading fields. A default
+      // score is already the compatibility value exposed by GroupAssignment,
+      // so retry only that safe default without the newer fields. Non-default
+      // scores still fail loudly until the matching rules are deployed.
+      if (!_isFirestorePermissionDenied(error) || maxScore != 100) rethrow;
+      persistedPayload = teacherCreatedAssignmentPayload(
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
+        group: group,
+        movement: movement,
+        revision: revision,
+        maxScore: maxScore,
+        dueAt: dueAt,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        includeGradingFields: false,
+      );
+      await ref.set(persistedPayload);
+    }
     return GroupAssignment.tryFromMap({
-          ...payload,
+          ...persistedPayload,
           'created_at': DateTime.now().toUtc(),
           'updated_at': DateTime.now().toUtc(),
           'due_at': ?dueAt,
@@ -121,10 +142,76 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<GroupAssignment> updateAssignmentSettings({
+    required String teacherId,
+    required String assignmentId,
+    DateTime? dueAt,
+    int? maxScore,
+  }) async {
+    if (maxScore != null) ensureTeacherAssignmentMaxScore(maxScore);
+    final current = await getAssignment(assignmentId: assignmentId);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (current.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!current.isActive || current.isRetiredTemplate) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (maxScore != null) {
+      if (!current.isTeacherCreated || current.gradingLocked) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      final snapshot = await _attempts
+          .where('assignment_id', isEqualTo: assignmentId)
+          .get();
+      final hasChecked = snapshot.docs.any((doc) {
+        final parsed = AssignmentAttempt.tryFromMap(doc.data(), id: doc.id);
+        return parsed?.isChecked == true;
+      });
+      if (hasChecked) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+    }
+
+    final update = <String, Object>{
+      'due_at': dueAt ?? FieldValue.delete(),
+      'updated_at': FieldValue.serverTimestamp(),
+    };
+    if (maxScore != null) {
+      update['max_score'] = maxScore;
+      update['grading_locked'] = false;
+      update['grading_locked_at'] = FieldValue.delete();
+    }
+    await _assignments.doc(assignmentId).update(update);
+    return current.copyWith(
+      dueAt: dueAt,
+      clearDueAt: dueAt == null,
+      maxScore: maxScore,
+      gradingLocked: maxScore == null ? null : false,
+      clearGradingLockedAt: maxScore != null,
+    );
+  }
+
+  @override
   Future<GroupAssignment?> getAssignment({required String assignmentId}) async {
     final snap = await _assignments.doc(assignmentId).get();
     if (!snap.exists || snap.data() == null) return null;
     return GroupAssignment.tryFromMap(snap.data()!, id: snap.id);
+  }
+
+  @override
+  Future<bool> hasTeacherAssignmentForMovement({
+    required String teacherId,
+    required String movementId,
+  }) async {
+    final snapshot = await _assignments
+        .where('teacher_id', isEqualTo: teacherId)
+        .where('movement_id', isEqualTo: movementId)
+        .limit(1)
+        .get();
+    return snapshot.docs.isNotEmpty;
   }
 
   @override
@@ -638,37 +725,15 @@ class FirebaseClassroomAssignmentRepository
     required String assignmentId,
     required int maxScore,
   }) async {
-    ensureTeacherAssignmentMaxScore(maxScore);
     final current = await getAssignment(assignmentId: assignmentId);
     if (current == null) {
       throw const ClassroomException(ClassroomError.notFound);
     }
-    if (current.teacherId != teacherId) {
-      throw const ClassroomException(ClassroomError.forbidden);
-    }
-    if (!current.isTeacherCreated || current.gradingLocked) {
-      throw const ClassroomException(ClassroomError.invalidState);
-    }
-    final snapshot = await _attempts
-        .where('assignment_id', isEqualTo: assignmentId)
-        .get();
-    final hasChecked = snapshot.docs.any((doc) {
-      final parsed = AssignmentAttempt.tryFromMap(doc.data(), id: doc.id);
-      return parsed?.isChecked == true;
-    });
-    if (hasChecked) {
-      throw const ClassroomException(ClassroomError.invalidState);
-    }
-    await _assignments.doc(assignmentId).update({
-      'max_score': maxScore,
-      'grading_locked': false,
-      'grading_locked_at': FieldValue.delete(),
-      'updated_at': FieldValue.serverTimestamp(),
-    });
-    return current.copyWith(
+    return updateAssignmentSettings(
+      teacherId: teacherId,
+      assignmentId: assignmentId,
+      dueAt: current.dueAt,
       maxScore: maxScore,
-      gradingLocked: false,
-      clearGradingLockedAt: true,
     );
   }
 

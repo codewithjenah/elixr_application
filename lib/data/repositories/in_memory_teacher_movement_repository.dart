@@ -155,6 +155,27 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
   }
 
   @override
+  Future<void> deleteMovement({
+    required String teacherId,
+    required String movementId,
+  }) async {
+    final existing = movements[movementId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    ensureRevisionAssessmentMode(
+      revision: revisions['$movementId/${existing.currentRevisionId}'],
+      expected: AssessmentMode.teacherReviewed,
+    );
+    movements.remove(movementId);
+    revisions.removeWhere((key, _) => key.startsWith('$movementId/'));
+    _emit(teacherId);
+  }
+
+  @override
   Stream<List<TeacherMovement>> watchTeacherMovements({
     required String teacherId,
   }) {

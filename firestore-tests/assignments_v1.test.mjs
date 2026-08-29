@@ -1039,6 +1039,24 @@ describe('Phase 5 integrity: assignment snapshots pin the current revision', () 
       ),
     );
   });
+
+  test('new teacher-created assignment grading fields are allowed', async () => {
+    await seedClassroom();
+    await seedTeacherMovement();
+    const db = context('teacher').firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'group_assignments', 'asgWithGradingFields'),
+        {
+          ...teacherCreatedAssignmentDoc(),
+          max_score: 75,
+          grading_locked: false,
+          created_at: serverTimestamp(),
+          updated_at: serverTimestamp(),
+        },
+      ),
+    );
+  });
 });
 
 describe('Phase 5 integrity: assignment snapshots are immutable after create', () => {

@@ -9,9 +9,12 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/auth/teacher_auth_messages.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/public_profile.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
+
+enum TeacherGroupDetailTab { assignments, students }
 
 class TeacherGroupsController extends ChangeNotifier {
   TeacherGroupsController({
@@ -40,6 +43,7 @@ class TeacherGroupsController extends ChangeNotifier {
   bool unauthorized = false;
   String? errorMessage;
   String? actionMessage;
+  TeacherGroupDetailTab tab = TeacherGroupDetailTab.assignments;
   bool _closed = false;
 
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
@@ -58,6 +62,12 @@ class TeacherGroupsController extends ChangeNotifier {
     final url = _profilePictureUrls[traineeId]?.trim();
     if (url == null || url.isEmpty) return null;
     return url;
+  }
+
+  void setTab(TeacherGroupDetailTab value) {
+    if (tab == value) return;
+    tab = value;
+    notifyListeners();
   }
 
   Future<void> start({bool keepLoading = false}) async {
@@ -274,6 +284,44 @@ class TeacherGroupsController extends ChangeNotifier {
     return archiveGroup(group);
   }
 
+  Future<void> archiveAssignment(GroupAssignment assignment) {
+    final repo = assignmentRepository;
+    if (repo == null) return Future.value();
+    return _runTeacherAction(
+      operation: 'archiveAssignment',
+      failureMessage: 'Could not archive that assignment.',
+      action: () async {
+        await repo.archiveAssignment(
+          teacherId: teacherId,
+          assignmentId: assignment.id,
+        );
+        actionMessage = 'Archived ${assignment.displayTitle}.';
+      },
+    );
+  }
+
+  Future<void> updateAssignmentSettings(
+    GroupAssignment assignment, {
+    required DateTime? dueAt,
+    int? maxScore,
+  }) {
+    final repo = assignmentRepository;
+    if (repo == null) return Future.value();
+    return _runTeacherAction(
+      operation: 'updateAssignmentSettings',
+      failureMessage: 'Could not update that assignment.',
+      action: () async {
+        await repo.updateAssignmentSettings(
+          teacherId: teacherId,
+          assignmentId: assignment.id,
+          dueAt: dueAt,
+          maxScore: maxScore,
+        );
+        actionMessage = 'Updated ${assignment.displayTitle}.';
+      },
+    );
+  }
+
   Future<void> rotateInvite() {
     final group = selectedGroup;
     if (group == null) return Future.value();
@@ -388,6 +436,9 @@ class TeacherGroupsController extends ChangeNotifier {
       }
       await action();
     } on GroupException catch (error, stackTrace) {
+      _logTeacherActionFailure(operation, error, stackTrace);
+      errorMessage = error.message ?? failureMessage;
+    } on ClassroomException catch (error, stackTrace) {
       _logTeacherActionFailure(operation, error, stackTrace);
       errorMessage = error.message ?? failureMessage;
     } catch (error, stackTrace) {
