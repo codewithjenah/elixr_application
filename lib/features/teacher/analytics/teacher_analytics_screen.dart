@@ -989,12 +989,19 @@ class _GroupComparisonRow extends StatelessWidget {
     _GroupSort column,
     TextStyle style,
   ) {
-    if (!isHeader || onSort == null) return Text(value, style: style);
+    if (!isHeader || onSort == null) {
+      return Align(
+        alignment: column == _GroupSort.group
+            ? Alignment.centerLeft
+            : Alignment.center,
+        child: Text(value, style: style),
+      );
+    }
     final selected = sort == column;
     return Align(
       alignment: column == _GroupSort.group
           ? Alignment.centerLeft
-          : Alignment.centerRight,
+          : Alignment.center,
       child: Button(
         onPressed: () => onSort!(column),
         child: ConstrainedBox(
