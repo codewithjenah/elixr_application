@@ -178,11 +178,17 @@ class _Header extends StatelessWidget {
   const _Header({required this.movement, required this.difficulty});
   final String movement, difficulty;
   @override
-  Widget build(BuildContext context) => ElixEditorialHeader(
-    heading: movement,
-    eyebrow: 'MOVEMENT LESSON',
-    variant: ElixEditorialHeaderVariant.compact,
-    actions: [_Pill(text: difficulty, color: AppColors.success)],
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      ElixEditorialHeader(
+        heading: movement,
+        eyebrow: 'MOVEMENT LESSON',
+        variant: ElixEditorialHeaderVariant.compact,
+      ),
+      const SizedBox(height: AppSpacing.sm),
+      _Pill(text: difficulty, color: AppColors.success),
+    ],
   );
 }
 

@@ -241,6 +241,7 @@ void main() {
     expect(find.text('Security'), findsWidgets);
     expect(find.text('Practice'), findsOneWidget);
     expect(find.text('Teacher Access'), findsNothing);
+    expect(find.text('TRAINEE WORKSPACE'), findsOneWidget);
   });
 
   testWidgets('compact layout uses ComboBox navigation', (tester) async {
@@ -339,6 +340,7 @@ void main() {
       expect(find.text('Privacy'), findsWidgets);
       expect(find.text('Practice'), findsNothing);
       expect(find.text('Teacher Access'), findsNothing);
+      expect(find.text('TEACHER WORKSPACE'), findsOneWidget);
       expect(find.text('Save confirmed movement images'), findsNothing);
       expect(find.byType(ProfileFrameSelector), findsNothing);
       expect(find.text('Avatar Frame'), findsNothing);

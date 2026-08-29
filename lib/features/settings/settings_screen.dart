@@ -292,7 +292,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Text(
               widget.audience == SettingsAudience.teacher
                   ? 'TEACHER WORKSPACE'
-                  : 'YOUR WORKSPACE',
+                  : 'TRAINEE WORKSPACE',
               style: AppTheme.eyebrow(
                 color: accent,
               ).copyWith(fontSize: 10, letterSpacing: 1.2),

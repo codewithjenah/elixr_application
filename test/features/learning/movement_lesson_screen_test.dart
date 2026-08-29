@@ -29,4 +29,27 @@ void main() {
     expect(find.text('Start guided practice'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('difficulty pill stays with the lesson title', (tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1180, 900);
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: const MovementLessonScreen(
+          movement: 'Claw Grip',
+          difficulty: 'Easy',
+          prop: TrainingProp.bottle,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final titleTop = tester.getTopLeft(find.text('Claw Grip')).dy;
+    final pillTop = tester.getTopLeft(find.text('Easy')).dy;
+    expect(pillTop, greaterThan(titleTop));
+  });
 }
