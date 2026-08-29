@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
@@ -8,13 +6,34 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_card.dart';
 import '../../core/widgets/elix_dialog.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../services/auth_service.dart';
+import '../profile/profile_route_args.dart';
 import 'messages_controller.dart';
+
+String _profilePathForChatUser(BuildContext context, ChatUser user) {
+  final viewerIsTeacher =
+      context.read<AuthService>().currentUser?.isTeacher ?? false;
+  return viewerIsTeacher
+      ? AppRoutePaths.teacherProfile(user.id)
+      : '/profile/${Uri.encodeComponent(user.id)}';
+}
+
+void _openChatUserProfile(BuildContext context, ChatUser user) {
+  context.push(
+    _profilePathForChatUser(context, user),
+    extra: ProfileRouteArgs(
+      displayName: user.displayName,
+      profilePictureUrl: user.avatarUrl,
+      role: user.role,
+    ),
+  );
+}
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({
@@ -103,125 +122,50 @@ class _MessagesScreenState extends State<MessagesScreen> {
             AppSpacing.lg,
             AppSpacing.lg,
           ),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Container(
-                  decoration: AppTheme.panelDecoration(context),
-                  clipBehavior: Clip.antiAlias,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final narrow = constraints.maxWidth < 840;
-                      if (narrow) {
-                        return controller.selectedUser == null
-                            ? _PeoplePane(
-                                controller: controller,
-                                searchController: _searchController,
-                              )
-                            : _ConversationPane(
-                                controller: controller,
-                                composerController: _composerController,
-                                scrollController: _messageScrollController,
-                                showBack: true,
-                              );
-                      }
-                      return Row(
-                        children: [
-                          SizedBox(
-                            width: 350,
-                            child: _PeoplePane(
-                              controller: controller,
-                              searchController: _searchController,
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            color: context.elixBorder.withValues(alpha: 0.5),
-                          ),
-                          Expanded(
-                            child: _ConversationPane(
-                              controller: controller,
-                              composerController: _composerController,
-                              scrollController: _messageScrollController,
-                              showBack: false,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-              if (controller.alertMessage != null)
-                Positioned(
-                  bottom: AppSpacing.md,
-                  left: AppSpacing.md,
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    transitionBuilder: (child, animation) =>
-                        FadeTransition(opacity: animation, child: child),
-                    child: ConstrainedBox(
-                      key: ValueKey(controller.alertMessage),
-                      constraints: const BoxConstraints(maxWidth: 310),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(
-                                0xFF000000,
-                              ).withValues(alpha: 0.15),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.md,
-                                vertical: AppSpacing.md,
-                              ),
-                              decoration: BoxDecoration(
-                                color: context.elixCardSurface.withValues(
-                                  alpha: 0.6,
-                                ),
-                                border: Border.all(
-                                  color: context.elixBorder.withValues(
-                                    alpha: 0.4,
-                                  ),
-                                ),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    FluentIcons.info,
-                                    size: 18,
-                                    color: context.elixColors.brandPrimary,
-                                  ),
-                                  const SizedBox(width: AppSpacing.sm),
-                                  Expanded(
-                                    child: Text(
-                                      controller.alertMessage!,
-                                      style: FluentTheme.of(
-                                        context,
-                                      ).typography.bodyStrong,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+          child: Container(
+            decoration: AppTheme.panelDecoration(context),
+            clipBehavior: Clip.antiAlias,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final narrow = constraints.maxWidth < 840;
+                if (narrow) {
+                  return controller.selectedUser == null
+                      ? _PeoplePane(
+                          controller: controller,
+                          searchController: _searchController,
+                        )
+                      : _ConversationPane(
+                          controller: controller,
+                          composerController: _composerController,
+                          scrollController: _messageScrollController,
+                          showBack: true,
+                        );
+                }
+                return Row(
+                  children: [
+                    SizedBox(
+                      width: 370,
+                      child: _PeoplePane(
+                        controller: controller,
+                        searchController: _searchController,
                       ),
                     ),
-                  ),
-                ),
-            ],
+                    Container(
+                      width: 1,
+                      color: context.elixBorder.withValues(alpha: 0.5),
+                    ),
+                    Expanded(
+                      child: _ConversationPane(
+                        controller: controller,
+                        composerController: _composerController,
+                        scrollController: _messageScrollController,
+                        showBack: false,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -238,6 +182,11 @@ class _PeoplePane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final searching = searchController.text.trim().isNotEmpty;
+    final unreadCount = controller.inbox.fold<int>(
+      0,
+      (total, conversation) =>
+          total + conversation.unreadFor(controller.currentUser.id),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -251,11 +200,39 @@ class _PeoplePane extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const ElixEditorialHeader(
+              ElixEditorialHeader(
                 heading: 'Messages',
+                eyebrow: 'INBOX',
+                subtitle: 'Connect with your teachers and trainees.',
                 variant: ElixEditorialHeaderVariant.compact,
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: context.isHighContrast
+                        ? context.elixCardSurface
+                        : context.elixColors.brandPrimary.withValues(
+                            alpha: 0.14,
+                          ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: context.isHighContrast
+                          ? context.elixBorder
+                          : context.elixColors.brandPrimary.withValues(
+                              alpha: 0.28,
+                            ),
+                    ),
+                  ),
+                  child: Icon(
+                    key: const ValueKey('messages-header-icon'),
+                    FluentIcons.chat,
+                    size: 20,
+                    color: context.elixColors.brandPrimary,
+                  ),
+                ),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.md),
               TextBox(
                 controller: searchController,
                 placeholder: 'Find a Teacher or Trainee',
@@ -284,10 +261,21 @@ class _PeoplePane extends StatelessWidget {
             ],
           ),
         ),
+        if (controller.alertMessage != null)
+          _InlineMessageAlert(
+            key: const ValueKey('messages-alert'),
+            message: controller.alertMessage!,
+            onDismiss: controller.dismissAlert,
+          ),
         Divider(
           style: DividerThemeData(
             decoration: BoxDecoration(color: context.elixBorder),
           ),
+        ),
+        _InboxSummary(
+          searching: searching,
+          conversationCount: controller.inbox.length,
+          unreadCount: unreadCount,
         ),
         Expanded(
           child: searching
@@ -295,6 +283,140 @@ class _PeoplePane extends StatelessWidget {
               : _InboxList(controller: controller),
         ),
       ],
+    );
+  }
+}
+
+class _InlineMessageAlert extends StatelessWidget {
+  const _InlineMessageAlert({
+    super.key,
+    required this.message,
+    required this.onDismiss,
+  });
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final highContrast = context.isHighContrast;
+    final accent = context.elixColors.brandPrimary;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        0,
+        AppSpacing.md,
+        AppSpacing.md,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          decoration: BoxDecoration(
+            color: highContrast
+                ? context.elixCardSurface
+                : Color.alphaBlend(
+                    accent.withValues(alpha: 0.1),
+                    context.elixCardSurface,
+                  ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: highContrast
+                  ? context.elixBorder
+                  : accent.withValues(alpha: 0.34),
+              width: highContrast ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: highContrast
+                      ? context.elixCardSurface
+                      : accent.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(FluentIcons.chat, size: 15, color: accent),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  message,
+                  style: AppTheme.body.copyWith(
+                    color: context.elixTextPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Tooltip(
+                message: 'Dismiss notification',
+                child: IconButton(
+                  icon: const Icon(FluentIcons.clear, size: 12),
+                  onPressed: onDismiss,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InboxSummary extends StatelessWidget {
+  const _InboxSummary({
+    required this.searching,
+    required this.conversationCount,
+    required this.unreadCount,
+  });
+
+  final bool searching;
+  final int conversationCount;
+  final int unreadCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              searching ? 'SEARCH RESULTS' : 'RECENT CONVERSATIONS',
+              style: AppTheme.eyebrow(color: context.elixTextSecondary),
+            ),
+          ),
+          if (!searching && conversationCount > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: unreadCount > 0
+                    ? context.elixColors.brandPrimary.withValues(alpha: 0.14)
+                    : context.elixPanelSurface,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                unreadCount > 0
+                    ? '$unreadCount unread'
+                    : '$conversationCount total',
+                style: AppTheme.caption.copyWith(
+                  color: unreadCount > 0
+                      ? context.elixColors.brandPrimary
+                      : context.elixTextSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -312,9 +434,13 @@ class _SearchResults extends StatelessWidget {
       ),
       MessageSearchState.loading => const Center(child: ProgressRing()),
       MessageSearchState.empty => const _CenteredMessage(
+        icon: FluentIcons.search,
+        title: 'No people found',
         text: 'No matching people found.',
       ),
       MessageSearchState.error => _CenteredMessage(
+        icon: FluentIcons.warning,
+        title: 'Search unavailable',
         text: controller.searchError is ChatException
             ? (controller.searchError! as ChatException).userMessage
             : 'Search is unavailable right now.',
@@ -329,7 +455,7 @@ class _SearchResults extends StatelessWidget {
             subtitle: user.role,
             selected: controller.selectedUser?.id == user.id,
             onPressed: () => controller.openUser(user),
-            onViewProfile: () => context.push('/profile/${user.id}'),
+            onViewProfile: () => _openChatUserProfile(context, user),
           );
         },
       ),
@@ -344,11 +470,17 @@ class _InboxList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (controller.inboxError != null) {
-      return const _CenteredMessage(text: 'Could not load conversations.');
+      return const _CenteredMessage(
+        icon: FluentIcons.warning,
+        title: 'Inbox unavailable',
+        text: 'Could not load conversations.',
+      );
     }
     if (controller.inbox.isEmpty) {
       return const _CenteredMessage(
-        text: 'No conversations yet. Search for someone to start messaging.',
+        icon: FluentIcons.chat,
+        title: 'Start a conversation',
+        text: 'Search for a teacher or trainee to send your first message.',
       );
     }
     return ListView.builder(
@@ -368,7 +500,7 @@ class _InboxList extends StatelessWidget {
           selected: controller.selectedConversation?.id == conversation.id,
           onPressed: () => controller.openConversation(conversation),
           onMarkUnread: () => controller.markConversationUnread(conversation),
-          onViewProfile: () => context.push('/profile/${user.id}'),
+          onViewProfile: () => _openChatUserProfile(context, user),
           onDelete: () => _confirmDelete(context, conversation, user),
         );
       },
@@ -438,6 +570,8 @@ class _PersonTile extends StatefulWidget {
 }
 
 class _PersonTileState extends State<_PersonTile> {
+  static const _tileHeight = 88.0;
+
   final _menuController = FlyoutController();
 
   @override
@@ -487,115 +621,130 @@ class _PersonTileState extends State<_PersonTile> {
   Widget build(BuildContext context) {
     final highContrast = context.isHighContrast;
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-      child: ElixCard(
-        onTap: widget.onPressed,
-        selected: widget.selected,
-        variant: ElixCardVariant.interactive,
-        semanticLabel: '${widget.user.displayName}. ${widget.subtitle}',
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        child: Row(
-          children: [
-            _ChatAvatar(user: widget.user, size: 38),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.user.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.body.copyWith(
-                            color: context.elixTextPrimary,
-                            fontWeight: widget.unread > 0
-                                ? FontWeight.w700
-                                : FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      if (widget.timestamp != null)
-                        Text(
-                          _compactTime(widget.timestamp!),
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                            fontWeight: widget.unread > 0
-                                ? FontWeight.w600
-                                : null,
-                          ),
-                        ),
-                      ),
-                      if (widget.unread > 0) ...[
-                        const SizedBox(width: AppSpacing.xs),
-                        Container(
-                          constraints: const BoxConstraints(minWidth: 20),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: context.elixColors.brandPrimary,
-                            borderRadius: const BorderRadius.all(
-                              Radius.circular(10),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: SizedBox(
+        height: _tileHeight,
+        child: ElixCard(
+          onTap: widget.onPressed,
+          selected: widget.selected,
+          variant: ElixCardVariant.interactive,
+          semanticLabel: '${widget.user.displayName}. ${widget.subtitle}',
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              _ChatAvatar(user: widget.user, size: 44),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (widget.unread > 0) ...[
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: context.elixColors.brandPrimary,
+                              shape: BoxShape.circle,
                             ),
                           ),
+                          const SizedBox(width: 6),
+                        ],
+                        Expanded(
                           child: Text(
-                            widget.unread > 99 ? '99+' : '${widget.unread}',
-                            textAlign: TextAlign.center,
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixColors.onBrand,
-                              fontWeight: FontWeight.w700,
+                            widget.user.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.body.copyWith(
+                              color: context.elixTextPrimary,
+                              fontWeight: widget.unread > 0
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
                             ),
                           ),
                         ),
+                        if (widget.timestamp != null)
+                          Text(
+                            _compactTime(widget.timestamp!),
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
                       ],
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                              fontWeight: widget.unread > 0
+                                  ? FontWeight.w600
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        if (widget.unread > 0) ...[
+                          const SizedBox(width: AppSpacing.xs),
+                          Container(
+                            constraints: const BoxConstraints(minWidth: 20),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: context.elixColors.brandPrimary,
+                              borderRadius: const BorderRadius.all(
+                                Radius.circular(10),
+                              ),
+                            ),
+                            child: Text(
+                              widget.unread > 99 ? '99+' : '${widget.unread}',
+                              textAlign: TextAlign.center,
+                              style: AppTheme.caption.copyWith(
+                                color: context.elixColors.onBrand,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (widget.onDelete != null || widget.onViewProfile != null) ...[
-              const SizedBox(width: 2),
-              Semantics(
-                button: true,
-                label: 'Conversation actions',
-                child: Tooltip(
-                  message: 'Conversation actions',
-                  child: FlyoutTarget(
-                    controller: _menuController,
-                    child: IconButton(
-                      key: ValueKey('conversation-menu-${widget.user.id}'),
-                      icon: Icon(
-                        FluentIcons.more_vertical,
-                        size: 16,
-                        color: highContrast
-                            ? context.elixTextPrimary
-                            : context.elixTextSecondary,
+              if (widget.onDelete != null || widget.onViewProfile != null) ...[
+                const SizedBox(width: 2),
+                Semantics(
+                  button: true,
+                  label: 'Conversation actions',
+                  child: Tooltip(
+                    message: 'Conversation actions',
+                    child: FlyoutTarget(
+                      controller: _menuController,
+                      child: IconButton(
+                        key: ValueKey('conversation-menu-${widget.user.id}'),
+                        icon: Icon(
+                          FluentIcons.more_vertical,
+                          size: 16,
+                          color: highContrast
+                              ? context.elixTextPrimary
+                              : context.elixTextSecondary,
+                        ),
+                        onPressed: _showMenu,
                       ),
-                      onPressed: _showMenu,
                     ),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -621,6 +770,7 @@ class _ConversationPane extends StatelessWidget {
     if (user == null) {
       return const _CenteredMessage(
         icon: FluentIcons.chat,
+        title: 'Your conversations, in one place',
         text: 'Select a conversation or search for someone to message.',
       );
     }
@@ -632,6 +782,12 @@ class _ConversationPane extends StatelessWidget {
             vertical: AppSpacing.md,
           ),
           decoration: BoxDecoration(
+            color: context.isHighContrast
+                ? context.elixCardSurface
+                : Color.alphaBlend(
+                    context.elixColors.brandSecondary.withValues(alpha: 0.05),
+                    context.elixCardSurface,
+                  ),
             border: Border(bottom: BorderSide(color: context.elixBorder)),
           ),
           child: Row(
@@ -643,17 +799,41 @@ class _ConversationPane extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.xs),
               ],
-              _ChatAvatar(user: user, size: 36),
-              const SizedBox(width: AppSpacing.sm),
+              _ChatAvatar(user: user, size: 42),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(user.displayName, style: AppTheme.headingMedium),
                     Text(
-                      user.role,
-                      style: AppTheme.caption.copyWith(
-                        color: context.elixTextSecondary,
+                      user.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.headingMedium,
+                    ),
+                    const SizedBox(height: 3),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: context.elixColors.brandSecondary.withValues(
+                            alpha: 0.12,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          user.role.toUpperCase(),
+                          style: AppTheme.caption.copyWith(
+                            color: context.elixColors.brandSecondary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -681,10 +861,18 @@ class _ConversationPane extends StatelessWidget {
     }
     if (controller.messageState == MessagePaneState.error &&
         controller.messages.isEmpty) {
-      return const _CenteredMessage(text: 'Could not load messages.');
+      return const _CenteredMessage(
+        icon: FluentIcons.warning,
+        title: 'Messages unavailable',
+        text: 'Could not load messages.',
+      );
     }
     if (controller.messages.isEmpty) {
       return _CenteredMessage(
+        icon: FluentIcons.chat,
+        title: controller.selectedConversation?.isArchived == true
+            ? 'Archived conversation'
+            : 'Start the conversation',
         text: controller.selectedConversation?.isArchived == true
             ? 'This archived conversation is read-only.'
             : 'No messages yet. Say hello.',
@@ -849,6 +1037,9 @@ class _Composer extends StatelessWidget {
         vertical: AppSpacing.md,
       ),
       decoration: BoxDecoration(
+        color: context.isHighContrast
+            ? context.elixCardSurface
+            : context.elixPanelSurface.withValues(alpha: 0.45),
         border: Border(top: BorderSide(color: context.elixBorder)),
       ),
       child: Column(
@@ -1168,9 +1359,10 @@ class _ChatAvatar extends StatelessWidget {
 }
 
 class _CenteredMessage extends StatelessWidget {
-  const _CenteredMessage({required this.text, this.icon});
+  const _CenteredMessage({required this.text, this.icon, this.title});
   final String text;
   final IconData? icon;
+  final String? title;
 
   @override
   Widget build(BuildContext context) {
@@ -1181,8 +1373,38 @@ class _CenteredMessage extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 32, color: context.elixTextSecondary),
-              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: 52,
+                height: 52,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: context.isHighContrast
+                      ? context.elixCardSurface
+                      : context.elixColors.brandPrimary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: context.isHighContrast
+                        ? context.elixBorder
+                        : context.elixColors.brandPrimary.withValues(
+                            alpha: 0.18,
+                          ),
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  size: 22,
+                  color: context.elixColors.brandPrimary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (title != null) ...[
+              Text(
+                title!,
+                textAlign: TextAlign.center,
+                style: AppTheme.cardTitle(color: context.elixTextPrimary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
             ],
             Text(
               text,

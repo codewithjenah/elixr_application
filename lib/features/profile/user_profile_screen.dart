@@ -209,9 +209,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget build(BuildContext context) {
     final authUser = context.watch<AuthService>().currentUser;
     final controller = _controller!;
-    final pageTitle = controller.isSelf
-        ? 'My Profile'
-        : (_isTeacherViewer ? 'Profile' : 'Player Profile');
 
     return ElixScaffoldPage(
       padding: EdgeInsets.zero,
@@ -219,6 +216,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         child: ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
+            final pageTitle = controller.isSelf
+                ? 'My Profile'
+                : _ownerIsTeacher
+                ? 'Teacher Profile'
+                : (_isTeacherViewer ? 'Profile' : 'Player Profile');
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

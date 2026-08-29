@@ -1738,6 +1738,7 @@ void main() {
           initialArgs: const ProfileRouteArgs(role: User.roleTeacher),
         );
 
+        expect(find.text('Teacher Profile'), findsOneWidget);
         expect(find.byType(TeacherProfileState), findsOneWidget);
         expect(find.byType(ProfileAchievementsSection), findsNothing);
         expect(find.byType(CompletedMovementsSection), findsNothing);

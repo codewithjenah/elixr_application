@@ -13,6 +13,11 @@ void main() {
     displayName: 'Other Teacher',
     role: 'Teacher',
   );
+  const another = ChatUser(
+    id: 'another',
+    displayName: 'Another Teacher',
+    role: 'Teacher',
+  );
 
   test('search waits for two characters and returns sanitized users', () async {
     final repository = InMemoryChatRepository()..users.add(other);
@@ -86,6 +91,52 @@ void main() {
     expect(controller.blockState.blockedByMe, isTrue);
     expect(await controller.send('Cannot send'), isFalse);
   });
+
+  test(
+    'new-message alert stays until all unread conversations are opened',
+    () async {
+      final repository = InMemoryChatRepository();
+      addTearDown(repository.dispose);
+      final controller = MessagesController(
+        repository: repository,
+        currentUser: current,
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await Future<void>.delayed(Duration.zero);
+
+      await repository.sendMessage(
+        sender: other,
+        recipient: current,
+        body: 'Unread message',
+      );
+      await repository.sendMessage(
+        sender: another,
+        recipient: current,
+        body: 'Another unread message',
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.alertMessage, 'You have a new message.');
+
+      final first = controller.inbox.first;
+      final second = controller.inbox.last;
+      await repository.markRead(
+        conversationId: first.id,
+        currentUserId: current.id,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(controller.alertMessage, 'You have a new message.');
+
+      await repository.markRead(
+        conversationId: second.id,
+        currentUserId: current.id,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(controller.alertMessage, isNull);
+    },
+  );
 
   test(
     'real-time arrivals retain loaded older pages and their cursor',

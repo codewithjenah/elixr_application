@@ -44,6 +44,7 @@ class MessagesController extends ChangeNotifier {
   Timer? _alertTimer;
   int _searchGeneration = 0;
   bool _disposed = false;
+  bool _alertIsPersistent = false;
 
   String? get conversationId {
     final other = selectedUser;
@@ -100,24 +101,35 @@ class MessagesController extends ChangeNotifier {
         }
       }
     }
+    if (_alertIsPersistent && nextUnread == 0) {
+      _clearAlert();
+    }
     if (nextUnread > previousUnread && selectedUser == null) {
-      _showAlert('You have a new message.');
+      _showAlert('You have a new message.', persistent: true);
     } else {
       _notify();
     }
   }
 
-  void _showAlert(String message) {
+  void _showAlert(String message, {bool persistent = false}) {
     alertMessage = message;
+    _alertIsPersistent = persistent;
     _alertTimer?.cancel();
-    _alertTimer = Timer(const Duration(seconds: 3), dismissAlert);
+    _alertTimer = persistent
+        ? null
+        : Timer(const Duration(seconds: 3), dismissAlert);
     _notify();
   }
 
   void dismissAlert() {
-    alertMessage = null;
-    _alertTimer?.cancel();
+    _clearAlert();
     _notify();
+  }
+
+  void _clearAlert() {
+    alertMessage = null;
+    _alertIsPersistent = false;
+    _alertTimer?.cancel();
   }
 
   void updateSearch(String query) {
