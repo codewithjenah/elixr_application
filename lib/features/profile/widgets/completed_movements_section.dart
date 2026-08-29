@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -12,18 +13,22 @@ class CompletedMovementsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Older session history is intentionally retained, but retired movement
+    // names must not appear in the current profile completion summary.
+    final visibleMovementNames = _currentMovementNames(movementNames);
+
     return ProfileSectionCard(
       title: 'Completed Movements',
-      trailing: movementNames.isEmpty
+      trailing: visibleMovementNames.isEmpty
           ? null
           : Text(
-              '${movementNames.length}',
+              '${visibleMovementNames.length}',
               style: AppTheme.caption.copyWith(
                 color: context.elixTextSecondary,
                 fontWeight: FontWeight.w700,
               ),
             ),
-      child: movementNames.isEmpty
+      child: visibleMovementNames.isEmpty
           ? Text(
               'No completed movements yet.',
               style: AppTheme.bodySecondary.copyWith(
@@ -41,7 +46,7 @@ class CompletedMovementsSection extends StatelessWidget {
                   spacing: gap,
                   runSpacing: gap,
                   children: [
-                    for (final name in movementNames)
+                    for (final name in visibleMovementNames)
                       SizedBox(
                         width: tileWidth,
                         child: _MovementTile(name: name),
@@ -52,6 +57,22 @@ class CompletedMovementsSection extends StatelessWidget {
             ),
     );
   }
+}
+
+List<String> _currentMovementNames(Iterable<String> names) {
+  final unique = <String>{};
+  final visible = <String>[];
+  for (final name in names) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty ||
+        !isRecognizedCoachingMovement(trimmed) ||
+        !unique.add(trimmed)) {
+      continue;
+    }
+    visible.add(trimmed);
+  }
+  visible.sort();
+  return visible;
 }
 
 class _MovementTile extends StatelessWidget {

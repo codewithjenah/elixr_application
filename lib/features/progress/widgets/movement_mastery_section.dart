@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../movements/movements_presentation.dart';
 import '../training_recommendation.dart';
 
@@ -100,54 +101,78 @@ class _MasteryRow extends StatelessWidget {
       builder: (context, constraints) {
         final narrow = constraints.maxWidth < 640;
 
-        final titleBlock = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        final movementInfo = Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              mastery.movement.name,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: context.elixTextPrimary,
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: accent.withValues(
+                  alpha: context.isDarkTheme ? 0.12 : 0.08,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: accent.withValues(alpha: 0.24)),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+              child: MovementImage(
+                movementName: mastery.movement.name,
+                size: 48,
+                paddingFactor: 0.04,
+              ),
             ),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                Text(
-                  statusLabel,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: accent,
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    mastery.movement.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: context.elixTextPrimary,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Text(
-                  'Recent $recentLabel',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: context.elixTextSecondary,
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: accent,
+                        ),
+                      ),
+                      Text(
+                        'Recent $recentLabel',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                      Text(
+                        'Best $bestLabel',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                      Text(
+                        '${mastery.completedSessions} sessions',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.elixTextSecondary,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Text(
-                  'Best $bestLabel',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                Text(
-                  '${mastery.completedSessions} sessions',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         );
@@ -160,14 +185,14 @@ class _MasteryRow extends StatelessWidget {
         if (narrow) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [titleBlock, const SizedBox(height: 8), progressBar],
+            children: [movementInfo, const SizedBox(height: 8), progressBar],
           );
         }
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(flex: 3, child: titleBlock),
+            Expanded(flex: 3, child: movementInfo),
             const SizedBox(width: AppSpacing.md),
             Expanded(flex: 2, child: progressBar),
           ],

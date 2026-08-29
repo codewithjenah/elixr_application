@@ -130,4 +130,20 @@ void main() {
     expect(payload['completed_movement_names'], ['Hand Stall']);
     expect(payload['last_backfill_session_id'], 'sessNew');
   });
+
+  test('legacy movement names are excluded from the completed summary', () {
+    final payload = PublicProfileSummaryWrite.afterSessionMap(
+      existingSummary: {
+        'total_duration_seconds': 10,
+        'completed_movement_names': ['Tap', 'Clip', 'Arm Stall', 'Hand Stall'],
+      },
+      sessionDurationSeconds: 30,
+      sessionMovementName: 'Clip',
+      sessionId: 'sessLegacy',
+      updatedAt: 'now',
+    );
+
+    expect(payload['total_duration_seconds'], 40);
+    expect(payload['completed_movement_names'], ['Hand Stall']);
+  });
 }

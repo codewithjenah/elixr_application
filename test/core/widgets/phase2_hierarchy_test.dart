@@ -269,10 +269,10 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _host(const ElixBrandWordmark(subtitle: 'Flair Training')),
+      _host(const ElixBrandWordmark(subtitle: 'Trainee Workspace')),
     );
 
-    final subtitle = tester.widget<Text>(find.text('Flair Training'));
+    final subtitle = tester.widget<Text>(find.text('Trainee Workspace'));
     expect(subtitle.style!.fontFamily, ElixTypography.fontFamily);
     expect(subtitle.style!.fontFamily, isNot(ElixTypography.wordmarkFamily));
   });

@@ -212,7 +212,7 @@ class _ElixSidebarState extends State<ElixSidebar> {
                 showCollapsedLayout: showCollapsedLayout,
                 isCollapsed: widget.isCollapsed,
                 onToggleCollapse: widget.onToggleCollapse,
-                subtitle: 'Flair Training',
+                subtitle: 'Trainee Workspace',
               ),
               const SizedBox(height: AppSpacing.sm),
               ElixSidebarBrandDivider(collapsed: showCollapsedLayout),

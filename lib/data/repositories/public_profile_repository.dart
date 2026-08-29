@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:flutter/foundation.dart';
 
 import '../database/firestore_helper.dart';
@@ -182,7 +183,9 @@ class PublicProfileSummaryWrite {
     final unique = <String>{};
     for (final name in names) {
       final trimmed = name.trim();
-      if (trimmed.isNotEmpty) unique.add(trimmed);
+      if (trimmed.isNotEmpty && isRecognizedCoachingMovement(trimmed)) {
+        unique.add(trimmed);
+      }
     }
     final list = unique.toList()..sort();
     return list;

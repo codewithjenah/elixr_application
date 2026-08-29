@@ -1,5 +1,12 @@
+import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_sidebar.dart';
+import 'package:elixr_application/services/auth_service.dart';
+import 'package:elixr_core/repositories/auth_repository.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+class _UnusedAuthRepository extends Fake implements AuthRepositoryBase {}
 
 void main() {
   test(
@@ -47,4 +54,38 @@ void main() {
       isTrue,
     );
   });
+
+  testWidgets('trainee sidebar identifies the trainee workspace', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final auth = AuthService(
+      repository: _UnusedAuthRepository(),
+      awaitInitialAuthState: () async {},
+    );
+    addTearDown(auth.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: auth,
+        child: FluentApp(
+          theme: AppTheme.dark,
+          home: const ElixSidebar(
+            currentRoute: '/dashboard',
+            isCollapsed: false,
+            onToggleCollapse: _noop,
+            onLogout: _noop,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Trainee Workspace'), findsOneWidget);
+    expect(find.text('Flair Training'), findsNothing);
+  });
 }
+
+void _noop() {}

@@ -1,4 +1,9 @@
+import '../constants/coaching_movement_names.dart';
+
 /// Privacy-gated aggregate details at `public_profiles/{userId}/details/summary`.
+///
+/// Historical session documents may still contain retired movement names, but
+/// this aggregate exposes only movements in the current coaching catalog.
 class PublicProfileSummary {
   const PublicProfileSummary({
     required this.totalDurationSeconds,
@@ -43,7 +48,9 @@ class PublicProfileSummary {
     for (final item in value) {
       if (item is String) {
         final trimmed = item.trim();
-        if (trimmed.isNotEmpty && !out.contains(trimmed)) {
+        if (trimmed.isNotEmpty &&
+            isRecognizedCoachingMovement(trimmed) &&
+            !out.contains(trimmed)) {
           out.add(trimmed);
         }
       }

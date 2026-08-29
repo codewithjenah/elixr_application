@@ -66,6 +66,9 @@ void main() {
         2,
         'Hand Stall',
         'Claw Grip',
+        'Tap',
+        'Clip',
+        'Arm Stall',
       ],
       'updated_at': null,
     })!;
