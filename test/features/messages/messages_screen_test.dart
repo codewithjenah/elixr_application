@@ -138,6 +138,6 @@ void main() {
 }
 
 Finder _composerFinder() => find.byWidgetPredicate(
-  (widget) => widget is TextBox && widget.placeholder == 'Write a message',
+  (widget) => widget is TextBox && widget.placeholder == 'Write a message...',
   description: 'message composer',
 );

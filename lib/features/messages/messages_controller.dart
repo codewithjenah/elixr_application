@@ -41,6 +41,7 @@ class MessagesController extends ChangeNotifier {
   ChatMessageCursor? _messageCursor;
   bool _hasLoadedOlder = false;
   Timer? _searchTimer;
+  Timer? _alertTimer;
   int _searchGeneration = 0;
   bool _disposed = false;
 
@@ -100,13 +101,22 @@ class MessagesController extends ChangeNotifier {
       }
     }
     if (nextUnread > previousUnread && selectedUser == null) {
-      alertMessage = 'You have a new message.';
+      _showAlert('You have a new message.');
+    } else {
+      _notify();
     }
+  }
+
+  void _showAlert(String message) {
+    alertMessage = message;
+    _alertTimer?.cancel();
+    _alertTimer = Timer(const Duration(seconds: 3), dismissAlert);
     _notify();
   }
 
   void dismissAlert() {
     alertMessage = null;
+    _alertTimer?.cancel();
     _notify();
   }
 
@@ -411,8 +421,7 @@ class MessagesController extends ChangeNotifier {
         currentUserId: currentUser.id,
       );
     } catch (_) {
-      alertMessage = 'Could not mark the conversation as unread.';
-      _notify();
+      _showAlert('Could not mark the conversation as unread.');
     }
   }
 
@@ -424,8 +433,7 @@ class MessagesController extends ChangeNotifier {
         currentUserId: currentUser.id,
       );
     } catch (_) {
-      alertMessage = 'Could not delete the conversation.';
-      _notify();
+      _showAlert('Could not delete the conversation.');
     }
   }
 
@@ -488,6 +496,7 @@ class MessagesController extends ChangeNotifier {
     _disposed = true;
     _searchGeneration++;
     _searchTimer?.cancel();
+    _alertTimer?.cancel();
     _inboxSubscription?.cancel();
     _messageSubscription?.cancel();
     _blockSubscription?.cancel();
