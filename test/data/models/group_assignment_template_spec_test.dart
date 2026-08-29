@@ -48,6 +48,47 @@ void main() {
     expect(assignment.allowedProp, TrainingProp.bottle);
   });
 
+  test('teacher_reviewed assignment parses score configuration and lock', () {
+    final assignment = GroupAssignment.tryFromMap({
+      ..._base(),
+      'max_score': 80,
+      'grading_locked': true,
+      'grading_locked_at': DateTime.utc(2026, 8, 21),
+    }, id: 'asg1');
+
+    expect(assignment, isNotNull);
+    expect(assignment!.maxScore, 80);
+    expect(assignment.gradingLocked, isTrue);
+    expect(assignment.gradingLockedAt, DateTime.utc(2026, 8, 21));
+  });
+
+  test('teacher_reviewed score configuration is bounded and type-safe', () {
+    for (final value in [0, 101, 80.0, '80']) {
+      expect(
+        GroupAssignment.tryFromMap({
+          ..._base(),
+          'max_score': value,
+        }, id: 'asg1'),
+        isNull,
+      );
+    }
+    expect(
+      GroupAssignment.tryFromMap({
+        ..._base(),
+        'grading_locked': true,
+      }, id: 'asg1'),
+      isNotNull,
+    );
+    expect(
+      GroupAssignment.tryFromMap({
+        ..._base(),
+        'grading_locked': false,
+        'grading_locked_at': DateTime.utc(2026, 8, 21),
+      }, id: 'asg1'),
+      isNull,
+    );
+  });
+
   test('template_scored canonical snapshot parses', () {
     final assignment = GroupAssignment.tryFromMap(
       _base(

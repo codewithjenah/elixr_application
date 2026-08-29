@@ -1,5 +1,25 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
+## Current assignment contract (single-submission refactor)
+
+Teacher-created recorded assignments now use the Phase 6/7-compatible
+single-submission contract described below. New work is stored in the
+deterministic document `review_sub_{assignmentId}_{traineeId}` and moves only
+through `in_progress → submitted → checked` (with `unsubmitting` during an
+explicit trainee withdrawal). A trainee cannot create a replacement attempt,
+practice a submitted/checked assignment, or use the old Attempt history UI.
+
+New Teacher-created assignments persist `max_score` (1–100),
+`grading_locked: false`, and date-only due dates at 11:59:59.999 PM
+Asia/Manila. The maximum is locked when the first review is checked. Existing
+assignments without `max_score` remain readable as `/100` until the reviewed
+migration utility is run.
+
+Legacy `draft`, `approved`, `needs_retry`, verdict, and superseded records are
+parsed for compatibility only. They remain read-only in the new trainee flow;
+the teacher can select a legacy clip and manually save a new grade when the
+record is still available.
+
 **Status:** CLOSED — code, deployed Firestore configuration, and production live verification complete on 2026-08-20.
 
 Implementation history on `main`:

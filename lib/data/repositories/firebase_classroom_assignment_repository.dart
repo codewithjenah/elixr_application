@@ -2,8 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 
+import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
+import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/phase6_submission_diagnostics.dart';
@@ -60,6 +62,7 @@ class FirebaseClassroomAssignmentRepository
     required ElixrGroup group,
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
+    int maxScore = 100,
     DateTime? dueAt,
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -69,6 +72,7 @@ class FirebaseClassroomAssignmentRepository
       group: group,
       movement: movement,
       revision: revision,
+      maxScore: maxScore,
       dueAt: dueAt,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -273,6 +277,81 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> getOrCreateTeacherReviewSubmission({
+    required String traineeId,
+    required GroupAssignment assignment,
+  }) async {
+    if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    final canonical = canonicalTeacherReviewSubmissionAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+    );
+    AssignmentAttempt? result;
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(_attempts.doc(canonical.id));
+      if (!snapshot.exists || snapshot.data() == null) {
+        transaction.set(
+          _attempts.doc(canonical.id),
+          canonical.toCreateMap(createdAt: FieldValue.serverTimestamp()),
+        );
+        result = canonical;
+        return;
+      }
+      final existing = AssignmentAttempt.tryFromMap(
+        snapshot.data()!,
+        id: snapshot.id,
+      );
+      if (existing == null) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      if (!_sameCanonicalSubmissionIdentity(existing, canonical)) {
+        throw const ClassroomException(ClassroomError.identityMismatch);
+      }
+      if (existing.status == AssignmentAttemptStatus.draft &&
+          existing.abandonedAt == null &&
+          existing.videoStoragePath == null &&
+          existing.videoContentType == null &&
+          existing.videoSizeBytes == null &&
+          existing.videoDurationMs == null &&
+          existing.submittedAt == null &&
+          existing.videoExpiresAt == null &&
+          existing.videoDeletedAt == null &&
+          existing.reviewVerdict == null &&
+          existing.reviewFeedback == null &&
+          existing.reviewedAt == null &&
+          existing.gradeScore == null &&
+          existing.gradeMaxScore == null &&
+          existing.checkedAt == null &&
+          existing.reviewUpdatedAt == null &&
+          existing.reviewRevision == null &&
+          existing.resultSentRevision == null &&
+          existing.resultSentAt == null &&
+          existing.resultMessageId == null &&
+          existing.deletionFailed == false &&
+          existing.deletionFailedAt == null) {
+        transaction.update(_attempts.doc(existing.id), {
+          'status': AssignmentAttemptStatus.inProgress.wireValue,
+          'deletion_failed': FieldValue.delete(),
+          'deletion_failed_at': FieldValue.delete(),
+        });
+        result = existing.copyWith(status: AssignmentAttemptStatus.inProgress);
+        return;
+      }
+      if (!isReusableCanonicalTeacherReviewSubmission(
+        attempt: existing,
+        traineeId: traineeId,
+        assignment: assignment,
+      )) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      result = existing;
+    });
+    return result!;
+  }
+
+  @override
   Future<void> markTeacherReviewSubmissionAbandoned({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -318,6 +397,26 @@ class FirebaseClassroomAssignmentRepository
     if (attempt.traineeId != traineeId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (attempt.attemptKind != AssignmentAttemptKind.teacherReviewSubmission ||
+        attempt.abandonedAt != null ||
+        (attempt.status != AssignmentAttemptStatus.draft &&
+            attempt.status != AssignmentAttemptStatus.inProgress)) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    ensureTeacherReviewSubmissionVideo(
+      attempt: attempt,
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+      submittedAt: submittedAt,
+      videoExpiresAt: videoExpiresAt,
+    );
+    final assignment = await getAssignment(assignmentId: attempt.assignmentId);
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
     try {
       await _attempts.doc(attempt.id).update({
         'status': AssignmentAttemptStatus.submitted.wireValue,
@@ -347,6 +446,263 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> beginTeacherReviewUnsubmit({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? startedAt,
+  }) async {
+    final current = await getAttempt(attemptId: attempt.id);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (current.traineeId != traineeId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!current.isCanonicalTeacherReviewSubmission) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (current.status == AssignmentAttemptStatus.unsubmitting) return current;
+    final assignment = await getAssignment(assignmentId: current.assignmentId);
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    if (current.status != AssignmentAttemptStatus.submitted ||
+        !current.hasPlayableVideo) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _attempts.doc(current.id).update({
+      'status': AssignmentAttemptStatus.unsubmitting.wireValue,
+      'deletion_failed': false,
+      'deletion_failed_at': FieldValue.delete(),
+    });
+    return current.copyWith(
+      status: AssignmentAttemptStatus.unsubmitting,
+      deletionFailed: false,
+      clearDeletionFailedAt: true,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> completeTeacherReviewUnsubmit({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? completedAt,
+  }) async {
+    final current = await getAttempt(attemptId: attempt.id);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (!current.isCanonicalTeacherReviewSubmission ||
+        current.traineeId != traineeId ||
+        current.status != AssignmentAttemptStatus.unsubmitting) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _attempts.doc(current.id).update({
+      'status': AssignmentAttemptStatus.inProgress.wireValue,
+      'video_storage_path': FieldValue.delete(),
+      'video_content_type': FieldValue.delete(),
+      'video_size_bytes': FieldValue.delete(),
+      'video_duration_ms': FieldValue.delete(),
+      'submitted_at': FieldValue.delete(),
+      'video_expires_at': FieldValue.delete(),
+      'video_deleted_at': FieldValue.delete(),
+      'deletion_failed': false,
+      'deletion_failed_at': FieldValue.delete(),
+    });
+    return current.copyWith(
+      status: AssignmentAttemptStatus.inProgress,
+      clearVideoMetadata: true,
+      clearVideoDeletedAt: true,
+      deletionFailed: false,
+      clearDeletionFailedAt: true,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> saveTeacherReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required int gradeScore,
+    String? feedback,
+    DateTime? reviewedAt,
+  }) async {
+    final at = (reviewedAt ?? DateTime.now().toUtc()).toUtc();
+    AssignmentAttempt? saved;
+    await _firestore.runTransaction((transaction) async {
+      final assignmentRef = _assignments.doc(assignment.id);
+      final attemptRef = _attempts.doc(attempt.id);
+      final assignmentSnapshot = await transaction.get(assignmentRef);
+      final attemptSnapshot = await transaction.get(attemptRef);
+      if (!assignmentSnapshot.exists || assignmentSnapshot.data() == null) {
+        throw const ClassroomException(ClassroomError.notFound);
+      }
+      if (!attemptSnapshot.exists || attemptSnapshot.data() == null) {
+        throw const ClassroomException(ClassroomError.notFound);
+      }
+      final currentAssignment = GroupAssignment.tryFromMap(
+        assignmentSnapshot.data()!,
+        id: assignmentSnapshot.id,
+      );
+      final current = AssignmentAttempt.tryFromMap(
+        attemptSnapshot.data()!,
+        id: attemptSnapshot.id,
+      );
+      if (currentAssignment == null || current == null) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      if (current.teacherId != teacherId ||
+          current.assignmentId != currentAssignment.id ||
+          current.attemptKind !=
+              AssignmentAttemptKind.teacherReviewSubmission ||
+          !currentAssignment.isTeacherCreated ||
+          currentAssignment.assessmentMode != AssessmentMode.teacherReviewed ||
+          current.groupId != currentAssignment.groupId ||
+          current.movementId != currentAssignment.movementId ||
+          current.revisionId != currentAssignment.revisionId) {
+        throw const ClassroomException(ClassroomError.forbidden);
+      }
+      if (current.status != AssignmentAttemptStatus.submitted &&
+          current.status != AssignmentAttemptStatus.checked &&
+          current.status != AssignmentAttemptStatus.approved &&
+          current.status != AssignmentAttemptStatus.needsRetry) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      final maxScore =
+          current.gradeMaxScore ?? currentAssignment.maxScore ?? 100;
+      ensureTeacherReviewGrade(gradeScore: gradeScore, maxScore: maxScore);
+      final normalizedFeedback = feedback?.trim();
+      if (normalizedFeedback != null &&
+          normalizedFeedback.length >
+              AssignmentSubmissionLimits.reviewFeedbackMaxLength) {
+        throw const ClassroomException(
+          ClassroomError.invalidGrade,
+          'Feedback is too long.',
+        );
+      }
+      final revision = (current.reviewRevision ?? 0) + 1;
+      final checkedAt = current.checkedAt ?? at;
+      final expiresAt = reviewedVideoExpiresAt(at);
+      final update = <String, dynamic>{
+        'status': AssignmentAttemptStatus.checked.wireValue,
+        'grade_score': gradeScore,
+        'grade_max_score': maxScore,
+        'checked_at': current.checkedAt == null
+            ? FieldValue.serverTimestamp()
+            : Timestamp.fromDate(checkedAt),
+        'review_updated_at': FieldValue.serverTimestamp(),
+        'review_revision': revision,
+        'video_expires_at': Timestamp.fromDate(expiresAt),
+        'review_verdict': FieldValue.delete(),
+        'reviewed_at': FieldValue.delete(),
+        'result_sent_revision': FieldValue.delete(),
+        'result_sent_at': FieldValue.delete(),
+        'result_message_id': FieldValue.delete(),
+      };
+      if (normalizedFeedback == null || normalizedFeedback.isEmpty) {
+        update['review_feedback'] = FieldValue.delete();
+      } else {
+        update['review_feedback'] = normalizedFeedback;
+      }
+      transaction.update(attemptRef, update);
+      if (!currentAssignment.gradingLocked) {
+        transaction.update(assignmentRef, {
+          'max_score': maxScore,
+          'grading_locked': true,
+          'grading_locked_at': FieldValue.serverTimestamp(),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+      saved = current.copyWith(
+        status: AssignmentAttemptStatus.checked,
+        gradeScore: gradeScore,
+        gradeMaxScore: maxScore,
+        checkedAt: checkedAt,
+        reviewUpdatedAt: at,
+        reviewRevision: revision,
+        reviewFeedback: normalizedFeedback,
+        videoExpiresAt: expiresAt,
+        clearLegacyReview: true,
+        clearReviewFeedback:
+            normalizedFeedback == null || normalizedFeedback.isEmpty,
+        clearResultSent: true,
+      );
+    });
+    return saved!;
+  }
+
+  @override
+  Future<GroupAssignment> updateTeacherAssignmentMaxScore({
+    required String teacherId,
+    required String assignmentId,
+    required int maxScore,
+  }) async {
+    ensureTeacherAssignmentMaxScore(maxScore);
+    final current = await getAssignment(assignmentId: assignmentId);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (current.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!current.isTeacherCreated || current.gradingLocked) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final snapshot = await _attempts
+        .where('assignment_id', isEqualTo: assignmentId)
+        .get();
+    final hasChecked = snapshot.docs.any((doc) {
+      final parsed = AssignmentAttempt.tryFromMap(doc.data(), id: doc.id);
+      return parsed?.isChecked == true;
+    });
+    if (hasChecked) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _assignments.doc(assignmentId).update({
+      'max_score': maxScore,
+      'grading_locked': false,
+      'grading_locked_at': FieldValue.delete(),
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+    return current.copyWith(
+      maxScore: maxScore,
+      gradingLocked: false,
+      clearGradingLockedAt: true,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> markTeacherReviewResultSent({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required String messageId,
+    DateTime? sentAt,
+  }) async {
+    final current = await getAttempt(attemptId: attempt.id);
+    if (current == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (current.teacherId != teacherId ||
+        !current.isChecked ||
+        current.reviewRevision == null ||
+        messageId.trim().isEmpty) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (current.resultSentForCurrentRevision) return current;
+    await _attempts.doc(current.id).update({
+      'result_sent_revision': current.reviewRevision,
+      'result_sent_at': FieldValue.serverTimestamp(),
+      'result_message_id': messageId.trim(),
+    });
+    return current.copyWith(
+      resultSentRevision: current.reviewRevision,
+      resultSentAt: (sentAt ?? DateTime.now().toUtc()).toUtc(),
+      resultMessageId: messageId.trim(),
+    );
+  }
+
+  @override
   Future<AssignmentAttempt> reviewTeacherSubmission({
     required String teacherId,
     required AssignmentAttempt attempt,
@@ -357,6 +713,9 @@ class FirebaseClassroomAssignmentRepository
   }) async {
     if (attempt.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (attempt.isCanonicalTeacherReviewSubmission) {
+      throw const ClassroomException(ClassroomError.invalidState);
     }
     final status = verdict == AssignmentReviewVerdict.approved
         ? AssignmentAttemptStatus.approved
@@ -389,6 +748,10 @@ class FirebaseClassroomAssignmentRepository
     if (attempt.traineeId != actorId && attempt.teacherId != actorId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (attempt.isCanonicalTeacherReviewSubmission &&
+        attempt.traineeId == actorId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
     await _attempts.doc(attempt.id).update({
       'video_storage_path': FieldValue.delete(),
       'video_deleted_at': FieldValue.serverTimestamp(),
@@ -406,6 +769,11 @@ class FirebaseClassroomAssignmentRepository
     if (attempt.traineeId != actorId && attempt.teacherId != actorId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (attempt.isCanonicalTeacherReviewSubmission &&
+        (attempt.traineeId != actorId ||
+            attempt.status != AssignmentAttemptStatus.unsubmitting)) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
     await _attempts.doc(attempt.id).update({
       'deletion_failed': true,
       'deletion_failed_at': FieldValue.serverTimestamp(),
@@ -414,6 +782,23 @@ class FirebaseClassroomAssignmentRepository
 
   static bool _isFirestorePermissionDenied(Object error) {
     return error is FirebaseException && error.code == 'permission-denied';
+  }
+
+  static bool _sameCanonicalSubmissionIdentity(
+    AssignmentAttempt existing,
+    AssignmentAttempt canonical,
+  ) {
+    return existing.isCanonicalTeacherReviewSubmission &&
+        existing.traineeId == canonical.traineeId &&
+        existing.teacherId == canonical.teacherId &&
+        existing.groupId == canonical.groupId &&
+        existing.assignmentId == canonical.assignmentId &&
+        existing.movementId == canonical.movementId &&
+        existing.revisionId == canonical.revisionId &&
+        existing.origin == canonical.origin &&
+        existing.assessmentMode == canonical.assessmentMode &&
+        existing.attemptKind == canonical.attemptKind &&
+        existing.supersedesAttemptId == null;
   }
 
   static void _sortAssignments(List<GroupAssignment> items) {

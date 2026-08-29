@@ -27,11 +27,13 @@ class TeacherReviewsPane extends StatefulWidget {
 }
 
 class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
+  final _grade = TextEditingController();
   final _feedback = TextEditingController();
   final _playbackSession = ElixrPlaybackSession();
   SubmissionPlaybackFile? _playable;
   Object? _playableError;
   String? _playableAttemptId;
+  String? _gradeAttemptId;
 
   TeacherMovementsController get controller => widget.controller;
 
@@ -39,11 +41,14 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
   void initState() {
     super.initState();
     controller.addListener(_onController);
+    _grade.addListener(_onGradeChanged);
   }
 
   @override
   void dispose() {
     controller.removeListener(_onController);
+    _grade.removeListener(_onGradeChanged);
+    _grade.dispose();
     _feedback.dispose();
     unawaited(_releasePlayback());
     super.dispose();
@@ -52,16 +57,25 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
   void _onController() {
     final selected = controller.selectedReview;
     if (selected == null) {
+      _gradeAttemptId = null;
       if (_playableAttemptId != null || _playable != null) {
         unawaited(_releasePlayback());
       }
       if (mounted) setState(() {});
       return;
     }
-    if (_playableAttemptId != selected.id) {
+    if (_gradeAttemptId != selected.id) {
+      _gradeAttemptId = selected.id;
+      _grade.text = selected.gradeScore?.toString() ?? '';
       _feedback.text = controller.reviewFeedbackDraft ?? '';
+    }
+    if (_playableAttemptId != selected.id) {
       unawaited(_loadPlayback(selected));
     }
+    if (mounted) setState(() {});
+  }
+
+  void _onGradeChanged() {
     if (mounted) setState(() {});
   }
 
@@ -109,6 +123,7 @@ class _TeacherReviewsPaneState extends State<TeacherReviewsPane> {
         child: _Detail(
           controller: controller,
           attempt: selected,
+          grade: _grade,
           feedback: _feedback,
           playable: _playable,
           playableError: _playableError,
@@ -192,6 +207,7 @@ class _Detail extends StatelessWidget {
   const _Detail({
     required this.controller,
     required this.attempt,
+    required this.grade,
     required this.feedback,
     required this.playable,
     required this.playableError,
@@ -201,6 +217,7 @@ class _Detail extends StatelessWidget {
 
   final TeacherMovementsController controller;
   final AssignmentAttempt attempt;
+  final TextEditingController grade;
   final TextEditingController feedback;
   final SubmissionPlaybackFile? playable;
   final Object? playableError;
@@ -210,7 +227,22 @@ class _Detail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final assignment = controller.assignmentFor(attempt);
-    final canReview = attempt.status == AssignmentAttemptStatus.submitted;
+    final canGrade =
+        assignment != null &&
+        attempt.isTeacherReviewSubmission &&
+        attempt.status != AssignmentAttemptStatus.unsubmitting &&
+        attempt.status != AssignmentAttemptStatus.inProgress &&
+        attempt.status != AssignmentAttemptStatus.draft;
+    final maxScore = attempt.gradeMaxScore ?? assignment?.maxScore ?? 100;
+    final parsedGrade = int.tryParse(grade.text.trim());
+    final canSaveGrade =
+        canGrade &&
+        parsedGrade != null &&
+        parsedGrade >= 0 &&
+        parsedGrade <= maxScore;
+    final showLegacyVerdictActions =
+        attempt.status == AssignmentAttemptStatus.submitted &&
+        !attempt.isCanonicalTeacherReviewSubmission;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -238,7 +270,17 @@ class _Detail extends StatelessWidget {
         if (attempt.reviewFeedback != null &&
             attempt.reviewFeedback!.isNotEmpty)
           Text('Feedback: ${attempt.reviewFeedback}', style: AppTheme.body),
-        if (canReview) ...[
+        if (canGrade) ...[
+          const SizedBox(height: AppSpacing.sm),
+          InfoLabel(
+            label: 'Grade (0–$maxScore)',
+            child: TextBox(
+              controller: grade,
+              maxLength: 3,
+              keyboardType: TextInputType.number,
+              placeholder: 'Required',
+            ),
+          ),
           const SizedBox(height: AppSpacing.sm),
           TextBox(
             controller: feedback,
@@ -250,25 +292,43 @@ class _Detail extends StatelessWidget {
           Row(
             children: [
               FilledButton(
-                onPressed: controller.busy
+                onPressed: controller.busy || !canSaveGrade
                     ? null
-                    : () => controller.reviewSelected(
-                        verdict: AssignmentReviewVerdict.approved,
+                    : () => controller.saveSelectedReview(
+                        gradeScore: parsedGrade,
                         feedback: feedback.text,
                       ),
-                child: const Text('Approve'),
+                child: Text(
+                  attempt.isChecked ? 'Update review' : 'Save review',
+                ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Button(
-                onPressed: controller.busy
-                    ? null
-                    : () => controller.reviewSelected(
-                        verdict: AssignmentReviewVerdict.needsRetry,
-                        feedback: feedback.text,
-                      ),
-                child: const Text('Needs Retry'),
-              ),
+              if (attempt.isChecked) ...[
+                const SizedBox(width: AppSpacing.sm),
+                Button(
+                  onPressed:
+                      controller.busy || attempt.resultSentForCurrentRevision
+                      ? null
+                      : controller.sendSelectedReviewResult,
+                  child: Text(
+                    attempt.resultSentForCurrentRevision
+                        ? 'Result sent'
+                        : 'Send to student',
+                  ),
+                ),
+              ],
             ],
+          ),
+        ],
+        if (showLegacyVerdictActions) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Button(
+            onPressed: controller.busy
+                ? null
+                : () => controller.reviewSelected(
+                    verdict: AssignmentReviewVerdict.approved,
+                    feedback: feedback.text,
+                  ),
+            child: const Text('Approve legacy review'),
           ),
         ],
       ],

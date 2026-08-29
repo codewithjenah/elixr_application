@@ -60,6 +60,51 @@ void main() {
   );
 
   test(
+    'assignment result messages are idempotent per review revision',
+    () async {
+      final repository = InMemoryChatRepository();
+      addTearDown(repository.dispose);
+
+      final first = await repository.sendAssignmentResult(
+        sender: teacher,
+        recipient: trainee,
+        movementTitle: 'Tin Balance',
+        earnedScore: 75,
+        maxScore: 80,
+        feedback: 'Good control.',
+        submissionId: 'review_sub_asg1_trainee',
+        reviewRevision: 1,
+      );
+      final retry = await repository.sendAssignmentResult(
+        sender: teacher,
+        recipient: trainee,
+        movementTitle: 'Tin Balance',
+        earnedScore: 75,
+        maxScore: 80,
+        feedback: 'Good control.',
+        submissionId: 'review_sub_asg1_trainee',
+        reviewRevision: 1,
+      );
+      final nextRevision = await repository.sendAssignmentResult(
+        sender: teacher,
+        recipient: trainee,
+        movementTitle: 'Tin Balance',
+        earnedScore: 78,
+        maxScore: 80,
+        submissionId: 'review_sub_asg1_trainee',
+        reviewRevision: 2,
+      );
+
+      expect(first.id, retry.id);
+      expect(first.body, 'Tin Balance\nScore: 75/80\nFeedback: Good control.');
+      expect(nextRevision.id, isNot(first.id));
+      final conversation = repository.conversations.values.single;
+      expect(conversation.unreadFor(trainee.id), 2);
+      expect(repository.messages.values.single, hasLength(2));
+    },
+  );
+
+  test(
     'author edits and soft deletes while history keeps a tombstone',
     () async {
       final repository = InMemoryChatRepository();

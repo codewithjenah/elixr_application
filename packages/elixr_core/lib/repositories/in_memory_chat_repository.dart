@@ -15,6 +15,7 @@ class InMemoryChatRepository implements ChatRepository {
   final _inboxChanges = StreamController<void>.broadcast();
   final _messageChanges = StreamController<String>.broadcast();
   final _blockChanges = StreamController<void>.broadcast();
+  final Map<String, ChatMessage> _idempotentMessages = {};
   int _nextMessageId = 0;
 
   String _blockKey(String blocker, String blocked) => '$blocker::$blocked';
@@ -97,10 +98,41 @@ class InMemoryChatRepository implements ChatRepository {
   }
 
   @override
+  Future<ChatMessage> sendAssignmentResult({
+    required ChatUser sender,
+    required ChatUser recipient,
+    required String movementTitle,
+    required int earnedScore,
+    required int maxScore,
+    String? feedback,
+    required String submissionId,
+    required int reviewRevision,
+  }) {
+    final body = ChatRepository.formatAssignmentResultBody(
+      movementTitle: movementTitle,
+      earnedScore: earnedScore,
+      maxScore: maxScore,
+      feedback: feedback,
+      submissionId: submissionId,
+      reviewRevision: reviewRevision,
+    );
+    return sendMessage(
+      sender: sender,
+      recipient: recipient,
+      body: body,
+      idempotencyKey: ChatRepository.assignmentResultIdempotencyKey(
+        submissionId: submissionId,
+        reviewRevision: reviewRevision,
+      ),
+    );
+  }
+
+  @override
   Future<ChatMessage> sendMessage({
     required ChatUser sender,
     required ChatUser recipient,
     required String body,
+    String? idempotencyKey,
   }) async {
     final validation = ChatMessage.validateBody(body);
     if (validation != null) {
@@ -111,6 +143,18 @@ class InMemoryChatRepository implements ChatRepository {
       throw const ChatException(ChatError.blocked);
     }
     final id = ChatRepository.conversationIdFor(sender.id, recipient.id);
+    final normalizedKey = idempotencyKey?.trim();
+    if (normalizedKey != null && normalizedKey.isNotEmpty) {
+      final existing = _idempotentMessages[normalizedKey];
+      if (existing != null) {
+        if (existing.conversationId != id ||
+            existing.senderId != sender.id ||
+            existing.body != body.trim()) {
+          throw const ChatException(ChatError.permissionDenied);
+        }
+        return existing;
+      }
+    }
     final now = DateTime.now().toUtc();
     final message = ChatMessage(
       id: 'message_${++_nextMessageId}',
@@ -120,6 +164,9 @@ class InMemoryChatRepository implements ChatRepository {
       createdAt: now,
     );
     messages.putIfAbsent(id, () => []).add(message);
+    if (normalizedKey != null && normalizedKey.isNotEmpty) {
+      _idempotentMessages[normalizedKey] = message;
+    }
     final existing = conversations[id];
     final unread = {...?existing?.unreadCounts};
     unread[sender.id] = 0;

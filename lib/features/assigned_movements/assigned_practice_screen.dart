@@ -11,6 +11,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assessment_mode.dart';
+import '../../data/models/assignment_attempt.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/models/session_assignment_context.dart';
 import '../../data/models/training_prop.dart';
@@ -132,6 +133,45 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         });
         return;
       }
+      if (assignment.isTeacherCreated && assignment.isOverdue) {
+        setState(() {
+          _loading = false;
+          _error = 'This assignment is past its due date.';
+        });
+        return;
+      }
+      if (assignment.isTeacherCreated) {
+        final current = await _currentSubmission(
+          assignments: assignments,
+          traineeId: traineeId,
+          assignmentId: assignment.id,
+        );
+        if (!mounted) return;
+        if (current?.status == AssignmentAttemptStatus.submitted) {
+          setState(() {
+            _loading = false;
+            _error =
+                'This submission is awaiting your Teacher\'s check. Open the assignment to view it.';
+          });
+          return;
+        }
+        if (current?.status == AssignmentAttemptStatus.checked) {
+          setState(() {
+            _loading = false;
+            _error =
+                'This submission has been checked. Open the assignment to view the grade and feedback.';
+          });
+          return;
+        }
+        if (current?.status == AssignmentAttemptStatus.unsubmitting) {
+          setState(() {
+            _loading = false;
+            _error =
+                'This submission is being withdrawn. Return to the assignment and retry if needed.';
+          });
+          return;
+        }
+      }
       switch (dispatchAssignedPractice(assignment)) {
         case AssignedPracticeDispatch.officialGuided:
           await _openOfficial(assignment);
@@ -163,6 +203,34 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         _error = 'Could not open this assignment. Try again.';
       });
     }
+  }
+
+  Future<AssignmentAttempt?> _currentSubmission({
+    required ClassroomAssignmentRepository assignments,
+    required String traineeId,
+    required String assignmentId,
+  }) async {
+    final attempts = await assignments
+        .watchAttemptsForTrainee(traineeId: traineeId)
+        .first;
+    AssignmentAttempt? canonical;
+    AssignmentAttempt? legacy;
+    for (final attempt in attempts) {
+      if (attempt.assignmentId != assignmentId ||
+          !attempt.isTeacherReviewSubmission ||
+          attempt.isAbandonedTeacherReviewDraft) {
+        continue;
+      }
+      if (attempt.isCanonicalTeacherReviewSubmission) {
+        canonical = attempt;
+      } else if (legacy == null ||
+          (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(
+            legacy.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+          )) {
+        legacy = attempt;
+      }
+    }
+    return canonical ?? legacy;
   }
 
   Future<void> _openOfficial(GroupAssignment assignment) async {

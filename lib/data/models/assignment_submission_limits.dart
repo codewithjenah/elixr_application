@@ -57,3 +57,18 @@ DateTime unreviewedVideoExpiresAt(DateTime submittedAt) {
 DateTime reviewedVideoExpiresAt(DateTime reviewedAt) {
   return reviewedAt.toUtc().add(AssignmentSubmissionLimits.reviewedRetention);
 }
+
+/// Converts the civil date selected in the UI into the inclusive end of that
+/// date in Asia/Manila (UTC+08:00). Date-only deadlines must not depend on the
+/// Windows machine's local timezone.
+DateTime manilaEndOfDayUtc(DateTime civilDate) {
+  return DateTime.utc(
+    civilDate.year,
+    civilDate.month,
+    civilDate.day,
+    15,
+    59,
+    59,
+    999,
+  );
+}

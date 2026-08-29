@@ -2,6 +2,7 @@ import 'package:elixr_core/models/rubric_assessment.dart';
 import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import 'assessment_mode.dart';
+import 'assignment_attempt_ids.dart';
 import 'assignment_submission_limits.dart';
 import 'movement_origin.dart';
 import 'training_prop.dart';
@@ -30,6 +31,9 @@ enum AssignmentAttemptStatus {
   draft('draft'),
   inProgress('in_progress'),
   submitted('submitted'),
+  unsubmitting('unsubmitting'),
+  checked('checked'),
+  // Legacy review states. New writes must use checked.
   approved('approved'),
   needsRetry('needs_retry');
 
@@ -102,6 +106,14 @@ class AssignmentAttempt {
     this.reviewVerdict,
     this.reviewFeedback,
     this.reviewedAt,
+    this.gradeScore,
+    this.gradeMaxScore,
+    this.checkedAt,
+    this.reviewUpdatedAt,
+    this.reviewRevision,
+    this.resultSentRevision,
+    this.resultSentAt,
+    this.resultMessageId,
     this.supersedesAttemptId,
     this.abandonedAt,
   });
@@ -136,6 +148,14 @@ class AssignmentAttempt {
   final AssignmentReviewVerdict? reviewVerdict;
   final String? reviewFeedback;
   final DateTime? reviewedAt;
+  final int? gradeScore;
+  final int? gradeMaxScore;
+  final DateTime? checkedAt;
+  final DateTime? reviewUpdatedAt;
+  final int? reviewRevision;
+  final int? resultSentRevision;
+  final DateTime? resultSentAt;
+  final String? resultMessageId;
   final String? supersedesAttemptId;
   final DateTime? abandonedAt;
 
@@ -144,6 +164,36 @@ class AssignmentAttempt {
 
   bool get isTeacherReviewSubmission =>
       attemptKind == AssignmentAttemptKind.teacherReviewSubmission;
+
+  bool get isCanonicalTeacherReviewSubmission {
+    if (!isTeacherReviewSubmission) return false;
+    try {
+      return id ==
+          assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+            assignmentId: assignmentId,
+            traineeId: traineeId,
+          );
+    } on ArgumentError {
+      return false;
+    }
+  }
+
+  bool get isChecked =>
+      isTeacherReviewSubmission && status == AssignmentAttemptStatus.checked;
+
+  bool get isUnsubmitting =>
+      isTeacherReviewSubmission &&
+      status == AssignmentAttemptStatus.unsubmitting;
+
+  bool get hasNewReview => isChecked && gradeScore != null;
+
+  bool get resultSentForCurrentRevision =>
+      isChecked &&
+      resultSentRevision != null &&
+      resultSentRevision == reviewRevision &&
+      resultSentAt != null &&
+      resultMessageId != null &&
+      resultMessageId!.isNotEmpty;
 
   bool get isHistoricalTemplateScore =>
       attemptKind == AssignmentAttemptKind.templateScore ||
@@ -158,6 +208,8 @@ class AssignmentAttempt {
     if (!isTeacherReviewSubmission) return false;
     if (isAbandonedTeacherReviewDraft) return false;
     return status == AssignmentAttemptStatus.submitted ||
+        status == AssignmentAttemptStatus.unsubmitting ||
+        status == AssignmentAttemptStatus.checked ||
         status == AssignmentAttemptStatus.approved ||
         status == AssignmentAttemptStatus.needsRetry;
   }
@@ -228,10 +280,24 @@ class AssignmentAttempt {
     AssignmentReviewVerdict? reviewVerdict,
     String? reviewFeedback,
     DateTime? reviewedAt,
+    int? gradeScore,
+    int? gradeMaxScore,
+    DateTime? checkedAt,
+    DateTime? reviewUpdatedAt,
+    int? reviewRevision,
+    int? resultSentRevision,
+    DateTime? resultSentAt,
+    String? resultMessageId,
     String? supersedesAttemptId,
     DateTime? abandonedAt,
     bool clearVideoStoragePath = false,
+    bool clearVideoMetadata = false,
+    bool clearVideoDeletedAt = false,
     bool clearReviewFeedback = false,
+    bool clearReview = false,
+    bool clearLegacyReview = false,
+    bool clearGrade = false,
+    bool clearResultSent = false,
     bool clearDeletionFailedAt = false,
   }) {
     return AssignmentAttempt(
@@ -253,24 +319,58 @@ class AssignmentAttempt {
       propType: propType,
       completedAt: completedAt,
       createdAt: createdAt,
-      videoStoragePath: clearVideoStoragePath
+      videoStoragePath: clearVideoStoragePath || clearVideoMetadata
           ? null
           : (videoStoragePath ?? this.videoStoragePath),
-      videoContentType: videoContentType ?? this.videoContentType,
-      videoSizeBytes: videoSizeBytes ?? this.videoSizeBytes,
-      videoDurationMs: videoDurationMs ?? this.videoDurationMs,
-      submittedAt: submittedAt ?? this.submittedAt,
-      videoExpiresAt: videoExpiresAt ?? this.videoExpiresAt,
-      videoDeletedAt: videoDeletedAt ?? this.videoDeletedAt,
+      videoContentType: clearVideoMetadata
+          ? null
+          : (videoContentType ?? this.videoContentType),
+      videoSizeBytes: clearVideoMetadata
+          ? null
+          : (videoSizeBytes ?? this.videoSizeBytes),
+      videoDurationMs: clearVideoMetadata
+          ? null
+          : (videoDurationMs ?? this.videoDurationMs),
+      submittedAt: clearVideoMetadata
+          ? null
+          : (submittedAt ?? this.submittedAt),
+      videoExpiresAt: clearVideoMetadata
+          ? null
+          : (videoExpiresAt ?? this.videoExpiresAt),
+      videoDeletedAt: clearVideoDeletedAt
+          ? null
+          : (videoDeletedAt ?? this.videoDeletedAt),
       deletionFailed: deletionFailed ?? this.deletionFailed,
       deletionFailedAt: clearDeletionFailedAt
           ? null
           : (deletionFailedAt ?? this.deletionFailedAt),
-      reviewVerdict: reviewVerdict ?? this.reviewVerdict,
-      reviewFeedback: clearReviewFeedback
+      reviewVerdict: clearReview || clearLegacyReview
+          ? null
+          : (reviewVerdict ?? this.reviewVerdict),
+      reviewFeedback: clearReview || clearReviewFeedback
           ? null
           : (reviewFeedback ?? this.reviewFeedback),
-      reviewedAt: reviewedAt ?? this.reviewedAt,
+      reviewedAt: clearReview || clearLegacyReview
+          ? null
+          : (reviewedAt ?? this.reviewedAt),
+      gradeScore: clearGrade ? null : (gradeScore ?? this.gradeScore),
+      gradeMaxScore: clearGrade ? null : (gradeMaxScore ?? this.gradeMaxScore),
+      checkedAt: clearGrade ? null : (checkedAt ?? this.checkedAt),
+      reviewUpdatedAt: clearGrade
+          ? null
+          : (reviewUpdatedAt ?? this.reviewUpdatedAt),
+      reviewRevision: clearGrade
+          ? null
+          : (reviewRevision ?? this.reviewRevision),
+      resultSentRevision: clearResultSent
+          ? null
+          : (resultSentRevision ?? this.resultSentRevision),
+      resultSentAt: clearResultSent
+          ? null
+          : (resultSentAt ?? this.resultSentAt),
+      resultMessageId: clearResultSent
+          ? null
+          : (resultMessageId ?? this.resultMessageId),
       supersedesAttemptId: supersedesAttemptId ?? this.supersedesAttemptId,
       abandonedAt: abandonedAt ?? this.abandonedAt,
     );
@@ -344,6 +444,13 @@ class AssignmentAttempt {
       map['video_deleted_at'],
     );
     final reviewedAt = TeacherRosterInvite.readDateTime(map['reviewed_at']);
+    final checkedAt = TeacherRosterInvite.readDateTime(map['checked_at']);
+    final reviewUpdatedAt = TeacherRosterInvite.readDateTime(
+      map['review_updated_at'],
+    );
+    final resultSentAt = TeacherRosterInvite.readDateTime(
+      map['result_sent_at'],
+    );
     final deletionFailedAt = TeacherRosterInvite.readDateTime(
       map['deletion_failed_at'],
     );
@@ -351,6 +458,73 @@ class AssignmentAttempt {
     final deletionFailed = map['deletion_failed'] == true;
     final videoSizeBytes = _readInt(map['video_size_bytes']);
     final videoDurationMs = _readInt(map['video_duration_ms']);
+    final gradeScore = _readInt(map['grade_score']);
+    final gradeMaxScore = _readInt(map['grade_max_score']);
+    final reviewRevision = _readInt(map['review_revision']);
+    final resultSentRevision = _readInt(map['result_sent_revision']);
+    final resultMessageId = _readBounded(
+      map['result_message_id'],
+      maxLength: 256,
+    );
+    if ((map.containsKey('source_session_id') &&
+            map['source_session_id'] != null &&
+            sourceSessionId == null) ||
+        (map.containsKey('video_storage_path') &&
+            map['video_storage_path'] != null &&
+            videoStoragePath == null) ||
+        (map.containsKey('video_content_type') &&
+            map['video_content_type'] != null &&
+            videoContentType == null) ||
+        (map.containsKey('supersedes_attempt_id') &&
+            map['supersedes_attempt_id'] != null &&
+            supersedesAttemptId == null)) {
+      return null;
+    }
+    if (map.containsKey('review_verdict') &&
+        map['review_verdict'] != null &&
+        reviewVerdict == null) {
+      return null;
+    }
+    if ((map.containsKey('grade_score') &&
+            map['grade_score'] != null &&
+            (map['grade_score'] is! int || gradeScore == null)) ||
+        (map.containsKey('grade_max_score') &&
+            map['grade_max_score'] != null &&
+            (map['grade_max_score'] is! int || gradeMaxScore == null)) ||
+        (map.containsKey('review_revision') &&
+            map['review_revision'] != null &&
+            (map['review_revision'] is! int || reviewRevision == null)) ||
+        (map.containsKey('result_sent_revision') &&
+            map['result_sent_revision'] != null &&
+            (map['result_sent_revision'] is! int ||
+                resultSentRevision == null))) {
+      return null;
+    }
+    for (final entry in <String, DateTime?>{
+      'submitted_at': submittedAt,
+      'video_expires_at': videoExpiresAt,
+      'video_deleted_at': videoDeletedAt,
+      'reviewed_at': reviewedAt,
+      'checked_at': checkedAt,
+      'review_updated_at': reviewUpdatedAt,
+      'result_sent_at': resultSentAt,
+      'deletion_failed_at': deletionFailedAt,
+      'abandoned_at': abandonedAt,
+    }.entries) {
+      if (map.containsKey(entry.key) &&
+          map[entry.key] != null &&
+          entry.value == null) {
+        return null;
+      }
+    }
+    if (map.containsKey('deletion_failed') && map['deletion_failed'] is! bool) {
+      return null;
+    }
+    if (map.containsKey('result_message_id') &&
+        map['result_message_id'] != null &&
+        resultMessageId == null) {
+      return null;
+    }
 
     if (attemptKind == AssignmentAttemptKind.practicePointer) {
       if (sourceSessionId == null) return null;
@@ -409,7 +583,24 @@ class AssignmentAttempt {
         videoDeletedAt: videoDeletedAt,
         deletionFailed: deletionFailed,
         abandonedAt: abandonedAt,
+        deletionFailedAt: deletionFailedAt,
+        gradeScore: gradeScore,
+        gradeMaxScore: gradeMaxScore,
+        checkedAt: checkedAt,
+        reviewUpdatedAt: reviewUpdatedAt,
+        reviewRevision: reviewRevision,
+        resultSentRevision: resultSentRevision,
+        resultSentAt: resultSentAt,
+        resultMessageId: resultMessageId,
       )) {
+        return null;
+      }
+      if (isCanonicalTeacherReviewSubmissionId(
+            id: id,
+            assignmentId: assignmentId,
+            traineeId: traineeId,
+          ) &&
+          supersedesAttemptId != null) {
         return null;
       }
     } else if (attemptKind == AssignmentAttemptKind.templateScore) {
@@ -477,6 +668,14 @@ class AssignmentAttempt {
       reviewVerdict: reviewVerdict,
       reviewFeedback: reviewFeedback,
       reviewedAt: reviewedAt,
+      gradeScore: gradeScore,
+      gradeMaxScore: gradeMaxScore,
+      checkedAt: checkedAt,
+      reviewUpdatedAt: reviewUpdatedAt,
+      reviewRevision: reviewRevision,
+      resultSentRevision: resultSentRevision,
+      resultSentAt: resultSentAt,
+      resultMessageId: resultMessageId,
       supersedesAttemptId: supersedesAttemptId,
       abandonedAt: abandonedAt,
     );
@@ -496,10 +695,29 @@ class AssignmentAttempt {
     required DateTime? videoDeletedAt,
     required bool deletionFailed,
     required DateTime? abandonedAt,
+    required DateTime? deletionFailedAt,
+    required int? gradeScore,
+    required int? gradeMaxScore,
+    required DateTime? checkedAt,
+    required DateTime? reviewUpdatedAt,
+    required int? reviewRevision,
+    required int? resultSentRevision,
+    required DateTime? resultSentAt,
+    required String? resultMessageId,
   }) {
     switch (status) {
       case AssignmentAttemptStatus.draft:
       case AssignmentAttemptStatus.inProgress:
+        if (gradeScore != null ||
+            gradeMaxScore != null ||
+            checkedAt != null ||
+            reviewUpdatedAt != null ||
+            reviewRevision != null ||
+            resultSentRevision != null ||
+            resultSentAt != null ||
+            resultMessageId != null) {
+          return false;
+        }
         if (abandonedAt != null) {
           if (status != AssignmentAttemptStatus.draft) return false;
           return reviewVerdict == null &&
@@ -510,7 +728,10 @@ class AssignmentAttempt {
               videoSizeBytes == null &&
               videoDurationMs == null &&
               submittedAt == null &&
-              videoExpiresAt == null;
+              videoExpiresAt == null &&
+              videoDeletedAt == null &&
+              !deletionFailed &&
+              deletionFailedAt == null;
         }
         return reviewVerdict == null &&
             reviewFeedback == null &&
@@ -522,7 +743,8 @@ class AssignmentAttempt {
             submittedAt == null &&
             videoExpiresAt == null &&
             videoDeletedAt == null &&
-            !deletionFailed;
+            !deletionFailed &&
+            deletionFailedAt == null;
       case AssignmentAttemptStatus.submitted:
         return abandonedAt == null &&
             reviewVerdict == null &&
@@ -537,7 +759,90 @@ class AssignmentAttempt {
               videoExpiresAt: videoExpiresAt,
               videoDeletedAt: videoDeletedAt,
               deletionFailed: deletionFailed,
+            ) &&
+            _noNewReviewFields(
+              gradeScore: gradeScore,
+              gradeMaxScore: gradeMaxScore,
+              checkedAt: checkedAt,
+              reviewUpdatedAt: reviewUpdatedAt,
+              reviewRevision: reviewRevision,
+              resultSentRevision: resultSentRevision,
+              resultSentAt: resultSentAt,
+              resultMessageId: resultMessageId,
+              deletionFailedAt: deletionFailedAt,
             );
+      case AssignmentAttemptStatus.unsubmitting:
+        if (abandonedAt != null ||
+            reviewVerdict != null ||
+            reviewFeedback != null ||
+            reviewedAt != null ||
+            gradeScore != null ||
+            gradeMaxScore != null ||
+            checkedAt != null ||
+            reviewUpdatedAt != null ||
+            reviewRevision != null ||
+            resultSentRevision != null ||
+            resultSentAt != null ||
+            resultMessageId != null) {
+          return false;
+        }
+        if (!deletionFailed) {
+          return deletionFailedAt == null &&
+              _validSubmittedVideoMetadata(
+                videoStoragePath: videoStoragePath,
+                videoContentType: videoContentType,
+                videoSizeBytes: videoSizeBytes,
+                videoDurationMs: videoDurationMs,
+                submittedAt: submittedAt,
+                videoExpiresAt: videoExpiresAt,
+                videoDeletedAt: videoDeletedAt,
+                deletionFailed: false,
+              );
+        }
+        return deletionFailedAt != null &&
+            _validSubmittedVideoMetadata(
+              videoStoragePath: videoStoragePath,
+              videoContentType: videoContentType,
+              videoSizeBytes: videoSizeBytes,
+              videoDurationMs: videoDurationMs,
+              submittedAt: submittedAt,
+              videoExpiresAt: videoExpiresAt,
+              videoDeletedAt: videoDeletedAt,
+              deletionFailed: true,
+            );
+      case AssignmentAttemptStatus.checked:
+        if (abandonedAt != null ||
+            reviewVerdict != null ||
+            gradeScore == null ||
+            gradeMaxScore == null ||
+            gradeMaxScore < 1 ||
+            gradeMaxScore > 100 ||
+            gradeScore < 0 ||
+            gradeScore > gradeMaxScore ||
+            checkedAt == null ||
+            reviewUpdatedAt == null ||
+            reviewRevision == null ||
+            reviewRevision < 1 ||
+            resultSentRevision != null &&
+                resultSentRevision != reviewRevision ||
+            resultSentRevision != null && resultSentAt == null ||
+            resultSentRevision != null && resultMessageId == null ||
+            resultSentRevision == null &&
+                (resultSentAt != null || resultMessageId != null)) {
+          return false;
+        }
+        return !deletionFailed &&
+            _validSubmittedVideoMetadata(
+              videoStoragePath: videoStoragePath,
+              videoContentType: videoContentType,
+              videoSizeBytes: videoSizeBytes,
+              videoDurationMs: videoDurationMs,
+              submittedAt: submittedAt,
+              videoExpiresAt: videoExpiresAt,
+              videoDeletedAt: videoDeletedAt,
+              deletionFailed: deletionFailed,
+            ) &&
+            deletionFailedAt == null;
       case AssignmentAttemptStatus.approved:
         return abandonedAt == null &&
             reviewVerdict == AssignmentReviewVerdict.approved &&
@@ -551,6 +856,17 @@ class AssignmentAttempt {
               videoExpiresAt: videoExpiresAt,
               videoDeletedAt: videoDeletedAt,
               deletionFailed: deletionFailed,
+            ) &&
+            _noNewReviewFields(
+              gradeScore: gradeScore,
+              gradeMaxScore: gradeMaxScore,
+              checkedAt: checkedAt,
+              reviewUpdatedAt: reviewUpdatedAt,
+              reviewRevision: reviewRevision,
+              resultSentRevision: resultSentRevision,
+              resultSentAt: resultSentAt,
+              resultMessageId: resultMessageId,
+              deletionFailedAt: deletionFailedAt,
             );
       case AssignmentAttemptStatus.needsRetry:
         return abandonedAt == null &&
@@ -565,8 +881,41 @@ class AssignmentAttempt {
               videoExpiresAt: videoExpiresAt,
               videoDeletedAt: videoDeletedAt,
               deletionFailed: deletionFailed,
+            ) &&
+            _noNewReviewFields(
+              gradeScore: gradeScore,
+              gradeMaxScore: gradeMaxScore,
+              checkedAt: checkedAt,
+              reviewUpdatedAt: reviewUpdatedAt,
+              reviewRevision: reviewRevision,
+              resultSentRevision: resultSentRevision,
+              resultSentAt: resultSentAt,
+              resultMessageId: resultMessageId,
+              deletionFailedAt: deletionFailedAt,
             );
     }
+  }
+
+  static bool _noNewReviewFields({
+    required int? gradeScore,
+    required int? gradeMaxScore,
+    required DateTime? checkedAt,
+    required DateTime? reviewUpdatedAt,
+    required int? reviewRevision,
+    required int? resultSentRevision,
+    required DateTime? resultSentAt,
+    required String? resultMessageId,
+    required DateTime? deletionFailedAt,
+  }) {
+    return gradeScore == null &&
+        gradeMaxScore == null &&
+        checkedAt == null &&
+        reviewUpdatedAt == null &&
+        reviewRevision == null &&
+        resultSentRevision == null &&
+        resultSentAt == null &&
+        resultMessageId == null &&
+        deletionFailedAt == null;
   }
 
   static bool _validSubmittedVideoMetadata({

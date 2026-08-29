@@ -39,6 +39,36 @@ class FirebaseChatRepository implements ChatRepository {
       _firestore.collection(FirestoreCollections.chatConversations);
 
   @override
+  Future<ChatMessage> sendAssignmentResult({
+    required ChatUser sender,
+    required ChatUser recipient,
+    required String movementTitle,
+    required int earnedScore,
+    required int maxScore,
+    String? feedback,
+    required String submissionId,
+    required int reviewRevision,
+  }) {
+    final body = ChatRepository.formatAssignmentResultBody(
+      movementTitle: movementTitle,
+      earnedScore: earnedScore,
+      maxScore: maxScore,
+      feedback: feedback,
+      submissionId: submissionId,
+      reviewRevision: reviewRevision,
+    );
+    return sendMessage(
+      sender: sender,
+      recipient: recipient,
+      body: body,
+      idempotencyKey: ChatRepository.assignmentResultIdempotencyKey(
+        submissionId: submissionId,
+        reviewRevision: reviewRevision,
+      ),
+    );
+  }
+
+  @override
   Future<List<ChatUser>> searchUsers(String query) async {
     final normalized = query.trim();
     if (normalized.length < 2 || normalized.length > 80) {
@@ -191,6 +221,7 @@ class FirebaseChatRepository implements ChatRepository {
     required ChatUser sender,
     required ChatUser recipient,
     required String body,
+    String? idempotencyKey,
   }) async {
     final validation = ChatMessage.validateBody(body);
     if (validation != null) {
@@ -200,6 +231,12 @@ class FirebaseChatRepository implements ChatRepository {
       throw const ChatException(ChatError.unauthenticated);
     }
     final trimmedBody = body.trim();
+    final normalizedIdempotencyKey = idempotencyKey?.trim();
+    if (normalizedIdempotencyKey != null &&
+        (normalizedIdempotencyKey.isEmpty ||
+            normalizedIdempotencyKey.length > 256)) {
+      throw const ChatException(ChatError.invalidMessage);
+    }
     final conversationId = ChatRepository.conversationIdFor(
       sender.id,
       recipient.id,
@@ -207,7 +244,13 @@ class FirebaseChatRepository implements ChatRepository {
     final conversationRef = _conversations.doc(conversationId);
     final messageRef = conversationRef
         .collection(FirestoreCollections.chatMessages)
-        .doc();
+        .doc(
+          normalizedIdempotencyKey == null
+              ? null
+              : _messageIdForIdempotency(normalizedIdempotencyKey),
+        );
+    var existingIdempotentMessage = false;
+    DateTime? existingCreatedAt;
 
     try {
       await _firestore.runTransaction((transaction) async {
@@ -221,6 +264,7 @@ class FirebaseChatRepository implements ChatRepository {
         final outgoingBlock = await transaction.get(outgoingBlockRef);
         final incomingBlock = await transaction.get(incomingBlockRef);
         final existing = await transaction.get(conversationRef);
+        final existingMessage = await transaction.get(messageRef);
 
         if (!_isSupportedProfile(senderProfile.data()) ||
             !_isSupportedChatUser(recipient)) {
@@ -233,6 +277,19 @@ class FirebaseChatRepository implements ChatRepository {
         final current = existing.data();
         if (current != null && current['status'] != 'active') {
           throw const ChatException(ChatError.permissionDenied);
+        }
+        if (existingMessage.exists) {
+          final existingData = existingMessage.data()!;
+          if (normalizedIdempotencyKey == null ||
+              existingData['idempotency_key'] != normalizedIdempotencyKey ||
+              existingData['sender_id'] != sender.id ||
+              existingData['body'] != trimmedBody ||
+              existing == null) {
+            throw const ChatException(ChatError.permissionDenied);
+          }
+          existingIdempotentMessage = true;
+          existingCreatedAt = _date(existingData['created_at']);
+          return;
         }
         final unread = _intMap(current?['unread_counts']);
         unread[sender.id] = 0;
@@ -257,6 +314,8 @@ class FirebaseChatRepository implements ChatRepository {
           'created_at': FieldValue.serverTimestamp(),
           'edited_at': null,
           'deleted_at': null,
+          if (normalizedIdempotencyKey != null)
+            'idempotency_key': normalizedIdempotencyKey,
         });
 
         final conversationData = <String, dynamic>{
@@ -281,6 +340,15 @@ class FirebaseChatRepository implements ChatRepository {
           SetOptions(merge: true),
         );
       });
+      if (existingIdempotentMessage) {
+        return ChatMessage(
+          id: messageRef.id,
+          conversationId: conversationId,
+          senderId: sender.id,
+          body: trimmedBody,
+          createdAt: existingCreatedAt ?? DateTime.now().toUtc(),
+        );
+      }
       return ChatMessage(
         id: messageRef.id,
         conversationId: conversationId,
@@ -533,6 +601,15 @@ class FirebaseChatRepository implements ChatRepository {
 
   static bool _isSupportedChatUser(ChatUser user) =>
       user.isTeacher || user.isTrainee;
+
+  static String _messageIdForIdempotency(String key) {
+    var hash = 2166136261;
+    for (final byte in utf8.encode(key)) {
+      hash ^= byte;
+      hash = (hash * 16777619) & 0xFFFFFFFF;
+    }
+    return 'assignment_result_${hash.toRadixString(16).padLeft(8, '0')}';
+  }
 
   static Map<String, dynamic> _snapshotForProfile(
     String id,

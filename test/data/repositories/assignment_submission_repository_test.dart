@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/assignment_submission_limits.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
@@ -122,6 +123,100 @@ void main() {
       revision: revision,
     );
   }
+
+  test(
+    'canonical upload reuses one submission document across retry and unsubmit',
+    () async {
+      final assignments = InMemoryClassroomAssignmentRepository(
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'asg1',
+      );
+      addTearDown(assignments.dispose);
+      final assignment = await teacherAssignment(assignments);
+      final deleted = <String>{};
+      final submissions = InMemoryAssignmentSubmissionRepository(
+        classroom: assignments,
+        now: () => DateTime.utc(2026, 8, 20),
+        deletedPaths: deleted,
+      );
+
+      assignments.failNextSubmitTransition = true;
+      await expectLater(
+        submissions.submitCanonicalLocalClip(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: const SubmissionRecordResult(
+            localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+            durationMs: 3500,
+            sizeBytes: 2048,
+            contentType: 'video/mp4',
+          ),
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+      final canonicalId =
+          assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+            assignmentId: assignment.id,
+            traineeId: 'trainee-1',
+          );
+      expect(
+        assignments.attempts[canonicalId]!.status,
+        AssignmentAttemptStatus.inProgress,
+      );
+      expect(deleted, hasLength(1));
+
+      final submitted = await submissions.submitCanonicalLocalClip(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+        clip: const SubmissionRecordResult(
+          localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+          durationMs: 3500,
+          sizeBytes: 2048,
+          contentType: 'video/mp4',
+        ),
+      );
+      expect(submitted.id, canonicalId);
+
+      await expectLater(
+        submissions.submitCanonicalLocalClip(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+          clip: const SubmissionRecordResult(
+            localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+            durationMs: 3500,
+            sizeBytes: 2048,
+            contentType: 'video/mp4',
+          ),
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+
+      final withdrawing = await assignments.beginTeacherReviewUnsubmit(
+        traineeId: 'trainee-1',
+        attempt: submitted,
+      );
+      await submissions.deleteSubmissionObject(submitted.videoStoragePath!);
+      final draft = await assignments.completeTeacherReviewUnsubmit(
+        traineeId: 'trainee-1',
+        attempt: withdrawing,
+      );
+      expect(draft.id, canonicalId);
+      expect(draft.status, AssignmentAttemptStatus.inProgress);
+
+      final resubmitted = await submissions.submitCanonicalLocalClip(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+        clip: const SubmissionRecordResult(
+          localPath: r'C:\Temp\elixr_submissions\clip.mp4',
+          durationMs: 3500,
+          sizeBytes: 2048,
+          contentType: 'video/mp4',
+        ),
+      );
+      expect(resubmitted.id, canonicalId);
+      expect(resubmitted.status, AssignmentAttemptStatus.submitted);
+    },
+  );
 
   test(
     'upload failure before an object exists marks the draft abandoned',

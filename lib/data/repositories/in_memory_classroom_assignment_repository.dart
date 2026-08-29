@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:elixr_core/models/elixr_group.dart';
 
+import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
+import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/teacher_movement.dart';
@@ -89,6 +91,7 @@ class InMemoryClassroomAssignmentRepository
     required ElixrGroup group,
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
+    int maxScore = 100,
     DateTime? dueAt,
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -100,6 +103,7 @@ class InMemoryClassroomAssignmentRepository
       group: group,
       movement: movement,
       revision: revision,
+      maxScore: maxScore,
       dueAt: dueAt,
       createdAt: created,
       updatedAt: created,
@@ -147,6 +151,9 @@ class InMemoryClassroomAssignmentRepository
       displaySafetyGuidance: existing.displaySafetyGuidance,
       allowedProp: existing.allowedProp,
       assessmentSpec: existing.assessmentSpec,
+      maxScore: existing.maxScore,
+      gradingLocked: existing.gradingLocked,
+      gradingLockedAt: existing.gradingLockedAt,
       dueAt: existing.dueAt,
       createdAt: existing.createdAt,
       updatedAt: now,
@@ -304,6 +311,66 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> getOrCreateTeacherReviewSubmission({
+    required String traineeId,
+    required GroupAssignment assignment,
+  }) async {
+    if (!isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    final canonical = canonicalTeacherReviewSubmissionAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      createdAt: now,
+    );
+    final existing = attempts[canonical.id];
+    if (existing == null) {
+      attempts[canonical.id] = canonical;
+      _emitAssignmentAttempts(assignment.teacherId, assignment.id);
+      _emitTraineeAttempts(traineeId);
+      _emitTeacherAttempts(assignment.teacherId);
+      return canonical;
+    }
+    if (!_sameCanonicalSubmissionIdentity(existing, canonical)) {
+      throw const ClassroomException(ClassroomError.identityMismatch);
+    }
+    if (existing.status == AssignmentAttemptStatus.draft &&
+        existing.abandonedAt == null &&
+        existing.videoStoragePath == null &&
+        existing.videoContentType == null &&
+        existing.videoSizeBytes == null &&
+        existing.videoDurationMs == null &&
+        existing.submittedAt == null &&
+        existing.videoExpiresAt == null &&
+        existing.videoDeletedAt == null &&
+        existing.reviewVerdict == null &&
+        existing.reviewFeedback == null &&
+        existing.reviewedAt == null &&
+        existing.gradeScore == null &&
+        existing.gradeMaxScore == null &&
+        existing.checkedAt == null &&
+        existing.reviewUpdatedAt == null &&
+        existing.reviewRevision == null &&
+        existing.resultSentRevision == null &&
+        existing.resultSentAt == null &&
+        existing.resultMessageId == null &&
+        existing.deletionFailed == false &&
+        existing.deletionFailedAt == null) {
+      return _storeAttempt(
+        existing.copyWith(status: AssignmentAttemptStatus.inProgress),
+      );
+    }
+    if (!isReusableCanonicalTeacherReviewSubmission(
+      attempt: existing,
+      traineeId: traineeId,
+      assignment: assignment,
+    )) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    return existing;
+  }
+
+  @override
   Future<void> markTeacherReviewSubmissionAbandoned({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -361,6 +428,20 @@ class InMemoryClassroomAssignmentRepository
         existing.status != AssignmentAttemptStatus.inProgress) {
       throw const ClassroomException(ClassroomError.invalidState);
     }
+    ensureTeacherReviewSubmissionVideo(
+      attempt: existing,
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+      submittedAt: submittedAt,
+      videoExpiresAt: videoExpiresAt,
+    );
+    final assignment = assignments[existing.assignmentId];
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
     if (failNextSubmitTransition) {
       failNextSubmitTransition = false;
       throw const ClassroomException(
@@ -385,6 +466,207 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> beginTeacherReviewUnsubmit({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? startedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    final assignment = assignments[existing.assignmentId];
+    if (existing.traineeId != traineeId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!existing.isCanonicalTeacherReviewSubmission) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (existing.status == AssignmentAttemptStatus.unsubmitting) {
+      return existing;
+    }
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    if (existing.status != AssignmentAttemptStatus.submitted ||
+        !existing.hasPlayableVideo) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    return _storeAttempt(
+      existing.copyWith(
+        status: AssignmentAttemptStatus.unsubmitting,
+        deletionFailed: false,
+        clearDeletionFailedAt: true,
+      ),
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> completeTeacherReviewUnsubmit({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? completedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.traineeId != traineeId ||
+        !existing.isCanonicalTeacherReviewSubmission ||
+        existing.status != AssignmentAttemptStatus.unsubmitting) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    return _storeAttempt(
+      existing.copyWith(
+        status: AssignmentAttemptStatus.inProgress,
+        clearVideoMetadata: true,
+        clearVideoDeletedAt: true,
+        deletionFailed: false,
+        clearDeletionFailedAt: true,
+      ),
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> saveTeacherReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required int gradeScore,
+    String? feedback,
+    DateTime? reviewedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId ||
+        existing.assignmentId != assignment.id ||
+        existing.attemptKind != AssignmentAttemptKind.teacherReviewSubmission ||
+        !assignment.isTeacherCreated ||
+        assignment.assessmentMode != AssessmentMode.teacherReviewed ||
+        existing.groupId != assignment.groupId ||
+        existing.movementId != assignment.movementId ||
+        existing.revisionId != assignment.revisionId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final storedAssignment = assignments[assignment.id];
+    if (storedAssignment == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (storedAssignment.teacherId != teacherId ||
+        !storedAssignment.isTeacherCreated ||
+        storedAssignment.assessmentMode != AssessmentMode.teacherReviewed ||
+        storedAssignment.groupId != existing.groupId ||
+        storedAssignment.movementId != existing.movementId ||
+        storedAssignment.revisionId != existing.revisionId) {
+      throw const ClassroomException(ClassroomError.identityMismatch);
+    }
+    if (existing.status != AssignmentAttemptStatus.submitted &&
+        existing.status != AssignmentAttemptStatus.checked &&
+        existing.status != AssignmentAttemptStatus.approved &&
+        existing.status != AssignmentAttemptStatus.needsRetry) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final maxScore = existing.gradeMaxScore ?? storedAssignment.maxScore ?? 100;
+    ensureTeacherReviewGrade(gradeScore: gradeScore, maxScore: maxScore);
+    final at = (reviewedAt ?? now).toUtc();
+    final feedbackValue = feedback?.trim();
+    if (feedbackValue != null &&
+        feedbackValue.length >
+            AssignmentSubmissionLimits.reviewFeedbackMaxLength) {
+      throw const ClassroomException(
+        ClassroomError.invalidGrade,
+        'Feedback is too long.',
+      );
+    }
+    final checked = existing.copyWith(
+      status: AssignmentAttemptStatus.checked,
+      gradeScore: gradeScore,
+      gradeMaxScore: maxScore,
+      checkedAt: existing.checkedAt ?? at,
+      reviewUpdatedAt: at,
+      reviewRevision: (existing.reviewRevision ?? 0) + 1,
+      reviewFeedback: feedbackValue == null || feedbackValue.isEmpty
+          ? null
+          : feedbackValue,
+      videoExpiresAt: reviewedVideoExpiresAt(at),
+      clearLegacyReview: true,
+      clearReviewFeedback: feedbackValue == null || feedbackValue.isEmpty,
+      clearResultSent: true,
+    );
+    attempts[existing.id] = checked;
+    if (!storedAssignment.gradingLocked) {
+      assignments[assignment.id] = storedAssignment.copyWith(
+        gradingLocked: true,
+        gradingLockedAt: at,
+      );
+      _emitTeacher(teacherId);
+    }
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return checked;
+  }
+
+  @override
+  Future<GroupAssignment> updateTeacherAssignmentMaxScore({
+    required String teacherId,
+    required String assignmentId,
+    required int maxScore,
+  }) async {
+    ensureTeacherAssignmentMaxScore(maxScore);
+    final existing = assignments[assignmentId];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!existing.isTeacherCreated || existing.gradingLocked) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (attempts.values.any(
+      (attempt) => attempt.assignmentId == assignmentId && attempt.isChecked,
+    )) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final updated = existing.copyWith(maxScore: maxScore);
+    assignments[assignmentId] = updated;
+    _emitTeacher(teacherId);
+    return updated;
+  }
+
+  @override
+  Future<AssignmentAttempt> markTeacherReviewResultSent({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required String messageId,
+    DateTime? sentAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId ||
+        !existing.isChecked ||
+        existing.reviewRevision == null ||
+        messageId.trim().isEmpty ||
+        messageId.trim().length > 256) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (existing.resultSentForCurrentRevision) return existing;
+    return _storeAttempt(
+      existing.copyWith(
+        resultSentRevision: existing.reviewRevision,
+        resultSentAt: (sentAt ?? now).toUtc(),
+        resultMessageId: messageId.trim(),
+      ),
+    );
+  }
+
+  @override
   Future<AssignmentAttempt> reviewTeacherSubmission({
     required String teacherId,
     required AssignmentAttempt attempt,
@@ -399,6 +681,9 @@ class InMemoryClassroomAssignmentRepository
     }
     if (existing.teacherId != teacherId) {
       throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (existing.isCanonicalTeacherReviewSubmission) {
+      throw const ClassroomException(ClassroomError.invalidState);
     }
     if (existing.attemptKind != AssignmentAttemptKind.teacherReviewSubmission ||
         existing.status != AssignmentAttemptStatus.submitted) {
@@ -434,6 +719,10 @@ class InMemoryClassroomAssignmentRepository
     if (existing.traineeId != actorId && existing.teacherId != actorId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (existing.isCanonicalTeacherReviewSubmission &&
+        existing.traineeId == actorId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
     attempts[existing.id] = existing.copyWith(
       clearVideoStoragePath: true,
       videoDeletedAt: deletedAt,
@@ -458,6 +747,11 @@ class InMemoryClassroomAssignmentRepository
     if (existing.traineeId != actorId && existing.teacherId != actorId) {
       throw const ClassroomException(ClassroomError.forbidden);
     }
+    if (existing.isCanonicalTeacherReviewSubmission &&
+        (existing.traineeId != actorId ||
+            existing.status != AssignmentAttemptStatus.unsubmitting)) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
     attempts[existing.id] = existing.copyWith(
       deletionFailed: true,
       deletionFailedAt: failedAt,
@@ -465,6 +759,31 @@ class InMemoryClassroomAssignmentRepository
     _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
     _emitTraineeAttempts(existing.traineeId);
     _emitTeacherAttempts(existing.teacherId);
+  }
+
+  bool _sameCanonicalSubmissionIdentity(
+    AssignmentAttempt existing,
+    AssignmentAttempt canonical,
+  ) {
+    return existing.isCanonicalTeacherReviewSubmission &&
+        existing.traineeId == canonical.traineeId &&
+        existing.teacherId == canonical.teacherId &&
+        existing.groupId == canonical.groupId &&
+        existing.assignmentId == canonical.assignmentId &&
+        existing.movementId == canonical.movementId &&
+        existing.revisionId == canonical.revisionId &&
+        existing.origin == canonical.origin &&
+        existing.assessmentMode == canonical.assessmentMode &&
+        existing.attemptKind == canonical.attemptKind &&
+        existing.supersedesAttemptId == null;
+  }
+
+  AssignmentAttempt _storeAttempt(AssignmentAttempt value) {
+    attempts[value.id] = value;
+    _emitAssignmentAttempts(value.teacherId, value.assignmentId);
+    _emitTraineeAttempts(value.traineeId);
+    _emitTeacherAttempts(value.teacherId);
+    return value;
   }
 
   void seedAssignment(GroupAssignment assignment) {

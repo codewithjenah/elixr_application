@@ -41,6 +41,9 @@ class GroupAssignment {
     this.displaySafetyGuidance,
     this.allowedProp,
     this.assessmentSpec,
+    this.maxScore,
+    this.gradingLocked = false,
+    this.gradingLockedAt,
     this.dueAt,
     this.createdAt,
     this.updatedAt,
@@ -64,6 +67,15 @@ class GroupAssignment {
 
   /// Historical `assessment_spec` payload, parsed only for retired records.
   final AssessmentSpec? assessmentSpec;
+
+  /// Maximum score for a Teacher-created recorded assignment.
+  ///
+  /// Older assignment documents did not persist a maximum. They are exposed
+  /// as `/100` for compatibility, while all new Teacher-created assignments
+  /// write the explicit field.
+  final int? maxScore;
+  final bool gradingLocked;
+  final DateTime? gradingLockedAt;
   final DateTime? dueAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -77,6 +89,43 @@ class GroupAssignment {
     final due = dueAt;
     if (due == null || !isActive) return false;
     return DateTime.now().toUtc().isAfter(due.toUtc());
+  }
+
+  GroupAssignment copyWith({
+    GroupAssignmentStatus? status,
+    int? maxScore,
+    bool? gradingLocked,
+    DateTime? gradingLockedAt,
+    DateTime? dueAt,
+    bool clearGradingLockedAt = false,
+    bool clearDueAt = false,
+  }) {
+    return GroupAssignment(
+      id: id,
+      teacherId: teacherId,
+      groupId: groupId,
+      movementId: movementId,
+      revisionId: revisionId,
+      origin: origin,
+      assessmentMode: assessmentMode,
+      status: status ?? this.status,
+      displayTitle: displayTitle,
+      teacherDisplayName: teacherDisplayName,
+      groupName: groupName,
+      officialMovementName: officialMovementName,
+      displayInstructions: displayInstructions,
+      displaySafetyGuidance: displaySafetyGuidance,
+      allowedProp: allowedProp,
+      assessmentSpec: assessmentSpec,
+      maxScore: maxScore ?? this.maxScore,
+      gradingLocked: gradingLocked ?? this.gradingLocked,
+      gradingLockedAt: clearGradingLockedAt
+          ? null
+          : (gradingLockedAt ?? this.gradingLockedAt),
+      dueAt: clearDueAt ? null : (dueAt ?? this.dueAt),
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
   }
 
   static GroupAssignment? tryFromMap(
@@ -131,6 +180,14 @@ class GroupAssignment {
     if (origin == MovementOrigin.officialElixr) {
       if (officialName == null || officialName.isEmpty) return null;
       if (assessmentMode != AssessmentMode.officialGuided) return null;
+      if (map.keys.any(
+        (key) =>
+            key == 'max_score' ||
+            key == 'grading_locked' ||
+            key == 'grading_locked_at',
+      )) {
+        return null;
+      }
     } else {
       if (officialName != null) return null;
       if (assessmentMode != AssessmentMode.teacherReviewed &&
@@ -160,6 +217,38 @@ class GroupAssignment {
       if (assessmentSpec.prop != AssessmentProp.bottle) return null;
     }
 
+    int? maxScore;
+    var gradingLocked = false;
+    DateTime? gradingLockedAt;
+    if (origin == MovementOrigin.teacherCreated &&
+        assessmentMode == AssessmentMode.teacherReviewed) {
+      if (map.containsKey('max_score')) {
+        maxScore = _readScore(map['max_score']);
+        if (maxScore == null) return null;
+      } else {
+        // Compatibility for Phase 5/6 records created before grading became
+        // an explicit assignment-level contract.
+        maxScore = 100;
+      }
+      if (map.containsKey('grading_locked')) {
+        if (map['grading_locked'] is! bool) return null;
+        gradingLocked = map['grading_locked'] as bool;
+      }
+      if (map.containsKey('grading_locked_at')) {
+        gradingLockedAt = TeacherRosterInvite.readDateTime(
+          map['grading_locked_at'],
+        );
+        if (gradingLockedAt == null || !gradingLocked) return null;
+      }
+    } else if (map.keys.any(
+      (key) =>
+          key == 'max_score' ||
+          key == 'grading_locked' ||
+          key == 'grading_locked_at',
+    )) {
+      return null;
+    }
+
     return GroupAssignment(
       id: id,
       teacherId: teacherId,
@@ -185,6 +274,9 @@ class GroupAssignment {
       ),
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
+      maxScore: maxScore,
+      gradingLocked: gradingLocked,
+      gradingLockedAt: gradingLockedAt,
       dueAt: TeacherRosterInvite.readDateTime(map['due_at']),
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       updatedAt: TeacherRosterInvite.readDateTime(map['updated_at']),
@@ -209,5 +301,10 @@ class GroupAssignment {
     if (trimmed.isEmpty) return allowEmpty ? null : null;
     if (trimmed.length > maxLength) return null;
     return trimmed;
+  }
+
+  static int? _readScore(Object? value) {
+    if (value is! int || value < 1 || value > 100) return null;
+    return value;
   }
 }

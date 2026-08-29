@@ -1,6 +1,7 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
+import 'package:elixr_application/data/models/assignment_submission_limits.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -515,4 +516,175 @@ void main() {
     expect(assignment.assessmentMode, AssessmentMode.teacherReviewed);
     expect(assignment.assessmentSpec, isNull);
   });
+
+  test(
+    'canonical submission can be withdrawn, checked, revised, and sent once per revision',
+    () async {
+      final movement = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Tin Balance',
+        instructions: 'First.',
+        requiredProp: TrainingProp.bottle,
+      );
+      final revision = (await movements.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      ))!;
+      var assignment = await assignments.createTeacherCreatedAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        movement: movement,
+        revision: revision,
+        maxScore: 80,
+      );
+
+      final first = await assignments.getOrCreateTeacherReviewSubmission(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      );
+      final same = await assignments.getOrCreateTeacherReviewSubmission(
+        traineeId: 'trainee-1',
+        assignment: assignment,
+      );
+      expect(
+        first.id,
+        canonicalTeacherReviewSubmissionAttemptId(
+          assignmentId: assignment.id,
+          traineeId: 'trainee-1',
+        ),
+      );
+      expect(first.status, AssignmentAttemptStatus.inProgress);
+      expect(same.id, first.id);
+
+      final submittedAt = DateTime.utc(2026, 8, 20, 10);
+      final submitted = await assignments.markTeacherReviewSubmitted(
+        traineeId: 'trainee-1',
+        attempt: first,
+        videoStoragePath: assignmentSubmissionStoragePath(
+          teacherId: assignment.teacherId,
+          groupId: assignment.groupId,
+          assignmentId: assignment.id,
+          traineeId: 'trainee-1',
+          attemptId: first.id,
+        ),
+        videoContentType: 'video/mp4',
+        videoSizeBytes: 2048,
+        videoDurationMs: 4000,
+        submittedAt: submittedAt,
+        videoExpiresAt: DateTime.utc(2026, 9, 19),
+      );
+      expect(submitted.status, AssignmentAttemptStatus.submitted);
+
+      final unsubmitting = await assignments.beginTeacherReviewUnsubmit(
+        traineeId: 'trainee-1',
+        attempt: submitted,
+      );
+      expect(unsubmitting.status, AssignmentAttemptStatus.unsubmitting);
+      expect(
+        (await assignments.getOrCreateTeacherReviewSubmission(
+          traineeId: 'trainee-1',
+          assignment: assignment,
+        )).status,
+        AssignmentAttemptStatus.unsubmitting,
+      );
+      final returnedToDraft = await assignments.completeTeacherReviewUnsubmit(
+        traineeId: 'trainee-1',
+        attempt: unsubmitting,
+      );
+      expect(returnedToDraft.id, first.id);
+      expect(returnedToDraft.status, AssignmentAttemptStatus.inProgress);
+      expect(returnedToDraft.videoStoragePath, isNull);
+      expect(returnedToDraft.submittedAt, isNull);
+
+      assignment = await assignments.updateTeacherAssignmentMaxScore(
+        teacherId: 'teacher-1',
+        assignmentId: assignment.id,
+        maxScore: 90,
+      );
+      final resubmitted = await assignments.markTeacherReviewSubmitted(
+        traineeId: 'trainee-1',
+        attempt: returnedToDraft,
+        videoStoragePath: assignmentSubmissionStoragePath(
+          teacherId: assignment.teacherId,
+          groupId: assignment.groupId,
+          assignmentId: assignment.id,
+          traineeId: 'trainee-1',
+          attemptId: returnedToDraft.id,
+        ),
+        videoContentType: 'video/mp4',
+        videoSizeBytes: 2048,
+        videoDurationMs: 4000,
+        submittedAt: submittedAt,
+        videoExpiresAt: DateTime.utc(2026, 9, 19),
+      );
+      final checked = await assignments.saveTeacherReview(
+        teacherId: 'teacher-1',
+        attempt: resubmitted,
+        assignment: assignment,
+        gradeScore: 87,
+        feedback: 'Good control.',
+        reviewedAt: DateTime.utc(2026, 8, 21),
+      );
+      expect(checked.status, AssignmentAttemptStatus.checked);
+      expect(checked.gradeScore, 87);
+      expect(checked.gradeMaxScore, 90);
+      expect(checked.reviewRevision, 1);
+      expect(checked.resultSentForCurrentRevision, isFalse);
+
+      final lockedAssignment = (await assignments.getAssignment(
+        assignmentId: assignment.id,
+      ))!;
+      expect(lockedAssignment.gradingLocked, isTrue);
+      expect(lockedAssignment.maxScore, 90);
+      expect(
+        () => assignments.updateTeacherAssignmentMaxScore(
+          teacherId: 'teacher-1',
+          assignmentId: assignment.id,
+          maxScore: 95,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.invalidState,
+          ),
+        ),
+      );
+
+      final sent = await assignments.markTeacherReviewResultSent(
+        teacherId: 'teacher-1',
+        attempt: checked,
+        messageId: 'message-1',
+        sentAt: DateTime.utc(2026, 8, 21, 1),
+      );
+      final retriedSend = await assignments.markTeacherReviewResultSent(
+        teacherId: 'teacher-1',
+        attempt: sent,
+        messageId: 'message-1',
+        sentAt: DateTime.utc(2026, 8, 21, 2),
+      );
+      expect(sent.resultSentRevision, 1);
+      expect(sent.resultMessageId, 'message-1');
+      expect(retriedSend.resultSentAt, sent.resultSentAt);
+
+      final revised = await assignments.saveTeacherReview(
+        teacherId: 'teacher-1',
+        attempt: sent,
+        assignment: lockedAssignment,
+        gradeScore: 80,
+        reviewedAt: DateTime.utc(2026, 8, 22),
+      );
+      expect(revised.reviewRevision, 2);
+      expect(revised.resultSentRevision, isNull);
+      expect(revised.resultMessageId, isNull);
+      expect(
+        () => assignments.beginTeacherReviewUnsubmit(
+          traineeId: 'trainee-1',
+          attempt: revised,
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+    },
+  );
 }

@@ -43,7 +43,7 @@ class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
   int startCalls = 0;
 
   @override
-  Future<AssignmentAttempt> startTeacherCreatedAttempt({
+  Future<AssignmentAttempt> getOrCreateTeacherReviewSubmission({
     required String traineeId,
     required GroupAssignment assignment,
   }) async {
@@ -52,7 +52,7 @@ class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
     if (delay != null) {
       await Future<void>.delayed(delay);
     }
-    return super.startTeacherCreatedAttempt(
+    return super.getOrCreateTeacherReviewSubmission(
       traineeId: traineeId,
       assignment: assignment,
     );

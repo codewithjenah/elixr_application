@@ -68,7 +68,7 @@ service firebase.storage {
     // uploads object bytes first, then PATCHes custom metadata. Never trust
     // custom metadata as the only identifier during CREATE/DELETE.
     function isCanonicalAssignmentMp4Name(fileName) {
-      return fileName.matches('^review_sub_[A-Za-z0-9]+[.]mp4$');
+      return fileName.matches('^review_sub_[A-Za-z0-9_-]+[.]mp4$');
     }
 
     function attemptIdFromCanonicalFileName(fileName) {
@@ -154,7 +154,12 @@ service firebase.storage {
     }
 
     function isReviewableSubmissionStatus(status) {
-      return status in ['submitted', 'approved', 'needs_retry'];
+      return status in ['submitted', 'approved', 'needs_retry', 'checked'];
+    }
+
+    function isCanonicalSubmissionAttempt(attemptId, attempt) {
+      return attemptId == 'review_sub_' + attempt.assignment_id + '_'
+        + attempt.trainee_id;
     }
 
     function isAbandonedTeacherReviewAnchor(attempt) {
@@ -231,7 +236,13 @@ service firebase.storage {
           teacherId, groupId, assignmentId, traineeId, attemptId, attempt
         )
         && (
-          request.auth.uid == traineeId
+          (
+            request.auth.uid == traineeId
+            && (
+              !isCanonicalSubmissionAttempt(attemptId, attempt)
+              || attempt.status != 'unsubmitting'
+            )
+          )
           || (
             request.auth.uid == teacherId
             && isReviewableSubmissionStatus(attempt.status)
@@ -248,7 +259,14 @@ service firebase.storage {
           attempt, teacherId, groupId, assignmentId, traineeId, attemptId
         )
         && (
-          request.auth.uid == traineeId
+          (
+            request.auth.uid == traineeId
+            && (
+              isCanonicalSubmissionAttempt(attemptId, attempt)
+                ? attempt.status == 'unsubmitting'
+                : true
+            )
+          )
           || (
             request.auth.uid == teacherId
             && (

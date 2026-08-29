@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/models/chat_user.dart';
+import 'package:elixr_core/repositories/chat_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
@@ -27,20 +29,27 @@ class TeacherAssignmentRosterCounts {
     required this.approved,
     required this.needsRetry,
     required this.notTurnedIn,
-  });
+    int? awaitingCheck,
+    int? checked,
+  }) : awaitingCheck = awaitingCheck ?? awaitingReview,
+       checked = checked ?? approved;
 
   const TeacherAssignmentRosterCounts.empty()
     : turnedIn = 0,
       awaitingReview = 0,
       approved = 0,
       needsRetry = 0,
-      notTurnedIn = 0;
+      notTurnedIn = 0,
+      awaitingCheck = 0,
+      checked = 0;
 
   final int turnedIn;
   final int awaitingReview;
   final int approved;
   final int needsRetry;
   final int notTurnedIn;
+  final int awaitingCheck;
+  final int checked;
 }
 
 class TeacherMovementsController extends ChangeNotifier {
@@ -51,6 +60,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required this.movementRepository,
     required this.assignmentRepository,
     this.submissionRepository,
+    this.chatRepository,
   });
 
   final String teacherId;
@@ -59,6 +69,7 @@ class TeacherMovementsController extends ChangeNotifier {
   final TeacherMovementRepository movementRepository;
   final ClassroomAssignmentRepository assignmentRepository;
   final AssignmentSubmissionRepository? submissionRepository;
+  final ChatRepository? chatRepository;
 
   TeacherMovementsTab tab = TeacherMovementsTab.official;
   List<ElixrGroup> groups = const [];
@@ -155,11 +166,16 @@ class TeacherMovementsController extends ChangeNotifier {
     required String assignmentId,
     required String traineeId,
   }) {
+    AssignmentAttempt? canonical;
     AssignmentAttempt? latest;
     for (final attempt in attempts) {
       if (attempt.assignmentId != assignmentId) continue;
       if (attempt.traineeId != traineeId) continue;
       if (attempt.isAbandonedTeacherReviewDraft) continue;
+      if (attempt.isCanonicalTeacherReviewSubmission) {
+        canonical = attempt;
+        continue;
+      }
       if (latest == null) {
         latest = attempt;
         continue;
@@ -170,7 +186,7 @@ class TeacherMovementsController extends ChangeNotifier {
           latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       if (attemptAt.isAfter(latestAt)) latest = attempt;
     }
-    return latest;
+    return canonical ?? latest;
   }
 
   TeacherAssignmentRosterCounts rosterCountsFor(String assignmentId) {
@@ -183,21 +199,37 @@ class TeacherMovementsController extends ChangeNotifier {
     var awaitingReview = 0;
     var approved = 0;
     var needsRetry = 0;
+    var awaitingCheck = 0;
+    var checked = 0;
     var notTurnedIn = 0;
     for (final member in members) {
       final attempt = latestVisibleAttemptFor(
         assignmentId: assignmentId,
         traineeId: member.traineeId,
       );
-      if (!_isTurnedInAttempt(attempt)) {
+      if (attempt == null || !_isTurnedInAttempt(attempt)) {
+        notTurnedIn++;
+        continue;
+      }
+      final turnedInAttempt = attempt;
+      if (turnedInAttempt.isCanonicalTeacherReviewSubmission &&
+          turnedInAttempt.status == AssignmentAttemptStatus.unsubmitting) {
         notTurnedIn++;
         continue;
       }
       turnedIn++;
-      if (!attempt!.isReviewFacingSubmission) continue;
-      switch (attempt.status) {
+      if (!turnedInAttempt.isReviewFacingSubmission) continue;
+      switch (turnedInAttempt.status) {
         case AssignmentAttemptStatus.submitted:
-          awaitingReview++;
+          if (turnedInAttempt.isCanonicalTeacherReviewSubmission) {
+            awaitingCheck++;
+          } else {
+            awaitingReview++;
+          }
+        case AssignmentAttemptStatus.unsubmitting:
+          break;
+        case AssignmentAttemptStatus.checked:
+          checked++;
         case AssignmentAttemptStatus.approved:
           approved++;
         case AssignmentAttemptStatus.needsRetry:
@@ -213,6 +245,8 @@ class TeacherMovementsController extends ChangeNotifier {
       approved: approved,
       needsRetry: needsRetry,
       notTurnedIn: notTurnedIn,
+      awaitingCheck: awaitingCheck,
+      checked: checked,
     );
   }
 
@@ -229,7 +263,11 @@ class TeacherMovementsController extends ChangeNotifier {
 
   List<AssignmentAttempt> get reviewQueue {
     final queued = attempts
-        .where((attempt) => attempt.isReviewFacingSubmission)
+        .where(
+          (attempt) =>
+              attempt.isReviewFacingSubmission &&
+              attempt.status == AssignmentAttemptStatus.submitted,
+        )
         .toList();
     queued.sort((a, b) {
       final aAt =
@@ -372,6 +410,78 @@ class TeacherMovementsController extends ChangeNotifier {
     });
   }
 
+  Future<void> saveSelectedReview({
+    required int gradeScore,
+    String? feedback,
+  }) async {
+    final attempt = selectedReview;
+    final assignment = attempt == null ? null : assignmentFor(attempt);
+    if (attempt == null || assignment == null) return;
+    await _runWrite(() async {
+      selectedReview = await assignmentRepository.saveTeacherReview(
+        teacherId: teacherId,
+        attempt: attempt,
+        assignment: assignment,
+        gradeScore: gradeScore,
+        feedback: feedback,
+        reviewedAt: DateTime.now().toUtc(),
+      );
+      reviewFeedbackDraft = selectedReview?.reviewFeedback;
+    });
+  }
+
+  Future<void> sendSelectedReviewResult() async {
+    final attempt = selectedReview;
+    final assignment = attempt == null ? null : assignmentFor(attempt);
+    final chat = chatRepository;
+    if (attempt == null || assignment == null) return;
+    if (chat == null) {
+      errorMessage = 'Messaging is unavailable. The checked review is saved.';
+      notifyListeners();
+      return;
+    }
+    if (!attempt.isChecked ||
+        attempt.gradeScore == null ||
+        attempt.gradeMaxScore == null ||
+        attempt.reviewRevision == null) {
+      return;
+    }
+    if (attempt.resultSentForCurrentRevision) return;
+    final earnedScore = attempt.gradeScore;
+    final maxScore = attempt.gradeMaxScore;
+    final reviewRevision = attempt.reviewRevision;
+    if (earnedScore == null || maxScore == null || reviewRevision == null) {
+      return;
+    }
+    await _runWrite(() async {
+      final message = await chat.sendAssignmentResult(
+        sender: ChatUser(
+          id: teacherId,
+          displayName: teacherDisplayName,
+          role: 'Teacher',
+        ),
+        recipient: ChatUser(
+          id: attempt.traineeId,
+          displayName: traineeName(attempt.traineeId),
+          role: 'Trainee',
+        ),
+        movementTitle: assignment.displayTitle,
+        earnedScore: earnedScore,
+        maxScore: maxScore,
+        feedback: attempt.reviewFeedback,
+        submissionId: attempt.id,
+        reviewRevision: reviewRevision,
+      );
+      selectedReview = await assignmentRepository.markTeacherReviewResultSent(
+        teacherId: teacherId,
+        attempt: attempt,
+        messageId: message.id,
+        sentAt: DateTime.now().toUtc(),
+      );
+      reviewFeedbackDraft = selectedReview?.reviewFeedback;
+    });
+  }
+
   Future<void> _reconcileExpired() async {
     final repo = submissionRepository;
     if (repo == null) return;
@@ -492,6 +602,7 @@ class TeacherMovementsController extends ChangeNotifier {
   Future<void> assignTeacherCreated({
     required TeacherMovement movement,
     required ElixrGroup group,
+    int maxScore = 100,
     DateTime? dueAt,
   }) {
     return _runWrite(() async {
@@ -508,7 +619,21 @@ class TeacherMovementsController extends ChangeNotifier {
         group: group,
         movement: movement,
         revision: revision,
+        maxScore: maxScore,
         dueAt: dueAt,
+      );
+    });
+  }
+
+  Future<void> editAssignmentMaxScore({
+    required String assignmentId,
+    required int maxScore,
+  }) {
+    return _runWrite(() async {
+      await assignmentRepository.updateTeacherAssignmentMaxScore(
+        teacherId: teacherId,
+        assignmentId: assignmentId,
+        maxScore: maxScore,
       );
     });
   }

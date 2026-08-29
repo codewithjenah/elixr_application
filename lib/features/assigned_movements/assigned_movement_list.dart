@@ -9,6 +9,7 @@ import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/repositories/classroom_assignment_repository.dart';
 import 'assigned_movements_controller.dart';
 
 const double _classworkWideBreakpoint = 1080;
@@ -282,7 +283,11 @@ class _AssignedMovementCardState extends State<_AssignedMovementCard> {
   @override
   Widget build(BuildContext context) {
     final assignment = widget.item.assignment;
-    final canStart = assignment.isActive && !assignment.isRetiredTemplate;
+    final canStart = canStartAssignedMovement(
+      assignment,
+      widget.item.attempt,
+      widget.item.latestSubmission,
+    );
     final accent = assignment.isOfficial ? AppColors.accent : AppColors.primary;
     final accentEnd = assignment.isOfficial
         ? AppColors.primary
@@ -575,15 +580,55 @@ String assignedMovementActionLabel(
   AssignmentAttempt? attempt,
 ) {
   if (assignment.isRetiredTemplate) return 'Retired';
+  if (assignment.isTeacherCreated &&
+      (attempt == null ||
+          attempt.status == AssignmentAttemptStatus.draft ||
+          attempt.status == AssignmentAttemptStatus.inProgress) &&
+      !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
+    return 'Overdue';
+  }
   if (attempt == null) return 'Start practice';
+  if (assignment.isTeacherCreated &&
+      attempt.isCanonicalTeacherReviewSubmission) {
+    return switch (attempt.status) {
+      AssignmentAttemptStatus.draft ||
+      AssignmentAttemptStatus.inProgress => 'Continue practice',
+      AssignmentAttemptStatus.submitted => 'Awaiting check',
+      AssignmentAttemptStatus.unsubmitting => 'Withdrawing',
+      AssignmentAttemptStatus.checked => 'Checked',
+      AssignmentAttemptStatus.approved ||
+      AssignmentAttemptStatus.needsRetry => 'Historical review',
+    };
+  }
   if (attempt.status == AssignmentAttemptStatus.needsRetry) {
-    return 'Record again';
+    return 'Historical needs retry';
   }
   if (attempt.status == AssignmentAttemptStatus.inProgress ||
       attempt.status == AssignmentAttemptStatus.draft) {
     return 'Continue practice';
   }
-  return 'Practice again';
+  if (attempt.status == AssignmentAttemptStatus.submitted) {
+    return 'Awaiting check';
+  }
+  if (attempt.status == AssignmentAttemptStatus.checked) return 'Checked';
+  if (attempt.status == AssignmentAttemptStatus.unsubmitting) {
+    return 'Withdrawing';
+  }
+  return 'Historical review';
+}
+
+bool canStartAssignedMovement(
+  GroupAssignment assignment,
+  AssignmentAttempt? attempt,
+  AssignmentAttempt? submission,
+) {
+  if (!assignment.isActive || assignment.isRetiredTemplate) return false;
+  if (!assignment.isTeacherCreated) return true;
+  if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) return false;
+  final current = submission ?? attempt;
+  return current == null ||
+      current.status == AssignmentAttemptStatus.draft ||
+      current.status == AssignmentAttemptStatus.inProgress;
 }
 
 String assignedMovementDueLabel(GroupAssignment assignment) {
@@ -640,7 +685,12 @@ String assignedMovementStatusLabel(
     return switch (current.status) {
       AssignmentAttemptStatus.draft ||
       AssignmentAttemptStatus.inProgress => 'Not submitted',
-      AssignmentAttemptStatus.submitted => 'Awaiting review',
+      AssignmentAttemptStatus.submitted =>
+        current.isCanonicalTeacherReviewSubmission
+            ? 'Awaiting check'
+            : 'Awaiting review',
+      AssignmentAttemptStatus.unsubmitting => 'Withdrawing',
+      AssignmentAttemptStatus.checked => 'Checked',
       AssignmentAttemptStatus.approved => 'Approved',
       AssignmentAttemptStatus.needsRetry => 'Needs retry',
     };
@@ -650,6 +700,8 @@ String assignedMovementStatusLabel(
     AssignmentAttemptStatus.draft => 'Draft',
     AssignmentAttemptStatus.inProgress => 'In progress',
     AssignmentAttemptStatus.submitted => 'Submitted',
+    AssignmentAttemptStatus.unsubmitting => 'Withdrawing',
+    AssignmentAttemptStatus.checked => 'Checked',
     AssignmentAttemptStatus.approved => 'Approved',
     AssignmentAttemptStatus.needsRetry => 'Needs retry',
   };
@@ -663,9 +715,10 @@ Color assignedMovementStatusColor(
   if (assignment.isRetiredTemplate) return AppColors.warning;
   final label = assignedMovementStatusLabel(assignment, attempt, submission);
   return switch (label) {
-    'Approved' => AppColors.success,
-    'Awaiting review' || 'Submitted' => AppColors.accent,
+    'Approved' || 'Checked' => AppColors.success,
+    'Awaiting review' || 'Awaiting check' || 'Submitted' => AppColors.accent,
     'Needs retry' => AppColors.error,
+    'Withdrawing' => AppColors.warning,
     'In progress' || 'Draft' => AppColors.primary,
     _ => AppColors.accentSoft,
   };
@@ -704,6 +757,15 @@ String? assignedMovementDetailLine(
   if (assignment.isTeacherCreated) {
     final current = submission ?? attempt;
     final feedback = current?.reviewFeedback?.trim();
+    if (current?.isChecked == true &&
+        current?.gradeScore != null &&
+        current?.gradeMaxScore != null) {
+      final score = 'Score ${current!.gradeScore}/${current.gradeMaxScore}';
+      if (feedback != null && feedback.isNotEmpty) {
+        return '$score · $feedback';
+      }
+      return score;
+    }
     if (current?.status == AssignmentAttemptStatus.needsRetry &&
         feedback != null &&
         feedback.isNotEmpty) {

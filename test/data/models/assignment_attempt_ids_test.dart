@@ -33,4 +33,44 @@ void main() {
     );
     expect(generated, 'review_sub_Token42');
   });
+
+  test(
+    'canonical review submission id is stable for assignment and trainee',
+    () {
+      final first = assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+        assignmentId: 'asg1',
+        traineeId: 'trainee-1',
+      );
+      final second = assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+        assignmentId: 'asg1',
+        traineeId: 'trainee-1',
+      );
+
+      expect(first, 'review_sub_asg1_trainee-1');
+      expect(second, first);
+      expect(
+        isCanonicalTeacherReviewSubmissionId(
+          id: first,
+          assignmentId: 'asg1',
+          traineeId: 'trainee-1',
+        ),
+        isTrue,
+      );
+      expect(
+        isCanonicalTeacherReviewSubmissionId(
+          id: first,
+          assignmentId: 'asg1',
+          traineeId: 'other-trainee',
+        ),
+        isFalse,
+      );
+      expect(
+        () => assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+          assignmentId: 'asg/1',
+          traineeId: 'trainee-1',
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
 }

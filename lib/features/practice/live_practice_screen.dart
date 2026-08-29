@@ -13,6 +13,7 @@ import '../../core/constants/music_tracks.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../data/models/assignment_attempt.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
@@ -374,10 +375,20 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       if (traineeId == null || _leaving || !mounted) return;
       final assignmentRepo = context.read<ClassroomAssignmentRepository>();
       try {
-        await assignmentRepo.startTeacherCreatedAttempt(
-          traineeId: traineeId,
-          assignment: assignment.assignment,
-        );
+        final submission = await assignmentRepo
+            .getOrCreateTeacherReviewSubmission(
+              traineeId: traineeId,
+              assignment: assignment.assignment,
+            );
+        if (submission.status != AssignmentAttemptStatus.inProgress) {
+          if (!mounted) return;
+          setState(() {
+            _sessionError = submission.status == AssignmentAttemptStatus.checked
+                ? 'This assignment has already been checked.'
+                : 'This submission is waiting for your teacher to check it.';
+          });
+          return;
+        }
       } catch (_) {
         if (!mounted) return;
         setState(() {

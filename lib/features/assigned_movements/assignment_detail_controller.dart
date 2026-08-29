@@ -5,6 +5,7 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/models/assignment_attempt.dart';
+import '../../data/models/assignment_submission_limits.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -30,6 +31,8 @@ class AssignmentDetailController extends ChangeNotifier {
   bool loading = false;
   String? errorMessage;
   bool authorized = false;
+  bool unsubmitBusy = false;
+  String? unsubmitErrorMessage;
 
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
@@ -47,10 +50,97 @@ class AssignmentDetailController extends ChangeNotifier {
   /// Newest clip the trainee actually turned in, so Your work can replay it
   /// even if a later draft exists.
   AssignmentAttempt? get latestClipSubmission {
+    AssignmentAttempt? canonical;
+    for (final attempt in attempts) {
+      if (attempt.isCanonicalTeacherReviewSubmission) {
+        canonical = attempt;
+        break;
+      }
+    }
+    // Once the deterministic new-flow record exists, legacy random attempts
+    // must not leak back into the trainee workflow.  A draft/in-progress
+    // canonical record means there is currently no submitted clip to show.
+    if (canonical != null) {
+      return canonical.isReviewFacingSubmission ? canonical : null;
+    }
     for (final attempt in attempts) {
       if (attempt.isReviewFacingSubmission) return attempt;
     }
     return null;
+  }
+
+  AssignmentAttempt? get currentSubmission => latestClipSubmission;
+
+  bool get canUnsubmit {
+    final current = currentSubmission;
+    final currentAssignment = assignment;
+    if (current == null || currentAssignment == null) return false;
+    if (!current.isCanonicalTeacherReviewSubmission ||
+        (current.status != AssignmentAttemptStatus.submitted &&
+            current.status != AssignmentAttemptStatus.unsubmitting)) {
+      return false;
+    }
+    if (current.status == AssignmentAttemptStatus.unsubmitting) return true;
+    return isTeacherAssignmentSubmissionOpen(assignment: currentAssignment);
+  }
+
+  Future<bool> unsubmit() async {
+    final repo = submissionRepository;
+    final currentAssignment = assignment;
+    final current = currentSubmission;
+    if (repo == null || currentAssignment == null || current == null) {
+      return false;
+    }
+    if (!canUnsubmit) {
+      unsubmitErrorMessage = currentAssignment.isOverdue
+          ? 'This assignment is past its due date.'
+          : 'This submission can no longer be withdrawn.';
+      _notify();
+      return false;
+    }
+    unsubmitBusy = true;
+    unsubmitErrorMessage = null;
+    _notify();
+    try {
+      final withdrawing = await assignmentRepository.beginTeacherReviewUnsubmit(
+        traineeId: traineeId,
+        attempt: current,
+      );
+      final path =
+          withdrawing.videoStoragePath ??
+          assignmentSubmissionStoragePath(
+            teacherId: withdrawing.teacherId,
+            groupId: withdrawing.groupId,
+            assignmentId: withdrawing.assignmentId,
+            traineeId: withdrawing.traineeId,
+            attemptId: withdrawing.id,
+          );
+      try {
+        await repo.deleteSubmissionObject(path);
+      } catch (error) {
+        try {
+          await assignmentRepository.markSubmissionDeletionFailed(
+            actorId: traineeId,
+            attempt: withdrawing,
+            failedAt: DateTime.now().toUtc(),
+          );
+        } catch (_) {}
+        rethrow;
+      }
+      await assignmentRepository.completeTeacherReviewUnsubmit(
+        traineeId: traineeId,
+        attempt: withdrawing,
+      );
+      unsubmitBusy = false;
+      _notify();
+      return true;
+    } catch (_) {
+      unsubmitBusy = false;
+      unsubmitErrorMessage =
+          'The clip could not be removed. Try again to finish withdrawing it.';
+      _notify();
+      return false;
+    }
   }
 
   Future<void> start() async {
@@ -184,6 +274,10 @@ class AssignmentDetailController extends ChangeNotifier {
           attempt,
     ];
     filtered.sort((a, b) {
+      if (a.isCanonicalTeacherReviewSubmission !=
+          b.isCanonicalTeacherReviewSubmission) {
+        return a.isCanonicalTeacherReviewSubmission ? -1 : 1;
+      }
       final aAt = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bAt = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bAt.compareTo(aAt);

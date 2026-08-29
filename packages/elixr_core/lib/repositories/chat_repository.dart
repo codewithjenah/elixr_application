@@ -46,7 +46,88 @@ abstract class ChatRepository {
     required ChatUser sender,
     required ChatUser recipient,
     required String body,
+    String? idempotencyKey,
   });
+
+  /// Sends the canonical teacher-review result message.
+  ///
+  /// The submission id and review revision form an idempotency key, so a
+  /// retry after a network or Firestore acknowledgement failure cannot create
+  /// a second result message for the same revision.
+  Future<ChatMessage> sendAssignmentResult({
+    required ChatUser sender,
+    required ChatUser recipient,
+    required String movementTitle,
+    required int earnedScore,
+    required int maxScore,
+    String? feedback,
+    required String submissionId,
+    required int reviewRevision,
+  }) {
+    final messageBody = formatAssignmentResultBody(
+      movementTitle: movementTitle,
+      earnedScore: earnedScore,
+      maxScore: maxScore,
+      feedback: feedback,
+      submissionId: submissionId,
+      reviewRevision: reviewRevision,
+    );
+    return sendMessage(
+      sender: sender,
+      recipient: recipient,
+      body: messageBody,
+      idempotencyKey: assignmentResultIdempotencyKey(
+        submissionId: submissionId,
+        reviewRevision: reviewRevision,
+      ),
+    );
+  }
+
+  static String formatAssignmentResultBody({
+    required String movementTitle,
+    required int earnedScore,
+    required int maxScore,
+    String? feedback,
+    required String submissionId,
+    required int reviewRevision,
+  }) {
+    if (movementTitle.trim().isEmpty || submissionId.trim().isEmpty) {
+      throw ArgumentError('Assignment result identity is required.');
+    }
+    if (maxScore < 1 ||
+        maxScore > 100 ||
+        earnedScore < 0 ||
+        earnedScore > maxScore) {
+      throw ArgumentError('Assignment result score is outside its bounds.');
+    }
+    if (reviewRevision < 1) {
+      throw ArgumentError.value(reviewRevision, 'reviewRevision');
+    }
+    final normalizedFeedback = feedback?.trim();
+    final body = StringBuffer()
+      ..writeln(movementTitle.trim())
+      ..write('Score: $earnedScore/$maxScore');
+    if (normalizedFeedback != null && normalizedFeedback.isNotEmpty) {
+      body
+        ..writeln()
+        ..write('Feedback: $normalizedFeedback');
+    }
+    final messageBody = body.toString();
+    final validation = ChatMessage.validateBody(messageBody);
+    if (validation != null) throw ArgumentError(validation);
+    return messageBody;
+  }
+
+  static String assignmentResultIdempotencyKey({
+    required String submissionId,
+    required int reviewRevision,
+  }) {
+    if (submissionId.trim().isEmpty || reviewRevision < 1) {
+      throw ArgumentError('Assignment result idempotency identity is invalid.');
+    }
+    return '${submissionId.trim()}:$reviewRevision';
+  }
+
   Future<void> editMessage({
     required String conversationId,
     required String messageId,

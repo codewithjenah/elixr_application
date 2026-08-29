@@ -142,6 +142,7 @@ class AssignedMovementsController extends ChangeNotifier {
   void _rebuildItems() {
     final latestByAssignment = <String, AssignmentAttempt>{};
     final submissionsByAssignment = <String, AssignmentAttempt>{};
+    final canonicalByAssignment = <String, AssignmentAttempt>{};
     for (final attempt in _attempts) {
       if (attempt.isAbandonedTeacherReviewDraft) continue;
       final existing = latestByAssignment[attempt.assignmentId];
@@ -152,6 +153,10 @@ class AssignedMovementsController extends ChangeNotifier {
         latestByAssignment[attempt.assignmentId] = attempt;
       }
       if (attempt.isTeacherReviewSubmission) {
+        if (attempt.isCanonicalTeacherReviewSubmission) {
+          canonicalByAssignment[attempt.assignmentId] = attempt;
+          continue;
+        }
         final current = submissionsByAssignment[attempt.assignmentId];
         if (current == null ||
             (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
@@ -167,9 +172,12 @@ class AssignedMovementsController extends ChangeNotifier {
         AssignedMovementItem(
           assignment: assignment,
           attempt:
+              canonicalByAssignment[assignment.id] ??
               submissionsByAssignment[assignment.id] ??
               latestByAssignment[assignment.id],
-          latestSubmission: submissionsByAssignment[assignment.id],
+          latestSubmission:
+              canonicalByAssignment[assignment.id] ??
+              submissionsByAssignment[assignment.id],
         ),
     ];
     next.sort(_compareItems);

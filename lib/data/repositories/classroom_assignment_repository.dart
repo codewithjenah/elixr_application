@@ -4,6 +4,7 @@ import 'package:elixr_core/models/elixr_group.dart';
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
+import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/movement_origin.dart';
@@ -27,6 +28,7 @@ abstract class ClassroomAssignmentRepository {
     required ElixrGroup group,
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
+    int maxScore = 100,
     DateTime? dueAt,
   });
 
@@ -72,6 +74,13 @@ abstract class ClassroomAssignmentRepository {
     String? attemptId,
   });
 
+  /// Returns the one reusable submission document for this trainee and
+  /// assignment. It never creates a second submission after a prior submit.
+  Future<AssignmentAttempt> getOrCreateTeacherReviewSubmission({
+    required String traineeId,
+    required GroupAssignment assignment,
+  });
+
   Future<void> markTeacherReviewSubmissionAbandoned({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -90,6 +99,45 @@ abstract class ClassroomAssignmentRepository {
     required int videoDurationMs,
     required DateTime submittedAt,
     required DateTime videoExpiresAt,
+  });
+
+  /// Atomically claims an unchecked submission for withdrawal. A failed
+  /// Storage delete leaves the document in `unsubmitting` so this operation
+  /// can be retried safely.
+  Future<AssignmentAttempt> beginTeacherReviewUnsubmit({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? startedAt,
+  });
+
+  /// Clears the clip metadata and returns the same submission document to
+  /// `in_progress` after its Storage object has been deleted.
+  Future<AssignmentAttempt> completeTeacherReviewUnsubmit({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? completedAt,
+  });
+
+  Future<AssignmentAttempt> saveTeacherReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required int gradeScore,
+    String? feedback,
+    DateTime? reviewedAt,
+  });
+
+  Future<GroupAssignment> updateTeacherAssignmentMaxScore({
+    required String teacherId,
+    required String assignmentId,
+    required int maxScore,
+  });
+
+  Future<AssignmentAttempt> markTeacherReviewResultSent({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required String messageId,
+    DateTime? sentAt,
   });
 
   Future<AssignmentAttempt> reviewTeacherSubmission({
@@ -169,10 +217,12 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required ElixrGroup group,
   required TeacherMovement movement,
   required TeacherMovementRevision revision,
+  int maxScore = 100,
   DateTime? dueAt,
   required Object createdAt,
   required Object updatedAt,
 }) {
+  ensureTeacherAssignmentMaxScore(maxScore);
   if (movement.teacherId != teacherId || revision.teacherId != teacherId) {
     throw const ClassroomException(ClassroomError.forbidden);
   }
@@ -211,12 +261,66 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'allowed_prop': revision.spec.requiredProp.protocolValue,
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
+    'max_score': maxScore,
+    'grading_locked': false,
     'created_at': createdAt,
     'updated_at': updatedAt,
     'due_at': ?dueAt,
   };
 
   return payload;
+}
+
+void ensureTeacherAssignmentMaxScore(int maxScore) {
+  if (maxScore < 1 || maxScore > 100) {
+    throw const ClassroomException(
+      ClassroomError.invalidGrade,
+      'Maximum score must be between 1 and 100.',
+    );
+  }
+}
+
+void ensureTeacherReviewGrade({
+  required int gradeScore,
+  required int maxScore,
+}) {
+  ensureTeacherAssignmentMaxScore(maxScore);
+  if (gradeScore < 0 || gradeScore > maxScore) {
+    throw const ClassroomException(
+      ClassroomError.invalidGrade,
+      'Grade must be between 0 and the assignment maximum.',
+    );
+  }
+}
+
+void ensureTeacherReviewSubmissionVideo({
+  required AssignmentAttempt attempt,
+  required String videoStoragePath,
+  required String videoContentType,
+  required int videoSizeBytes,
+  required int videoDurationMs,
+  required DateTime submittedAt,
+  required DateTime videoExpiresAt,
+}) {
+  final expectedPath = assignmentSubmissionStoragePath(
+    teacherId: attempt.teacherId,
+    groupId: attempt.groupId,
+    assignmentId: attempt.assignmentId,
+    traineeId: attempt.traineeId,
+    attemptId: attempt.id,
+  );
+  if (videoStoragePath != expectedPath ||
+      videoContentType != AssignmentSubmissionLimits.contentType ||
+      videoSizeBytes <= 0 ||
+      videoSizeBytes > AssignmentSubmissionLimits.maxSizeBytes ||
+      videoDurationMs <= 0 ||
+      videoDurationMs > AssignmentSubmissionLimits.maxDurationMs ||
+      submittedAt.toUtc().isAfter(videoExpiresAt.toUtc())) {
+    throw const ClassroomException(
+      ClassroomError.malformed,
+      'Submission clip metadata is invalid.',
+    );
+  }
 }
 
 AssignmentAttempt teacherCreatedDraftAttempt({
@@ -355,6 +459,68 @@ AssignmentAttempt teacherReviewSubmissionDraftAttempt({
     createdAt: createdAt,
     supersedesAttemptId: supersedesAttemptId,
   );
+}
+
+AssignmentAttempt canonicalTeacherReviewSubmissionAttempt({
+  required String traineeId,
+  required GroupAssignment assignment,
+  DateTime? createdAt,
+}) {
+  if (!assignment.isTeacherCreated ||
+      assignment.assessmentMode != AssessmentMode.teacherReviewed) {
+    throw const ClassroomException(ClassroomError.identityMismatch);
+  }
+  if (!assignment.isActive) {
+    throw const ClassroomException(ClassroomError.inactive);
+  }
+  return AssignmentAttempt(
+    id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+      assignmentId: assignment.id,
+      traineeId: traineeId,
+    ),
+    traineeId: traineeId,
+    teacherId: assignment.teacherId,
+    groupId: assignment.groupId,
+    assignmentId: assignment.id,
+    movementId: assignment.movementId,
+    revisionId: assignment.revisionId,
+    origin: MovementOrigin.teacherCreated,
+    assessmentMode: AssessmentMode.teacherReviewed,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: AssignmentAttemptStatus.inProgress,
+    createdAt: createdAt,
+  );
+}
+
+bool isReusableCanonicalTeacherReviewSubmission({
+  required AssignmentAttempt attempt,
+  required String traineeId,
+  required GroupAssignment assignment,
+}) {
+  return attempt.isCanonicalTeacherReviewSubmission &&
+      attempt.traineeId == traineeId &&
+      attempt.teacherId == assignment.teacherId &&
+      attempt.groupId == assignment.groupId &&
+      attempt.assignmentId == assignment.id &&
+      attempt.movementId == assignment.movementId &&
+      attempt.revisionId == assignment.revisionId &&
+      attempt.origin == MovementOrigin.teacherCreated &&
+      attempt.assessmentMode == AssessmentMode.teacherReviewed &&
+      attempt.attemptKind == AssignmentAttemptKind.teacherReviewSubmission &&
+      attempt.supersedesAttemptId == null &&
+      attempt.status != AssignmentAttemptStatus.draft &&
+      attempt.status != AssignmentAttemptStatus.approved &&
+      attempt.status != AssignmentAttemptStatus.needsRetry;
+}
+
+bool isTeacherAssignmentSubmissionOpen({
+  required GroupAssignment assignment,
+  DateTime? now,
+}) {
+  if (!assignment.isActive) return false;
+  final dueAt = assignment.dueAt;
+  return dueAt == null ||
+      !(now ?? DateTime.now().toUtc()).toUtc().isAfter(dueAt.toUtc());
 }
 
 void ensureCanSupersedeNeedsRetry({

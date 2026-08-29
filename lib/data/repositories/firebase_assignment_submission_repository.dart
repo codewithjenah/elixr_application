@@ -114,6 +114,77 @@ class FirebaseAssignmentSubmissionRepository
   }
 
   @override
+  Future<AssignmentAttempt> submitCanonicalLocalClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
+  }) async {
+    ensureLocalClipWithinLimits(clip);
+    final file = File(clip.localPath);
+    if (!file.existsSync()) {
+      throw const AssignmentSubmissionException(
+        'The local submission clip is no longer available.',
+      );
+    }
+    final size = file.lengthSync();
+    if (size != clip.sizeBytes) {
+      throw const AssignmentSubmissionException(
+        'The local submission clip changed before upload.',
+      );
+    }
+
+    return submitCanonicalLocalClipWithCleanup(
+      traineeId: traineeId,
+      assignment: assignment,
+      clip: clip,
+      classroom: _classroom,
+      now: DateTime.now().toUtc(),
+      diagnosticLog: _diagnosticLog,
+      uploadObject: ({required draft, required storagePath}) async {
+        await runPhase6StorageUpload(
+          log: _diagnosticLog,
+          upload: () async {
+            final customMetadata = assignmentSubmissionCustomMetadata(
+              teacherId: draft.teacherId,
+              groupId: draft.groupId,
+              assignmentId: draft.assignmentId,
+              traineeId: draft.traineeId,
+              attemptId: draft.id,
+              movementId: draft.movementId,
+              revisionId: draft.revisionId,
+            );
+            await _emitDebugStorageUploadIntent(
+              draft: draft,
+              storagePath: storagePath,
+              fileSizeBytes: size,
+              customMetadata: customMetadata,
+            );
+            final snapshot = await _storage
+                .ref(storagePath)
+                .putFile(
+                  file,
+                  SettableMetadata(
+                    contentType: AssignmentSubmissionLimits.contentType,
+                    customMetadata: customMetadata,
+                  ),
+                );
+            return snapshot.totalBytes;
+          },
+        );
+      },
+      deleteObject: deleteSubmissionObject,
+      isObjectNotFound: _isObjectNotFound,
+      deleteLocalFile: () async {
+        try {
+          await file.delete();
+        } on FileSystemException {
+          // Backend cancel also deletes the temp clip.
+        }
+      },
+    );
+  }
+
+  @override
   Future<void> deleteSubmissionObject(String storagePath) async {
     try {
       await _storage.ref(storagePath).delete();
@@ -126,7 +197,11 @@ class FirebaseAssignmentSubmissionRepository
   Future<SubmissionPlaybackFile?> openLocalPlayback(
     AssignmentAttempt attempt,
   ) async {
-    if (!attempt.hasPlayableVideo || attempt.videoExpired) return null;
+    if (!attempt.hasPlayableVideo ||
+        attempt.videoExpired ||
+        attempt.isUnsubmitting) {
+      return null;
+    }
     final path = attempt.videoStoragePath;
     if (path == null || path.isEmpty) return null;
     final cacheDirectory =

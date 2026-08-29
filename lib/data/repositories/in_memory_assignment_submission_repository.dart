@@ -71,6 +71,35 @@ class InMemoryAssignmentSubmissionRepository
   }
 
   @override
+  Future<AssignmentAttempt> submitCanonicalLocalClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
+  }) {
+    return submitCanonicalLocalClipWithCleanup(
+      traineeId: traineeId,
+      assignment: assignment,
+      clip: clip,
+      classroom: _classroom,
+      now: now,
+      diagnosticLog: diagnosticLog,
+      uploadObject: ({required draft, required storagePath}) async {
+        if (uploadException != null) {
+          final error = uploadException!;
+          uploadException = null;
+          throw error;
+        }
+        if (failNextUpload) {
+          failNextUpload = false;
+          throw const AssignmentSubmissionException('storage upload failed');
+        }
+      },
+      deleteObject: deleteSubmissionObject,
+      isObjectNotFound: _isMissing,
+    );
+  }
+
+  @override
   Future<void> deleteSubmissionObject(String storagePath) async {
     if (failNextDelete) {
       failNextDelete = false;
@@ -86,7 +115,11 @@ class InMemoryAssignmentSubmissionRepository
   Future<SubmissionPlaybackFile?> openLocalPlayback(
     AssignmentAttempt attempt,
   ) async {
-    if (!attempt.hasPlayableVideo || attempt.videoExpired) return null;
+    if (!attempt.hasPlayableVideo ||
+        attempt.videoExpired ||
+        attempt.isUnsubmitting) {
+      return null;
+    }
     final path = attempt.videoStoragePath;
     if (path == null || path.isEmpty) return null;
     downloadedPaths?.add(path);

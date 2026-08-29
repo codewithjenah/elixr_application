@@ -1,5 +1,47 @@
 # Phase 6 — Teacher-reviewed video submissions
 
+## Current single-submission and grading contract
+
+New Teacher-created assignments have exactly one reusable
+`teacher_review_submission` per trainee: `review_sub_{assignmentId}_{traineeId}`.
+Its lifecycle is `in_progress → submitted → checked`; `unsubmitting` is a
+temporary cleanup state. Unsubmit is trainee-confirmed, claimed in Firestore
+before Storage deletion, and reusable after successful deletion. A failed
+delete leaves `unsubmitting` plus retry metadata so the clip is never silently
+reported as withdrawn.
+
+Teachers create these assignments with `max_score` from 1 to 100. The first
+checked review snapshots that maximum into `grade_max_score`, writes the
+required whole-number `grade_score`, optional bounded `review_feedback`,
+`checked_at`, `review_updated_at`, and monotonic `review_revision`. It also
+locks the assignment maximum. Editing a checked review clears the sent marker
+and increments the revision.
+
+`Send to student` uses the idempotency key
+`{submissionId}:{reviewRevision}` and sends the assignment title, `Score:
+earned/max`, and an optional `Feedback:` line. The attempt stores the sent
+revision, timestamp, and message ID. A retry therefore returns the same result
+message instead of creating a duplicate.
+
+The former `approved`, `needs_retry`, `review_verdict`, and
+`supersedes_attempt_id` schema is retained only for historical parsing. New
+writes do not emit those fields, and legacy clips remain hidden/read-only in
+the trainee flow. Reviewed retention remains unchanged; only explicit
+Unsubmit performs immediate deletion.
+
+For existing data, use the dry-run-first migration from the Functions package:
+
+```powershell
+cd functions
+npm run migrate:teacher-review-assignments
+npm run migrate:teacher-review-assignments -- --write
+```
+
+The utility normalizes stored deadlines to Manila end-of-day, adds the
+compatibility maximum of 100, and seeds grading locks for assignments with
+legacy reviews. It never rewrites attempts or clips. Review the dry-run output
+and obtain separate production approval before using `--write`.
+
 **Status:** Phase 6 — PRODUCTION CLOSED. Functional production verification passed on 2026-08-22. Cleaned Storage rules are live. Temporary live diagnostics were removed from the app and from live Storage rules. The leftover production diagnostic object was deleted. Storage lifecycle hard backstop is **applied** on `gs://elixr-app-2026.firebasestorage.app` (read back 2026-08-22): one Delete rule, age 30 days, prefix `assignment_submissions/` only. Lifecycle execution is asynchronous/age-based; a lifecycle-triggered deletion has **not** been observed and is not a closure prerequisite. Phase 7 remains **NOT STARTED**.
 **Sequence:** `06` of `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
 **Prerequisite:** Phase 5 `assignment_attempts` + Teacher-reviewed mode. If those collections are missing, **STOP**. Do not invent attempts inside `sessions`.

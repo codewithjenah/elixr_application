@@ -121,6 +121,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
 
   bool get _shouldOfferPlayback {
     if (!_isTeacherReviewedAttempt) return false;
+    if (attempt.isUnsubmitting) return false;
     if (!attempt.hasPlayableVideo) return false;
     if (attempt.videoExpired) return false;
     return true;
@@ -208,7 +209,8 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
                 ),
                 compact: true,
               ),
-              if (attempt.supersedesAttemptId != null)
+              if (attempt.supersedesAttemptId != null &&
+                  !attempt.isCanonicalTeacherReviewSubmission)
                 ElixPill(
                   text: 'Resubmission',
                   color: AppColors.accent,
@@ -382,6 +384,7 @@ class _TeacherReviewedSection extends StatelessWidget {
     final reviewed =
         attempt.status == AssignmentAttemptStatus.approved ||
         attempt.status == AssignmentAttemptStatus.needsRetry;
+    final checked = attempt.isChecked;
     final reviewLabel = viewerRole == SubmissionDetailViewerRole.teacher
         ? 'Review'
         : 'Teacher review';
@@ -416,6 +419,37 @@ class _TeacherReviewedSection extends StatelessWidget {
               style: AppTheme.body,
             ),
           ],
+        ],
+        if (checked) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Score: ${attempt.gradeScore}/${attempt.gradeMaxScore}',
+            key: const Key('submission_grade'),
+            style: AppTheme.headingMedium,
+          ),
+          if (attempt.checkedAt != null)
+            Text(
+              'Checked ${formatSubmissionTimestamp(attempt.checkedAt!)}',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          if (feedback != null && feedback.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              feedback,
+              key: const Key('submission_review_feedback'),
+              style: AppTheme.body,
+            ),
+          ],
+          if (attempt.resultSentForCurrentRevision)
+            Text(
+              'Result sent to you in Messages',
+              key: const Key('submission_result_sent'),
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
         ],
       ],
     );

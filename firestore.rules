@@ -3041,7 +3041,8 @@ service cloud.firestore {
     function groupAssignmentAllowedKeys() {
       return groupAssignmentRequiredKeys().concat([
         'official_movement_name', 'display_instructions',
-        'display_safety_guidance', 'allowed_prop', 'due_at',
+        'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
+        'grading_locked', 'grading_locked_at',
       ]);
     }
     function validOfficialAssignmentCreate(data) {
@@ -3087,7 +3088,19 @@ service cloud.firestore {
         && (
           !data.keys().hasAny(['display_safety_guidance'])
           || isBoundedText(data.display_safety_guidance, 1000)
-        );
+        )
+        // New Teacher-created assignments always carry an explicit maximum.
+        // Missing fields remain readable as legacy assignments created before
+        // the grading contract was introduced.
+        && (
+          !data.keys().hasAny(['max_score'])
+          || data.max_score is int && data.max_score >= 1 && data.max_score <= 100
+        )
+        && (
+          !data.keys().hasAny(['grading_locked'])
+          || data.grading_locked == false
+        )
+        && !data.keys().hasAny(['grading_locked_at']);
     }
     function validGroupAssignmentCreate(data) {
       let group = get(groupPath(data.group_id)).data;
@@ -3147,8 +3160,40 @@ service cloud.firestore {
           !request.resource.data.keys().hasAny(['due_at'])
           || request.resource.data.due_at is timestamp
         )
+        && (
+          resource.data.origin != 'official_elixr'
+          || (
+            !request.resource.data.keys().hasAny(['max_score',
+              'grading_locked', 'grading_locked_at'])
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['max_score'])
+          || request.resource.data.max_score is int
+            && request.resource.data.max_score >= 1
+            && request.resource.data.max_score <= 100
+        )
+        && (
+          !request.resource.data.keys().hasAny(['grading_locked'])
+          || request.resource.data.grading_locked is bool
+        )
+        && (
+          request.resource.data.get('grading_locked', false) == true
+          ? request.resource.data.grading_locked_at is timestamp
+          : !request.resource.data.keys().hasAny(['grading_locked_at'])
+        )
+        && (
+          request.resource.data.get('grading_locked', false) == true
+          || !resource.data.get('grading_locked', false)
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['max_score'])
+          || !resource.data.get('grading_locked', false)
+        )
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'due_at', 'updated_at']);
+          .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
+            'grading_locked', 'grading_locked_at']);
     }
 
     match /group_assignments/{assignmentId} {
@@ -3188,6 +3233,9 @@ service cloud.firestore {
     function teacherReviewSubmissionCreateKeys() {
       return assignmentAttemptIdentityKeys().concat(['supersedes_attempt_id']);
     }
+    function teacherReviewSubmissionAnchorKeys() {
+      return assignmentAttemptIdentityKeys().concat(['deletion_failed']);
+    }
     function teacherReviewSubmissionSubmittedKeys() {
       return assignmentAttemptIdentityKeys().concat([
         'video_storage_path', 'video_content_type', 'video_size_bytes',
@@ -3200,13 +3248,21 @@ service cloud.firestore {
         'review_verdict', 'review_feedback', 'reviewed_at'
       ]);
     }
+    function teacherReviewSubmissionCheckedKeys() {
+      return teacherReviewSubmissionSubmittedKeys().concat([
+        'review_feedback', 'grade_score', 'grade_max_score', 'checked_at',
+        'review_updated_at', 'review_revision', 'result_sent_revision',
+        'result_sent_at', 'result_message_id', 'video_deleted_at',
+        'deletion_failed', 'deletion_failed_at',
+      ]);
+    }
     function canonicalAssignmentSubmissionPath(data, attemptId) {
       return 'assignment_submissions/' + data.teacher_id + '/' + data.group_id
         + '/' + data.assignment_id + '/' + data.trainee_id + '/' + attemptId
         + '.mp4';
     }
     function isReviewSubmissionAttemptId(attemptId) {
-      return attemptId.matches('^review_sub_[A-Za-z0-9]+$')
+      return attemptId.matches('^review_sub_[A-Za-z0-9_-]+$')
         && attemptId.size() <= 128;
     }
     function isUnreviewedVideoExpiry(value) {
@@ -3238,6 +3294,14 @@ service cloud.firestore {
         && assignment.origin == data.origin
         && assignment.assessment_mode == data.assessment_mode
         && assignment.status == 'active';
+    }
+    function assignmentSubmissionIsOpen(data) {
+      let assignment = get(assignmentPath(data.assignment_id)).data;
+      return assignment.status == 'active'
+        && (
+          !assignment.keys().hasAny(['due_at'])
+          || request.time <= assignment.due_at
+        );
     }
     function validOfficialPointerCreate(data, attemptId) {
       let session = getAfter(sessionPath(data.source_session_id)).data;
@@ -3300,20 +3364,30 @@ service cloud.firestore {
     function validTeacherReviewSubmissionCreate(data, attemptId) {
       return data.attempt_kind == 'teacher_review_submission'
         && isReviewSubmissionAttemptId(attemptId)
-        && data.status == 'draft'
         && data.origin == 'teacher_created'
         && data.assessment_mode == 'teacher_reviewed'
         && data.keys().hasAll(assignmentAttemptIdentityKeys())
-        && data.keys().hasOnly(teacherReviewSubmissionCreateKeys())
-        && !data.keys().hasAny(['source_session_id', 'rubric', 'rubric_total',
-          'performance_level', 'review_verdict', 'review_feedback',
-          'reviewed_at', 'video_storage_path', 'video_content_type',
-          'video_size_bytes', 'video_duration_ms', 'submitted_at',
-          'video_expires_at', 'video_deleted_at', 'deletion_failed',
-          'abandoned_at'])
         && (
-          !data.keys().hasAny(['supersedes_attempt_id'])
-          || validSubmissionSupersedes(data)
+          (
+            attemptId == 'review_sub_' + data.assignment_id + '_' + data.trainee_id
+            && data.status == 'in_progress'
+            && data.keys().hasOnly(assignmentAttemptIdentityKeys())
+            && assignmentSubmissionIsOpen(data)
+          )
+          || (
+            data.status == 'draft'
+            && data.keys().hasOnly(teacherReviewSubmissionCreateKeys())
+            && !data.keys().hasAny(['source_session_id', 'rubric',
+              'rubric_total', 'performance_level', 'review_verdict',
+              'review_feedback', 'reviewed_at', 'video_storage_path',
+              'video_content_type', 'video_size_bytes', 'video_duration_ms',
+              'submitted_at', 'video_expires_at', 'video_deleted_at',
+              'deletion_failed', 'abandoned_at'])
+            && (
+              !data.keys().hasAny(['supersedes_attempt_id'])
+              || validSubmissionSupersedes(data)
+            )
+          )
         );
     }
     function validAssignmentAttemptCreate(data, attemptId) {
@@ -3400,6 +3474,7 @@ service cloud.firestore {
         && resource.data.attempt_kind == 'teacher_review_submission'
         && resource.data.status in ['draft', 'in_progress']
         && !resource.data.keys().hasAny(['abandoned_at'])
+        && assignmentSubmissionIsOpen(resource.data)
         && after.status == 'submitted'
         && !after.keys().hasAny(['abandoned_at'])
         && assignmentAttemptIdentityUnchanged()
@@ -3411,10 +3486,179 @@ service cloud.firestore {
         && !after.keys().hasAny(['review_verdict', 'review_feedback',
           'reviewed_at']);
     }
-    function validTeacherReviewSubmissionTeacherReview() {
+    function validCanonicalTeacherReviewSubmissionPromote(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'draft'
+        && after.status == 'in_progress'
+        && assignmentAttemptIdentityUnchanged()
+        && after.keys().hasOnly(assignmentAttemptIdentityKeys())
+        && !after.keys().hasAny([
+          'source_session_id', 'submitted_at', 'video_expires_at',
+          'video_storage_path', 'video_content_type', 'video_size_bytes',
+          'video_duration_ms', 'review_verdict', 'review_feedback',
+          'reviewed_at', 'grade_score', 'grade_max_score', 'checked_at',
+          'review_updated_at', 'review_revision', 'result_sent_revision',
+          'result_sent_at', 'result_message_id', 'deletion_failed',
+        ]);
+    }
+    function validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'submitted'
+        && after.status == 'unsubmitting'
+        && assignmentSubmissionIsOpen(resource.data)
+        && assignmentAttemptIdentityUnchanged()
+        && assignmentAttemptVideoIdentityUnchanged()
+        && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys().concat([
+          'deletion_failed', 'deletion_failed_at'
+        ]))
+        && !after.keys().hasAny([
+          'review_verdict', 'review_feedback', 'reviewed_at', 'grade_score',
+          'grade_max_score', 'checked_at', 'review_updated_at',
+          'review_revision', 'result_sent_revision', 'result_sent_at',
+          'result_message_id', 'abandoned_at', 'video_deleted_at'
+        ])
+        && after.deletion_failed == false
+        && !after.keys().hasAny(['deletion_failed_at'])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'deletion_failed', 'deletion_failed_at']);
+    }
+    function validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'unsubmitting'
+        && after.status == 'in_progress'
+        && assignmentAttemptIdentityUnchanged()
+        && after.keys().hasOnly(teacherReviewSubmissionAnchorKeys())
+        && after.deletion_failed == false
+        && !after.keys().hasAny([
+          'source_session_id', 'submitted_at', 'video_expires_at',
+          'video_storage_path', 'video_content_type', 'video_size_bytes',
+          'video_duration_ms', 'video_deleted_at', 'deletion_failed_at',
+          'review_verdict', 'review_feedback', 'reviewed_at', 'grade_score',
+          'grade_max_score', 'checked_at', 'review_updated_at',
+          'review_revision', 'result_sent_revision', 'result_sent_at',
+          'result_message_id', 'abandoned_at'
+        ])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            'status', 'video_storage_path', 'video_content_type',
+            'video_size_bytes', 'video_duration_ms', 'submitted_at',
+            'video_expires_at', 'video_deleted_at', 'deletion_failed',
+            'deletion_failed_at'
+          ]);
+    }
+    function validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'unsubmitting'
+        && after.status == 'unsubmitting'
+        && assignmentAttemptIdentityUnchanged()
+        && assignmentAttemptVideoIdentityUnchanged()
+        && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys().concat([
+          'deletion_failed', 'deletion_failed_at'
+        ]))
+        && after.deletion_failed == true
+        && after.deletion_failed_at == request.time
+        && !after.keys().hasAny(['video_deleted_at', 'review_verdict',
+          'review_feedback', 'reviewed_at', 'grade_score', 'grade_max_score',
+          'checked_at', 'review_updated_at', 'review_revision',
+          'result_sent_revision', 'result_sent_at', 'result_message_id'])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['deletion_failed', 'deletion_failed_at']);
+    }
+    function validCanonicalTeacherReviewSubmissionCheckedReview() {
+      let after = request.resource.data;
+      let assignment = get(assignmentPath(resource.data.assignment_id)).data;
+      let maxScore = assignment.get('max_score', 100);
+      let previousMax = resource.get('grade_max_score', maxScore);
+      return resource.data.teacher_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status in ['submitted', 'checked', 'approved', 'needs_retry']
+        && after.status == 'checked'
+        && assignment.get('max_score', 100) == maxScore
+        && assignmentAttemptIdentityUnchanged()
+        && assignmentAttemptVideoIdentityUnchanged()
+        && after.keys().hasAll(assignmentAttemptIdentityKeys())
+        && after.keys().hasOnly(teacherReviewSubmissionCheckedKeys())
+        && after.grade_score is int
+        && after.grade_max_score is int
+        && after.grade_max_score == previousMax
+        && after.grade_max_score >= 1
+        && after.grade_max_score <= 100
+        && after.grade_score >= 0
+        && after.grade_score <= after.grade_max_score
+        && after.checked_at is timestamp
+        && (
+          resource.data.status != 'checked'
+          ? after.checked_at == request.time
+          : after.checked_at == resource.data.checked_at
+        )
+        && after.review_updated_at == request.time
+        && after.review_revision is int
+        && after.review_revision == resource.get('review_revision', 0) + 1
+        && !after.keys().hasAny([
+          'review_verdict', 'reviewed_at', 'result_sent_revision',
+          'result_sent_at', 'result_message_id'
+        ])
+        && after.video_expires_at is timestamp
+        && isReviewedVideoExpiry(after.video_expires_at)
+        && (
+          !after.keys().hasAny(['review_feedback'])
+          || isBoundedText(after.review_feedback, 1000)
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          [
+            'status', 'review_feedback', 'grade_score', 'grade_max_score',
+            'checked_at', 'review_updated_at', 'review_revision',
+            'result_sent_revision', 'result_sent_at', 'result_message_id',
+            'review_verdict', 'reviewed_at', 'video_expires_at'
+          ]
+        );
+    }
+    function validTeacherReviewResultSent() {
       let after = request.resource.data;
       return resource.data.teacher_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
+        && resource.data.status == 'checked'
+        && after.status == 'checked'
+        && assignmentAttemptIdentityUnchanged()
+        && assignmentAttemptVideoIdentityUnchanged()
+        && after.keys().hasOnly(teacherReviewSubmissionCheckedKeys())
+        && after.grade_score == resource.data.grade_score
+        && after.grade_max_score == resource.data.grade_max_score
+        && after.checked_at == resource.data.checked_at
+        && after.review_updated_at == resource.data.review_updated_at
+        && after.review_revision == resource.data.review_revision
+        && !resource.data.keys().hasAny([
+          'result_sent_revision', 'result_sent_at', 'result_message_id'
+        ])
+        && after.result_sent_revision == resource.data.review_revision
+        && after.result_sent_at == request.time
+        && isBoundedText(after.result_message_id, 256)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'result_sent_revision', 'result_sent_at', 'result_message_id'
+        ]);
+    }
+    function validTeacherReviewSubmissionTeacherReview(attemptId) {
+      let after = request.resource.data;
+      return resource.data.teacher_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
         && resource.data.status == 'submitted'
         && after.status in ['approved', 'needs_retry']
         && after.review_verdict == after.status
@@ -3431,14 +3675,20 @@ service cloud.firestore {
           || isBoundedText(after.review_feedback, 1000)
         );
     }
-    function validTeacherReviewSubmissionCleanup() {
+    function validTeacherReviewSubmissionCleanup(attemptId) {
       let after = request.resource.data;
       return (
-          resource.data.trainee_id == request.auth.uid
-          || resource.data.teacher_id == request.auth.uid
+          resource.data.teacher_id == request.auth.uid
+          || (
+            resource.data.trainee_id == request.auth.uid
+            && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
+              + resource.data.trainee_id
+          )
         )
         && resource.data.attempt_kind == 'teacher_review_submission'
-        && resource.data.status in ['submitted', 'approved', 'needs_retry']
+        && resource.data.status in ['submitted', 'approved', 'needs_retry', 'checked']
+        && (resource.data.status != 'checked'
+          || resource.data.teacher_id == request.auth.uid)
         && assignmentAttemptIdentityUnchanged()
         && assignmentAttemptReviewUnchanged()
         && after.get('video_content_type', '__elixr_absent__')
@@ -3477,14 +3727,18 @@ service cloud.firestore {
         'source_session_id', 'submitted_at', 'video_expires_at',
         'video_storage_path', 'video_content_type', 'video_size_bytes',
         'video_duration_ms', 'review_verdict', 'review_feedback',
-        'reviewed_at'
+        'reviewed_at', 'grade_score', 'grade_max_score', 'checked_at',
+        'review_updated_at', 'review_revision', 'result_sent_revision',
+        'result_sent_at', 'result_message_id'
       ]);
     }
-    function validTeacherReviewSubmissionAbandon() {
+    function validTeacherReviewSubmissionAbandon(attemptId) {
       let after = request.resource.data;
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return resource.data.trainee_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
         && resource.data.status == 'draft'
         && resource.data.awards_global_xp == false
         && !resource.data.keys().hasAny(['abandoned_at'])
@@ -3519,13 +3773,15 @@ service cloud.firestore {
           )
         );
     }
-    function validAbandonedTeacherReviewCleanup() {
+    function validAbandonedTeacherReviewCleanup(attemptId) {
       let after = request.resource.data;
       return (
           resource.data.trainee_id == request.auth.uid
           || resource.data.teacher_id == request.auth.uid
         )
         && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId != 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
         && resource.data.status == 'draft'
         && resource.data.abandoned_at is timestamp
         && after.status == 'draft'
@@ -3565,10 +3821,16 @@ service cloud.firestore {
         && (
           validTeacherDraftAttemptUpdate()
           || validTeacherReviewSubmissionTraineeSubmit(attemptId)
-          || validTeacherReviewSubmissionTeacherReview()
-          || validTeacherReviewSubmissionCleanup()
-          || validTeacherReviewSubmissionAbandon()
-          || validAbandonedTeacherReviewCleanup()
+          || validCanonicalTeacherReviewSubmissionPromote(attemptId)
+          || validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId)
+          || validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId)
+          || validCanonicalTeacherReviewSubmissionDeletionFailure(attemptId)
+          || validCanonicalTeacherReviewSubmissionCheckedReview()
+          || validTeacherReviewResultSent()
+          || validTeacherReviewSubmissionTeacherReview(attemptId)
+          || validTeacherReviewSubmissionCleanup(attemptId)
+          || validTeacherReviewSubmissionAbandon(attemptId)
+          || validAbandonedTeacherReviewCleanup(attemptId)
         );
       allow delete: if isSignedIn()
         && !exists(userPath(request.auth.uid))
@@ -3864,13 +4126,20 @@ service cloud.firestore {
             'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at'
           ])
           && request.resource.data.keys().hasOnly([
-            'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at'
+            'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at',
+            'idempotency_key'
           ])
           && request.resource.data.sender_id == request.auth.uid
           && validChatBody(request.resource.data.body)
           && request.resource.data.created_at == request.time
           && request.resource.data.edited_at == null
           && request.resource.data.deleted_at == null
+          && (
+            !request.resource.data.keys().hasAny(['idempotency_key'])
+            || request.resource.data.idempotency_key is string
+              && request.resource.data.idempotency_key.size() > 0
+              && request.resource.data.idempotency_key.size() <= 256
+          )
           && existsAfter(chatConversationPath(conversationId))
           && getAfter(chatConversationPath(conversationId)).data.status == 'active'
           && isChatParticipant(getAfter(chatConversationPath(conversationId)).data)
@@ -3889,7 +4158,7 @@ service cloud.firestore {
           && request.resource.data.created_at == resource.data.created_at
           && request.resource.data.keys().hasOnly([
             'sender_id', 'body', 'created_at', 'edited_at', 'deleted_at',
-            'legacy_coaching'
+            'legacy_coaching', 'idempotency_key'
           ])
           && (
             (

@@ -86,10 +86,9 @@ class SubmissionRecordingController extends ChangeNotifier {
 
   bool get canRecord {
     final current = latestSubmission;
-    if (current == null) return true;
-    if (current.status == AssignmentAttemptStatus.submitted) return false;
-    if (current.status == AssignmentAttemptStatus.approved) return false;
-    return true;
+    return current == null ||
+        current.status == AssignmentAttemptStatus.draft ||
+        current.status == AssignmentAttemptStatus.inProgress;
   }
 
   String? get needsRetryFeedback {
@@ -115,21 +114,28 @@ class SubmissionRecordingController extends ChangeNotifier {
     final attempts = await classroom
         .watchAttemptsForTrainee(traineeId: traineeId)
         .first;
-    AssignmentAttempt? latest;
+    AssignmentAttempt? canonical;
+    AssignmentAttempt? legacy;
     for (final attempt in attempts) {
       if (attempt.assignmentId != assignment.id) continue;
       if (!attempt.isTeacherReviewSubmission) continue;
       if (attempt.isAbandonedTeacherReviewDraft) continue;
-      if (latest == null ||
+      if (attempt.isCanonicalTeacherReviewSubmission) {
+        canonical = attempt;
+      } else if (legacy == null ||
           (attempt.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).isAfter(
-            latest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            legacy.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
           )) {
-        latest = attempt;
+        legacy = attempt;
       }
     }
+    final latest = canonical ?? legacy;
     latestSubmission = latest;
     if (latest?.status == AssignmentAttemptStatus.submitted ||
-        latest?.status == AssignmentAttemptStatus.approved) {
+        latest?.status == AssignmentAttemptStatus.checked ||
+        latest?.status == AssignmentAttemptStatus.unsubmitting ||
+        latest?.status == AssignmentAttemptStatus.approved ||
+        latest?.status == AssignmentAttemptStatus.needsRetry) {
       if (phase == SubmissionRecordingPhase.idle ||
           phase == SubmissionRecordingPhase.failed) {
         phase = SubmissionRecordingPhase.submitted;
@@ -252,18 +258,11 @@ class SubmissionRecordingController extends ChangeNotifier {
     phase = SubmissionRecordingPhase.submitting;
     errorMessage = null;
     try {
-      String? supersedesId;
       await refreshLatestSubmission();
-      final previous = latestSubmission;
-      if (previous != null &&
-          previous.status == AssignmentAttemptStatus.needsRetry) {
-        supersedesId = previous.id;
-      }
-      await submissions.submitLocalClip(
+      await submissions.submitCanonicalLocalClip(
         traineeId: traineeId,
         assignment: assignment,
         clip: current,
-        supersedesAttemptId: supersedesId,
       );
       await abandonLocalClip();
       if (_disposed) return;

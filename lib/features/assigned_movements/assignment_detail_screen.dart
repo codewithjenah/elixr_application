@@ -203,6 +203,9 @@ class _Body extends StatelessWidget {
   }
 
   AssignmentAttempt? _selectedAttempt(AssignmentDetailController controller) {
+    if (controller.assignment?.isTeacherCreated == true) {
+      return controller.currentSubmission ?? controller.latestAttempt;
+    }
     final id = selectedAttemptId;
     if (id != null) {
       for (final attempt in controller.attempts) {
@@ -290,14 +293,17 @@ class _YourWork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canStart = assignment.isActive && !assignment.isRetiredTemplate;
+    final current = assignment.isTeacherCreated
+        ? controller.currentSubmission
+        : selected;
+    final canStart = canStartAssignedMovement(assignment, current, current);
     return Column(
       key: const Key('assignment_detail_your_work'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Your work', style: AppTheme.headingMedium),
         const SizedBox(height: AppSpacing.sm),
-        if (selected == null)
+        if (current == null)
           ElixPanelCard(
             child: Text(
               'You have not submitted work for this assignment yet.',
@@ -306,15 +312,15 @@ class _YourWork extends StatelessWidget {
           )
         else
           SubmissionDetailBody(
-            key: ValueKey(selected!.id),
+            key: ValueKey(current.id),
             assignment: assignment,
-            attempt: selected!,
+            attempt: current,
             viewerRole: SubmissionDetailViewerRole.trainee,
             submissionRepository: controller.submissionRepository,
             openLocalPlayback: controller.openLocalPlayback,
             releaseLocalPlayback: controller.releaseLocalPlayback,
           ),
-        if (controller.attempts.length > 1) ...[
+        if (!assignment.isTeacherCreated && controller.attempts.length > 1) ...[
           const SizedBox(height: AppSpacing.lg),
           Text('Attempt history', style: AppTheme.headingMedium),
           const SizedBox(height: AppSpacing.sm),
@@ -329,10 +335,68 @@ class _YourWork extends StatelessWidget {
               ),
             ),
         ],
+        if (assignment.isTeacherCreated &&
+            current?.status == AssignmentAttemptStatus.submitted) ...[
+          const SizedBox(height: AppSpacing.md),
+          if (controller.unsubmitErrorMessage != null)
+            InfoBar(
+              title: const Text('Could not withdraw the clip'),
+              content: Text(controller.unsubmitErrorMessage!),
+              severity: InfoBarSeverity.error,
+              onClose: () {},
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Button(
+              onPressed: controller.unsubmitBusy || !controller.canUnsubmit
+                  ? null
+                  : () => _confirmUnsubmit(context, controller),
+              child: controller.unsubmitBusy
+                  ? const ProgressRing()
+                  : const Text('Unsubmit'),
+            ),
+          ),
+          if (!controller.canUnsubmit && !controller.unsubmitBusy)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
+              child: Text(
+                assignment.isOverdue
+                    ? 'Unsubmit is unavailable after the deadline.'
+                    : 'This submission can no longer be withdrawn.',
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ),
+        ],
+        if (assignment.isTeacherCreated &&
+            current?.status == AssignmentAttemptStatus.unsubmitting) ...[
+          const SizedBox(height: AppSpacing.md),
+          if (controller.unsubmitErrorMessage != null)
+            InfoBar(
+              title: const Text('Clip withdrawal needs a retry'),
+              content: Text(controller.unsubmitErrorMessage!),
+              severity: InfoBarSeverity.error,
+              onClose: () {},
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Button(
+              onPressed: controller.unsubmitBusy || !controller.canUnsubmit
+                  ? null
+                  : () => _confirmUnsubmit(context, controller),
+              child: controller.unsubmitBusy
+                  ? const ProgressRing()
+                  : const Text('Retry withdrawal'),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         if (canStart)
           ElixPrimaryButton(
-            label: assignedMovementActionLabel(assignment, selected),
+            label: assignedMovementActionLabel(assignment, current),
             expanded: true,
             icon: FluentIcons.play,
             onPressed: () =>
@@ -342,13 +406,41 @@ class _YourWork extends StatelessWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: ElixPill(
-              text: assignedMovementActionLabel(assignment, selected),
+              text: assignedMovementActionLabel(assignment, current),
               color: context.elixTextSecondary,
             ),
           ),
       ],
     );
   }
+}
+
+Future<void> _confirmUnsubmit(
+  BuildContext context,
+  AssignmentDetailController controller,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Unsubmit this clip?'),
+      content: const Text(
+        'The submitted clip will be removed and this assignment will return '
+        'to in progress. You can record and submit a new clip while the '
+        'assignment is still open.',
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Unsubmit'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) await controller.unsubmit();
 }
 
 class _AttemptHistoryRow extends StatelessWidget {

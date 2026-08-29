@@ -22,6 +22,7 @@ class TeacherAssignmentWorkPane extends StatefulWidget {
 }
 
 class _TeacherAssignmentWorkPaneState extends State<TeacherAssignmentWorkPane> {
+  final _grade = TextEditingController();
   final _feedback = TextEditingController();
   String? _feedbackAttemptId;
 
@@ -31,18 +32,25 @@ class _TeacherAssignmentWorkPaneState extends State<TeacherAssignmentWorkPane> {
   void initState() {
     super.initState();
     controller.addListener(_onController);
+    _grade.addListener(_onGradeChanged);
     _syncFeedback();
   }
 
   @override
   void dispose() {
     controller.removeListener(_onController);
+    _grade.removeListener(_onGradeChanged);
+    _grade.dispose();
     _feedback.dispose();
     super.dispose();
   }
 
   void _onController() {
     _syncFeedback();
+    if (mounted) setState(() {});
+  }
+
+  void _onGradeChanged() {
     if (mounted) setState(() {});
   }
 
@@ -54,6 +62,7 @@ class _TeacherAssignmentWorkPaneState extends State<TeacherAssignmentWorkPane> {
     }
     if (_feedbackAttemptId == selected.id) return;
     _feedbackAttemptId = selected.id;
+    _grade.text = selected.gradeScore?.toString() ?? '';
     _feedback.text = controller.reviewFeedbackDraft ?? '';
   }
 
@@ -92,6 +101,7 @@ class _TeacherAssignmentWorkPaneState extends State<TeacherAssignmentWorkPane> {
               final detail = _StudentDetail(
                 controller: controller,
                 assignment: assignment,
+                grade: _grade,
                 feedback: _feedback,
               );
               if (wide) {
@@ -162,18 +172,13 @@ class _Header extends StatelessWidget {
                 compact: true,
               ),
               ElixPill(
-                text: 'Awaiting review ${counts.awaitingReview}',
+                text: 'Awaiting check ${counts.awaitingCheck}',
                 color: AppColors.warning,
                 compact: true,
               ),
               ElixPill(
-                text: 'Approved ${counts.approved}',
+                text: 'Checked ${counts.checked}',
                 color: AppColors.success,
-                compact: true,
-              ),
-              ElixPill(
-                text: 'Needs retry ${counts.needsRetry}',
-                color: AppColors.error,
                 compact: true,
               ),
               ElixPill(
@@ -183,6 +188,10 @@ class _Header extends StatelessWidget {
               ),
             ],
           ),
+          if (assignment.isTeacherCreated) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _MaxScoreEditor(controller: controller, assignment: assignment),
+          ],
         ],
       ),
     );
@@ -194,6 +203,89 @@ class _Header extends StatelessWidget {
     final m = local.month.toString().padLeft(2, '0');
     final d = local.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+}
+
+class _MaxScoreEditor extends StatefulWidget {
+  const _MaxScoreEditor({required this.controller, required this.assignment});
+
+  final TeacherMovementsController controller;
+  final GroupAssignment assignment;
+
+  @override
+  State<_MaxScoreEditor> createState() => _MaxScoreEditorState();
+}
+
+class _MaxScoreEditorState extends State<_MaxScoreEditor> {
+  late final TextEditingController _maxScore;
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _maxScore = TextEditingController(
+      text: (widget.assignment.maxScore ?? 100).toString(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _MaxScoreEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.assignment.maxScore != widget.assignment.maxScore &&
+        !_editing) {
+      _maxScore.text = (widget.assignment.maxScore ?? 100).toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _maxScore.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final locked = widget.assignment.gradingLocked;
+    if (locked) {
+      return Text(
+        'Maximum score: ${widget.assignment.maxScore ?? 100} · Locked after first check',
+        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+      );
+    }
+    final value = int.tryParse(_maxScore.text.trim());
+    return Row(
+      children: [
+        SizedBox(
+          width: 180,
+          child: InfoLabel(
+            label: 'Maximum score',
+            child: TextBox(
+              controller: _maxScore,
+              maxLength: 3,
+              keyboardType: TextInputType.number,
+              onChanged: (_) {
+                _editing = true;
+                setState(() {});
+              },
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Button(
+          onPressed:
+              widget.controller.busy ||
+                  value == null ||
+                  value < 1 ||
+                  value > 100
+              ? null
+              : () => widget.controller.editAssignmentMaxScore(
+                  assignmentId: widget.assignment.id,
+                  maxScore: value,
+                ),
+          child: const Text('Save maximum'),
+        ),
+      ],
+    );
   }
 }
 
@@ -290,11 +382,13 @@ class _StudentDetail extends StatelessWidget {
   const _StudentDetail({
     required this.controller,
     required this.assignment,
+    required this.grade,
     required this.feedback,
   });
 
   final TeacherMovementsController controller;
   final GroupAssignment assignment;
+  final TextEditingController grade;
   final TextEditingController feedback;
 
   @override
@@ -314,10 +408,22 @@ class _StudentDetail extends StatelessWidget {
       assignmentId: assignment.id,
       traineeId: traineeId,
     );
-    final canReview =
+    final canGrade =
         attempt != null &&
-        attempt.isReviewFacingSubmission &&
-        attempt.status == AssignmentAttemptStatus.submitted;
+        attempt.isTeacherReviewSubmission &&
+        attempt.status != AssignmentAttemptStatus.unsubmitting &&
+        attempt.status != AssignmentAttemptStatus.inProgress &&
+        attempt.status != AssignmentAttemptStatus.draft;
+    final maxScore = attempt?.gradeMaxScore ?? assignment.maxScore ?? 100;
+    final parsedGrade = int.tryParse(grade.text.trim());
+    final canSaveGrade =
+        canGrade &&
+        parsedGrade != null &&
+        parsedGrade >= 0 &&
+        parsedGrade <= maxScore;
+    final showLegacyVerdictActions =
+        attempt?.status == AssignmentAttemptStatus.submitted &&
+        attempt?.isCanonicalTeacherReviewSubmission != true;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -341,8 +447,18 @@ class _StudentDetail extends StatelessWidget {
               openLocalPlayback: controller.openLocalPlayback,
               releaseLocalPlayback: controller.releaseLocalPlayback,
             ),
-          if (canReview) ...[
+          if (canGrade) ...[
             const SizedBox(height: AppSpacing.md),
+            InfoLabel(
+              label: 'Grade (0–$maxScore)',
+              child: TextBox(
+                controller: grade,
+                maxLength: 3,
+                keyboardType: TextInputType.number,
+                placeholder: 'Required',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
             TextBox(
               controller: feedback,
               maxLength: 1000,
@@ -353,25 +469,43 @@ class _StudentDetail extends StatelessWidget {
             Row(
               children: [
                 FilledButton(
-                  onPressed: controller.busy
+                  onPressed: controller.busy || !canSaveGrade
                       ? null
-                      : () => controller.reviewSelected(
-                          verdict: AssignmentReviewVerdict.approved,
+                      : () => controller.saveSelectedReview(
+                          gradeScore: parsedGrade,
                           feedback: feedback.text,
                         ),
-                  child: const Text('Approve'),
+                  child: Text(
+                    attempt.isChecked ? 'Update review' : 'Save review',
+                  ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Button(
-                  onPressed: controller.busy
-                      ? null
-                      : () => controller.reviewSelected(
-                          verdict: AssignmentReviewVerdict.needsRetry,
-                          feedback: feedback.text,
-                        ),
-                  child: const Text('Needs Retry'),
-                ),
+                if (attempt.isChecked) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Button(
+                    onPressed:
+                        controller.busy || attempt.resultSentForCurrentRevision
+                        ? null
+                        : controller.sendSelectedReviewResult,
+                    child: Text(
+                      attempt.resultSentForCurrentRevision
+                          ? 'Result sent'
+                          : 'Send to student',
+                    ),
+                  ),
+                ],
               ],
+            ),
+          ],
+          if (showLegacyVerdictActions) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Button(
+              onPressed: controller.busy
+                  ? null
+                  : () => controller.reviewSelected(
+                      verdict: AssignmentReviewVerdict.approved,
+                      feedback: feedback.text,
+                    ),
+              child: const Text('Approve legacy review'),
             ),
           ],
         ],

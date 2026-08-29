@@ -50,6 +50,7 @@ Map<String, dynamic> _submitted({
   String? verdict,
   String? feedback,
   Object? reviewedAt,
+  Map<String, dynamic>? extra,
 }) {
   final map = <String, dynamic>{
     ..._identity(),
@@ -67,6 +68,7 @@ Map<String, dynamic> _submitted({
   if (verdict != null) map['review_verdict'] = verdict;
   if (feedback != null) map['review_feedback'] = feedback;
   if (reviewedAt != null) map['reviewed_at'] = reviewedAt;
+  map.addAll(extra ?? const {});
   return map;
 }
 
@@ -306,6 +308,64 @@ void main() {
       ),
       isNull,
     );
+  });
+
+  test('checked review parses bounded grade and revision result metadata', () {
+    final checked = AssignmentAttempt.tryFromMap(
+      _submitted(
+        status: 'checked',
+        path: null,
+        deletedAt: DateTime.utc(2026, 9, 1),
+        extra: {
+          'grade_score': 75,
+          'grade_max_score': 80,
+          'checked_at': DateTime.utc(2026, 8, 21),
+          'review_updated_at': DateTime.utc(2026, 8, 22),
+          'review_revision': 2,
+          'result_sent_revision': 2,
+          'result_sent_at': DateTime.utc(2026, 8, 22, 1),
+          'result_message_id': 'message-2',
+          'review_feedback': 'Good control.',
+        },
+      ),
+      id: 'review_sub_a',
+    );
+
+    expect(checked, isNotNull);
+    expect(checked!.isChecked, isTrue);
+    expect(checked.hasNewReview, isTrue);
+    expect(checked.gradeScore, 75);
+    expect(checked.gradeMaxScore, 80);
+    expect(checked.reviewRevision, 2);
+    expect(checked.resultSentForCurrentRevision, isTrue);
+    expect(checked.hasPlayableVideo, isFalse);
+
+    for (final entry in [
+      {'grade_score': 81, 'grade_max_score': 80},
+      {'grade_score': 75, 'grade_max_score': 0},
+      {'grade_score': 75, 'grade_max_score': 80, 'review_revision': 0},
+      {
+        'grade_score': 75,
+        'grade_max_score': 80,
+        'review_revision': 2,
+        'result_sent_revision': 1,
+      },
+    ]) {
+      expect(
+        AssignmentAttempt.tryFromMap(
+          _submitted(
+            status: 'checked',
+            extra: {
+              ...entry,
+              'checked_at': DateTime.utc(2026, 8, 21),
+              'review_updated_at': DateTime.utc(2026, 8, 22),
+            },
+          ),
+          id: 'review_sub_a',
+        ),
+        isNull,
+      );
+    }
   });
 
   test('practice_pointer and teacher_review_draft still parse', () {

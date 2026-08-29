@@ -26,5 +26,7 @@ enum ClassroomError {
   unofficial,
   identityMismatch,
   invalidState,
+  deadlinePassed,
+  invalidGrade,
   uploadFailed,
 }

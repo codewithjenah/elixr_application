@@ -15,11 +15,22 @@ export '../models/classroom_exceptions.dart' show AssignmentSubmissionException;
 ///
 /// Never writes `sessions`, leaderboard markers, or XP.
 abstract class AssignmentSubmissionRepository {
+  /// Legacy Phase 6 upload entry point. Kept for compatibility with older
+  /// clients and migration tests; new UI code must use
+  /// [submitCanonicalLocalClip].
   Future<AssignmentAttempt> submitLocalClip({
     required String traineeId,
     required GroupAssignment assignment,
     required SubmissionRecordResult clip,
     String? supersedesAttemptId,
+  });
+
+  /// Uploads into the deterministic assignment/trainee submission document.
+  /// Repeated calls reuse the same document after an Unsubmit transition.
+  Future<AssignmentAttempt> submitCanonicalLocalClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
   });
 
   Future<void> deleteSubmissionObject(String storagePath);
@@ -130,7 +141,9 @@ Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClipToFile({
   required SubmissionDownloadFile downloadFile,
   required Directory cacheDirectory,
 }) async {
-  if (!attempt.hasPlayableVideo || attempt.videoExpired) {
+  if (!attempt.hasPlayableVideo ||
+      attempt.videoExpired ||
+      attempt.isUnsubmitting) {
     throw const AssignmentSubmissionException(
       'This clip is no longer available.',
     );
@@ -291,6 +304,118 @@ Future<AssignmentAttempt> submitLocalClipWithDraftCompensation({
   }
 }
 
+/// Canonical replacement for the legacy per-upload draft flow. The durable
+/// `in_progress` anchor is intentionally retained after an upload failure so
+/// the next attempt can reuse the same document. Any object that was created
+/// before the Firestore transition failed is deleted best-effort.
+Future<AssignmentAttempt> submitCanonicalLocalClipWithCleanup({
+  required String traineeId,
+  required GroupAssignment assignment,
+  required SubmissionRecordResult clip,
+  required ClassroomAssignmentRepository classroom,
+  required Future<void> Function({
+    required AssignmentAttempt draft,
+    required String storagePath,
+  })
+  uploadObject,
+  required Future<void> Function(String path) deleteObject,
+  required bool Function(Object error) isObjectNotFound,
+  required DateTime now,
+  Future<void> Function()? deleteLocalFile,
+  void Function(String line)? diagnosticLog,
+}) async {
+  ensureLocalClipWithinLimits(clip);
+  late final AssignmentAttempt draft;
+  try {
+    draft = await classroom.getOrCreateTeacherReviewSubmission(
+      traineeId: traineeId,
+      assignment: assignment,
+    );
+  } catch (error) {
+    emitPhase6SubmissionDiagnostic(
+      stage: Phase6SubmissionStage.createDraft,
+      error: error,
+      log: diagnosticLog,
+    );
+    if (error is ClassroomException || error is AssignmentSubmissionException) {
+      rethrow;
+    }
+    throw const ClassroomException(
+      ClassroomError.uploadFailed,
+      'The submission clip could not be uploaded. Try again.',
+    );
+  }
+  if (draft.status != AssignmentAttemptStatus.inProgress) {
+    throw const ClassroomException(
+      ClassroomError.invalidState,
+      'This submission is no longer available for recording.',
+    );
+  }
+  await emitPhase6DurableDraftAnchor(
+    draft: draft,
+    readAttempt: ({required attemptId}) =>
+        classroom.getAttempt(attemptId: attemptId),
+    diagnosticLog: diagnosticLog,
+  );
+  final path = assignmentSubmissionStoragePath(
+    teacherId: draft.teacherId,
+    groupId: draft.groupId,
+    assignmentId: draft.assignmentId,
+    traineeId: draft.traineeId,
+    attemptId: draft.id,
+  );
+  var stage = Phase6SubmissionStage.storageUpload;
+  try {
+    await uploadObject(draft: draft, storagePath: path);
+    stage = Phase6SubmissionStage.firestoreSubmit;
+    final submitted = await classroom.markTeacherReviewSubmitted(
+      traineeId: traineeId,
+      attempt: draft,
+      videoStoragePath: path,
+      videoContentType: AssignmentSubmissionLimits.contentType,
+      videoSizeBytes: clip.sizeBytes,
+      videoDurationMs: clip.durationMs,
+      submittedAt: now,
+      videoExpiresAt: unreviewedVideoExpiresAt(now),
+    );
+    stage = Phase6SubmissionStage.localCleanup;
+    try {
+      await deleteLocalFile?.call();
+    } catch (error) {
+      emitPhase6SubmissionDiagnostic(
+        stage: Phase6SubmissionStage.localCleanup,
+        error: error,
+        log: diagnosticLog,
+      );
+    }
+    return submitted;
+  } catch (error) {
+    emitPhase6SubmissionDiagnostic(
+      stage: stage,
+      error: error,
+      log: diagnosticLog,
+    );
+    try {
+      await deleteObject(path);
+    } catch (deleteError) {
+      if (!isObjectNotFound(deleteError)) {
+        emitPhase6SubmissionDiagnostic(
+          stage: Phase6SubmissionStage.abandonCompensation,
+          error: deleteError,
+          log: diagnosticLog,
+        );
+      }
+    }
+    if (error is ClassroomException || error is AssignmentSubmissionException) {
+      rethrow;
+    }
+    throw const ClassroomException(
+      ClassroomError.uploadFailed,
+      'The submission clip could not be uploaded. Try again.',
+    );
+  }
+}
+
 Future<void> _abandonDraftAfterFailedUpload({
   required ClassroomAssignmentRepository classroom,
   required String traineeId,
@@ -377,6 +502,7 @@ bool submissionVideoIsDueForDeletion({
   required DateTime now,
 }) {
   if (!attempt.isTeacherReviewSubmission) return false;
+  if (attempt.isUnsubmitting) return false;
   final path = attempt.videoStoragePath;
   if (path == null || path.isEmpty) return false;
   final expires = attempt.videoExpiresAt;

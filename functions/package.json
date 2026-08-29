@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "test:emulator": "node test/emulator_smoke.mjs",
-    "migrate:chat": "node scripts/migrate-chat.mjs"
+    "migrate:chat": "node scripts/migrate-chat.mjs",
+    "migrate:teacher-review-assignments": "node scripts/migrate-teacher-review-assignments.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.4.0",
