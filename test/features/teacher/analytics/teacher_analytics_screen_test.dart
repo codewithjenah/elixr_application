@@ -97,8 +97,34 @@ void main() {
     await pumpScreen(tester, const Size(1280, 900));
 
     expect(find.text('Analytics'), findsOneWidget);
-    expect(find.text('Class average score'), findsOneWidget);
+    expect(find.text('Average class score'), findsOneWidget);
     expect(find.text('Most practiced'), findsOneWidget);
+    expect(find.text('Not enough data yet'), findsOneWidget);
+    expect(
+      tester.getRect(find.text('Not enough data yet')).height,
+      lessThan(40),
+    );
+    expect(
+      tester.getRect(find.byKey(const Key('teacher_analytics_refresh'))).right,
+      greaterThan(1200),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('uses simple words when no scored practice is available', (
+    tester,
+  ) async {
+    progress.sessions['student'] = const [];
+
+    await pumpScreen(tester, const Size(1280, 900));
+
+    expect(find.text('Score progress over time'), findsOneWidget);
+    expect(
+      find.text('No practice sessions with scores in this time range yet.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Assessment V2'), findsNothing);
+    expect(find.textContaining('rubric'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -108,7 +134,7 @@ void main() {
       await pumpScreen(tester, const Size(640, 900));
 
       expect(find.text('Analytics'), findsOneWidget);
-      expect(find.text('Group comparison'), findsOneWidget);
+      expect(find.text('Class comparison'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

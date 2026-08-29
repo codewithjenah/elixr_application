@@ -382,7 +382,7 @@ class TeacherAnalyticsController extends ChangeNotifier {
     _comparisonSessionsByTrainee = comparison;
     partialDataWarning = failures.isEmpty
         ? null
-        : 'Some student practice history could not be read. Metrics are partial.';
+        : 'Some student practice history could not be loaded. Some numbers may be incomplete.';
     _rebuildFromCachedSessions(nowUtc: now, window: window);
     sessionLoading = false;
     lastUpdated = now;

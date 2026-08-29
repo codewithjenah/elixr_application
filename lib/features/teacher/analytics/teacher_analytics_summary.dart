@@ -37,7 +37,7 @@ class TeacherAnalyticsSummary extends StatelessWidget {
                 )
               else if (controller.errorMessage != null && snapshot == null)
                 Text(
-                  'Analytics is temporarily unavailable. Your classroom data is still available below.',
+                  'Analytics is temporarily unavailable. Your class data is still shown below.',
                   style: AppTheme.body.copyWith(
                     color: context.elixTextSecondary,
                   ),
@@ -47,7 +47,7 @@ class TeacherAnalyticsSummary extends StatelessWidget {
               if (controller.partialDataWarning != null) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  'Some practice history could not be read; summary values may be partial.',
+                  'Some practice history could not be loaded, so some numbers may be incomplete.',
                   style: AppTheme.caption.copyWith(
                     color: context.elixColors.warning,
                   ),
@@ -79,7 +79,7 @@ class _SummaryHeader extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'A quick view of current classroom practice.',
+          "A quick look at your class's practice.",
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
       ],
@@ -131,19 +131,19 @@ class _SummaryMetrics extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final values = [
-      ('Class average', _score(snapshot?.averageScore)),
+      ('Class average score', _score(snapshot?.averageScore)),
       (
-        'Avg sessions',
+        'Practice per student',
         snapshot?.averagePracticeSessions?.toStringAsFixed(1) ?? '—',
       ),
       (
-        'Completion',
+        'Assignments completed',
         snapshot?.completionRate == null
             ? '—'
             : '${(snapshot!.completionRate! * 100).toStringAsFixed(0)}%',
       ),
       (
-        'Week over week',
+        'Change from last week',
         snapshot?.improvement == null ? '—' : _signed(snapshot!.improvement!),
       ),
     ];

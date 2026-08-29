@@ -51,8 +51,7 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
         groups == null ||
         assignments == null ||
         progress == null) {
-      _dependencyError =
-          'Analytics is not available in this app configuration.';
+      _dependencyError = 'Analytics is not available right now.';
       return;
     }
     _controller = TeacherAnalyticsController(
@@ -77,7 +76,7 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
         header: const ElixEditorialPageHeader(
           heading: 'Analytics',
           eyebrow: 'TEACHER WORKSPACE',
-          subtitle: 'Understand classroom practice and performance.',
+          subtitle: 'See how your class is practicing.',
         ),
         content: Center(
           child: ConstrainedBox(
@@ -99,11 +98,12 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
           header: ElixEditorialPageHeader(
             heading: 'Analytics',
             eyebrow: 'TEACHER WORKSPACE',
-            subtitle:
-                'Practice, rubric performance, and assignment completion.',
+            subtitle: 'See how your class is practicing and completing work.',
             commandBar: CommandBar(
+              mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
                 CommandBarButton(
+                  key: const Key('teacher_analytics_refresh'),
                   icon: const Icon(FluentIcons.refresh),
                   label: const Text('Refresh'),
                   onPressed: controller.sessionLoading
@@ -132,11 +132,9 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),
                   child: InfoBar(
                     severity: InfoBarSeverity.warning,
-                    title: const Text(
-                      'Some classroom data could not be refreshed',
-                    ),
+                    title: const Text('Some class data could not be loaded'),
                     content: const Text(
-                      'The analytics snapshot may be incomplete. Refresh to try again.',
+                      'Some numbers may be incomplete. Try refreshing.',
                     ),
                     action: Button(
                       onPressed: controller.refresh,
@@ -158,7 +156,7 @@ class _TeacherAnalyticsScreenState extends State<TeacherAnalyticsScreen> {
                 )
               else if (controller.filterError != null)
                 const _AnalyticsMessage(
-                  message: 'Analytics is waiting for a valid date range.',
+                  message: 'Choose a valid date range to see your class data.',
                 )
               else
                 _AnalyticsBody(controller: controller),
@@ -192,8 +190,7 @@ class _AnalyticsFilters extends StatelessWidget {
             children: [
               _FilterField(
                 label: 'Class',
-                tooltip:
-                    'Only current approved members of active classes are included.',
+                tooltip: 'Choose a class or view all classes together.',
                 child: ComboBox<String>(
                   value: controller.selectedGroupId ?? _allClassesValue,
                   items: [
@@ -210,9 +207,8 @@ class _AnalyticsFilters extends StatelessWidget {
                 ),
               ),
               _FilterField(
-                label: 'Period',
-                tooltip:
-                    'Calendar periods use Asia/Manila and stop at the current time.',
+                label: 'Time period',
+                tooltip: 'Choose which dates to view.',
                 child: Wrap(
                   spacing: AppSpacing.xs,
                   runSpacing: AppSpacing.xs,
@@ -235,8 +231,7 @@ class _AnalyticsFilters extends StatelessWidget {
               if (controller.period == AnalyticsPeriod.custom)
                 _FilterField(
                   label: 'Date range',
-                  tooltip:
-                      'Custom ranges include both selected Manila dates and cover at most 90 days.',
+                  tooltip: 'Choose dates from the last 90 days.',
                   child: Button(
                     onPressed: () =>
                         _showCustomRangePicker(context, controller),
@@ -309,7 +304,7 @@ class _AnalyticsBody extends StatelessWidget {
     if (snapshot == null) {
       return const _AnalyticsMessage(
         message:
-            'Approve students in an active class to start building analytics.',
+            'Add approved students to an active class to start seeing class data.',
       );
     }
 
@@ -326,7 +321,7 @@ class _AnalyticsBody extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
             child: InfoBar(
               severity: InfoBarSeverity.warning,
-              title: const Text('Partial analytics data'),
+              title: const Text('Some data is missing'),
               content: Text(controller.partialDataWarning!),
             ),
           ),
@@ -356,56 +351,60 @@ class _MetricGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final improvement = snapshot.improvement;
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 960;
         final cards = [
           _MetricCard(
             icon: FluentIcons.calculator,
-            label: 'Class average score',
+            label: 'Average class score',
             value: _score(snapshot.averageScore),
             tooltip:
-                'Assessment V2 only. Average each student first, then average those student averages.',
+                "Average of each student's practice score. Each student counts equally.",
           ),
           _MetricCard(
             icon: FluentIcons.repeat_all,
-            label: 'Average practice sessions',
+            label: 'Practice sessions per student',
             value: snapshot.averagePracticeSessions?.toStringAsFixed(1) ?? '—',
-            tooltip:
-                'Total sessions divided by every eligible student, including students with zero sessions.',
+            tooltip: 'Average number of practice sessions for each student.',
           ),
           _MetricCard(
             icon: FluentIcons.completed,
-            label: 'Completion rate',
+            label: 'Assignments completed',
             value: snapshot.completionRate == null
                 ? '—'
                 : '${(snapshot.completionRate! * 100).toStringAsFixed(0)}%',
             tooltip:
-                'Turned-in assignment/student pairs divided by expected pairs. Future-due work is excluded.',
+                'Percentage of due assignments that students turned in. Future assignments are not included.',
           ),
           _MetricCard(
             icon: FluentIcons.trending12,
             label: _improvementLabel(snapshot.periodWindow.period),
-            value: snapshot.improvement == null
-                ? 'Insufficient data'
-                : _signedScore(snapshot.improvement!),
-            tooltip: 'Matched students with V2 scores in both periods only.',
-            valueColor: snapshot.improvement == null
+            value: improvement == null
+                ? 'Not enough data yet'
+                : _signedScore(improvement),
+            tooltip:
+                'Compares scores only for students who have a score in both time periods.',
+            smallValue: improvement == null,
+            valueColor: improvement == null
                 ? null
-                : snapshot.improvement! >= 0
+                : improvement >= 0
                 ? AppColors.success
                 : AppColors.error,
           ),
         ];
         if (wide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var index = 0; index < cards.length; index++) ...[
-                if (index > 0) const SizedBox(width: AppSpacing.md),
-                Expanded(child: cards[index]),
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var index = 0; index < cards.length; index++) ...[
+                  if (index > 0) const SizedBox(width: AppSpacing.md),
+                  Expanded(child: cards[index]),
+                ],
               ],
-            ],
+            ),
           );
         }
         return Wrap(
@@ -432,9 +431,9 @@ class _MetricGrid extends StatelessWidget {
   }
 
   static String _improvementLabel(AnalyticsPeriod period) => switch (period) {
-    AnalyticsPeriod.thisWeek => 'Week-over-week performance',
-    AnalyticsPeriod.thisMonth => 'Month-over-month performance',
-    AnalyticsPeriod.custom => 'Prior range performance',
+    AnalyticsPeriod.thisWeek => 'Change from last week',
+    AnalyticsPeriod.thisMonth => 'Change from last month',
+    AnalyticsPeriod.custom => 'Change from previous period',
   };
 }
 
@@ -444,6 +443,7 @@ class _MetricCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.tooltip,
+    this.smallValue = false,
     this.valueColor,
   });
 
@@ -451,6 +451,7 @@ class _MetricCard extends StatelessWidget {
   final String label;
   final String value;
   final String tooltip;
+  final bool smallValue;
   final Color? valueColor;
 
   @override
@@ -465,12 +466,16 @@ class _MetricCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             Text(
               value,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppTheme.metric(
-                context,
-                color: valueColor ?? context.elixTextPrimary,
-              ),
+              style: smallValue
+                  ? AppTheme.cardTitle(
+                      color: valueColor ?? context.elixTextPrimary,
+                    )
+                  : AppTheme.metric(
+                      context,
+                      color: valueColor ?? context.elixTextPrimary,
+                    ),
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
@@ -499,14 +504,14 @@ class _TrendPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _SectionTitle(
-            title: 'Rubric performance trend',
+            title: 'Score progress over time',
             tooltip:
-                'Daily buckets are used through 31 days; longer custom ranges use weekly buckets.',
+                "Shows your class's average score for each day or week in the selected time range.",
           ),
           const SizedBox(height: AppSpacing.md),
           if (!hasScores)
             Text(
-              'No Assessment V2 scores in this period.',
+              'No practice sessions with scores in this time range yet.',
               style: AppTheme.body.copyWith(color: context.elixTextSecondary),
             )
           else
@@ -639,9 +644,9 @@ class _MovementInsights extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle(
-          title: 'Movement insights',
+          title: 'Movement highlights',
           tooltip:
-              'Most practiced counts all valid session projections. Hardest uses student-weighted V2 averages.',
+              'Most practiced shows what students practiced most. Hardest shows the movement with the lowest average score.',
         ),
         const SizedBox(height: AppSpacing.md),
         LayoutBuilder(
@@ -660,7 +665,7 @@ class _MovementInsights extends StatelessWidget {
                 icon: FluentIcons.warning,
                 insight: snapshot.hardest,
                 emptyCopy:
-                    'Insufficient data (3 sessions from 2 students required).',
+                    'Not enough practice yet (need 3 sessions from 2 students).',
                 details: (value) =>
                     '${value.averageScore?.toStringAsFixed(1) ?? '—'} / 12 · '
                     '${value.sessionCount} sessions · ${value.distinctStudentCount} students',
@@ -775,9 +780,9 @@ class _GroupComparisonSectionState extends State<_GroupComparisonSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle(
-          title: 'Group comparison',
+          title: 'Class comparison',
           tooltip:
-              'Each class is calculated independently. A student in multiple classes contributes to each class after that membership was approved.',
+              "See each class's scores, practice, completed assignments, and change.",
         ),
         const SizedBox(height: AppSpacing.md),
         if (comparisons.isEmpty)
@@ -879,10 +884,10 @@ class _WideGroupComparison extends StatelessWidget {
       children: [
         _GroupComparisonRow(
           isHeader: true,
-          group: 'Group',
-          average: 'Average',
-          sessions: 'Avg sessions',
-          completion: 'Completion',
+          group: 'Class',
+          average: 'Average score',
+          sessions: 'Practice per student',
+          completion: 'Assignments',
           improvement: 'Change',
           onSort: onSort,
           sort: sort,
@@ -992,18 +997,28 @@ class _GroupComparisonRow extends StatelessWidget {
           : Alignment.centerRight,
       child: Button(
         onPressed: () => onSort!(column),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(value, style: style),
-            if (selected) ...[
-              const SizedBox(width: 4),
-              Icon(
-                ascending ? FluentIcons.chevron_up : FluentIcons.chevron_down,
-                size: 10,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 160),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  value,
+                  style: style,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
+              if (selected) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  ascending ? FluentIcons.chevron_up : FluentIcons.chevron_down,
+                  size: 10,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -1034,17 +1049,17 @@ class _NarrowGroupComparison extends StatelessWidget {
             runSpacing: AppSpacing.sm,
             children: [
               _MiniMetric(
-                label: 'Average',
+                label: 'Average score',
                 value: _score(comparison.averageScore),
               ),
               _MiniMetric(
-                label: 'Sessions',
+                label: 'Practice per student',
                 value:
                     comparison.averagePracticeSessions?.toStringAsFixed(1) ??
                     '—',
               ),
               _MiniMetric(
-                label: 'Completion',
+                label: 'Assignments',
                 value: comparison.completionRate == null
                     ? '—'
                     : '${(comparison.completionRate! * 100).toStringAsFixed(0)}%',
@@ -1109,9 +1124,8 @@ class _GroupComparisonChart extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _SectionTitle(
-            title: 'Class average comparison',
-            tooltip:
-                'Assessment V2 class averages, shown on the same 0–12 scale.',
+            title: 'Average score by class',
+            tooltip: 'Class averages use the same 0–12 score scale.',
           ),
           const SizedBox(height: AppSpacing.md),
           SizedBox(
