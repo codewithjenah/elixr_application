@@ -1,6 +1,7 @@
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -273,6 +274,7 @@ class _SearchResults extends StatelessWidget {
             subtitle: user.role,
             selected: controller.selectedUser?.id == user.id,
             onPressed: () => controller.openUser(user),
+            onViewProfile: () => context.push('/profile/${user.id}'),
           );
         },
       ),
@@ -311,6 +313,7 @@ class _InboxList extends StatelessWidget {
           selected: controller.selectedConversation?.id == conversation.id,
           onPressed: () => controller.openConversation(conversation),
           onMarkUnread: () => controller.markConversationUnread(conversation),
+          onViewProfile: () => context.push('/profile/${user.id}'),
           onDelete: () => _confirmDelete(context, conversation, user),
         );
       },
@@ -361,6 +364,7 @@ class _PersonTile extends StatefulWidget {
     this.unread = 0,
     this.onMarkUnread,
     this.onDelete,
+    this.onViewProfile,
   });
 
   final ChatUser user;
@@ -371,6 +375,7 @@ class _PersonTile extends StatefulWidget {
   final int unread;
   final VoidCallback? onMarkUnread;
   final VoidCallback? onDelete;
+  final VoidCallback? onViewProfile;
 
   @override
   State<_PersonTile> createState() => _PersonTileState();
@@ -391,20 +396,32 @@ class _PersonTileState extends State<_PersonTile> {
       builder: (context) => MenuFlyout(
         constraints: const BoxConstraints(minWidth: 190),
         items: [
-          MenuFlyoutItem(
-            leading: const Icon(FluentIcons.mail),
-            text: const Text('Mark as unread'),
-            onPressed: widget.unread > 0 ? null : widget.onMarkUnread,
-          ),
-          const MenuFlyoutSeparator(),
-          MenuFlyoutItem(
-            leading: const Icon(FluentIcons.delete),
-            text: Text(
-              'Delete conversation',
-              style: TextStyle(color: context.elixColors.error),
+          if (widget.onMarkUnread != null)
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.mail),
+              text: const Text('Mark as unread'),
+              onPressed: widget.unread > 0 ? null : widget.onMarkUnread,
             ),
-            onPressed: widget.onDelete,
-          ),
+          if (widget.onViewProfile != null)
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.contact_info),
+              text: const Text('View profile'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onViewProfile!();
+              },
+            ),
+          if (widget.onDelete != null) ...[
+            const MenuFlyoutSeparator(),
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.delete),
+              text: Text(
+                'Delete conversation',
+                style: TextStyle(color: context.elixColors.error),
+              ),
+              onPressed: widget.onDelete,
+            ),
+          ],
         ],
       ),
     );
@@ -498,7 +515,7 @@ class _PersonTileState extends State<_PersonTile> {
                 ],
               ),
             ),
-            if (widget.onDelete != null) ...[
+            if (widget.onDelete != null || widget.onViewProfile != null) ...[
               const SizedBox(width: 2),
               Semantics(
                 button: true,
