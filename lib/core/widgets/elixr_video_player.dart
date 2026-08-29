@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -106,6 +107,23 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
     }
   }
 
+  void _showFullscreen() {
+    final controller = _controller;
+    if (!mounted || controller == null) return;
+
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        barrierColor: Colors.black,
+        builder: (dialogContext) => _FullscreenElixrVideoPlayer(
+          controller: controller,
+          onClose: () => Navigator.of(dialogContext).pop(),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     widget.session?.attach(() async {});
@@ -139,39 +157,232 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
-        Row(
-          children: [
-            IconButton(
-              icon: Icon(
-                controller.value.isPlaying
-                    ? FluentIcons.pause
-                    : FluentIcons.play,
-              ),
-              onPressed: () {
-                if (controller.value.isPlaying) {
-                  controller.pause();
-                } else {
-                  controller.play();
-                }
-                setState(() {});
-              },
-            ),
-            Expanded(
-              child: Text(
-                _format(controller.value.position),
-                style: AppTheme.caption,
-              ),
-            ),
-          ],
+        _ElixrVideoControls(
+          controller: controller,
+          onFullscreen: _showFullscreen,
         ),
       ],
     );
   }
+}
 
-  String _format(Duration value) {
-    final seconds = value.inSeconds;
-    final m = (seconds ~/ 60).toString().padLeft(2, '0');
-    final s = (seconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+class _ElixrVideoControls extends StatefulWidget {
+  const _ElixrVideoControls({
+    required this.controller,
+    this.onFullscreen,
+    this.isFullscreen = false,
+  });
+
+  final WinVideoPlayerController controller;
+  final VoidCallback? onFullscreen;
+  final bool isFullscreen;
+
+  @override
+  State<_ElixrVideoControls> createState() => _ElixrVideoControlsState();
+}
+
+class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
+  int? _scrubPositionMs;
+  bool _commandInFlight = false;
+
+  @override
+  void didUpdateWidget(covariant _ElixrVideoControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _scrubPositionMs = null;
+    }
   }
+
+  Future<void> _togglePlayPause() async {
+    if (_commandInFlight) return;
+    _commandInFlight = true;
+    try {
+      final controller = widget.controller;
+      if (controller.value.isPlaying) {
+        await controller.pause();
+      } else {
+        if (controller.value.isCompleted) {
+          await controller.seekTo(Duration.zero);
+        }
+        await controller.play();
+      }
+    } catch (_) {
+      // The parent owns controller initialization and native disposal. A
+      // stale click during teardown should not produce an unhandled future.
+    } finally {
+      if (mounted) {
+        setState(() => _commandInFlight = false);
+      } else {
+        _commandInFlight = false;
+      }
+    }
+  }
+
+  Future<void> _seekTo(int milliseconds, int durationMs) async {
+    final targetMs = milliseconds.clamp(0, durationMs).toInt();
+    try {
+      await widget.controller.seekTo(Duration(milliseconds: targetMs));
+    } catch (_) {
+      // The controller may be released while the user is scrubbing.
+    } finally {
+      if (mounted) setState(() => _scrubPositionMs = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<WinVideoPlayerValue>(
+      valueListenable: widget.controller,
+      builder: (context, value, _) {
+        final durationMs = value.duration.inMilliseconds;
+        final maxMs = durationMs > 0 ? durationMs : 1;
+        final positionMs = (_scrubPositionMs ?? value.position.inMilliseconds)
+            .clamp(0, durationMs > 0 ? durationMs : 0)
+            .toInt();
+        final foreground = widget.isFullscreen
+            ? Colors.white
+            : context.elixTextPrimary;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Slider(
+              key: const Key('elixr_video_progress'),
+              value: positionMs.toDouble(),
+              min: 0,
+              max: maxMs.toDouble(),
+              label: _formatVideoDuration(Duration(milliseconds: positionMs)),
+              onChanged: durationMs <= 0
+                  ? null
+                  : (next) {
+                      setState(() => _scrubPositionMs = next.round());
+                    },
+              onChangeEnd: durationMs <= 0
+                  ? null
+                  : (next) => unawaited(_seekTo(next.round(), durationMs)),
+            ),
+            Row(
+              children: [
+                Tooltip(
+                  message: value.isPlaying ? 'Pause' : 'Play',
+                  child: IconButton(
+                    key: const Key('elixr_video_play_pause'),
+                    icon: Icon(
+                      value.isPlaying ? FluentIcons.pause : FluentIcons.play,
+                      color: foreground,
+                    ),
+                    onPressed: _commandInFlight
+                        ? null
+                        : () => unawaited(_togglePlayPause()),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    '${_formatVideoDuration(Duration(milliseconds: positionMs))} / '
+                    '${_formatVideoDuration(value.duration)}',
+                    style: AppTheme.caption.copyWith(color: foreground),
+                  ),
+                ),
+                if (widget.onFullscreen != null)
+                  Tooltip(
+                    message: widget.isFullscreen
+                        ? 'Exit fullscreen'
+                        : 'Enlarge video',
+                    child: IconButton(
+                      key: Key(
+                        widget.isFullscreen
+                            ? 'elixr_video_exit_fullscreen'
+                            : 'elixr_video_fullscreen',
+                      ),
+                      icon: Icon(
+                        widget.isFullscreen
+                            ? FluentIcons.back_to_window
+                            : FluentIcons.full_screen,
+                        color: foreground,
+                      ),
+                      onPressed: widget.onFullscreen,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FullscreenElixrVideoPlayer extends StatelessWidget {
+  const _FullscreenElixrVideoPlayer({
+    required this.controller,
+    required this.onClose,
+  });
+
+  final WinVideoPlayerController controller;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.expand(
+      child: ColoredBox(
+        color: Colors.black,
+        child: SafeArea(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(child: WinVideoPlayer(controller)),
+              Positioned(
+                top: AppSpacing.sm,
+                right: AppSpacing.sm,
+                child: Tooltip(
+                  message: 'Close fullscreen',
+                  child: IconButton(
+                    key: const Key('elixr_video_close_fullscreen'),
+                    icon: const Icon(
+                      FluentIcons.chrome_close,
+                      color: Colors.white,
+                    ),
+                    style: const ButtonStyle(
+                      backgroundColor: WidgetStatePropertyAll(
+                        Color(0x66000000),
+                      ),
+                    ),
+                    onPressed: onClose,
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ColoredBox(
+                  color: const Color(0xCC000000),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.sm,
+                      AppSpacing.xs,
+                      AppSpacing.sm,
+                      AppSpacing.sm,
+                    ),
+                    child: _ElixrVideoControls(
+                      controller: controller,
+                      isFullscreen: true,
+                      onFullscreen: onClose,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatVideoDuration(Duration value) {
+  final seconds = value.inSeconds;
+  final m = (seconds ~/ 60).toString().padLeft(2, '0');
+  final s = (seconds % 60).toString().padLeft(2, '0');
+  return '$m:$s';
 }

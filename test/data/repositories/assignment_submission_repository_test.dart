@@ -335,12 +335,95 @@ void main() {
     expect(cache.listSync(), isEmpty);
   });
 
+  test(
+    'native file playback enforces the download limit and keeps a file URI',
+    () async {
+      final cache = await Directory.systemTemp.createTemp('elixr_review_cache');
+      addTearDown(() => cache.delete(recursive: true));
+      var downloadedPath = '';
+      var requestedMaxSize = 0;
+      final playback = await materializeAuthenticatedSubmissionClipToFile(
+        attempt: AssignmentAttempt(
+          id: 'review_sub_file',
+          traineeId: 'trainee-1',
+          teacherId: 'teacher-1',
+          groupId: 'g1',
+          assignmentId: 'asg1',
+          movementId: 'tm1',
+          revisionId: 'rev1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.approved,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_file.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 4,
+          videoDurationMs: 1000,
+          submittedAt: DateTime.utc(2026, 8, 20),
+          videoExpiresAt: DateTime.utc(2026, 9, 19),
+        ),
+        cacheDirectory: cache,
+        downloadFile: (path, {required destination, required maxSize}) async {
+          downloadedPath = path;
+          requestedMaxSize = maxSize;
+          await destination.writeAsBytes(const [0, 0, 0, 1], flush: true);
+        },
+      );
+      expect(downloadedPath, startsWith('assignment_submissions/'));
+      expect(
+        requestedMaxSize,
+        AssignmentSubmissionLimits.maxPlaybackDownloadBytes,
+      );
+      expect(playback.uri.isScheme('file'), isTrue);
+      expect(File(playback.localPath).lengthSync(), 4);
+      await releaseSubmissionPlaybackFile(playback);
+    },
+  );
+
+  test('failed native file playback deletes the partial cache file', () async {
+    final cache = await Directory.systemTemp.createTemp('elixr_review_cache');
+    addTearDown(() => cache.delete(recursive: true));
+    await expectLater(
+      materializeAuthenticatedSubmissionClipToFile(
+        attempt: AssignmentAttempt(
+          id: 'review_sub_file_fail',
+          traineeId: 'trainee-1',
+          teacherId: 'teacher-1',
+          groupId: 'g1',
+          assignmentId: 'asg1',
+          movementId: 'tm1',
+          revisionId: 'rev1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.approved,
+          videoStoragePath:
+              'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_file_fail.mp4',
+          videoContentType: 'video/mp4',
+          videoSizeBytes: 4,
+          videoDurationMs: 1000,
+          submittedAt: DateTime.utc(2026, 8, 20),
+          videoExpiresAt: DateTime.utc(2026, 9, 19),
+        ),
+        cacheDirectory: cache,
+        downloadFile: (path, {required destination, required maxSize}) async {
+          await destination.writeAsBytes(const [0, 0], flush: true);
+          throw const AssignmentSubmissionException('download failed');
+        },
+      ),
+      throwsA(isA<AssignmentSubmissionException>()),
+    );
+    expect(cache.listSync(), isEmpty);
+  });
+
   test('firebase submission repository does not mint download URLs', () {
     final source = File(
       'lib/data/repositories/firebase_assignment_submission_repository.dart',
     ).readAsStringSync();
     expect(source.contains('getDownloadURL'), isFalse);
-    expect(source.contains('getData'), isTrue);
+    expect(source.contains('writeToFile'), isTrue);
+    expect(source.contains('getData'), isFalse);
   });
 
   test('object-not-found reconcile is not fatal', () async {

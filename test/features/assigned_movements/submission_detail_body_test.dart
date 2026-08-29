@@ -227,12 +227,14 @@ void main() {
     'teacher-reviewed submission offers a clip preview and loads playback',
     (tester) async {
       AssignmentAttempt? opened;
+      var openCount = 0;
       await _pumpBody(
         tester,
         assignment: _teacherAssignment(),
         attempt: _submittedClip(),
         openLocalPlayback: (attempt) async {
           opened = attempt;
+          openCount++;
           return null;
         },
       );
@@ -245,6 +247,12 @@ void main() {
       );
       expect(find.text('Your clip'), findsOneWidget);
       expect(opened?.id, 'attempt-clip');
+      expect(find.byKey(const Key('submission_clip_retry')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('submission_clip_retry')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(openCount, 2);
     },
   );
 }

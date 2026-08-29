@@ -1,8 +1,10 @@
 import 'package:elixr_application/core/constants/app_colors.dart';
 import 'package:elixr_application/core/constants/movements.dart';
+import 'package:elixr_application/core/constants/app_spacing.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/theme/elix_design_tokens.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/elix_panel_card.dart';
 import 'package:elixr_application/core/widgets/elix_stat_card.dart';
 import 'package:elixr_application/data/models/achievement.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
@@ -342,6 +344,45 @@ void main() {
     final heading = tester.widget<Text>(find.text('Hand Stall').first);
     expect(heading.style!.fontSize, 24);
   });
+
+  testWidgets(
+    'assignment detail scroll reaches the page edge and keeps the content gutter',
+    (tester) async {
+      await _setSurface(tester, const Size(1100, 800));
+      final groups = InMemoryGroupRepository();
+      addTearDown(groups.dispose);
+      final assignments = InMemoryClassroomAssignmentRepository();
+      addTearDown(assignments.dispose);
+      final controller =
+          AssignmentDetailController(
+              assignmentId: 'asg-a',
+              traineeId: 'trainee-1',
+              groupRepository: groups,
+              assignmentRepository: assignments,
+            )
+            ..assignment = _assignment(id: 'asg-a')
+            ..authorized = true;
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          AssignmentDetailScreen(assignmentId: 'asg-a', controller: controller),
+        ),
+      );
+      await tester.pump();
+
+      final scrollRect = tester.getRect(
+        find.byKey(const Key('assignment_detail_work_scroll')),
+      );
+      final workCardRect = tester.getRect(find.byType(ElixPanelCard).last);
+
+      expect(scrollRect.right, closeTo(1100, 0.1));
+      expect(
+        workCardRect.right,
+        closeTo(scrollRect.right - AppSpacing.lg, 0.1),
+      );
+    },
+  );
 
   testWidgets('movements practiced count uses the large metric scale', (
     tester,

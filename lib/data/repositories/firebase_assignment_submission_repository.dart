@@ -20,12 +20,14 @@ class FirebaseAssignmentSubmissionRepository
     Directory? reviewCacheDirectory,
     Future<Uint8List> Function(String path, {required int maxSize})?
     downloadBytes,
+    SubmissionDownloadFile? downloadFile,
     Phase6StorageAuthProbe Function()? debugAuthProbe,
     void Function(String line)? diagnosticLog,
   }) : _classroom = classroom,
        _storage = storage ?? FirebaseStorage.instance,
        _reviewCacheDirectory = reviewCacheDirectory,
        _downloadBytes = downloadBytes,
+       _downloadFile = downloadFile,
        _debugAuthProbe = debugAuthProbe,
        _diagnosticLog = diagnosticLog;
 
@@ -34,6 +36,7 @@ class FirebaseAssignmentSubmissionRepository
   final Directory? _reviewCacheDirectory;
   final Future<Uint8List> Function(String path, {required int maxSize})?
   _downloadBytes;
+  final SubmissionDownloadFile? _downloadFile;
   final Phase6StorageAuthProbe Function()? _debugAuthProbe;
   final void Function(String line)? _diagnosticLog;
 
@@ -126,10 +129,20 @@ class FirebaseAssignmentSubmissionRepository
     if (!attempt.hasPlayableVideo || attempt.videoExpired) return null;
     final path = attempt.videoStoragePath;
     if (path == null || path.isEmpty) return null;
-    return materializeAuthenticatedSubmissionClip(
+    final cacheDirectory =
+        _reviewCacheDirectory ?? _defaultReviewCacheDirectory();
+    final downloadBytes = _downloadBytes;
+    if (downloadBytes != null) {
+      return materializeAuthenticatedSubmissionClip(
+        attempt: attempt,
+        downloadBytes: downloadBytes,
+        cacheDirectory: cacheDirectory,
+      );
+    }
+    return materializeAuthenticatedSubmissionClipToFile(
       attempt: attempt,
-      downloadBytes: _downloadBytes ?? _getAuthenticatedBytes,
-      cacheDirectory: _reviewCacheDirectory ?? _defaultReviewCacheDirectory(),
+      downloadFile: _downloadFile ?? _downloadAuthenticatedFile,
+      cacheDirectory: cacheDirectory,
     );
   }
 
@@ -154,17 +167,35 @@ class FirebaseAssignmentSubmissionRepository
     );
   }
 
-  Future<Uint8List> _getAuthenticatedBytes(
+  Future<void> _downloadAuthenticatedFile(
     String storagePath, {
+    required File destination,
     required int maxSize,
   }) async {
-    final data = await _storage.ref(storagePath).getData(maxSize);
-    if (data == null || data.isEmpty) {
+    try {
+      await _storage.ref(storagePath).writeToFile(destination);
+    } on FirebaseException catch (error) {
+      if (!_canRetryAfterAuthRefresh(error)) rethrow;
+      final refreshToken = _captureDebugAuthProbe().forceRefreshIdToken;
+      if (refreshToken == null) rethrow;
+      (_diagnosticLog ?? phase6SubmissionDefaultLog)(
+        '[Phase6StoragePlayback] retrying_after_auth_refresh '
+        'error_code=${error.code}',
+      );
+      await refreshToken();
+      await _storage.ref(storagePath).writeToFile(destination);
+    }
+    if (await destination.length() > maxSize) {
       throw const AssignmentSubmissionException(
-        'The submission clip could not be downloaded.',
+        'The submission clip is empty or larger than the download limit.',
       );
     }
-    return data;
+  }
+
+  bool _canRetryAfterAuthRefresh(FirebaseException error) {
+    return error.code == 'unauthorized' ||
+        error.code == 'unauthenticated' ||
+        error.code == 'retry-limit-exceeded';
   }
 
   Directory _defaultReviewCacheDirectory() {

@@ -44,6 +44,17 @@ class SubmissionPlaybackFile {
   Uri get uri => Uri.file(localPath);
 }
 
+/// Authenticated Storage download that writes directly to [destination].
+///
+/// [maxSize] is part of the contract so callers cannot accidentally omit the
+/// playback size limit when they switch download implementations.
+typedef SubmissionDownloadFile =
+    Future<void> Function(
+      String path, {
+      required File destination,
+      required int maxSize,
+    });
+
 void ensureLocalClipWithinLimits(SubmissionRecordResult clip) {
   if (clip.contentType != AssignmentSubmissionLimits.contentType) {
     throw const AssignmentSubmissionException(
@@ -94,6 +105,31 @@ Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClip({
   downloadBytes,
   required Directory cacheDirectory,
 }) async {
+  return materializeAuthenticatedSubmissionClipToFile(
+    attempt: attempt,
+    cacheDirectory: cacheDirectory,
+    downloadFile: (path, {required destination, required maxSize}) async {
+      final bytes = await downloadBytes(path, maxSize: maxSize);
+      if (bytes.isEmpty || bytes.length > maxSize) {
+        throw const AssignmentSubmissionException(
+          'The submission clip is empty or larger than the download limit.',
+        );
+      }
+      await destination.writeAsBytes(bytes, flush: true);
+    },
+  );
+}
+
+/// Downloads an authenticated clip straight into an ELIXR review cache file.
+///
+/// The Firebase Storage Windows SDK has a native file-download path. Using
+/// that path avoids allocating a full playback buffer in Dart and gives the
+/// native player a completed file only after the download has finished.
+Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClipToFile({
+  required AssignmentAttempt attempt,
+  required SubmissionDownloadFile downloadFile,
+  required Directory cacheDirectory,
+}) async {
   if (!attempt.hasPlayableVideo || attempt.videoExpired) {
     throw const AssignmentSubmissionException(
       'This clip is no longer available.',
@@ -105,22 +141,23 @@ Future<SubmissionPlaybackFile> materializeAuthenticatedSubmissionClip({
       'This clip is no longer available.',
     );
   }
-  await cacheDirectory.create(recursive: true);
   final local = File(
     '${cacheDirectory.path}${Platform.pathSeparator}review_${attempt.id}.mp4',
   );
   try {
-    final bytes = await downloadBytes(
+    await cacheDirectory.create(recursive: true);
+    await downloadFile(
       storagePath,
+      destination: local,
       maxSize: AssignmentSubmissionLimits.maxPlaybackDownloadBytes,
     );
-    if (bytes.isEmpty ||
-        bytes.length > AssignmentSubmissionLimits.maxPlaybackDownloadBytes) {
+    final size = await local.length();
+    if (size <= 0 ||
+        size > AssignmentSubmissionLimits.maxPlaybackDownloadBytes) {
       throw const AssignmentSubmissionException(
         'The submission clip is empty or larger than the download limit.',
       );
     }
-    await local.writeAsBytes(bytes, flush: true);
     return SubmissionPlaybackFile(localPath: local.path);
   } catch (error) {
     try {

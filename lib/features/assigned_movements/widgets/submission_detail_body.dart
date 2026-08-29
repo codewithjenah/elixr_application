@@ -171,6 +171,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
                 playable: _playable,
                 playableError: _playableError,
                 playbackSession: _playbackSession,
+                onRetry: _loadForAttempt,
               ),
             ),
             const SizedBox(height: AppSpacing.md),
@@ -322,6 +323,7 @@ class _TeacherReviewedSection extends StatelessWidget {
     required SubmissionPlaybackFile? playable,
     required Object? playableError,
     required ElixrPlaybackSession playbackSession,
+    VoidCallback? onRetry,
   }) {
     if (clipBytesGone) {
       return Center(
@@ -349,9 +351,22 @@ class _TeacherReviewedSection extends StatelessWidget {
     }
     if (playableError != null) {
       return Center(
-        child: Text(
-          'This clip could not be opened.',
-          style: AppTheme.body.copyWith(color: AppColors.error),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'This clip could not be opened.',
+              style: AppTheme.body.copyWith(color: AppColors.error),
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Button(
+                key: const Key('submission_clip_retry'),
+                onPressed: onRetry,
+                child: const Text('Try again'),
+              ),
+            ],
+          ],
         ),
       );
     }

@@ -90,7 +90,7 @@ class _AssignmentDetailScreenState extends State<AssignmentDetailScreen> {
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg,
               AppSpacing.pageTopInset,
-              AppSpacing.lg,
+              0,
               AppSpacing.lg,
             ),
             child: _Body(
@@ -170,18 +170,29 @@ class _Body extends StatelessWidget {
                         const SizedBox(width: AppSpacing.lg),
                         Expanded(
                           flex: 3,
-                          child: SingleChildScrollView(child: work),
+                          child: SingleChildScrollView(
+                            key: const Key('assignment_detail_work_scroll'),
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                right: AppSpacing.lg,
+                              ),
+                              child: work,
+                            ),
+                          ),
                         ),
                       ],
                     )
                   : SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          header,
-                          const SizedBox(height: AppSpacing.lg),
-                          work,
-                        ],
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: AppSpacing.lg),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            header,
+                            const SizedBox(height: AppSpacing.lg),
+                            work,
+                          ],
+                        ),
                       ),
                     ),
             ),
