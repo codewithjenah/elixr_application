@@ -29,6 +29,8 @@ import 'data/repositories/firebase_assignment_submission_repository.dart';
 import 'data/repositories/firebase_classroom_assignment_repository.dart';
 import 'data/repositories/firebase_teacher_movement_repository.dart';
 import 'data/repositories/teacher_movement_repository.dart';
+import 'features/teacher/activity_center/activity_read_store.dart';
+import 'features/teacher/activity_center/teacher_activity_controller.dart';
 import 'features/splash/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/camera_device_service.dart';
@@ -117,6 +119,7 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _cameraDeviceService),
         ChangeNotifierProvider.value(value: _joinLinkService),
         Provider<ChatRepository>.value(value: _chatRepository),
+        Provider<ActivityReadStore>(create: (_) => FileActivityReadStore()),
         ChangeNotifierProxyProvider<AuthService, MessageUnreadService>(
           create: (_) => MessageUnreadService(repository: _chatRepository),
           update: (_, auth, unread) {
@@ -162,6 +165,27 @@ class _ElixrAppState extends State<ElixrApp> {
         ),
         Provider<ClassroomAssignmentRepository>(
           create: (_) => FirebaseClassroomAssignmentRepository(),
+        ),
+        ChangeNotifierProxyProvider<AuthService, TeacherActivityController>(
+          create: (context) => TeacherActivityController(
+            groupRepository: context.read<GroupRepository>(),
+            assignmentRepository: context.read<ClassroomAssignmentRepository>(),
+            chatRepository: context.read<ChatRepository>(),
+            readStore: context.read<ActivityReadStore>(),
+          ),
+          update: (context, auth, controller) {
+            controller ??= TeacherActivityController(
+              groupRepository: context.read<GroupRepository>(),
+              assignmentRepository: context
+                  .read<ClassroomAssignmentRepository>(),
+              chatRepository: context.read<ChatRepository>(),
+              readStore: context.read<ActivityReadStore>(),
+            );
+            controller.setTeacher(
+              auth.currentUser?.isTeacher == true ? auth.currentUser?.id : null,
+            );
+            return controller;
+          },
         ),
         ProxyProvider<
           ClassroomAssignmentRepository,

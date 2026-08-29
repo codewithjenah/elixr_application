@@ -355,7 +355,9 @@ retained evidence is deleted.
 ### Direct Messages
 
 Both Teachers and Trainees use Messages (`/messages` and
-`/teacher/messages`). `/coaching` redirects to `/messages`. Search calls the
+`/teacher/messages`). Teachers also have a unified Activity Center at
+`/teacher/activity-center`, which combines classroom events with local,
+account-scoped read state. `/coaching` redirects to `/messages`. Search calls the
 authenticated `searchChatUsers` HTTPS Function; email-shaped queries are exact
 and results never return an email address. Configure the production or emulator
 Functions root at build time without adding a Windows-incompatible Functions

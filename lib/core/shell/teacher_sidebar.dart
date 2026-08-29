@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../features/teacher/activity_center/teacher_activity_controller.dart';
 import '../../features/profile/profile_menu.dart';
 import '../../services/auth_service.dart';
 import '../../services/message_unread_service.dart';
@@ -67,6 +68,12 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.insights,
   ),
   TeacherSidebarItem(
+    label: 'Activity Center',
+    icon: FluentIcons.activity_feed,
+    route: AppRoutePaths.teacherActivityCenter,
+    group: TeacherSidebarGroup.insights,
+  ),
+  TeacherSidebarItem(
     label: 'Messages',
     icon: FluentIcons.chat,
     route: AppRoutePaths.teacherMessages,
@@ -98,6 +105,8 @@ class TeacherSidebar extends StatelessWidget {
     final user = context.watch<AuthService>().currentUser;
     final unreadCount =
         context.watch<MessageUnreadService?>()?.unreadCount ?? 0;
+    final activityUnreadCount =
+        context.watch<TeacherActivityController?>()?.unreadCount ?? 0;
     final initials = (user?.fullName.isNotEmpty == true)
         ? userInitials(user!.fullName)
         : '?';
@@ -140,6 +149,7 @@ class TeacherSidebar extends StatelessWidget {
                           context,
                           showCollapsedLayout,
                           unreadCount,
+                          activityUnreadCount,
                         ),
                       ),
                     ),
@@ -164,6 +174,7 @@ class TeacherSidebar extends StatelessWidget {
     BuildContext context,
     bool showCollapsedLayout,
     int unreadCount,
+    int activityUnreadCount,
   ) {
     final children = <Widget>[];
 
@@ -182,9 +193,11 @@ class TeacherSidebar extends StatelessWidget {
             icon: item.icon,
             isActive: isTeacherSidebarRouteActive(currentRoute, item.route),
             isCollapsed: showCollapsedLayout,
-            unreadCount: item.route == AppRoutePaths.teacherMessages
-                ? unreadCount
-                : 0,
+            unreadCount: switch (item.route) {
+              AppRoutePaths.teacherMessages => unreadCount,
+              AppRoutePaths.teacherActivityCenter => activityUnreadCount,
+              _ => 0,
+            },
             onTap: () => context.go(item.route),
           ),
         );
