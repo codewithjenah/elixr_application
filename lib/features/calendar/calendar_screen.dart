@@ -345,11 +345,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
           actions: [
             Button(
-              onPressed: () => Navigator.of(context, rootNavigator: true).pop(false),
+              onPressed: () =>
+                  Navigator.of(context, rootNavigator: true).pop(false),
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context, rootNavigator: true).pop(true),
+              onPressed: () =>
+                  Navigator.of(context, rootNavigator: true).pop(true),
               child: const Text('Remove Plan'),
             ),
           ],

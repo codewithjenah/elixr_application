@@ -570,27 +570,27 @@ class _ElixSidebarNavTileState extends State<ElixSidebarNavTile> {
                                     width: ElixSidebarMetrics.navIndicatorWidth,
                                     height: 24,
                                     decoration: BoxDecoration(
-                                    gradient: highContrast
-                                        ? null
-                                        : const LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            colors: [_pink, _purple],
-                                          ),
-                                    color: highContrast
-                                        ? context.elixTextPrimary
-                                        : null,
-                                    borderRadius: BorderRadius.circular(3),
-                                    boxShadow: highContrast
-                                        ? const []
-                                        : [
-                                            BoxShadow(
-                                              color: _pink.withValues(
-                                                alpha: 0.48,
-                                              ),
-                                              blurRadius: 8,
+                                      gradient: highContrast
+                                          ? null
+                                          : const LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [_pink, _purple],
                                             ),
-                                          ],
+                                      color: highContrast
+                                          ? context.elixTextPrimary
+                                          : null,
+                                      borderRadius: BorderRadius.circular(3),
+                                      boxShadow: highContrast
+                                          ? const []
+                                          : [
+                                              BoxShadow(
+                                                color: _pink.withValues(
+                                                  alpha: 0.48,
+                                                ),
+                                                blurRadius: 8,
+                                              ),
+                                            ],
                                     ),
                                   )
                                 : const SizedBox.shrink(),

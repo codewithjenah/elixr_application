@@ -341,7 +341,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final archived = await assignments.getAssignment(assignmentId: assignment.id);
+    final archived = await assignments.getAssignment(
+      assignmentId: assignment.id,
+    );
     expect(archived!.isActive, isFalse);
     expect(find.text('Archived'), findsOneWidget);
     expect(

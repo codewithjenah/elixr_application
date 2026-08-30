@@ -196,9 +196,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Analytics'), findsWidgets);
-    expect(
-      find.text('Analytics is not available in this app configuration.'),
-      findsOneWidget,
-    );
+    expect(find.text('Analytics is not available right now.'), findsOneWidget);
   });
 }

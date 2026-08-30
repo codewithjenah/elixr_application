@@ -283,8 +283,7 @@ class FirebaseChatRepository implements ChatRepository {
           if (normalizedIdempotencyKey == null ||
               existingData['idempotency_key'] != normalizedIdempotencyKey ||
               existingData['sender_id'] != sender.id ||
-              existingData['body'] != trimmedBody ||
-              existing == null) {
+              existingData['body'] != trimmedBody) {
             throw const ChatException(ChatError.permissionDenied);
           }
           existingIdempotentMessage = true;
@@ -314,8 +313,7 @@ class FirebaseChatRepository implements ChatRepository {
           'created_at': FieldValue.serverTimestamp(),
           'edited_at': null,
           'deleted_at': null,
-          if (normalizedIdempotencyKey != null)
-            'idempotency_key': normalizedIdempotencyKey,
+          'idempotency_key': ?normalizedIdempotencyKey,
         });
 
         final conversationData = <String, dynamic>{

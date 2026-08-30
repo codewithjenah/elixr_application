@@ -945,9 +945,7 @@ Future<void> _showEditAssignmentDialog(
                 Text(
                   validationMessage!,
                   key: const Key('teacher_assignment_edit_validation'),
-                  style: AppTheme.caption.copyWith(
-                    color: AppColors.error,
-                  ),
+                  style: AppTheme.caption.copyWith(color: AppColors.error),
                 ),
               ],
             ],

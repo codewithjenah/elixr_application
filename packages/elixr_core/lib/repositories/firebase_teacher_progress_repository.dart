@@ -90,7 +90,7 @@ class FirebaseTeacherProgressRepository implements TeacherProgressRepository {
             .orderBy('created_at', descending: true)
             .limit(TeacherProgressRepository.rangePageSize);
         if (cursor != null) {
-          query = query.startAfterDocument(cursor!);
+          query = query.startAfterDocument(cursor);
         }
 
         final result = await query.get(const GetOptions(source: Source.server));
