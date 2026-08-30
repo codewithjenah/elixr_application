@@ -8,6 +8,7 @@ import 'package:elixr_application/data/repositories/in_memory_teacher_movement_r
 import 'package:elixr_application/data/repositories/teacher_movement_repository.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_group_detail_screen.dart';
 import 'package:elixr_application/features/teacher/groups/teacher_groups_controller.dart';
+import 'package:elixr_application/features/teacher/classwork/teacher_classwork_controller.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,7 @@ void main() {
 
   late InMemoryGroupRepository repository;
   late FakePublicProfileRepository profiles;
+  late InMemoryClassroomAssignmentRepository defaultAssignments;
   var groupIdIndex = 0;
   var inviteCodeIndex = 0;
 
@@ -36,10 +38,12 @@ void main() {
       now: () => DateTime.utc(2026, 8, 26),
     );
     profiles = FakePublicProfileRepository();
+    defaultAssignments = InMemoryClassroomAssignmentRepository();
   });
 
   tearDown(() {
     repository.dispose();
+    defaultAssignments.dispose();
   });
 
   Future<TeacherGroupsController> controllerFor(
@@ -52,7 +56,8 @@ void main() {
       teacherDisplayName: 'Grace Hopper',
       ensureTeacherAuthorization: () async => true,
       publicProfileRepository: profiles,
-      assignmentRepository: assignmentRepository,
+      assignmentRepository: assignmentRepository ?? defaultAssignments,
+      watchAssignmentSummaries: false,
     );
     return controller;
   }
@@ -68,6 +73,18 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final classwork = TeacherClassworkController(
+      teacherId: controller.teacherId,
+      teacherDisplayName: controller.teacherDisplayName,
+      groupId: groupId,
+      groupRepository: repository,
+      assignmentRepository: controller.assignmentRepository!,
+      approvedMembershipsProvider: () => controller.approvedMemberships,
+      approvedMembershipsListenable: controller,
+    );
+    await classwork.start();
+    addTearDown(classwork.dispose);
+
     final router = GoRouter(
       initialLocation: AppRoutePaths.teacherGroup(groupId),
       routes: [
@@ -82,11 +99,26 @@ void main() {
                 child: TeacherGroupDetailScreen(
                   groupId: groupId,
                   controller: controller,
+                  classworkController: classwork,
                   movementRepository: movementRepository,
                 ),
               ),
             ),
           ],
+        ),
+        GoRoute(
+          path: '/teacher/groups/:groupId/classwork/:assignmentId',
+          builder: (context, state) => Text(
+            'classwork:${state.pathParameters['groupId']}:'
+            '${state.pathParameters['assignmentId']}',
+          ),
+        ),
+        GoRoute(
+          path: '${AppRoutePaths.teacherStudents}/:traineeId',
+          builder: (context, state) => Text(
+            'student:${state.pathParameters['traineeId']}:'
+            '${state.uri.queryParameters['groupId']}',
+          ),
         ),
       ],
     );
@@ -95,6 +127,8 @@ void main() {
     await tester.pumpWidget(
       FluentApp.router(theme: AppTheme.dark, routerConfig: router),
     );
+    await tester.pump();
+    await tester.pump();
     await tester.pump();
   }
 
@@ -176,7 +210,7 @@ void main() {
 
     await pumpDetail(tester, controller: controller, groupId: group.id);
 
-    expect(controller.tab, TeacherGroupDetailTab.assignments);
+    expect(controller.tab, TeacherGroupDetailTab.classwork);
     expect(
       find.byKey(const Key('teacher_group_tab_assignments')),
       findsOneWidget,
@@ -193,6 +227,41 @@ void main() {
     );
     expect(find.text('Waiting to join'), findsOneWidget);
     expect(find.text('Students in this class'), findsOneWidget);
+  });
+
+  testWidgets('approved student identity opens class-aware student detail', (
+    tester,
+  ) async {
+    final group = await repository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    final invite = await repository.getActiveGroupInvite(groupId: group.id);
+    final approved = await repository.requestGroupJoin(
+      traineeId: 'trainee-1',
+      traineeDisplayName: 'Ada Lovelace',
+      code: invite!.normalizedCode,
+    );
+    await repository.approveMembership(
+      membershipId: approved.id,
+      teacherId: 'teacher-1',
+    );
+    final controller = await controllerFor('teacher-1');
+    addTearDown(controller.dispose);
+    await controller.startForGroup(group.id);
+    await pumpDetail(tester, controller: controller, groupId: group.id);
+
+    await tester.tap(find.byKey(const Key('teacher_group_tab_students')));
+    await tester.pumpAndSettle();
+    final studentIdentity = find.byKey(
+      Key('teacher_group_member_open_${approved.id}'),
+    );
+    await tester.ensureVisible(studentIdentity);
+    await tester.tap(studentIdentity);
+    await tester.pumpAndSettle();
+
+    expect(find.text('student:trainee-1:${group.id}'), findsOneWidget);
   });
 
   testWidgets('back returns to the groups card grid', (tester) async {
@@ -288,6 +357,13 @@ void main() {
     );
     expect(find.text('Normal Grip'), findsOneWidget);
     expect(find.text('Hand Stall'), findsNothing);
+
+    final openClasswork = find.byKey(Key('teacher_classwork_open_${own.id}'));
+    await tester.ensureVisible(openClasswork);
+    await tester.tap(openClasswork);
+    await tester.pumpAndSettle();
+
+    expect(find.text('classwork:${group.id}:${own.id}'), findsOneWidget);
   });
 
   testWidgets('teacher can edit the deadline and archive an assignment', (
@@ -353,7 +429,7 @@ void main() {
       assignmentId: assignment.id,
     );
     expect(archived!.isActive, isFalse);
-    expect(find.text('Archived'), findsOneWidget);
+    expect(find.textContaining('Archived'), findsOneWidget);
     expect(
       find.byKey(Key('teacher_group_edit_assignment_${assignment.id}')),
       findsNothing,
@@ -383,11 +459,9 @@ void main() {
         find.byKey(const Key('teacher_group_assignments_empty')),
         findsOneWidget,
       );
-      expect(find.text('No assignments yet.'), findsOneWidget);
+      expect(find.text('No classwork yet.'), findsOneWidget);
       expect(
-        find.text(
-          'Use New assignment to send an existing movement to this class.',
-        ),
+        find.text('Create an assignment to give this class its next movement.'),
         findsOneWidget,
       );
       expect(find.text('New assignment'), findsOneWidget);

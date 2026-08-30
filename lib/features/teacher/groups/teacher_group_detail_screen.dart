@@ -1,5 +1,6 @@
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/repositories/chat_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -20,9 +21,12 @@ import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
+import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../../services/auth_service.dart';
+import '../classwork/teacher_classwork_controller.dart';
+import '../classwork/teacher_classwork_pane.dart';
 import '../movements/teacher_assignment_composer.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import 'teacher_groups_controller.dart';
@@ -32,12 +36,18 @@ class TeacherGroupDetailScreen extends StatefulWidget {
     super.key,
     required this.groupId,
     this.controller,
+    this.classworkController,
     this.movementRepository,
+    this.initialAssignmentId,
+    this.initialTraineeId,
   });
 
   final String groupId;
   final TeacherGroupsController? controller;
+  final TeacherClassworkController? classworkController;
   final TeacherMovementRepository? movementRepository;
+  final String? initialAssignmentId;
+  final String? initialTraineeId;
 
   @override
   State<TeacherGroupDetailScreen> createState() =>
@@ -46,21 +56,51 @@ class TeacherGroupDetailScreen extends StatefulWidget {
 
 class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
   TeacherGroupsController? _owned;
+  TeacherClassworkController? _ownedClasswork;
   late final bool _ownsController;
+  late final bool _ownsClassworkController;
 
   TeacherGroupsController? get _controller => widget.controller ?? _owned;
+  TeacherClassworkController? get _classworkController =>
+      widget.classworkController ?? _ownedClasswork;
 
   @override
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
+    _ownsClassworkController = widget.classworkController == null;
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_ownsController || _owned != null) return;
-    final auth = context.read<AuthService>();
+    final suppliedController = widget.controller;
+    final suppliedAssignments = suppliedController?.assignmentRepository;
+    if (_ownsClassworkController &&
+        _ownedClasswork == null &&
+        suppliedController != null &&
+        suppliedAssignments != null) {
+      _ownedClasswork = TeacherClassworkController(
+        teacherId: suppliedController.teacherId,
+        teacherDisplayName: suppliedController.teacherDisplayName,
+        groupId: widget.groupId,
+        groupRepository: suppliedController.repository,
+        assignmentRepository: suppliedAssignments,
+        submissionRepository: _tryRead<AssignmentSubmissionRepository>(context),
+        chatRepository: _tryRead<ChatRepository>(context),
+        initialAssignmentId: widget.initialAssignmentId,
+        initialTraineeId: widget.initialTraineeId,
+        approvedMembershipsProvider: () =>
+            suppliedController.approvedMemberships,
+        approvedMembershipsListenable: suppliedController,
+      )..start();
+    }
+    AuthService? auth;
+    try {
+      auth = context.read<AuthService>();
+    } on ProviderNotFoundException {
+      return;
+    }
     final user = auth.currentUser;
     final userId = user?.id;
     if (user == null || userId == null) return;
@@ -70,20 +110,33 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     } on ProviderNotFoundException {
       publicProfileRepository = null;
     }
-    ClassroomAssignmentRepository? assignmentRepository;
-    try {
-      assignmentRepository = context.read<ClassroomAssignmentRepository>();
-    } on ProviderNotFoundException {
-      assignmentRepository = null;
+    if (_ownsController && _owned == null) {
+      _owned = TeacherGroupsController(
+        repository: context.read<GroupRepository>(),
+        teacherId: userId,
+        teacherDisplayName: user.fullName,
+        ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
+        publicProfileRepository: publicProfileRepository,
+      )..startForGroup(widget.groupId);
     }
-    _owned = TeacherGroupsController(
-      repository: context.read<GroupRepository>(),
-      teacherId: userId,
-      teacherDisplayName: user.fullName,
-      ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
-      publicProfileRepository: publicProfileRepository,
-      assignmentRepository: assignmentRepository,
-    )..startForGroup(widget.groupId);
+    if (_ownsClassworkController && _ownedClasswork == null) {
+      final assignments = context.read<ClassroomAssignmentRepository>();
+      final groupsController = _owned;
+      if (groupsController == null) return;
+      _ownedClasswork = TeacherClassworkController(
+        teacherId: userId,
+        teacherDisplayName: user.fullName,
+        groupId: widget.groupId,
+        groupRepository: context.read<GroupRepository>(),
+        assignmentRepository: assignments,
+        submissionRepository: _tryRead<AssignmentSubmissionRepository>(context),
+        chatRepository: _tryRead<ChatRepository>(context),
+        initialAssignmentId: widget.initialAssignmentId,
+        initialTraineeId: widget.initialTraineeId,
+        approvedMembershipsProvider: () => groupsController.approvedMemberships,
+        approvedMembershipsListenable: groupsController,
+      )..start();
+    }
   }
 
   @override
@@ -91,13 +144,17 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     if (_ownsController) {
       _owned?.dispose();
     }
+    if (_ownsClassworkController) {
+      _ownedClasswork?.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    if (controller == null) {
+    final classwork = _classworkController;
+    if (controller == null || classwork == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
           heading: 'Group',
@@ -109,7 +166,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     }
 
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([controller, classwork]),
       builder: (context, _) {
         final group = controller.selectedGroup;
         return TeacherScaffoldPage(
@@ -118,6 +175,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
             eyebrow: 'TEACHER WORKSPACE',
             variant: ElixEditorialHeaderVariant.compact,
           ),
+          scrollable: false,
           content: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -129,11 +187,23 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                 onPressed: () => context.go(AppRoutePaths.teacherGroups),
               ),
               const SizedBox(height: AppSpacing.md),
-              _GroupDetailBody(
-                controller: controller,
-                movementRepository:
-                    widget.movementRepository ??
-                    _tryReadTeacherMovementRepository(context),
+              Expanded(
+                child: classwork.selectedAssignment != null
+                    ? TeacherAssignmentWorkPane(
+                        controller: classwork,
+                        onBackToClasswork: () => context.go(
+                          AppRoutePaths.teacherGroup(widget.groupId),
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        child: _GroupDetailBody(
+                          controller: controller,
+                          classworkController: classwork,
+                          movementRepository:
+                              widget.movementRepository ??
+                              _tryReadTeacherMovementRepository(context),
+                        ),
+                      ),
               ),
             ],
           ),
@@ -146,10 +216,12 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
 class _GroupDetailBody extends StatelessWidget {
   const _GroupDetailBody({
     required this.controller,
+    required this.classworkController,
     required this.movementRepository,
   });
 
   final TeacherGroupsController controller;
+  final TeacherClassworkController classworkController;
   final TeacherMovementRepository? movementRepository;
 
   @override
@@ -278,26 +350,35 @@ class _GroupDetailBody extends StatelessWidget {
           onChanged: controller.setTab,
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (controller.tab == TeacherGroupDetailTab.assignments)
-          _AssignmentsSection(
+        if (controller.tab == TeacherGroupDetailTab.classwork)
+          TeacherClassworkAssignmentList(
             key: const Key('teacher_group_assignments_section'),
-            group: group,
-            assignments: controller.assignmentsFor(group.id),
-            onCreateAssignment: group.isActive
+            controller: classworkController,
+            onOpen: (assignment) => context.go(
+              AppRoutePaths.teacherGroupClasswork(group.id, assignment.id),
+            ),
+            onCreate: group.isActive
                 ? () => _showGroupAssignmentComposer(
                     context,
                     controller,
+                    classworkController,
                     group,
                     movementRepository,
                   )
                 : null,
-            onEditAssignment: group.isActive && !controller.busy
-                ? (assignment) =>
-                      _showEditAssignmentDialog(context, controller, assignment)
+            onEdit: group.isActive && !classworkController.busy
+                ? (assignment) => _showEditAssignmentDialog(
+                    context,
+                    classworkController,
+                    assignment,
+                  )
                 : null,
-            onArchiveAssignment: group.isActive && !controller.busy
-                ? (assignment) =>
-                      _confirmArchiveAssignment(context, controller, assignment)
+            onArchive: group.isActive && !classworkController.busy
+                ? (assignment) => _confirmArchiveAssignment(
+                    context,
+                    classworkController,
+                    assignment,
+                  )
                 : null,
           )
         else
@@ -325,10 +406,10 @@ class _GroupDetailTabBar extends StatelessWidget {
       children: [
         _GroupDetailTab(
           key: const Key('teacher_group_tab_assignments'),
-          label: 'Assignments',
+          label: 'Classwork',
           icon: FluentIcons.education,
-          selected: selectedTab == TeacherGroupDetailTab.assignments,
-          onPressed: () => onChanged(TeacherGroupDetailTab.assignments),
+          selected: selectedTab == TeacherGroupDetailTab.classwork,
+          onPressed: () => onChanged(TeacherGroupDetailTab.classwork),
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_students'),
@@ -473,6 +554,12 @@ class _StudentsSection extends StatelessWidget {
           emptyMessage: 'No students in this class yet.',
           memberships: controller.approvedMemberships,
           profilePictureUrlFor: controller.profilePictureUrlFor,
+          onOpenIdentity: (membership) => context.go(
+            AppRoutePaths.teacherStudentDetail(
+              membership.traineeId,
+              groupId: controller.selectedGroup!.id,
+            ),
+          ),
           builder: (membership) => Button(
             key: Key('teacher_group_remove_${membership.id}'),
             onPressed: controller.busy
@@ -486,231 +573,6 @@ class _StudentsSection extends StatelessWidget {
   }
 }
 
-class _AssignmentsSection extends StatelessWidget {
-  const _AssignmentsSection({
-    super.key,
-    required this.group,
-    required this.assignments,
-    required this.onCreateAssignment,
-    required this.onEditAssignment,
-    required this.onArchiveAssignment,
-  });
-
-  final ElixrGroup group;
-  final List<GroupAssignment> assignments;
-  final VoidCallback? onCreateAssignment;
-  final ValueChanged<GroupAssignment>? onEditAssignment;
-  final ValueChanged<GroupAssignment>? onArchiveAssignment;
-
-  @override
-  Widget build(BuildContext context) {
-    final sortedAssignments = [...assignments]..sort(_compareAssignments);
-    return ElixPanelCard(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: AppSpacing.lg,
-            runSpacing: AppSpacing.md,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Assignments',
-                    style: AppTheme.headingMedium.copyWith(
-                      fontSize: 16,
-                      color: context.elixTextPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Practice assigned to this class.',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              ElixPrimaryButton(
-                key: const Key('teacher_group_create_assignment'),
-                label: 'New assignment',
-                icon: FluentIcons.add,
-                expanded: false,
-                dense: true,
-                onPressed: onCreateAssignment,
-              ),
-            ],
-          ),
-          if (!group.isActive) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'This class is archived. New assignments cannot be created, but historical assignments remain visible.',
-              key: const Key('teacher_group_archived_assignments_message'),
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          if (sortedAssignments.isEmpty)
-            Column(
-              key: const Key('teacher_group_assignments_empty'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'No assignments yet.',
-                  style: AppTheme.bodySecondary.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-                if (group.isActive) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Use New assignment to send an existing movement to this class.',
-                    style: AppTheme.caption.copyWith(
-                      color: context.elixTextSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            )
-          else
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < sortedAssignments.length; i++) ...[
-                  if (i > 0) const SizedBox(height: AppSpacing.sm),
-                  _AssignmentPreview(
-                    key: Key(
-                      'teacher_group_assignment_${sortedAssignments[i].id}',
-                    ),
-                    assignment: sortedAssignments[i],
-                    onEdit: sortedAssignments[i].isActive
-                        ? () => onEditAssignment?.call(sortedAssignments[i])
-                        : null,
-                    onArchive: sortedAssignments[i].isActive
-                        ? () => onArchiveAssignment?.call(sortedAssignments[i])
-                        : null,
-                  ),
-                ],
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  int _compareAssignments(GroupAssignment a, GroupAssignment b) {
-    if (a.isActive != b.isActive) return a.isActive ? -1 : 1;
-    final aTimestamp = a.updatedAt ?? a.createdAt;
-    final bTimestamp = b.updatedAt ?? b.createdAt;
-    if (aTimestamp == null && bTimestamp != null) return 1;
-    if (aTimestamp != null && bTimestamp == null) return -1;
-    if (aTimestamp == null || bTimestamp == null) return 0;
-    return bTimestamp.compareTo(aTimestamp);
-  }
-}
-
-class _AssignmentPreview extends StatelessWidget {
-  const _AssignmentPreview({
-    super.key,
-    required this.assignment,
-    required this.onEdit,
-    required this.onArchive,
-  });
-
-  final GroupAssignment assignment;
-  final VoidCallback? onEdit;
-  final VoidCallback? onArchive;
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = assignment.isActive
-        ? context.elixColors.success
-        : context.elixTextSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.elixColors.borderSubtle),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  assignment.displayTitle,
-                  style: AppTheme.body.copyWith(
-                    color: context.elixTextPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${assignment.origin.displayLabel}${assignment.dueAt == null ? '' : ' · ${_formatDue(assignment.dueAt!)}'}',
-                  style: AppTheme.caption.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          ElixPill(
-            text: assignment.isActive ? 'Active' : 'Archived',
-            color: statusColor,
-            compact: true,
-          ),
-          if (assignment.isActive) ...[
-            const SizedBox(width: AppSpacing.sm),
-            Button(
-              key: Key('teacher_group_edit_assignment_${assignment.id}'),
-              onPressed: onEdit,
-              child: const Text('Edit'),
-            ),
-            const SizedBox(width: AppSpacing.xs),
-            Button(
-              key: Key('teacher_group_archive_assignment_${assignment.id}'),
-              onPressed: onArchive,
-              child: const Text('Archive'),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  static String _formatDue(DateTime dueAt) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final manila = dueAt.toUtc().add(const Duration(hours: 8));
-    return 'Due ${months[manila.month - 1]} ${manila.day}, ${manila.year}';
-  }
-}
-
 class _MembershipSection extends StatelessWidget {
   const _MembershipSection({
     super.key,
@@ -719,6 +581,7 @@ class _MembershipSection extends StatelessWidget {
     required this.memberships,
     required this.profilePictureUrlFor,
     required this.builder,
+    this.onOpenIdentity,
   });
 
   final String title;
@@ -726,6 +589,7 @@ class _MembershipSection extends StatelessWidget {
   final List<GroupMembership> memberships;
   final String? Function(String traineeId) profilePictureUrlFor;
   final Widget Function(GroupMembership membership) builder;
+  final ValueChanged<GroupMembership>? onOpenIdentity;
 
   @override
   Widget build(BuildContext context) {
@@ -754,35 +618,73 @@ class _MembershipSection extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  ProfileAvatarWidget(
-                    key: Key('teacher_group_member_avatar_${membership.id}'),
-                    radius: 18,
-                    showBorder: false,
-                    initials: userInitials(membership.traineeDisplayName),
-                    networkImageUrl: profilePictureUrlFor(membership.traineeId),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          membership.traineeDisplayName,
-                          style: AppTheme.body.copyWith(
-                            color: context.elixTextPrimary,
+                    child: Semantics(
+                      button: onOpenIdentity != null,
+                      label: onOpenIdentity == null
+                          ? membership.traineeDisplayName
+                          : 'Open ${membership.traineeDisplayName}',
+                      child: HoverButton(
+                        key: Key('teacher_group_member_open_${membership.id}'),
+                        cursor: onOpenIdentity == null
+                            ? MouseCursor.defer
+                            : SystemMouseCursors.click,
+                        onPressed: onOpenIdentity == null
+                            ? null
+                            : () => onOpenIdentity!(membership),
+                        builder: (context, states) => Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.xs,
+                          ),
+                          child: Row(
+                            children: [
+                              ProfileAvatarWidget(
+                                key: Key(
+                                  'teacher_group_member_avatar_${membership.id}',
+                                ),
+                                radius: 18,
+                                showBorder: false,
+                                initials: userInitials(
+                                  membership.traineeDisplayName,
+                                ),
+                                networkImageUrl: profilePictureUrlFor(
+                                  membership.traineeId,
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.md),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      membership.traineeDisplayName,
+                                      style: AppTheme.body.copyWith(
+                                        color: context.elixTextPrimary,
+                                        fontWeight: onOpenIdentity == null
+                                            ? FontWeight.normal
+                                            : FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      membership.isPending
+                                          ? 'Wants to join'
+                                          : 'Open student details',
+                                      style: AppTheme.caption.copyWith(
+                                        color: context.elixTextSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (onOpenIdentity != null)
+                                const Icon(FluentIcons.chevron_right, size: 12),
+                            ],
                           ),
                         ),
-                        Text(
-                          membership.isPending
-                              ? 'Wants to join'
-                              : 'In this class',
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
+                  const SizedBox(width: AppSpacing.md),
                   builder(membership),
                 ],
               ),
@@ -808,9 +710,18 @@ TeacherMovementRepository? _tryReadTeacherMovementRepository(
   }
 }
 
+T? _tryRead<T>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } on ProviderNotFoundException {
+    return null;
+  }
+}
+
 Future<void> _showGroupAssignmentComposer(
   BuildContext context,
   TeacherGroupsController controller,
+  TeacherClassworkController classworkController,
   ElixrGroup group,
   TeacherMovementRepository? movementRepository,
 ) async {
@@ -821,25 +732,7 @@ Future<void> _showGroupAssignmentComposer(
     return;
   }
 
-  final assignmentRepository = controller.assignmentRepository;
-  if (assignmentRepository == null) {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => ContentDialog(
-        title: const Text('Assignments unavailable'),
-        content: const Text(
-          'Assignments could not be connected for this classroom right now.',
-        ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    return;
-  }
+  final assignmentRepository = classworkController.assignmentRepository;
 
   Future<bool> Function()? ensureTeacherAuthorization;
   try {
@@ -871,7 +764,7 @@ Future<void> _showGroupAssignmentComposer(
 
 Future<void> _showEditAssignmentDialog(
   BuildContext context,
-  TeacherGroupsController controller,
+  TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
   final initialScore = assignment.maxScore?.toString() ?? '';
@@ -999,7 +892,7 @@ Future<void> _showEditAssignmentDialog(
 
 Future<void> _confirmArchiveAssignment(
   BuildContext context,
-  TeacherGroupsController controller,
+  TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
   final accepted = await showDialog<bool>(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
@@ -146,6 +147,27 @@ void main() {
           'message:conversation:message-1',
           'upcoming_deadline:assignment:${now.add(const Duration(hours: 24)).millisecondsSinceEpoch}',
         ]),
+      );
+      expect(
+        controller.activities
+            .singleWhere(
+              (activity) => activity.type == TeacherActivityType.newSubmission,
+            )
+            .destination,
+        AppRoutePaths.teacherGroupClasswork(
+          'group',
+          'assignment',
+          traineeId: 'student',
+        ),
+      );
+      expect(
+        controller.activities
+            .singleWhere(
+              (activity) =>
+                  activity.type == TeacherActivityType.upcomingDeadline,
+            )
+            .destination,
+        AppRoutePaths.teacherGroupClasswork('group', 'assignment'),
       );
     },
   );

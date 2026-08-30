@@ -381,7 +381,7 @@ class TeacherActivityController extends ChangeNotifier {
           occurredAt: at,
           title: '${membership.traineeDisplayName} requested to join',
           description: 'Review the request for this class in Groups.',
-          destination: AppRoutePaths.teacherGroups,
+          destination: AppRoutePaths.teacherGroup(membership.groupId),
         ),
       );
     }
@@ -418,7 +418,11 @@ class TeacherActivityController extends ChangeNotifier {
             description: isRetry
                 ? 'A revised clip is ready for review in $group.'
                 : 'A new clip is ready for review in $group.',
-            destination: AppRoutePaths.teacherMovements,
+            destination: AppRoutePaths.teacherGroupClasswork(
+              attempt.groupId,
+              attempt.assignmentId,
+              traineeId: attempt.traineeId,
+            ),
           ),
         );
       }
@@ -434,7 +438,11 @@ class TeacherActivityController extends ChangeNotifier {
             occurredAt: completedAt,
             title: '$traineeName completed $title',
             description: 'Completed assigned practice in $group.',
-            destination: AppRoutePaths.teacherMovements,
+            destination: AppRoutePaths.teacherGroupClasswork(
+              attempt.groupId,
+              attempt.assignmentId,
+              traineeId: attempt.traineeId,
+            ),
           ),
         );
       }
@@ -486,7 +494,10 @@ class TeacherActivityController extends ChangeNotifier {
           title: '${assignment.displayTitle} is due soon',
           description:
               'Due in ${assignment.groupName} within the next 48 hours.',
-          destination: AppRoutePaths.teacherMovements,
+          destination: AppRoutePaths.teacherGroupClasswork(
+            assignment.groupId,
+            assignment.id,
+          ),
         ),
       );
     }

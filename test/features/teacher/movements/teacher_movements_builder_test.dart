@@ -446,6 +446,18 @@ void main() {
     );
   });
 
+  testWidgets('movement library exposes only its two curriculum sections', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    expect(find.text('Official ELIXR'), findsOneWidget);
+    expect(find.text('My Movements'), findsOneWidget);
+    expect(find.text('Assignments'), findsNothing);
+    expect(find.text('Reviews'), findsNothing);
+    expect(find.byType(ToggleButton), findsNWidgets(2));
+  });
+
   testWidgets(
     'Official movement Assign to class opens the shared studio and filters classes',
     (tester) async {

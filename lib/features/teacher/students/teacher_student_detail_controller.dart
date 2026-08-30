@@ -80,6 +80,14 @@ class TeacherStudentDetailController extends ChangeNotifier {
 
   bool get hasClassroomAuthorization => approvedMemberships.isNotEmpty;
 
+  bool get preferredGroupAuthorized {
+    final preferred = preferredGroupId?.trim();
+    if (preferred == null || preferred.isEmpty) return true;
+    return approvedMemberships.any(
+      (membership) => membership.groupId == preferred,
+    );
+  }
+
   TeacherEvidenceState evidenceStateFor(String sessionId) =>
       _evidenceStates[sessionId] ?? TeacherEvidenceState.idle;
 
@@ -195,12 +203,20 @@ class TeacherStudentDetailController extends ChangeNotifier {
     }
 
     _ensureSelectedGroup();
+    if (!preferredGroupAuthorized) {
+      return _resetProtected(TeacherStudentDetailState.unauthorized);
+    }
     _watchProfile(epoch);
     unawaited(_prepareClassroomAccessAndBegin(epoch));
   }
 
   void _ensureSelectedGroup() {
     final approvedIds = approvedMemberships.map((m) => m.groupId).toSet();
+    final preferred = preferredGroupId?.trim();
+    if (preferred != null && preferred.isNotEmpty) {
+      selectedGroupId = approvedIds.contains(preferred) ? preferred : null;
+      return;
+    }
     if (selectedGroupId != null && approvedIds.contains(selectedGroupId)) {
       return;
     }

@@ -16,8 +16,12 @@ import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/public_profile_repository.dart';
+import '../../../data/repositories/assignment_submission_repository.dart';
+import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../profile/widgets/profile_section_card.dart';
+import '../classwork/teacher_classwork_controller.dart';
+import '../classwork/teacher_classwork_pane.dart';
 import 'teacher_student_detail_controller.dart';
 import 'teacher_student_models.dart';
 
@@ -27,11 +31,13 @@ class TeacherStudentDetailScreen extends StatefulWidget {
     required this.traineeId,
     this.preferredGroupId,
     this.evidenceRepository,
+    this.classworkController,
   });
 
   final String traineeId;
   final String? preferredGroupId;
   final TeacherEvidenceRepository? evidenceRepository;
+  final TeacherClassworkController? classworkController;
 
   @override
   State<TeacherStudentDetailScreen> createState() =>
@@ -41,6 +47,10 @@ class TeacherStudentDetailScreen extends StatefulWidget {
 class _TeacherStudentDetailScreenState
     extends State<TeacherStudentDetailScreen> {
   TeacherStudentDetailController? _controller;
+  TeacherClassworkController? _ownedClassworkController;
+
+  TeacherClassworkController? get _classworkController =>
+      widget.classworkController ?? _ownedClassworkController;
 
   @override
   void didChangeDependencies() {
@@ -59,6 +69,28 @@ class _TeacherStudentDetailScreenState
       evidenceRepository:
           widget.evidenceRepository ?? _maybeEvidenceRepository(context),
     )..start();
+    final preferredGroupId = widget.preferredGroupId?.trim();
+    if (preferredGroupId != null &&
+        preferredGroupId.isNotEmpty &&
+        widget.classworkController == null) {
+      final assignmentRepository = _maybeRead<ClassroomAssignmentRepository>(
+        context,
+      );
+      if (assignmentRepository != null) {
+        _ownedClassworkController = TeacherClassworkController(
+          teacherId: userId,
+          teacherDisplayName: auth.currentUser!.fullName,
+          groupId: preferredGroupId,
+          groupRepository: context.read<GroupRepository>(),
+          assignmentRepository: assignmentRepository,
+          submissionRepository: _maybeRead<AssignmentSubmissionRepository>(
+            context,
+          ),
+          chatRepository: _maybeRead<ChatRepository>(context),
+          fixedTraineeId: widget.traineeId,
+        )..start();
+      }
+    }
   }
 
   TeacherEvidenceRepository? _maybeEvidenceRepository(BuildContext context) {
@@ -69,9 +101,18 @@ class _TeacherStudentDetailScreenState
     }
   }
 
+  T? _maybeRead<T>(BuildContext context) {
+    try {
+      return context.read<T>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
   @override
   void dispose() {
     _controller?.dispose();
+    _ownedClassworkController?.dispose();
     super.dispose();
   }
 
@@ -89,8 +130,11 @@ class _TeacherStudentDetailScreenState
       );
     }
 
+    final classwork = _classworkController;
     return AnimatedBuilder(
-      animation: controller,
+      animation: classwork == null
+          ? controller
+          : Listenable.merge([controller, classwork]),
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
@@ -146,13 +190,27 @@ class _TeacherStudentDetailScreenState
             children: [
               ElixBackButton(
                 key: const Key('teacher_student_back'),
-                label: 'Students',
-                tooltip: 'Back to students',
-                semanticLabel: 'Back to students',
-                onPressed: () => context.go(AppRoutePaths.teacherStudents),
+                label: widget.preferredGroupId == null
+                    ? 'Students'
+                    : 'Classroom',
+                tooltip: widget.preferredGroupId == null
+                    ? 'Back to students'
+                    : 'Back to classroom',
+                semanticLabel: widget.preferredGroupId == null
+                    ? 'Back to students'
+                    : 'Back to classroom',
+                onPressed: () => context.go(
+                  widget.preferredGroupId == null
+                      ? AppRoutePaths.teacherStudents
+                      : AppRoutePaths.teacherGroup(widget.preferredGroupId!),
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
-              _DetailBody(controller: controller),
+              _DetailBody(
+                controller: controller,
+                classworkController: classwork,
+                preferredGroupId: widget.preferredGroupId,
+              ),
             ],
           ),
         );
@@ -162,9 +220,15 @@ class _TeacherStudentDetailScreenState
 }
 
 class _DetailBody extends StatelessWidget {
-  const _DetailBody({required this.controller});
+  const _DetailBody({
+    required this.controller,
+    required this.classworkController,
+    required this.preferredGroupId,
+  });
 
   final TeacherStudentDetailController controller;
+  final TeacherClassworkController? classworkController;
+  final String? preferredGroupId;
 
   @override
   Widget build(BuildContext context) {
@@ -174,8 +238,9 @@ class _DetailBody extends StatelessWidget {
       ),
       TeacherStudentDetailState.unauthorized => _MessagePanel(
         title: 'Not authorized',
-        body:
-            'This student is not in any of your groups. Classroom membership is required before you can view details.',
+        body: preferredGroupId == null
+            ? 'This student is not in any of your groups. Classroom membership is required before you can view details.'
+            : 'This student is not an approved member of this classroom.',
         icon: FluentIcons.lock_solid,
       ),
       TeacherStudentDetailState.pending => _MembershipPanel(
@@ -203,15 +268,25 @@ class _DetailBody extends StatelessWidget {
         actionLabel: 'Retry',
         onAction: controller.refresh,
       ),
-      _ => _AuthorizedBody(controller: controller),
+      _ => _AuthorizedBody(
+        controller: controller,
+        classworkController: classworkController,
+        preferredGroupId: preferredGroupId,
+      ),
     };
   }
 }
 
 class _AuthorizedBody extends StatelessWidget {
-  const _AuthorizedBody({required this.controller});
+  const _AuthorizedBody({
+    required this.controller,
+    required this.classworkController,
+    required this.preferredGroupId,
+  });
 
   final TeacherStudentDetailController controller;
+  final TeacherClassworkController? classworkController;
+  final String? preferredGroupId;
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +296,10 @@ class _AuthorizedBody extends StatelessWidget {
         if (controller.isPrivateProfile) const _PrivateProfileBadge(),
         const SizedBox(height: AppSpacing.md),
         _ClassroomStatus(controller: controller),
+        if (preferredGroupId != null && classworkController != null) ...[
+          const SizedBox(height: AppSpacing.xl),
+          TeacherStudentClassworkSection(controller: classworkController!),
+        ],
         const SizedBox(height: AppSpacing.xl),
         _ProgressSection(controller: controller),
       ],

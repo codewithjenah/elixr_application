@@ -14,7 +14,7 @@ import '../../../data/models/public_profile.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 
-enum TeacherGroupDetailTab { assignments, students }
+enum TeacherGroupDetailTab { classwork, students }
 
 class TeacherGroupsController extends ChangeNotifier {
   TeacherGroupsController({
@@ -24,6 +24,7 @@ class TeacherGroupsController extends ChangeNotifier {
     this.ensureTeacherAuthorization,
     this.publicProfileRepository,
     this.assignmentRepository,
+    this.watchAssignmentSummaries = true,
   });
 
   final GroupRepository repository;
@@ -32,6 +33,7 @@ class TeacherGroupsController extends ChangeNotifier {
   final Future<bool> Function()? ensureTeacherAuthorization;
   final PublicProfileRepository? publicProfileRepository;
   final ClassroomAssignmentRepository? assignmentRepository;
+  final bool watchAssignmentSummaries;
 
   List<ElixrGroup> groups = const [];
   ElixrGroup? selectedGroup;
@@ -43,7 +45,7 @@ class TeacherGroupsController extends ChangeNotifier {
   bool unauthorized = false;
   String? errorMessage;
   String? actionMessage;
-  TeacherGroupDetailTab tab = TeacherGroupDetailTab.assignments;
+  TeacherGroupDetailTab tab = TeacherGroupDetailTab.classwork;
   bool _closed = false;
 
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
@@ -122,7 +124,7 @@ class TeacherGroupsController extends ChangeNotifier {
     final repo = assignmentRepository;
     unawaited(_assignmentsSub?.cancel());
     _assignmentsSub = null;
-    if (repo == null) {
+    if (repo == null || !watchAssignmentSummaries) {
       assignmentsByGroupId = const {};
       return;
     }
@@ -282,44 +284,6 @@ class TeacherGroupsController extends ChangeNotifier {
     final group = selectedGroup;
     if (group == null) return Future.value();
     return archiveGroup(group);
-  }
-
-  Future<void> archiveAssignment(GroupAssignment assignment) {
-    final repo = assignmentRepository;
-    if (repo == null) return Future.value();
-    return _runTeacherAction(
-      operation: 'archiveAssignment',
-      failureMessage: 'Could not archive that assignment.',
-      action: () async {
-        await repo.archiveAssignment(
-          teacherId: teacherId,
-          assignmentId: assignment.id,
-        );
-        actionMessage = 'Archived ${assignment.displayTitle}.';
-      },
-    );
-  }
-
-  Future<void> updateAssignmentSettings(
-    GroupAssignment assignment, {
-    required DateTime? dueAt,
-    int? maxScore,
-  }) {
-    final repo = assignmentRepository;
-    if (repo == null) return Future.value();
-    return _runTeacherAction(
-      operation: 'updateAssignmentSettings',
-      failureMessage: 'Could not update that assignment.',
-      action: () async {
-        await repo.updateAssignmentSettings(
-          teacherId: teacherId,
-          assignmentId: assignment.id,
-          dueAt: dueAt,
-          maxScore: maxScore,
-        );
-        actionMessage = 'Updated ${assignment.displayTitle}.';
-      },
-    );
   }
 
   Future<void> rotateInvite() {

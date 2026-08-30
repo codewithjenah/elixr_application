@@ -1,4 +1,3 @@
-import 'package:elixr_core/repositories/chat_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
@@ -8,22 +7,17 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
-import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
-import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
-import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/teacher_movement_repository.dart';
 import '../../movements/movements_presentation.dart';
 import '../../../services/auth_service.dart';
 import 'teacher_assignment_composer.dart';
-import 'teacher_assignment_work_pane.dart';
 import 'teacher_movement_builder_dialog.dart';
 import 'teacher_movements_controller.dart';
-import 'teacher_reviews_pane.dart';
 
 class TeacherMovementsScreen extends StatefulWidget {
   const TeacherMovementsScreen({super.key, this.controller});
@@ -59,12 +53,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       groupRepository: context.read<GroupRepository>(),
       movementRepository: context.read<TeacherMovementRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
-      submissionRepository: context.read<AssignmentSubmissionRepository>(),
       ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
-      // The production app provides chat. Keeping this optional lets the
-      // movements workspace render in isolated hosts that do not need result
-      // messaging (for example, lightweight widget tests).
-      chatRepository: context.read<ChatRepository?>(),
     )..start();
   }
 
@@ -166,8 +155,6 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
     return switch (tab) {
       TeacherMovementsTab.official => 'Official ELIXR',
       TeacherMovementsTab.mine => 'My Movements',
-      TeacherMovementsTab.assignments => 'Assignments',
-      TeacherMovementsTab.reviews => 'Reviews',
     };
   }
 }
@@ -184,7 +171,6 @@ class _TabBody extends StatelessWidget {
     }
     if (controller.errorMessage != null &&
         controller.myMovements.isEmpty &&
-        controller.assignments.isEmpty &&
         controller.groups.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -199,27 +185,6 @@ class _TabBody extends StatelessWidget {
     return switch (controller.tab) {
       TeacherMovementsTab.official => _OfficialList(controller: controller),
       TeacherMovementsTab.mine => _MyMovementsList(controller: controller),
-      TeacherMovementsTab.assignments =>
-        controller.selectedAssignmentId == null
-            ? _AssignmentsList(controller: controller)
-            : Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  0,
-                  AppSpacing.lg,
-                  AppSpacing.lg,
-                ),
-                child: TeacherAssignmentWorkPane(controller: controller),
-              ),
-      TeacherMovementsTab.reviews => TeacherReviewsPane(
-        controller: controller,
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          0,
-          AppSpacing.lg,
-          AppSpacing.lg,
-        ),
-      ),
     };
   }
 }
@@ -397,150 +362,6 @@ class _MyMovementsList extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _AssignmentsList extends StatelessWidget {
-  const _AssignmentsList({required this.controller});
-
-  final TeacherMovementsController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    if (controller.assignments.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        child: ElixStatusPanel(
-          message:
-              'No assignments yet. Assign an Official ELIXR or My Movement item to a class.',
-        ),
-      );
-    }
-    final official = [
-      for (final assignment in controller.assignments)
-        if (assignment.isOfficial) assignment,
-    ];
-    final teacherCreated = [
-      for (final assignment in controller.assignments)
-        if (!assignment.isOfficial) assignment,
-    ];
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        0,
-        AppSpacing.lg,
-        AppSpacing.lg,
-      ),
-      children: [
-        if (official.isNotEmpty) ...[
-          const _AssignmentOriginHeader(
-            sectionKey: Key('teacher_assignments_official_section'),
-            title: 'Official ELIXR',
-            subtitle: 'Live guided scores. No submission clip to review.',
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          for (var i = 0; i < official.length; i++) ...[
-            if (i > 0) const SizedBox(height: AppSpacing.sm),
-            _assignmentCard(official[i]),
-          ],
-        ],
-        if (official.isNotEmpty && teacherCreated.isNotEmpty)
-          const SizedBox(height: AppSpacing.xl),
-        if (teacherCreated.isNotEmpty) ...[
-          const _AssignmentOriginHeader(
-            sectionKey: Key('teacher_assignments_teacher_section'),
-            title: 'Teacher-created',
-            subtitle: 'Recorded clips for you to review.',
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          for (var i = 0; i < teacherCreated.length; i++) ...[
-            if (i > 0) const SizedBox(height: AppSpacing.sm),
-            _assignmentCard(teacherCreated[i]),
-          ],
-        ],
-      ],
-    );
-  }
-
-  Widget _assignmentCard(GroupAssignment assignment) {
-    final counts = controller.rosterCountsFor(assignment.id);
-    return HoverButton(
-      onPressed: () => controller.selectAssignment(assignment.id),
-      builder: (context, states) {
-        return ElixPanelCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(assignment.displayTitle, style: AppTheme.headingMedium),
-              const SizedBox(height: 4),
-              Text(
-                '${controller.groupName(assignment.groupId)} · '
-                '${assignment.origin.displayLabel} · '
-                '${assignment.isActive ? 'Active' : 'Archived'}'
-                '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixTextSecondary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Turned in ${counts.turnedIn} · '
-                'Awaiting check ${counts.awaitingCheck} · '
-                'Checked ${counts.checked} · '
-                'Not turned in ${counts.notTurnedIn}',
-                style: AppTheme.body,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Button(
-                  onPressed: () => controller.selectAssignment(assignment.id),
-                  child: const Text('View work'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  static String _formatDue(DateTime dueAt) {
-    final local = dueAt.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
-}
-
-class _AssignmentOriginHeader extends StatelessWidget {
-  const _AssignmentOriginHeader({
-    required this.sectionKey,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final Key sectionKey;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return KeyedSubtree(
-      key: sectionKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: AppTheme.headingMedium),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -25,11 +25,11 @@ void main() {
       AppRoutePaths.teacherGroups,
       AppRoutePaths.teacherFaculties,
       AppRoutePaths.teacherStudents,
+      AppRoutePaths.teacherMovements,
     ]);
     expect(routesIn(TeacherSidebarGroup.insights), [
       AppRoutePaths.teacherLeaderboard,
       AppRoutePaths.teacherAnalytics,
-      AppRoutePaths.teacherMovements,
       AppRoutePaths.teacherActivityCenter,
       AppRoutePaths.teacherMessages,
     ]);

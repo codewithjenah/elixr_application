@@ -362,6 +362,21 @@ class AppRouter {
               ),
             ),
             GoRoute(
+              path: '/teacher/groups/:groupId/classwork/:assignmentId',
+              pageBuilder: (context, state) {
+                final groupId = state.pathParameters['groupId'] ?? '';
+                final assignmentId = state.pathParameters['assignmentId'] ?? '';
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: TeacherGroupDetailScreen(
+                    groupId: groupId,
+                    initialAssignmentId: assignmentId,
+                    initialTraineeId: state.uri.queryParameters['traineeId'],
+                  ),
+                );
+              },
+            ),
+            GoRoute(
               path: AppRoutePaths.teacherGroups,
               pageBuilder: (context, state) => fadeTransitionPage(
                 key: state.pageKey,

@@ -3,6 +3,11 @@ import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
+import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/group_assignment.dart';
+import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/features/teacher/students/teacher_student_detail_screen.dart';
 import 'package:elixr_application/services/auth_service.dart';
 import 'package:elixr_core/elixr_core.dart';
@@ -21,6 +26,7 @@ void main() {
   late TrackingTeacherProgressRepository progress;
   late FakePublicProfileRepository profiles;
   late AuthService auth;
+  late InMemoryClassroomAssignmentRepository assignments;
 
   setUp(() {
     groups = InMemoryGroupRepository(now: () => DateTime.utc(2026, 8, 19));
@@ -28,26 +34,35 @@ void main() {
     progress = TrackingTeacherProgressRepository();
     profiles = FakePublicProfileRepository();
     auth = phase3TeacherAuth();
+    assignments = InMemoryClassroomAssignmentRepository();
   });
 
   tearDown(() {
     groups.dispose();
     auth.dispose();
+    assignments.dispose();
   });
 
-  Future<void> pumpDetail(WidgetTester tester) async {
+  Future<void> pumpDetail(
+    WidgetTester tester, {
+    String? preferredGroupId,
+  }) async {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1280, 720);
 
     final router = GoRouter(
-      initialLocation: '/teacher/students/trainee',
+      initialLocation: AppRoutePaths.teacherStudentDetail(
+        'trainee',
+        groupId: preferredGroupId,
+      ),
       routes: [
         GoRoute(
           path: '/teacher/students/:traineeId',
           builder: (context, state) => TeacherStudentDetailScreen(
             traineeId: state.pathParameters['traineeId'] ?? '',
+            preferredGroupId: state.uri.queryParameters['groupId'],
           ),
         ),
         GoRoute(
@@ -63,6 +78,11 @@ void main() {
           path: AppRoutePaths.teacherMessages,
           builder: (context, state) => const Text('messages'),
         ),
+        GoRoute(
+          path: '${AppRoutePaths.teacherGroups}/:groupId',
+          builder: (context, state) =>
+              Text('classroom:${state.pathParameters['groupId']}'),
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -75,6 +95,7 @@ void main() {
           Provider<TeacherRelationshipRepository>.value(value: links),
           Provider<TeacherProgressRepository>.value(value: progress),
           Provider<PublicProfileRepository>.value(value: profiles),
+          Provider<ClassroomAssignmentRepository>.value(value: assignments),
         ],
         child: FluentApp.router(routerConfig: router),
       ),
@@ -265,5 +286,112 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('students home'), findsOneWidget);
+  });
+
+  testWidgets('class-scoped detail shows that classroom classwork first', (
+    tester,
+  ) async {
+    groups.seedGroup(activeGroup());
+    groups.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+      ),
+    );
+    assignments.seedAssignment(
+      const GroupAssignment(
+        id: 'classwork-1',
+        teacherId: 'teacher',
+        groupId: 'group-1',
+        movementId: 'movement-1',
+        revisionId: 'revision-1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        status: GroupAssignmentStatus.active,
+        displayTitle: 'Tin Balance',
+        teacherDisplayName: 'Grace Hopper',
+        groupName: 'BSHM 4A',
+        maxScore: 100,
+      ),
+    );
+    assignments.seedAssignment(
+      const GroupAssignment(
+        id: 'other-classwork',
+        teacherId: 'teacher',
+        groupId: 'group-2',
+        movementId: 'movement-2',
+        revisionId: 'revision-2',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        status: GroupAssignmentStatus.active,
+        displayTitle: 'Other Classroom Work',
+        teacherDisplayName: 'Grace Hopper',
+        groupName: 'Other class',
+        maxScore: 100,
+      ),
+    );
+
+    await pumpDetail(tester, preferredGroupId: 'group-1');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('teacher_student_classwork')), findsOneWidget);
+    expect(find.text('Tin Balance'), findsOneWidget);
+    expect(find.text('Other Classroom Work'), findsNothing);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('teacher_student_classwork'))).dy,
+      lessThan(tester.getTopLeft(find.text('No practice history yet')).dy),
+    );
+
+    await tester.tap(
+      find.byKey(const Key('teacher_student_classwork_classwork-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_student_classwork_detail')),
+      findsOneWidget,
+    );
+    expect(find.text('Not turned in'), findsOneWidget);
+  });
+
+  testWidgets('class-scoped back returns to the source classroom', (
+    tester,
+  ) async {
+    groups.seedGroup(activeGroup());
+    groups.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+      ),
+    );
+    await pumpDetail(tester, preferredGroupId: 'group-1');
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('teacher_student_back')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('classroom:group-1'), findsOneWidget);
+  });
+
+  testWidgets('invalid preferred class does not fall back to another class', (
+    tester,
+  ) async {
+    groups.seedGroup(activeGroup());
+    groups.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+      ),
+    );
+    await pumpDetail(tester, preferredGroupId: 'group-2');
+    await tester.pump();
+
+    expect(find.text('Not authorized'), findsOneWidget);
+    expect(find.byKey(const Key('teacher_student_classwork')), findsNothing);
+    expect(find.text('Practice progress'), findsNothing);
   });
 }

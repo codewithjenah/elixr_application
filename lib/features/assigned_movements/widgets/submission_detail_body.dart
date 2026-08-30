@@ -289,7 +289,7 @@ class _OfficialRubricSection extends StatelessWidget {
             ),
         ] else
           Text(
-            'Official guided score is not available on this attempt.',
+            'Official guided score is not available for this submission.',
             style: AppTheme.body.copyWith(color: context.elixTextSecondary),
           ),
         if (attempt.durationSeconds != null) ...[
@@ -345,7 +345,7 @@ class _TeacherReviewedSection extends StatelessWidget {
     if (!shouldOfferPlayback) {
       return Center(
         child: Text(
-          'No submission clip is attached to this attempt.',
+          'No submission clip is attached to this work.',
           textAlign: TextAlign.center,
           style: AppTheme.body.copyWith(color: context.elixTextSecondary),
         ),

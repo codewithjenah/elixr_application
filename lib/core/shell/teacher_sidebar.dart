@@ -71,7 +71,7 @@ const teacherSidebarItems = [
     label: 'Movements',
     icon: FluentIcons.more_sports,
     route: AppRoutePaths.teacherMovements,
-    group: TeacherSidebarGroup.insights,
+    group: TeacherSidebarGroup.classroom,
   ),
   TeacherSidebarItem(
     label: 'Activity Center',

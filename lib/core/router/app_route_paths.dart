@@ -107,6 +107,19 @@ abstract final class AppRoutePaths {
     return '$teacherGroups/${Uri.encodeComponent(groupId)}';
   }
 
+  static String teacherGroupClasswork(
+    String groupId,
+    String assignmentId, {
+    String? traineeId,
+  }) {
+    final path =
+        '${teacherGroup(groupId)}/classwork/'
+        '${Uri.encodeComponent(assignmentId)}';
+    final student = traineeId?.trim();
+    if (student == null || student.isEmpty) return path;
+    return '$path?traineeId=${Uri.encodeQueryComponent(student)}';
+  }
+
   static String groupIdFromTeacherGroup(String location) {
     final prefix = '$teacherGroups/';
     if (!location.startsWith(prefix)) return '';
@@ -158,9 +171,9 @@ abstract final class AppRoutePaths {
   }
 
   static String teacherStudentDetail(String traineeId, {String? groupId}) {
-    final base = '/teacher/students/$traineeId';
+    final base = '/teacher/students/${Uri.encodeComponent(traineeId)}';
     if (groupId == null || groupId.isEmpty) return base;
-    return '$base?groupId=$groupId';
+    return '$base?groupId=${Uri.encodeQueryComponent(groupId)}';
   }
 
   static String teacherProfile(String userId) {
