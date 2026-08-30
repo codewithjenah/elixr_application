@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
@@ -101,8 +103,13 @@ Future<void> _pumpBody(
   Future<void> Function()? releaseLocalPlayback,
   Future<SubmissionPlaybackFile?> Function(AssignmentAttempt attempt)?
   openLocalPlayback,
+  SubmissionDetailViewerRole viewerRole = SubmissionDetailViewerRole.trainee,
+  SubmissionDetailPresentation presentation =
+      SubmissionDetailPresentation.standard,
+  Widget? reviewPanel,
+  Size size = const Size(1280, 800),
 }) async {
-  tester.view.physicalSize = const Size(1280, 800);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -115,9 +122,11 @@ Future<void> _pumpBody(
           child: SubmissionDetailBody(
             assignment: assignment,
             attempt: attempt,
-            viewerRole: SubmissionDetailViewerRole.trainee,
+            viewerRole: viewerRole,
             releaseLocalPlayback: releaseLocalPlayback,
             openLocalPlayback: openLocalPlayback,
+            presentation: presentation,
+            reviewPanel: reviewPanel,
           ),
         ),
       ),
@@ -127,10 +136,13 @@ Future<void> _pumpBody(
   await tester.pump(const Duration(milliseconds: 50));
 }
 
-AssignmentAttempt _submittedClip() {
+AssignmentAttempt _submittedClip({
+  String id = 'attempt-clip',
+  String traineeId = 'trainee-1',
+}) {
   return AssignmentAttempt(
-    id: 'attempt-clip',
-    traineeId: 'trainee-1',
+    id: id,
+    traineeId: traineeId,
     teacherId: 'teacher-1',
     groupId: 'g1',
     assignmentId: 'asg-1',
@@ -141,7 +153,7 @@ AssignmentAttempt _submittedClip() {
     attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
     status: AssignmentAttemptStatus.submitted,
     videoStoragePath:
-        'assignment_submissions/teacher-1/g1/asg-1/trainee-1/attempt-clip.mp4',
+        'assignment_submissions/teacher-1/g1/asg-1/$traineeId/$id.mp4',
     videoContentType: 'video/mp4',
     videoSizeBytes: 2048,
     videoDurationMs: 4000,
@@ -149,6 +161,40 @@ AssignmentAttempt _submittedClip() {
     videoExpiresAt: DateTime.utc(2026, 9, 26),
     createdAt: DateTime.utc(2026, 8, 27, 4),
   );
+}
+
+Future<void> _pumpMutableBody(
+  WidgetTester tester, {
+  required ValueNotifier<AssignmentAttempt> attempt,
+  required Future<SubmissionPlaybackFile?> Function(AssignmentAttempt attempt)
+  openLocalPlayback,
+  required Future<void> Function() releaseLocalPlayback,
+}) async {
+  tester.view.physicalSize = const Size(1280, 800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(
+    FluentApp(
+      theme: AppTheme.light,
+      home: ScaffoldPage(
+        content: SingleChildScrollView(
+          child: ValueListenableBuilder<AssignmentAttempt>(
+            valueListenable: attempt,
+            builder: (context, current, _) => SubmissionDetailBody(
+              assignment: _teacherAssignment(),
+              attempt: current,
+              viewerRole: SubmissionDetailViewerRole.teacher,
+              openLocalPlayback: openLocalPlayback,
+              releaseLocalPlayback: releaseLocalPlayback,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 50));
 }
 
 void main() {
@@ -255,4 +301,123 @@ void main() {
       expect(openCount, 2);
     },
   );
+
+  testWidgets(
+    'teacher desktop review uses a wide media and details composition',
+    (tester) async {
+      await _pumpBody(
+        tester,
+        assignment: _teacherAssignment(),
+        attempt: _approvedExpired(feedback: 'Great control.'),
+        viewerRole: SubmissionDetailViewerRole.teacher,
+        presentation: SubmissionDetailPresentation.teacherDesktopReview,
+        reviewPanel: const Text('Review actions'),
+        size: const Size(1280, 800),
+      );
+
+      expect(
+        find.byKey(const Key('submission_desktop_two_column')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('submission_desktop_stacked')), findsNothing);
+      expect(find.text('Review actions'), findsOneWidget);
+
+      final previewSize = tester.getSize(
+        find.byKey(const Key('submission_clip_preview')),
+      );
+      expect(previewSize.width / previewSize.height, closeTo(4 / 3, 0.01));
+      expect(previewSize.width, greaterThan(700));
+
+      final detailsSize = tester.getSize(
+        find.byKey(const Key('submission_desktop_review_details')),
+      );
+      expect(detailsSize.width, inInclusiveRange(360, 420));
+    },
+  );
+
+  testWidgets(
+    'teacher desktop review stacks safely below the wide breakpoint',
+    (tester) async {
+      await _pumpBody(
+        tester,
+        assignment: _teacherAssignment(),
+        attempt: _approvedExpired(feedback: 'Great control.'),
+        viewerRole: SubmissionDetailViewerRole.teacher,
+        presentation: SubmissionDetailPresentation.teacherDesktopReview,
+        reviewPanel: const Text('Review actions'),
+        size: const Size(800, 800),
+      );
+
+      expect(
+        find.byKey(const Key('submission_desktop_two_column')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('submission_desktop_stacked')),
+        findsOneWidget,
+      );
+      expect(find.text('Review actions'), findsOneWidget);
+
+      final previewSize = tester.getSize(
+        find.byKey(const Key('submission_clip_preview')),
+      );
+      expect(previewSize.width / previewSize.height, closeTo(4 / 3, 0.01));
+    },
+  );
+
+  testWidgets('retention transition releases active playback in place', (
+    tester,
+  ) async {
+    final attempt = ValueNotifier<AssignmentAttempt>(_submittedClip());
+    addTearDown(attempt.dispose);
+    var releases = 0;
+    await _pumpMutableBody(
+      tester,
+      attempt: attempt,
+      openLocalPlayback: (_) async => null,
+      releaseLocalPlayback: () async => releases++,
+    );
+    expect(find.byKey(const Key('submission_clip_retry')), findsOneWidget);
+
+    attempt.value = attempt.value.copyWith(
+      videoDeletedAt: DateTime.utc(2026, 8, 31),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(releases, 1);
+    expect(find.byKey(const Key('submission_retention_empty')), findsOneWidget);
+  });
+
+  testWidgets('stale playback completion cannot replace a newer attempt', (
+    tester,
+  ) async {
+    final first = Completer<SubmissionPlaybackFile?>();
+    final attempt = ValueNotifier<AssignmentAttempt>(
+      _submittedClip(id: 'attempt-a', traineeId: 'student-a'),
+    );
+    addTearDown(attempt.dispose);
+    var releases = 0;
+    await _pumpMutableBody(
+      tester,
+      attempt: attempt,
+      openLocalPlayback: (candidate) {
+        if (candidate.id == 'attempt-a') return first.future;
+        return Future<SubmissionPlaybackFile?>.value(null);
+      },
+      releaseLocalPlayback: () async => releases++,
+    );
+
+    attempt.value = _submittedClip(id: 'attempt-b', traineeId: 'student-b');
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('submission_clip_retry')), findsOneWidget);
+
+    first.complete(const SubmissionPlaybackFile(localPath: 'stale.mp4'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(releases, greaterThanOrEqualTo(1));
+    expect(find.byKey(const Key('submission_clip_retry')), findsOneWidget);
+  });
 }

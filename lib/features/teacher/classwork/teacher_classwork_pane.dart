@@ -1,11 +1,12 @@
+import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../assigned_movements/assigned_movement_list.dart';
@@ -248,11 +249,15 @@ class TeacherAssignmentWorkPane extends StatelessWidget {
   const TeacherAssignmentWorkPane({
     super.key,
     required this.controller,
-    required this.onBackToClasswork,
+    this.profilePictureUrlFor,
+    this.onOpenTrainee,
+    this.onEditAssignment,
   });
 
   final TeacherClassworkController controller;
-  final VoidCallback onBackToClasswork;
+  final String? Function(String traineeId)? profilePictureUrlFor;
+  final ValueChanged<String>? onOpenTrainee;
+  final ValueChanged<GroupAssignment>? onEditAssignment;
 
   @override
   Widget build(BuildContext context) {
@@ -270,66 +275,33 @@ class TeacherAssignmentWorkPane extends StatelessWidget {
         message: 'Work status could not be loaded. Try again.',
       );
     }
+    final traineeId = controller.selectedTraineeId;
+    if (traineeId != null) {
+      return _SelectedStudentReviewWorkspace(
+        controller: controller,
+        assignment: assignment,
+        traineeId: traineeId,
+        profilePictureUrl: profilePictureUrlFor?.call(traineeId),
+      );
+    }
     return Column(
+      key: const Key('teacher_classwork_assignment_roster_workspace'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Button(
-            key: const Key('teacher_classwork_back'),
-            onPressed: onBackToClasswork,
-            child: const Text('Back to Classwork'),
-          ),
+        _AssignmentHeader(
+          controller: controller,
+          assignment: assignment,
+          onEdit: onEditAssignment == null
+              ? null
+              : () => onEditAssignment!(assignment),
         ),
         const SizedBox(height: AppSpacing.md),
-        _AssignmentHeader(controller: controller, assignment: assignment),
-        const SizedBox(height: AppSpacing.md),
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 900;
-              final roster = _Roster(
-                controller: controller,
-                assignment: assignment,
-              );
-              final detail = _SelectedStudentDetail(
-                controller: controller,
-                assignment: assignment,
-              );
-              if (wide) {
-                return Row(
-                  key: const Key('teacher_classwork_wide_layout'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(width: 320, child: roster),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(child: detail),
-                  ],
-                );
-              }
-              if (controller.selectedTraineeId != null) {
-                return Column(
-                  key: const Key('teacher_classwork_narrow_detail'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Button(
-                        key: const Key('teacher_classwork_back_to_roster'),
-                        onPressed: () => controller.selectTrainee(null),
-                        child: const Text('Back to students'),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Expanded(child: detail),
-                  ],
-                );
-              }
-              return KeyedSubtree(
-                key: const Key('teacher_classwork_narrow_roster'),
-                child: roster,
-              );
-            },
+          child: _Roster(
+            controller: controller,
+            assignment: assignment,
+            profilePictureUrlFor: profilePictureUrlFor,
+            onOpenTrainee: onOpenTrainee,
           ),
         ),
       ],
@@ -485,124 +457,125 @@ class _StudentAssignmentRow extends StatelessWidget {
 }
 
 class _AssignmentHeader extends StatelessWidget {
-  const _AssignmentHeader({required this.controller, required this.assignment});
+  const _AssignmentHeader({
+    required this.controller,
+    required this.assignment,
+    this.onEdit,
+  });
 
   final TeacherClassworkController controller;
   final GroupAssignment assignment;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
     final counts = controller.rosterCountsFor(assignment.id);
+    final maximum = assignment.maxScore ?? 100;
     return ElixPanelCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(assignment.displayTitle, style: AppTheme.headingMedium),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: AppSpacing.lg,
+            runSpacing: AppSpacing.sm,
+            children: [
+              Text(assignment.displayTitle, style: AppTheme.headingMedium),
+              if (onEdit != null)
+                Button(
+                  key: const Key('teacher_classwork_edit_assignment'),
+                  onPressed: controller.busy ? null : onEdit,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.settings, size: 14),
+                      SizedBox(width: AppSpacing.sm),
+                      Text('Edit assignment'),
+                    ],
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 4),
           Text(
             '${assignment.origin.displayLabel} · '
             '${assignment.isActive ? 'Active' : 'Archived'}'
-            '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}',
+            '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}'
+            '${assignment.isTeacherCreated ? ' · Maximum $maximum${assignment.gradingLocked ? ' (locked)' : ''}' : ''}',
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            '${counts.turnedIn} turned in · '
-            '${counts.awaitingCheck} ready to check · '
-            '${counts.checked} checked · '
-            '${counts.notTurnedIn} not turned in',
-            style: AppTheme.body,
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.lg,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _AssignmentMetric(value: counts.turnedIn, label: 'Turned in'),
+              _AssignmentMetric(
+                value: counts.awaitingCheck,
+                label: 'Ready to check',
+              ),
+              _AssignmentMetric(value: counts.checked, label: 'Checked'),
+              _AssignmentMetric(
+                value: counts.notTurnedIn,
+                label: 'Not turned in',
+              ),
+            ],
           ),
-          if (assignment.isTeacherCreated) ...[
-            const SizedBox(height: AppSpacing.sm),
-            _MaximumScoreEditor(controller: controller, assignment: assignment),
-          ],
         ],
       ),
     );
   }
 }
 
-class _MaximumScoreEditor extends StatefulWidget {
-  const _MaximumScoreEditor({
-    required this.controller,
-    required this.assignment,
-  });
+class _AssignmentMetric extends StatelessWidget {
+  const _AssignmentMetric({required this.value, required this.label});
 
-  final TeacherClassworkController controller;
-  final GroupAssignment assignment;
-
-  @override
-  State<_MaximumScoreEditor> createState() => _MaximumScoreEditorState();
-}
-
-class _MaximumScoreEditorState extends State<_MaximumScoreEditor> {
-  late final TextEditingController _score;
-
-  @override
-  void initState() {
-    super.initState();
-    _score = TextEditingController(
-      text: (widget.assignment.maxScore ?? 100).toString(),
-    )..addListener(_onChanged);
-  }
-
-  void _onChanged() => setState(() {});
-
-  @override
-  void dispose() {
-    _score
-      ..removeListener(_onChanged)
-      ..dispose();
-    super.dispose();
-  }
+  final int value;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    if (widget.assignment.gradingLocked) {
-      return Text(
-        'Maximum score: ${widget.assignment.maxScore ?? 100} · Locked after the first check',
-        style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-      );
-    }
-    final value = int.tryParse(_score.text.trim());
-    return Row(
-      children: [
-        SizedBox(
-          width: 180,
-          child: InfoLabel(
-            label: 'Maximum score',
-            child: TextBox(
-              controller: _score,
-              maxLength: 3,
-              keyboardType: TextInputType.number,
+    return SizedBox(
+      width: 112,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            '$value',
+            style: AppTheme.headingMedium.copyWith(
+              color: context.elixTextPrimary,
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Button(
-          onPressed:
-              widget.controller.busy ||
-                  value == null ||
-                  value < 1 ||
-                  value > 100
-              ? null
-              : () => widget.controller.updateMaximumScore(
-                  assignmentId: widget.assignment.id,
-                  maxScore: value,
-                ),
-          child: const Text('Save maximum'),
-        ),
-      ],
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              label,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _Roster extends StatelessWidget {
-  const _Roster({required this.controller, required this.assignment});
+  const _Roster({
+    required this.controller,
+    required this.assignment,
+    this.profilePictureUrlFor,
+    this.onOpenTrainee,
+  });
 
   final TeacherClassworkController controller;
   final GroupAssignment assignment;
+  final String? Function(String traineeId)? profilePictureUrlFor;
+  final ValueChanged<String>? onOpenTrainee;
 
   @override
   Widget build(BuildContext context) {
@@ -613,106 +586,235 @@ class _Roster extends StatelessWidget {
         message: 'Share the class code, then approve students who join.',
       );
     }
-    return ListView.separated(
+    return Column(
       key: const Key('teacher_classwork_roster'),
-      itemCount: members.length,
-      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final member = members[index];
-        final attempt = controller.latestVisibleAttemptFor(
-          assignmentId: assignment.id,
-          traineeId: member.traineeId,
-        );
-        final turnedIn =
-            attempt != null && isAssignmentAttemptTurnedIn(attempt);
-        final status = turnedIn
-            ? assignedMovementStatusLabel(
-                assignment,
-                attempt,
-                attempt.isTeacherReviewSubmission ? attempt : null,
-              )
-            : 'Not turned in';
-        final selected = controller.selectedTraineeId == member.traineeId;
-        return Semantics(
-          button: true,
-          selected: selected,
-          label: '${member.traineeDisplayName}, $status',
-          child: HoverButton(
-            key: Key('teacher_classwork_student_${member.traineeId}'),
-            cursor: SystemMouseCursors.click,
-            onPressed: () => controller.selectTrainee(member.traineeId),
-            builder: (context, states) => ElixPanelCard(
-              accent: selected ? AppColors.accent : null,
-              showAccentBar: selected,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          member.traineeDisplayName,
-                          style: AppTheme.headingMedium,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Students', style: AppTheme.headingMedium),
+        const SizedBox(height: 4),
+        Text(
+          'Select a student to review their latest submitted work.',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Expanded(
+          child: ListView.separated(
+            key: const Key('teacher_classwork_roster_list'),
+            itemCount: members.length,
+            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
+            itemBuilder: (context, index) {
+              final member = members[index];
+              final attempt = controller.latestVisibleAttemptFor(
+                assignmentId: assignment.id,
+                traineeId: member.traineeId,
+              );
+              final turnedIn =
+                  attempt != null && isAssignmentAttemptTurnedIn(attempt);
+              final status = turnedIn
+                  ? assignedMovementStatusLabel(
+                      assignment,
+                      attempt,
+                      attempt.isTeacherReviewSubmission ? attempt : null,
+                    )
+                  : 'Not turned in';
+              final submittedAt = attempt?.submittedAt;
+              return Semantics(
+                button: true,
+                label:
+                    '${member.traineeDisplayName}, profile picture, $status',
+                child: HoverButton(
+                  key: Key('teacher_classwork_student_${member.traineeId}'),
+                  cursor: SystemMouseCursors.click,
+                  onPressed: () {
+                    final onOpen = onOpenTrainee;
+                    if (onOpen != null) {
+                      onOpen(member.traineeId);
+                    } else {
+                      controller.selectTrainee(member.traineeId);
+                    }
+                  },
+                  builder: (context, states) {
+                    final hovered = states.contains(WidgetState.hovered);
+                    final focused = states.contains(WidgetState.focused);
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.md,
+                      ),
+                      decoration: BoxDecoration(
+                        color: hovered
+                            ? context.elixColors.interactiveHover
+                            : context.elixPanelSurface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: focused
+                              ? context.elixColors.focusRing
+                              : context.elixColors.borderSubtle,
+                          width: focused ? 2 : 1,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          status,
-                          style: AppTheme.caption.copyWith(
-                            color: context.elixTextSecondary,
+                      ),
+                      child: Row(
+                        children: [
+                          ExcludeSemantics(
+                            child: ProfileAvatarWidget(
+                              key: Key(
+                                'teacher_classwork_avatar_${member.traineeId}',
+                              ),
+                              networkImageUrl: profilePictureUrlFor?.call(
+                                member.traineeId,
+                              ),
+                              initials: userInitials(
+                                member.traineeDisplayName,
+                              ),
+                              radius: 22,
+                              showBorder: false,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(FluentIcons.chevron_right, size: 12),
-                ],
-              ),
-            ),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  member.traineeDisplayName,
+                                  style: AppTheme.body.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  submittedAt == null
+                                      ? status
+                                      : '$status · Submitted ${formatSubmissionTimestamp(submittedAt)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTheme.caption.copyWith(
+                                    color: context.elixTextSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Text(
+                            turnedIn ? 'Review' : 'View',
+                            style: AppTheme.caption.copyWith(
+                              color: context.elixTextSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          const Icon(FluentIcons.chevron_right, size: 12),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
 
-class _SelectedStudentDetail extends StatelessWidget {
-  const _SelectedStudentDetail({
+class _SelectedStudentReviewWorkspace extends StatelessWidget {
+  const _SelectedStudentReviewWorkspace({
     required this.controller,
     required this.assignment,
+    required this.traineeId,
+    required this.profilePictureUrl,
   });
 
   final TeacherClassworkController controller;
   final GroupAssignment assignment;
+  final String traineeId;
+  final String? profilePictureUrl;
 
   @override
   Widget build(BuildContext context) {
-    final traineeId = controller.selectedTraineeId;
-    if (traineeId == null) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: const ElixStatusPanel(
-            message: 'Select a student to view their submitted work.',
+    final name = controller.traineeName(traineeId);
+    final attempt = controller.latestVisibleAttemptFor(
+      assignmentId: assignment.id,
+      traineeId: traineeId,
+    );
+    final status = attempt == null || !isAssignmentAttemptTurnedIn(attempt)
+        ? 'Not turned in'
+        : assignedMovementStatusLabel(
+            assignment,
+            attempt,
+            attempt.isTeacherReviewSubmission ? attempt : null,
+          );
+    return Column(
+      key: const Key('teacher_classwork_submission_workspace'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Semantics(
+              image: true,
+              label: 'Profile picture for $name',
+              child: ExcludeSemantics(
+                child: ProfileAvatarWidget(
+                  key: const Key('teacher_classwork_selected_avatar'),
+                  networkImageUrl: profilePictureUrl,
+                  initials: userInitials(name),
+                  radius: 26,
+                  showBorder: false,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: AppTheme.headingMedium),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${assignment.displayTitle} · ${assignment.groupName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            ElixPill(
+              text: status,
+              color: attempt == null
+                  ? context.elixTextSecondary
+                  : assignedMovementStatusColor(
+                      assignment,
+                      attempt,
+                      attempt.isTeacherReviewSubmission ? attempt : null,
+                    ),
+              compact: true,
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              key: const Key('teacher_classwork_review_scroll'),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: TeacherSubmissionReviewDetail(
+                  controller: controller,
+                  assignment: assignment,
+                  traineeId: traineeId,
+                  desktopReview: true,
+                ),
+              ),
+            ),
           ),
         ),
-      );
-    }
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            controller.traineeName(traineeId),
-            style: AppTheme.headingMedium,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          TeacherSubmissionReviewDetail(
-            controller: controller,
-            assignment: assignment,
-            traineeId: traineeId,
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -723,11 +825,13 @@ class TeacherSubmissionReviewDetail extends StatefulWidget {
     required this.controller,
     required this.assignment,
     required this.traineeId,
+    this.desktopReview = false,
   });
 
   final TeacherClassworkController controller;
   final GroupAssignment assignment;
   final String traineeId;
+  final bool desktopReview;
 
   @override
   State<TeacherSubmissionReviewDetail> createState() =>
@@ -802,6 +906,14 @@ class _TeacherSubmissionReviewDetailState
     final legacySubmitted =
         current.status == AssignmentAttemptStatus.submitted &&
         !current.isCanonicalTeacherReviewSubmission;
+    final reviewControls = _buildReviewControls(
+      current: current,
+      canGrade: canGrade,
+      maximum: maximum,
+      validGrade: validGrade,
+      parsedGrade: parsedGrade,
+      legacySubmitted: legacySubmitted,
+    );
     return Column(
       key: const Key('teacher_classwork_submission_detail'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -814,25 +926,58 @@ class _TeacherSubmissionReviewDetailState
           submissionRepository: widget.controller.submissionRepository,
           openLocalPlayback: widget.controller.openLocalPlayback,
           releaseLocalPlayback: widget.controller.releaseLocalPlayback,
+          presentation: widget.desktopReview
+              ? SubmissionDetailPresentation.teacherDesktopReview
+              : SubmissionDetailPresentation.standard,
+          reviewPanel: widget.desktopReview ? reviewControls : null,
         ),
+        if (!widget.desktopReview) reviewControls,
+      ],
+    );
+  }
+
+  Widget _buildReviewControls({
+    required AssignmentAttempt current,
+    required bool canGrade,
+    required int maximum,
+    required bool validGrade,
+    required int? parsedGrade,
+    required bool legacySubmitted,
+  }) {
+    return Column(
+      key: const Key('teacher_classwork_review_controls'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         if (canGrade) ...[
           const SizedBox(height: AppSpacing.md),
-          InfoLabel(
-            label: 'Grade (0–$maximum)',
-            child: TextBox(
-              key: const Key('teacher_classwork_grade'),
-              controller: _grade,
-              maxLength: 3,
-              keyboardType: TextInputType.number,
-              placeholder: 'Required',
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: 160,
+              child: InfoLabel(
+                label: 'Grade (0–$maximum)',
+                child: TextBox(
+                  key: const Key('teacher_classwork_grade'),
+                  controller: _grade,
+                  maxLength: 3,
+                  keyboardType: TextInputType.number,
+                  placeholder: 'Required',
+                ),
+              ),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Feedback',
+            style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.xs),
           TextBox(
             key: const Key('teacher_classwork_feedback'),
             controller: _feedback,
             maxLength: 1000,
-            maxLines: 4,
+            minLines: widget.desktopReview ? 5 : 3,
+            maxLines: widget.desktopReview ? 8 : 4,
             placeholder: 'Feedback for the student',
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -847,7 +992,7 @@ class _TeacherSubmissionReviewDetailState
                     : () => widget.controller.saveReview(
                         attempt: current,
                         assignment: widget.assignment,
-                        gradeScore: parsedGrade,
+                        gradeScore: parsedGrade!,
                         feedback: _feedback.text,
                       ),
                 child: Text(

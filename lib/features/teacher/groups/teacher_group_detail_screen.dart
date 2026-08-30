@@ -169,6 +169,44 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
       animation: Listenable.merge([controller, classwork]),
       builder: (context, _) {
         final group = controller.selectedGroup;
+        final assignment = classwork.selectedAssignment;
+        final traineeId = classwork.selectedTraineeId;
+        final backButton = traineeId != null && assignment != null
+            ? ElixBackButton(
+                key: const Key('teacher_classwork_back_to_roster'),
+                label: 'Student roster',
+                tooltip: 'Back to student roster',
+                semanticLabel: 'Back to student roster',
+                onPressed: () async {
+                  await classwork.selectTrainee(null);
+                  if (!context.mounted) return;
+                  context.go(
+                    AppRoutePaths.teacherGroupClasswork(
+                      widget.groupId,
+                      assignment.id,
+                    ),
+                  );
+                },
+              )
+            : assignment != null
+            ? ElixBackButton(
+                key: const Key('teacher_classwork_back'),
+                label: 'Classwork',
+                tooltip: 'Back to classwork',
+                semanticLabel: 'Back to classwork',
+                onPressed: () async {
+                  await classwork.selectAssignment(null);
+                  if (!context.mounted) return;
+                  context.go(AppRoutePaths.teacherGroup(widget.groupId));
+                },
+              )
+            : ElixBackButton(
+                key: const Key('teacher_group_back'),
+                label: 'Groups',
+                tooltip: 'Back to groups',
+                semanticLabel: 'Back to groups',
+                onPressed: () => context.go(AppRoutePaths.teacherGroups),
+              );
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
             heading: group?.name ?? 'Group',
@@ -179,21 +217,32 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
           content: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ElixBackButton(
-                key: const Key('teacher_group_back'),
-                label: 'Groups',
-                tooltip: 'Back to groups',
-                semanticLabel: 'Back to groups',
-                onPressed: () => context.go(AppRoutePaths.teacherGroups),
-              ),
+              backButton,
               const SizedBox(height: AppSpacing.md),
               Expanded(
-                child: classwork.selectedAssignment != null
+                child: assignment != null
                     ? TeacherAssignmentWorkPane(
                         controller: classwork,
-                        onBackToClasswork: () => context.go(
-                          AppRoutePaths.teacherGroup(widget.groupId),
-                        ),
+                        profilePictureUrlFor: controller.profilePictureUrlFor,
+                        onOpenTrainee: (selectedTraineeId) async {
+                          await classwork.selectTrainee(selectedTraineeId);
+                          if (!context.mounted) return;
+                          context.go(
+                            AppRoutePaths.teacherGroupClasswork(
+                              widget.groupId,
+                              assignment.id,
+                              traineeId: selectedTraineeId,
+                            ),
+                          );
+                        },
+                        onEditAssignment:
+                            group?.isActive == true && assignment.isActive
+                            ? (selectedAssignment) => _showEditAssignmentDialog(
+                                context,
+                                classwork,
+                                selectedAssignment,
+                              )
+                            : null,
                       )
                     : SingleChildScrollView(
                         child: _GroupDetailBody(

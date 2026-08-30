@@ -17,6 +17,13 @@ import '../assigned_movement_list.dart';
 
 enum SubmissionDetailViewerRole { trainee, teacher }
 
+/// Layout variants for [SubmissionDetailBody].
+///
+/// The default preserves the compact, vertical presentation used throughout
+/// trainee assignment detail. [teacherDesktopReview] is opt-in for the
+/// teacher's classwork submission drill-down.
+enum SubmissionDetailPresentation { standard, teacherDesktopReview }
+
 /// Role-agnostic submitted-work panel used by trainee assignment detail
 /// and the teacher classwork drill-down.
 class SubmissionDetailBody extends StatefulWidget {
@@ -28,6 +35,8 @@ class SubmissionDetailBody extends StatefulWidget {
     this.submissionRepository,
     this.openLocalPlayback,
     this.releaseLocalPlayback,
+    this.presentation = SubmissionDetailPresentation.standard,
+    this.reviewPanel,
   });
 
   final GroupAssignment assignment;
@@ -37,6 +46,8 @@ class SubmissionDetailBody extends StatefulWidget {
   final Future<SubmissionPlaybackFile?> Function(AssignmentAttempt attempt)?
   openLocalPlayback;
   final Future<void> Function()? releaseLocalPlayback;
+  final SubmissionDetailPresentation presentation;
+  final Widget? reviewPanel;
 
   @override
   State<SubmissionDetailBody> createState() => _SubmissionDetailBodyState();
@@ -47,6 +58,8 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   SubmissionPlaybackFile? _playable;
   Object? _playableError;
   String? _playableAttemptId;
+  String? _requestedPlaybackKey;
+  int _playbackGeneration = 0;
 
   AssignmentAttempt get attempt => widget.attempt;
 
@@ -59,7 +72,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   @override
   void didUpdateWidget(covariant SubmissionDetailBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.attempt.id != widget.attempt.id) {
+    if (_requestedPlaybackKey != _playbackRequestKey(widget.attempt)) {
       _loadForAttempt();
     }
   }
@@ -71,10 +84,18 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   }
 
   void _loadForAttempt() {
-    unawaited(_loadPlayback());
+    final requestedAttempt = widget.attempt;
+    final requestKey = _playbackRequestKey(requestedAttempt);
+    final generation = ++_playbackGeneration;
+    _requestedPlaybackKey = requestKey;
+    unawaited(_loadPlayback(requestedAttempt, requestKey, generation));
   }
 
-  Future<void> _releasePlayback({required bool releaseHost}) async {
+  Future<void> _releasePlayback({
+    required bool releaseHost,
+    bool invalidatePendingLoad = true,
+  }) async {
+    if (invalidatePendingLoad) _playbackGeneration++;
     await _playbackSession.release();
     if (releaseHost) {
       await widget.releaseLocalPlayback?.call();
@@ -84,15 +105,22 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
     _playableAttemptId = null;
   }
 
-  Future<void> _loadPlayback() async {
+  Future<void> _loadPlayback(
+    AssignmentAttempt requestedAttempt,
+    String requestKey,
+    int generation,
+  ) async {
     final hadPlayback = _playableAttemptId != null || _playable != null;
-    await _releasePlayback(releaseHost: hadPlayback);
-    if (!mounted) return;
-    if (!_shouldOfferPlayback) {
+    await _releasePlayback(
+      releaseHost: hadPlayback,
+      invalidatePendingLoad: false,
+    );
+    if (!mounted || generation != _playbackGeneration) return;
+    if (!_shouldOfferPlaybackFor(requestedAttempt)) {
       setState(() {});
       return;
     }
-    _playableAttemptId = attempt.id;
+    _playableAttemptId = requestedAttempt.id;
     _playable = null;
     _playableError = null;
     setState(() {});
@@ -100,8 +128,15 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
       final opener =
           widget.openLocalPlayback ??
           widget.submissionRepository?.openLocalPlayback;
-      final file = opener == null ? null : await opener(attempt);
-      if (!mounted || _playableAttemptId != attempt.id) return;
+      final file = opener == null ? null : await opener(requestedAttempt);
+      if (!mounted ||
+          generation != _playbackGeneration ||
+          _requestedPlaybackKey != requestKey) {
+        if (file != null) {
+          await widget.submissionRepository?.releaseLocalPlayback(file);
+        }
+        return;
+      }
       setState(() {
         _playable = file;
         _playableError = file == null
@@ -111,7 +146,11 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
             : null;
       });
     } catch (error) {
-      if (!mounted || _playableAttemptId != attempt.id) return;
+      if (!mounted ||
+          generation != _playbackGeneration ||
+          _requestedPlaybackKey != requestKey) {
+        return;
+      }
       setState(() {
         _playable = null;
         _playableError = error;
@@ -120,11 +159,26 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   }
 
   bool get _shouldOfferPlayback {
-    if (!_isTeacherReviewedAttempt) return false;
-    if (attempt.isUnsubmitting) return false;
-    if (!attempt.hasPlayableVideo) return false;
-    if (attempt.videoExpired) return false;
+    return _shouldOfferPlaybackFor(attempt);
+  }
+
+  bool _shouldOfferPlaybackFor(AssignmentAttempt candidate) {
+    if (!_isTeacherReviewedAttemptFor(candidate)) return false;
+    if (candidate.isUnsubmitting) return false;
+    if (!candidate.hasPlayableVideo) return false;
+    if (candidate.videoExpired) return false;
     return true;
+  }
+
+  String _playbackRequestKey(AssignmentAttempt candidate) {
+    return <Object?>[
+      candidate.id,
+      candidate.status.wireValue,
+      candidate.videoStoragePath,
+      candidate.videoDeletedAt?.toIso8601String(),
+      candidate.videoExpiresAt?.toIso8601String(),
+      _shouldOfferPlaybackFor(candidate),
+    ].join('|');
   }
 
   bool get _isOfficialAttempt {
@@ -133,9 +187,13 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   }
 
   bool get _isTeacherReviewedAttempt {
-    return attempt.attemptKind ==
+    return _isTeacherReviewedAttemptFor(attempt);
+  }
+
+  bool _isTeacherReviewedAttemptFor(AssignmentAttempt candidate) {
+    return candidate.attemptKind ==
             AssignmentAttemptKind.teacherReviewSubmission ||
-        attempt.attemptKind == AssignmentAttemptKind.teacherReviewDraft;
+        candidate.attemptKind == AssignmentAttemptKind.teacherReviewDraft;
   }
 
   bool get _clipBytesGone {
@@ -148,89 +206,177 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
     return attempt.videoExpired || attempt.videoDeletedAt != null;
   }
 
+  bool get _usesTeacherDesktopReview {
+    return widget.presentation ==
+            SubmissionDetailPresentation.teacherDesktopReview &&
+        widget.viewerRole == SubmissionDetailViewerRole.teacher &&
+        _isTeacherReviewedAttempt;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ElixPanelCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_isTeacherReviewedAttempt) ...[
-            Text(
-              widget.viewerRole == SubmissionDetailViewerRole.teacher
-                  ? 'Submission clip'
-                  : 'Your clip',
-              style: AppTheme.headingMedium,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            SizedBox(
-              key: const Key('submission_clip_preview'),
-              height: 240,
-              child: _TeacherReviewedSection.video(
-                context: context,
-                clipBytesGone: _clipBytesGone,
-                shouldOfferPlayback: _shouldOfferPlayback,
-                playable: _playable,
-                playableError: _playableError,
-                playbackSession: _playbackSession,
-                onRetry: _loadForAttempt,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          if (_isOfficialAttempt) ...[
-            Text(
-              widget.viewerRole == SubmissionDetailViewerRole.teacher
-                  ? 'Submission clip'
-                  : 'Your clip',
-              style: AppTheme.headingMedium,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            const SizedBox(
-              key: Key('submission_official_no_clip'),
-              height: 240,
-              child: _OfficialNoClipPreview(),
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              ElixPill(
-                text: assignedMovementStatusLabel(
-                  widget.assignment,
-                  attempt,
-                  attempt.isTeacherReviewSubmission ? attempt : null,
-                ),
-                color: assignedMovementStatusColor(
-                  widget.assignment,
-                  attempt,
-                  attempt.isTeacherReviewSubmission ? attempt : null,
-                ),
-                compact: true,
-              ),
-              if (attempt.supersedesAttemptId != null &&
-                  !attempt.isCanonicalTeacherReviewSubmission)
-                ElixPill(
-                  text: 'Resubmission',
-                  color: AppColors.accent,
-                  compact: true,
-                ),
-            ],
-          ),
-          if (_isOfficialAttempt) ...[
-            const SizedBox(height: AppSpacing.md),
-            _OfficialRubricSection(attempt: attempt),
-          ],
-          if (_isTeacherReviewedAttempt) ...[
-            const SizedBox(height: AppSpacing.md),
-            _TeacherReviewedSection(
-              attempt: attempt,
-              viewerRole: widget.viewerRole,
-            ),
-          ],
+      child: _usesTeacherDesktopReview
+          ? _buildTeacherDesktopReview(context)
+          : _buildStandardPresentation(context),
+    );
+  }
+
+  Widget _buildStandardPresentation(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_isTeacherReviewedAttempt) ...[
+          _buildTeacherReviewedMedia(context, useAspectRatio: false),
+          const SizedBox(height: AppSpacing.md),
         ],
-      ),
+        if (_isOfficialAttempt) ...[
+          Text(
+            widget.viewerRole == SubmissionDetailViewerRole.teacher
+                ? 'Submission clip'
+                : 'Your clip',
+            style: AppTheme.headingMedium,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(
+            key: Key('submission_official_no_clip'),
+            height: 240,
+            child: _OfficialNoClipPreview(),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        _buildStatusPills(),
+        if (_isOfficialAttempt) ...[
+          const SizedBox(height: AppSpacing.md),
+          _OfficialRubricSection(attempt: attempt),
+        ],
+        if (_isTeacherReviewedAttempt) ...[
+          const SizedBox(height: AppSpacing.md),
+          _TeacherReviewedSection(
+            attempt: attempt,
+            viewerRole: widget.viewerRole,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTeacherDesktopReview(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final media = _buildTeacherReviewedMedia(context, useAspectRatio: true);
+        final details = _buildTeacherReviewDetails();
+        if (constraints.maxWidth >= 900) {
+          final detailsWidth = (constraints.maxWidth * .3)
+              .clamp(360.0, 420.0)
+              .toDouble();
+          return Row(
+            key: const Key('submission_desktop_two_column'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: media),
+              const SizedBox(width: AppSpacing.lg),
+              SizedBox(width: detailsWidth, child: details),
+            ],
+          );
+        }
+        return Column(
+          key: const Key('submission_desktop_stacked'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            media,
+            const SizedBox(height: AppSpacing.md),
+            details,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTeacherReviewedMedia(
+    BuildContext context, {
+    required bool useAspectRatio,
+  }) {
+    final preview = _TeacherReviewedSection.video(
+      context: context,
+      clipBytesGone: _clipBytesGone,
+      shouldOfferPlayback: _shouldOfferPlayback,
+      playable: _playable,
+      playableError: _playableError,
+      playbackSession: _playbackSession,
+      onRetry: _loadForAttempt,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.viewerRole == SubmissionDetailViewerRole.teacher
+              ? 'Submission clip'
+              : 'Your clip',
+          style: AppTheme.headingMedium,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        if (useAspectRatio)
+          AspectRatio(
+            key: const Key('submission_clip_preview'),
+            aspectRatio: 4 / 3,
+            child: preview,
+          )
+        else
+          SizedBox(
+            key: const Key('submission_clip_preview'),
+            height: 240,
+            child: preview,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTeacherReviewDetails() {
+    return Column(
+      key: const Key('submission_desktop_review_details'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildStatusPills(),
+        const SizedBox(height: AppSpacing.md),
+        _TeacherReviewedSection(
+          attempt: attempt,
+          viewerRole: widget.viewerRole,
+        ),
+        if (widget.reviewPanel != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          widget.reviewPanel!,
+        ],
+      ],
+    );
+  }
+
+  Widget _buildStatusPills() {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        ElixPill(
+          text: assignedMovementStatusLabel(
+            widget.assignment,
+            attempt,
+            attempt.isTeacherReviewSubmission ? attempt : null,
+          ),
+          color: assignedMovementStatusColor(
+            widget.assignment,
+            attempt,
+            attempt.isTeacherReviewSubmission ? attempt : null,
+          ),
+          compact: true,
+        ),
+        if (attempt.supersedesAttemptId != null &&
+            !attempt.isCanonicalTeacherReviewSubmission)
+          ElixPill(
+            text: 'Resubmission',
+            color: AppColors.accent,
+            compact: true,
+          ),
+      ],
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -8,6 +9,7 @@ import 'package:elixr_application/features/teacher/classwork/teacher_classwork_c
 import 'package:elixr_application/features/teacher/classwork/teacher_classwork_pane.dart';
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FailingAttemptPaneRepository
@@ -50,6 +52,17 @@ void main() {
         status: GroupMembershipStatus.approved,
       ),
     );
+    groups.seedMembership(
+      GroupMembership(
+        id: GroupMembership.documentId(groupId: 'group', traineeId: 'alan'),
+        groupId: 'group',
+        teacherId: 'teacher',
+        traineeId: 'alan',
+        traineeDisplayName: 'Alan Turing',
+        teacherDisplayName: 'Grace Hopper',
+        status: GroupMembershipStatus.approved,
+      ),
+    );
     assignments.seedAssignment(
       const GroupAssignment(
         id: 'assignment',
@@ -83,7 +96,12 @@ void main() {
     assignments.dispose();
   });
 
-  Future<void> pumpPane(WidgetTester tester, Size size) async {
+  Future<void> pumpPane(
+    WidgetTester tester,
+    Size size, {
+    String? Function(String traineeId)? profilePictureUrlFor,
+    ValueChanged<GroupAssignment>? onEditAssignment,
+  }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -97,7 +115,8 @@ void main() {
             animation: controller,
             builder: (context, _) => TeacherAssignmentWorkPane(
               controller: controller,
-              onBackToClasswork: () {},
+              profilePictureUrlFor: profilePictureUrlFor,
+              onEditAssignment: onEditAssignment,
             ),
           ),
         ),
@@ -106,14 +125,18 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('wide classroom layout shows roster and selected work together', (
+  testWidgets('assignment roster uses the full workspace before drill-down', (
     tester,
   ) async {
     await pumpPane(tester, const Size(1280, 720));
 
     expect(
-      find.byKey(const Key('teacher_classwork_wide_layout')),
+      find.byKey(const Key('teacher_classwork_assignment_roster_workspace')),
       findsOneWidget,
+    );
+    expect(
+      find.text('Select a student to view their submitted work.'),
+      findsNothing,
     );
     expect(find.text('Ada Lovelace'), findsOneWidget);
     await tester.tap(
@@ -125,37 +148,112 @@ void main() {
       find.byKey(const Key('teacher_classwork_not_turned_in')),
       findsOneWidget,
     );
-    expect(find.byKey(const Key('teacher_classwork_roster')), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_classwork_submission_workspace')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('teacher_classwork_roster')), findsNothing);
+  });
+
+  testWidgets('roster rows expose semantics and support keyboard activation', (
+    tester,
+  ) async {
+    await pumpPane(tester, const Size(1280, 720));
+
+    expect(
+      find.bySemanticsLabel(
+        'Ada Lovelace, profile picture, Not turned in',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('teacher_classwork_submission_workspace')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
-    'narrow classroom layout drills into work and returns to roster',
+    'narrow classroom layout drills into work and remains page-scrollable',
     (tester) async {
       await pumpPane(tester, const Size(700, 720));
 
-      expect(
-        find.byKey(const Key('teacher_classwork_narrow_roster')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('teacher_classwork_roster')), findsOneWidget);
       await tester.tap(
         find.byKey(const Key('teacher_classwork_student_student')),
       );
       await tester.pumpAndSettle();
       expect(
-        find.byKey(const Key('teacher_classwork_narrow_detail')),
+        find.byKey(const Key('teacher_classwork_submission_workspace')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('teacher_classwork_review_scroll')),
         findsOneWidget,
       );
 
-      await tester.tap(
-        find.byKey(const Key('teacher_classwork_back_to_roster')),
-      );
+      await controller.selectTrainee(null);
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('teacher_classwork_narrow_roster')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('teacher_classwork_roster')), findsOneWidget);
     },
   );
+
+  testWidgets('roster and review header reuse profile avatars and initials', (
+    tester,
+  ) async {
+    await pumpPane(
+      tester,
+      const Size(1280, 720),
+      profilePictureUrlFor: (traineeId) =>
+          traineeId == 'student' ? 'https://example.test/ada.png' : null,
+    );
+
+    final ada = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_classwork_avatar_student')),
+    );
+    final alan = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_classwork_avatar_alan')),
+    );
+    expect(ada.networkImageUrl, 'https://example.test/ada.png');
+    expect(ada.initials, 'AL');
+    expect(alan.networkImageUrl, isNull);
+    expect(alan.initials, 'AT');
+
+    await tester.tap(
+      find.byKey(const Key('teacher_classwork_student_student')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    final selected = tester.widget<ProfileAvatarWidget>(
+      find.byKey(const Key('teacher_classwork_selected_avatar')),
+    );
+    expect(selected.networkImageUrl, 'https://example.test/ada.png');
+    expect(selected.initials, 'AL');
+  });
+
+  testWidgets('maximum score is metadata and editing uses settings action', (
+    tester,
+  ) async {
+    GroupAssignment? edited;
+    await pumpPane(
+      tester,
+      const Size(1280, 720),
+      onEditAssignment: (assignment) => edited = assignment,
+    );
+
+    expect(find.textContaining('Maximum 100'), findsOneWidget);
+    expect(find.text('Save maximum'), findsNothing);
+    expect(find.byType(TextBox), findsNothing);
+    await tester.tap(
+      find.byKey(const Key('teacher_classwork_edit_assignment')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(edited?.id, 'assignment');
+  });
 
   testWidgets('submitted work opens in the shared grading detail', (
     tester,
@@ -192,6 +290,11 @@ void main() {
       find.byKey(const Key('teacher_classwork_submission_detail')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const Key('submission_desktop_two_column')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('teacher_classwork_roster')), findsNothing);
     await tester.enterText(
       find.byKey(const Key('teacher_classwork_grade')),
       '92',

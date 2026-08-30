@@ -2,6 +2,9 @@ import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
+import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/group_assignment.dart';
+import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
@@ -129,7 +132,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
   }
 
   testWidgets('detail shows join code, pending students, and members', (
@@ -433,6 +436,71 @@ void main() {
     expect(
       find.byKey(Key('teacher_group_edit_assignment_${assignment.id}')),
       findsNothing,
+    );
+  });
+
+  testWidgets('assignment settings edit and lock the maximum score', (
+    tester,
+  ) async {
+    final assignments = InMemoryClassroomAssignmentRepository();
+    addTearDown(assignments.dispose);
+    final group = await repository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    const assignmentId = 'teacher-created-assignment';
+    assignments.seedAssignment(
+      GroupAssignment(
+        id: assignmentId,
+        teacherId: 'teacher-1',
+        groupId: group.id,
+        movementId: 'movement-1',
+        revisionId: 'revision-1',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        status: GroupAssignmentStatus.active,
+        displayTitle: 'Tin Balance',
+        teacherDisplayName: 'Grace Hopper',
+        groupName: 'BSIT-4A',
+        maxScore: 100,
+      ),
+    );
+    final controller = await controllerFor(
+      'teacher-1',
+      assignmentRepository: assignments,
+    );
+    addTearDown(controller.dispose);
+    await controller.startForGroup(group.id);
+    await pumpDetail(tester, controller: controller, groupId: group.id);
+
+    final editAssignment = find.byKey(
+      const Key('teacher_group_edit_assignment_$assignmentId'),
+    );
+    await tester.ensureVisible(editAssignment);
+    await tester.tap(editAssignment);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('teacher_assignment_edit_max_score')),
+      '75',
+    );
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_changes')));
+    await tester.pumpAndSettle();
+    final updated = await assignments.getAssignment(assignmentId: assignmentId);
+    expect(updated?.maxScore, 75);
+
+    assignments.seedAssignment(updated!.copyWith(gradingLocked: true));
+    await tester.pump();
+    await tester.ensureVisible(editAssignment);
+    await tester.tap(editAssignment);
+    await tester.pumpAndSettle();
+    final maximumField = tester.widget<TextBox>(
+      find.byKey(const Key('teacher_assignment_edit_max_score')),
+    );
+    expect(maximumField.enabled, isFalse);
+    expect(
+      find.textContaining('locked because this assignment already has'),
+      findsOneWidget,
     );
   });
 
