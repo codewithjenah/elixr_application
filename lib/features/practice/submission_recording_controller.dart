@@ -130,6 +130,7 @@ class SubmissionRecordingController extends ChangeNotifier {
       }
     }
     final latest = canonical ?? legacy;
+    if (_isStalePreSubmissionSnapshot(latest)) return;
     latestSubmission = latest;
     if (latest?.status == AssignmentAttemptStatus.submitted ||
         latest?.status == AssignmentAttemptStatus.checked ||
@@ -144,13 +145,29 @@ class SubmissionRecordingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<SubmissionPlaybackFile?> openSubmittedPlayback() async {
+  /// Keeps a command-confirmed submission from being replaced by the initial
+  /// cached Firestore snapshot, which can still describe the same attempt as
+  /// `in_progress` immediately after its submission transition.
+  bool _isStalePreSubmissionSnapshot(AssignmentAttempt? latest) {
+    final confirmed = latestSubmission;
+    return confirmed != null &&
+        confirmed.status == AssignmentAttemptStatus.submitted &&
+        latest != null &&
+        latest.id == confirmed.id &&
+        latest.status == AssignmentAttemptStatus.inProgress;
+  }
+
+  Future<SubmissionPlaybackFile?> openSubmittedPlayback({
+    AssignmentAttempt? attempt,
+  }) async {
     await releaseSubmittedPlayback();
-    final attempt = latestSubmission;
-    if (attempt == null || !attempt.hasPlayableVideo || attempt.videoExpired) {
+    final submission = attempt ?? latestSubmission;
+    if (submission == null ||
+        !submission.hasPlayableVideo ||
+        submission.videoExpired) {
       return null;
     }
-    final playback = await submissions.openLocalPlayback(attempt);
+    final playback = await submissions.openLocalPlayback(submission);
     if (_disposed) {
       await submissions.releaseLocalPlayback(playback);
       return null;
@@ -259,17 +276,18 @@ class SubmissionRecordingController extends ChangeNotifier {
     errorMessage = null;
     try {
       await refreshLatestSubmission();
-      await submissions.submitCanonicalLocalClip(
+      final submitted = await submissions.submitCanonicalLocalClip(
         traineeId: traineeId,
         assignment: assignment,
         clip: current,
       );
+      latestSubmission = submitted;
+      phase = SubmissionRecordingPhase.submitted;
+      notifyListeners();
       await abandonLocalClip();
       if (_disposed) return;
       clip = null;
-      phase = SubmissionRecordingPhase.submitted;
-      await refreshLatestSubmission();
-      await openSubmittedPlayback();
+      await openSubmittedPlayback(attempt: submitted);
     } catch (error) {
       if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;

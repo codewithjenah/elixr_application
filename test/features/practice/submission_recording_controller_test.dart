@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
+import 'package:elixr_application/data/repositories/assignment_submission_repository.dart';
 import 'package:elixr_application/features/practice/submission_recording_controller.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -56,6 +59,51 @@ class _GatedRecordSocket extends WebSocketService {
   }
 }
 
+class _StaleSnapshotClassroomRepository
+    extends InMemoryClassroomAssignmentRepository {
+  _StaleSnapshotClassroomRepository(this.staleAttempts);
+
+  final List<AssignmentAttempt> staleAttempts;
+
+  @override
+  Stream<List<AssignmentAttempt>> watchAttemptsForTrainee({
+    required String traineeId,
+  }) {
+    return Stream<List<AssignmentAttempt>>.value(staleAttempts);
+  }
+}
+
+class _RecordingSubmissionRepository
+    extends InMemoryAssignmentSubmissionRepository {
+  _RecordingSubmissionRepository({
+    required super.classroom,
+    required this.submittedAttempt,
+    this.submitError,
+  });
+
+  final AssignmentAttempt submittedAttempt;
+  final Object? submitError;
+  AssignmentAttempt? playbackAttempt;
+
+  @override
+  Future<AssignmentAttempt> submitCanonicalLocalClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
+  }) async {
+    if (submitError != null) throw submitError!;
+    return submittedAttempt;
+  }
+
+  @override
+  Future<SubmissionPlaybackFile?> openLocalPlayback(
+    AssignmentAttempt attempt,
+  ) async {
+    playbackAttempt = attempt;
+    return null;
+  }
+}
+
 CommandAck _acceptedStart() {
   return const CommandAck(
     protocolVersion: 1,
@@ -77,6 +125,38 @@ CommandAck _acceptedStop() {
     videoDurationMs: 1500,
     videoSizeBytes: 2048,
     contentType: 'video/mp4',
+  );
+}
+
+AssignmentAttempt _canonicalAttempt(AssignmentAttemptStatus status) {
+  return AssignmentAttempt(
+    id: assignmentAttemptIdForCanonicalTeacherReviewSubmission(
+      assignmentId: _assignment.id,
+      traineeId: 'trainee-1',
+    ),
+    traineeId: 'trainee-1',
+    teacherId: _assignment.teacherId,
+    groupId: _assignment.groupId,
+    assignmentId: _assignment.id,
+    movementId: _assignment.movementId,
+    revisionId: _assignment.revisionId,
+    origin: _assignment.origin,
+    assessmentMode: _assignment.assessmentMode,
+    attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
+    status: status,
+    createdAt: DateTime.utc(2026, 8, 30),
+  );
+}
+
+AssignmentAttempt _submittedAttempt() {
+  return _canonicalAttempt(AssignmentAttemptStatus.submitted).copyWith(
+    videoStoragePath:
+        'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_asg1_trainee-1.mp4',
+    videoContentType: 'video/mp4',
+    videoSizeBytes: 2048,
+    videoDurationMs: 1500,
+    submittedAt: DateTime.utc(2026, 8, 30),
+    videoExpiresAt: DateTime.utc(2026, 9, 29),
   );
 }
 
@@ -206,4 +286,144 @@ void main() {
     expect(deletes, 3);
     expect(delays, isNotEmpty);
   });
+
+  test(
+    'submission uses the confirmed attempt when the next snapshot is stale',
+    () async {
+      final stale = _canonicalAttempt(AssignmentAttemptStatus.inProgress);
+      final classroom = _StaleSnapshotClassroomRepository([stale]);
+      addTearDown(classroom.dispose);
+      final submitted = _submittedAttempt();
+      final submissions = _RecordingSubmissionRepository(
+        classroom: classroom,
+        submittedAttempt: submitted,
+      );
+      final controller = SubmissionRecordingController(
+        websocket: _GatedRecordSocket(),
+        classroom: classroom,
+        submissions: submissions,
+        assignment: _assignment,
+        traineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      controller.clip = SubmissionRecordResult.fromAck(_acceptedStop());
+      controller.phase = SubmissionRecordingPhase.preview;
+
+      await controller.refreshLatestSubmission();
+      expect(controller.latestSubmission, same(stale));
+
+      await controller.submitToTeacher();
+
+      expect(controller.latestSubmission, same(submitted));
+      expect(controller.latestSubmission!.hasPlayableVideo, isTrue);
+      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(submissions.playbackAttempt, same(submitted));
+    },
+  );
+
+  test(
+    'submission failure enters failed state without playable metadata',
+    () async {
+      final stale = _canonicalAttempt(AssignmentAttemptStatus.inProgress);
+      final classroom = _StaleSnapshotClassroomRepository([stale]);
+      addTearDown(classroom.dispose);
+      final submissions = _RecordingSubmissionRepository(
+        classroom: classroom,
+        submittedAttempt: _submittedAttempt(),
+        submitError: StateError('upload failed'),
+      );
+      final controller = SubmissionRecordingController(
+        websocket: _GatedRecordSocket(),
+        classroom: classroom,
+        submissions: submissions,
+        assignment: _assignment,
+        traineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      controller.clip = SubmissionRecordResult.fromAck(_acceptedStop());
+      controller.phase = SubmissionRecordingPhase.preview;
+
+      await controller.submitToTeacher();
+
+      expect(controller.phase, SubmissionRecordingPhase.failed);
+      expect(controller.latestSubmission, same(stale));
+      expect(controller.latestSubmission!.hasPlayableVideo, isFalse);
+      expect(submissions.playbackAttempt, isNull);
+    },
+  );
+
+  test('refresh loads a persisted submitted attempt when reopening', () async {
+    final submitted = _submittedAttempt();
+    final classroom = _StaleSnapshotClassroomRepository([submitted]);
+    addTearDown(classroom.dispose);
+    final submissions = InMemoryAssignmentSubmissionRepository(
+      classroom: classroom,
+    );
+    final controller = SubmissionRecordingController(
+      websocket: _GatedRecordSocket(),
+      classroom: classroom,
+      submissions: submissions,
+      assignment: _assignment,
+      traineeId: 'trainee-1',
+    );
+    addTearDown(controller.dispose);
+
+    await controller.refreshLatestSubmission();
+
+    expect(controller.latestSubmission, same(submitted));
+    expect(controller.latestSubmission!.hasPlayableVideo, isTrue);
+    expect(controller.phase, SubmissionRecordingPhase.submitted);
+  });
+
+  test(
+    'refresh accepts a newer unsubmitting state for the same attempt',
+    () async {
+      final submitted = _submittedAttempt();
+      final unsubmitting = submitted.copyWith(
+        status: AssignmentAttemptStatus.unsubmitting,
+      );
+      final classroom = _StaleSnapshotClassroomRepository([unsubmitting]);
+      addTearDown(classroom.dispose);
+      final controller = SubmissionRecordingController(
+        websocket: _GatedRecordSocket(),
+        classroom: classroom,
+        submissions: InMemoryAssignmentSubmissionRepository(
+          classroom: classroom,
+        ),
+        assignment: _assignment,
+        traineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      controller.latestSubmission = submitted;
+
+      await controller.refreshLatestSubmission();
+
+      expect(controller.latestSubmission, same(unsubmitting));
+    },
+  );
+
+  test(
+    'refresh does not replace a confirmed submission with stale in progress',
+    () async {
+      final submitted = _submittedAttempt();
+      final stale = _canonicalAttempt(AssignmentAttemptStatus.inProgress);
+      final classroom = _StaleSnapshotClassroomRepository([stale]);
+      addTearDown(classroom.dispose);
+      final controller = SubmissionRecordingController(
+        websocket: _GatedRecordSocket(),
+        classroom: classroom,
+        submissions: InMemoryAssignmentSubmissionRepository(
+          classroom: classroom,
+        ),
+        assignment: _assignment,
+        traineeId: 'trainee-1',
+      );
+      addTearDown(controller.dispose);
+      controller.latestSubmission = submitted;
+
+      await controller.refreshLatestSubmission();
+
+      expect(controller.latestSubmission, same(submitted));
+    },
+  );
 }
