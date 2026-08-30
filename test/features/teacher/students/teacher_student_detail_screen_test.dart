@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
@@ -161,7 +162,7 @@ void main() {
     },
   );
 
-  testWidgets('detail header displays the trainee profile picture', (
+  testWidgets('student identity displays the trainee profile picture', (
     tester,
   ) async {
     groups.seedGroup(activeGroup());
@@ -190,6 +191,7 @@ void main() {
       find.byKey(const Key('teacher_student_detail_avatar')),
     );
     expect(avatar.networkImageUrl, 'https://example.test/ada.png');
+    expect(find.text('Student details'), findsOneWidget);
   });
 
   testWidgets(
@@ -222,6 +224,13 @@ void main() {
     await pumpDetail(tester);
     await tester.pump();
     expect(find.text('Hand Stall'), findsWidgets);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MovementImage && widget.movementName == 'Hand Stall',
+      ),
+      findsWidgets,
+    );
   });
 
   testWidgets('empty progress history shows empty copy', (tester) async {

@@ -197,7 +197,9 @@ class _OfficialList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
-      clipBehavior: Clip.none,
+      // Keep scrolled and hover-transformed cards inside the list viewport so
+      // they cannot paint over the persistent curriculum tabs above it.
+      clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
         4,
@@ -279,7 +281,9 @@ class _MyMovementsList extends StatelessWidget {
       );
     }
     return ListView.separated(
-      clipBehavior: Clip.none,
+      // Keep scrolled and hover-transformed cards inside the list viewport so
+      // they cannot paint over the persistent curriculum tabs above it.
+      clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
         4,

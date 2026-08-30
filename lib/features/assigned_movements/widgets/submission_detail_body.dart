@@ -264,7 +264,17 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   Widget _buildTeacherDesktopReview(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final media = _buildTeacherReviewedMedia(context, useAspectRatio: true);
+        // The desktop review pane is a fixed workspace. Bound the inline
+        // preview to the remaining viewport height; the player exposes its
+        // own fullscreen control when a larger view is needed.
+        final maxPreviewHeight = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight - 40).clamp(0.0, double.infinity)
+            : null;
+        final media = _buildTeacherReviewedMedia(
+          context,
+          useAspectRatio: true,
+          maxPreviewHeight: maxPreviewHeight,
+        );
         final details = _buildTeacherReviewDetails();
         if (constraints.maxWidth >= 900) {
           final detailsWidth = (constraints.maxWidth * .3)
@@ -296,6 +306,7 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
   Widget _buildTeacherReviewedMedia(
     BuildContext context, {
     required bool useAspectRatio,
+    double? maxPreviewHeight,
   }) {
     final preview = _TeacherReviewedSection.video(
       context: context,
@@ -317,10 +328,15 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
         ),
         const SizedBox(height: AppSpacing.sm),
         if (useAspectRatio)
-          AspectRatio(
-            key: const Key('submission_clip_preview'),
-            aspectRatio: 4 / 3,
-            child: preview,
+          ConstrainedBox(
+            constraints: maxPreviewHeight == null
+                ? const BoxConstraints()
+                : BoxConstraints(maxHeight: maxPreviewHeight),
+            child: AspectRatio(
+              key: const Key('submission_clip_preview'),
+              aspectRatio: 4 / 3,
+              child: preview,
+            ),
           )
         else
           SizedBox(

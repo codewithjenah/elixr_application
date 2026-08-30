@@ -799,19 +799,11 @@ class _SelectedStudentReviewWorkspace extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              key: const Key('teacher_classwork_review_scroll'),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: TeacherSubmissionReviewDetail(
-                  controller: controller,
-                  assignment: assignment,
-                  traineeId: traineeId,
-                  desktopReview: true,
-                ),
-              ),
-            ),
+          child: TeacherSubmissionReviewDetail(
+            controller: controller,
+            assignment: assignment,
+            traineeId: traineeId,
+            desktopReview: true,
           ),
         ),
       ],
@@ -914,25 +906,29 @@ class _TeacherSubmissionReviewDetailState
       parsedGrade: parsedGrade,
       legacySubmitted: legacySubmitted,
     );
+    final submissionDetail = SubmissionDetailBody(
+      key: ValueKey('${current.id}:${current.reviewRevision}'),
+      assignment: widget.assignment,
+      attempt: current,
+      viewerRole: SubmissionDetailViewerRole.teacher,
+      submissionRepository: widget.controller.submissionRepository,
+      openLocalPlayback: widget.controller.openLocalPlayback,
+      releaseLocalPlayback: widget.controller.releaseLocalPlayback,
+      presentation: widget.desktopReview
+          ? SubmissionDetailPresentation.teacherDesktopReview
+          : SubmissionDetailPresentation.standard,
+      reviewPanel: widget.desktopReview ? reviewControls : null,
+    );
+    if (widget.desktopReview) {
+      return SizedBox.expand(
+        key: const Key('teacher_classwork_submission_detail'),
+        child: submissionDetail,
+      );
+    }
     return Column(
       key: const Key('teacher_classwork_submission_detail'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SubmissionDetailBody(
-          key: ValueKey('${current.id}:${current.reviewRevision}'),
-          assignment: widget.assignment,
-          attempt: current,
-          viewerRole: SubmissionDetailViewerRole.teacher,
-          submissionRepository: widget.controller.submissionRepository,
-          openLocalPlayback: widget.controller.openLocalPlayback,
-          releaseLocalPlayback: widget.controller.releaseLocalPlayback,
-          presentation: widget.desktopReview
-              ? SubmissionDetailPresentation.teacherDesktopReview
-              : SubmissionDetailPresentation.standard,
-          reviewPanel: widget.desktopReview ? reviewControls : null,
-        ),
-        if (!widget.desktopReview) reviewControls,
-      ],
+      children: [submissionDetail, reviewControls],
     );
   }
 

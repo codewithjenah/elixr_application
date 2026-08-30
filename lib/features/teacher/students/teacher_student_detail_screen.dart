@@ -14,6 +14,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
@@ -138,16 +139,9 @@ class _TeacherStudentDetailScreenState
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
-            heading: controller.displayName,
+            heading: 'Student details',
             eyebrow: 'TEACHER WORKSPACE',
             variant: ElixEditorialHeaderVariant.compact,
-            leading: ProfileAvatarWidget(
-              key: const Key('teacher_student_detail_avatar'),
-              radius: 24,
-              showBorder: false,
-              initials: userInitials(controller.displayName),
-              networkImageUrl: controller.profileRoot?.profilePictureUrl,
-            ),
             commandBar: CommandBar(
               mainAxisAlignment: MainAxisAlignment.end,
               primaryItems: [
@@ -206,6 +200,8 @@ class _TeacherStudentDetailScreenState
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
+              _StudentIdentity(controller: controller),
+              const SizedBox(height: AppSpacing.lg),
               _DetailBody(
                 controller: controller,
                 classworkController: classwork,
@@ -215,6 +211,31 @@ class _TeacherStudentDetailScreenState
           ),
         );
       },
+    );
+  }
+}
+
+class _StudentIdentity extends StatelessWidget {
+  const _StudentIdentity({required this.controller});
+
+  final TeacherStudentDetailController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        ProfileAvatarWidget(
+          key: const Key('teacher_student_detail_avatar'),
+          radius: 28,
+          showBorder: false,
+          initials: userInitials(controller.displayName),
+          networkImageUrl: controller.profileRoot?.profilePictureUrl,
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Text(controller.displayName, style: AppTheme.headingMedium),
+        ),
+      ],
     );
   }
 }
@@ -411,8 +432,20 @@ class _ProgressReady extends StatelessWidget {
           if (summary.completedMovementNames.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Completed movements: ${summary.completedMovementNames.join(', ')}',
+              'Completed movements',
               style: AppTheme.body.copyWith(color: context.elixTextSecondary),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final movementName in summary.completedMovementNames)
+                  Tooltip(
+                    message: movementName,
+                    child: MovementImage(movementName: movementName, size: 48),
+                  ),
+              ],
             ),
           ],
         ],
@@ -428,6 +461,10 @@ class _ProgressReady extends StatelessWidget {
                 ? '${session.rubric!.total}/12'
                 : '${session.legacyScore ?? 0}%';
             return ListTile(
+              leading: MovementImage(
+                movementName: session.movementName,
+                size: 48,
+              ),
               title: Text(session.movementName),
               subtitle: Text('${session.difficulty} · $scoreLabel'),
               trailing: session.evidenceAvailable == true

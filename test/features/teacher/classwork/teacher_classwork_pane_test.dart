@@ -194,7 +194,7 @@ void main() {
       );
       expect(
         find.byKey(const Key('teacher_classwork_review_scroll')),
-        findsOneWidget,
+        findsNothing,
       );
 
       await controller.selectTrainee(null);
