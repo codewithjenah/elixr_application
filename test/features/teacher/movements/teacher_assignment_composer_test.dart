@@ -67,6 +67,40 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   }
 }
 
+class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
+  bool failRevisionReads = false;
+
+  @override
+  Future<TeacherMovement> createMovement({
+    required String teacherId,
+    required String title,
+    required String instructions,
+    required TrainingProp requiredProp,
+    String? safetyGuidance,
+  }) async {
+    final movement = await super.createMovement(
+      teacherId: teacherId,
+      title: title,
+      instructions: instructions,
+      requiredProp: requiredProp,
+      safetyGuidance: safetyGuidance,
+    );
+    failRevisionReads = true;
+    return movement;
+  }
+
+  @override
+  Future<TeacherMovementRevision?> getRevision({
+    required String movementId,
+    required String revisionId,
+  }) {
+    if (failRevisionReads) {
+      throw StateError('revision read failed');
+    }
+    return super.getRevision(movementId: movementId, revisionId: revisionId);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -170,13 +204,39 @@ void main() {
     expect(assignment.displayInstructions, 'Keep the tin upright throughout.');
   });
 
+  test(
+    'shared creation service refreshes authorization before writing',
+    () async {
+      var authorizationChecks = 0;
+      final guardedService = TeacherAssignmentCreationService(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        assignmentRepository: assignments,
+        movementRepository: movements,
+        ensureTeacherAuthorization: () async {
+          authorizationChecks++;
+          return true;
+        },
+      );
+
+      await guardedService.create(
+        group: group,
+        officialMovement: movementCatalog.first,
+      );
+
+      expect(authorizationChecks, 1);
+      expect(assignments.officialCalls, 1);
+    },
+  );
+
   Future<void> pumpComposer(
     WidgetTester tester, {
     required TeacherAssignmentCreationService creationService,
     Movement? officialMovement,
     TeacherMovement? teacherCreatedMovement,
+    Size size = const Size(1280, 900),
   }) async {
-    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -230,80 +290,31 @@ void main() {
     expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
     expect(
-      tester
-          .widget<ComboBox<String>>(
-            find.byKey(const Key('teacher_assignment_movement')),
-          )
-          .value,
-      customMovement.id,
-    );
-  });
-
-  testWidgets('selected My Movement can be deleted when unused', (
-    tester,
-  ) async {
-    final customMovement = await createTeacherMovement();
-    await pumpComposer(tester, creationService: service());
-
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
-    await tester.pumpAndSettle();
-
-    await tester.tap(
-      find.byKey(const Key('teacher_assignment_delete_movement')),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Delete this movement?'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const Key('teacher_assignment_confirm_delete_movement')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(await movements.getMovement(movementId: customMovement.id), isNull);
-    expect(
-      find.byKey(const Key('teacher_assignment_empty_movement_state')),
+      find.byKey(Key('teacher_assignment_custom_${customMovement.id}')),
       findsOneWidget,
     );
-    expect(find.byKey(const Key('teacher_assignment_movement')), findsNothing);
+    expect(find.text('My Movements'), findsOneWidget);
   });
 
-  testWidgets('selected My Movement cannot be deleted when assigned', (
+  testWidgets('movement management stays out of Assignment Studio', (
     tester,
   ) async {
     final customMovement = await createTeacherMovement();
-    final revision = await movements.getRevision(
-      movementId: customMovement.id,
-      revisionId: customMovement.currentRevisionId,
-    );
-    await assignments.createTeacherCreatedAssignment(
-      teacherId: 'teacher-1',
-      teacherDisplayName: 'Grace Hopper',
-      group: group,
-      movement: customMovement,
-      revision: revision!,
-    );
     await pumpComposer(tester, creationService: service());
 
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
-    final deleteButton = tester.widget<Button>(
-      find.byKey(const Key('teacher_assignment_delete_movement')),
-    );
-    expect(deleteButton.onPressed, isNull);
     expect(
-      await movements.getMovement(movementId: customMovement.id),
-      isNotNull,
+      find.byKey(Key('teacher_assignment_custom_${customMovement.id}')),
+      findsOneWidget,
     );
+    expect(find.text('Delete'), findsNothing);
+    expect(find.text('Edit'), findsNothing);
   });
 
   testWidgets('My Movement can create and select a new movement', (
@@ -311,13 +322,16 @@ void main() {
   ) async {
     await pumpComposer(tester, creationService: service());
 
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('builder-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('builder-title')), findsNothing);
     expect(find.byKey(const Key('teacher_assignment_movement')), findsNothing);
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_create_movement')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('builder-title')), findsOneWidget);
     await tester.enterText(
       find.byKey(const ValueKey('builder-title')),
       'Tin Balance',
@@ -331,10 +345,10 @@ void main() {
 
     expect(movements.movements, hasLength(1));
     final movement = movements.movements.values.single;
-    final picker = tester.widget<ComboBox<String>>(
-      find.byKey(const Key('teacher_assignment_movement')),
+    expect(
+      find.byKey(Key('teacher_assignment_custom_${movement.id}')),
+      findsOneWidget,
     );
-    expect(picker.value, movement.id);
     expect(
       tester
           .widget<ElixPrimaryButton>(
@@ -350,25 +364,50 @@ void main() {
   ) async {
     await pumpComposer(tester, creationService: service());
 
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('builder-title')), findsOneWidget);
-
-    await tester.tap(find.text('Close').last);
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
     expect(
       find.byKey(const Key('teacher_assignment_empty_movement_state')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('builder-title')), findsNothing);
     expect(find.byKey(const Key('teacher_assignment_movement')), findsNothing);
     expect(find.byKey(const Key('teacher_assignment_max_score')), findsNothing);
     expect(
       find.byKey(const Key('teacher_assignment_due_date_toggle')),
       findsNothing,
     );
+  });
+
+  testWidgets('quick-create reports a revision reload failure', (tester) async {
+    movements.dispose();
+    movements = _RevisionReadFailureMovements();
+    await pumpComposer(tester, creationService: service());
+
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_create_movement')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Tin Balance',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-instructions')),
+      'Balance the tin upright.',
+    );
+    await tester.tap(find.text('Create').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('teacher_assignment_error')), findsOneWidget);
+    expect(
+      find.textContaining('assignment details could not be loaded'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('repeated clicks while creating make one repository write', (
@@ -419,6 +458,22 @@ void main() {
       find.byKey(const Key('teacher_assignment_due_date')),
       findsOneWidget,
     );
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Assignment Studio reflows without overflow on a narrow window', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      officialMovement: movementCatalog.first,
+      size: const Size(760, 900),
+    );
+
+    expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
+    expect(find.byKey(const Key('teacher_assignment_summary')), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

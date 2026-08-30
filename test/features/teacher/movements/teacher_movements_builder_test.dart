@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
@@ -95,6 +97,7 @@ void main() {
     WidgetTester tester, {
     TeacherMovement? existing,
     TeacherMovementRevision? existingRevision,
+    TeacherReviewedSaveCallback? onCreate,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1280, 900);
@@ -108,6 +111,7 @@ void main() {
           existing: existing,
           existingRevision: existingRevision,
           onCreateTeacherReviewed:
+              onCreate ??
               ({
                 required title,
                 required instructions,
@@ -232,6 +236,52 @@ void main() {
     );
   });
 
+  testWidgets('builder prevents duplicate saves while creation is in flight', (
+    tester,
+  ) async {
+    final gate = Completer<void>();
+    var calls = 0;
+    await pumpBuilder(
+      tester,
+      onCreate:
+          ({
+            required title,
+            required instructions,
+            required requiredProp,
+            safetyGuidance,
+          }) async {
+            calls++;
+            await gate.future;
+          },
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Tin Balance',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-instructions')),
+      'Balance the tin upright.',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    await tester.pump();
+
+    expect(calls, 1);
+    expect(
+      tester
+          .widget<ElixPrimaryButton>(
+            find.byKey(const ValueKey('teacher-reviewed-save')),
+          )
+          .isLoading,
+      isTrue,
+    );
+
+    gate.complete();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('Official ELIXR list shows catalog movement images', (
     tester,
   ) async {
@@ -243,6 +293,79 @@ void main() {
         (widget) =>
             widget is MovementImage && widget.movementName == 'Normal Grip',
       ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'Official movement Assign to class opens the shared studio and filters classes',
+    (tester) async {
+      groups.seedGroup(
+        const ElixrGroup(
+          id: 'active-group',
+          teacherId: 'teacher-1',
+          name: 'Active Class',
+          status: ElixrGroupStatus.active,
+        ),
+      );
+      groups.seedGroup(
+        const ElixrGroup(
+          id: 'archived-group',
+          teacherId: 'teacher-1',
+          name: 'Archived Class',
+          status: ElixrGroupStatus.archived,
+        ),
+      );
+      await pumpScreen(tester);
+
+      await tester.tap(
+        find.byKey(const Key('teacher_movement_assign_official_Normal Grip')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Assign to class'), findsOneWidget);
+      expect(
+        find.byKey(const Key('teacher_assignment_movement_title')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('teacher_assignment_source')), findsNothing);
+      expect(find.text('Normal Grip'), findsAtLeastNWidgets(1));
+      expect(find.text('Active Class'), findsAtLeastNWidgets(1));
+      expect(find.text('Archived Class'), findsNothing);
+    },
+  );
+
+  testWidgets('My Movement Assign to class preserves movement context', (
+    tester,
+  ) async {
+    final movement = await movements.createMovement(
+      teacherId: 'teacher-1',
+      title: 'Tin Balance',
+      instructions: 'Balance the tin upright.',
+      requiredProp: TrainingProp.bottle,
+    );
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'active-group',
+        teacherId: 'teacher-1',
+        name: 'Active Class',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    await pumpScreen(tester);
+    await tester.tap(find.text('My Movements'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(Key('teacher_movement_assign_custom_${movement.id}')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Assign to class'), findsOneWidget);
+    expect(find.text('Tin Balance'), findsAtLeastNWidgets(1));
+    expect(find.byKey(const Key('teacher_assignment_source')), findsNothing);
+    expect(
+      find.byKey(const Key('teacher_assignment_max_score')),
       findsOneWidget,
     );
   });

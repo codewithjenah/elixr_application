@@ -12,6 +12,7 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
@@ -143,32 +144,6 @@ class TeacherAssignmentCreationService {
     );
   }
 
-  Future<void> deleteTeacherReviewedMovement({
-    required TeacherMovement movement,
-  }) async {
-    final movementRepository = this.movementRepository;
-    if (movementRepository == null) {
-      throw const ClassroomException(
-        ClassroomError.notFound,
-        'Teacher-created movement data is unavailable right now.',
-      );
-    }
-    await _ensureTeacherAuthorization();
-    if (await assignmentRepository.hasTeacherAssignmentForMovement(
-      teacherId: teacherId,
-      movementId: movement.id,
-    )) {
-      throw const ClassroomException(
-        ClassroomError.invalidState,
-        'This movement cannot be deleted because it is used by an assignment.',
-      );
-    }
-    await movementRepository.deleteMovement(
-      teacherId: teacherId,
-      movementId: movement.id,
-    );
-  }
-
   Future<void> _ensureTeacherAuthorization() async {
     final ensure = ensureTeacherAuthorization;
     if (ensure == null) return;
@@ -200,6 +175,7 @@ Future<bool?> showTeacherAssignmentComposer(
   TeacherMovement? teacherCreatedMovement,
   Future<bool> Function()? ensureTeacherAuthorization,
 }) {
+  final reduceMotion = MediaQuery.disableAnimationsOf(context);
   final service =
       creationService ??
       TeacherAssignmentCreationService(
@@ -211,8 +187,12 @@ Future<bool?> showTeacherAssignmentComposer(
       );
   return Navigator.of(context).push<bool>(
     PageRouteBuilder<bool>(
-      transitionDuration: const Duration(milliseconds: 240),
-      reverseTransitionDuration: const Duration(milliseconds: 200),
+      transitionDuration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 240),
+      reverseTransitionDuration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
       pageBuilder: (_, animation, secondaryAnimation) =>
           TeacherAssignmentComposer(
             teacherId: teacherId,
@@ -285,16 +265,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   DateTime? _dueAt;
   bool _submitting = false;
   bool _creatingTeacherMovement = false;
-  bool _deletingTeacherMovement = false;
   bool _loadingTeacherMovements = false;
-  bool _hasPromptedForFirstTeacherMovement = false;
   String? _movementLoadError;
   String? _validationError;
   List<TeacherMovement> _teacherMovements = const [];
   Map<String, TeacherMovementRevision> _teacherMovementRevisions = const {};
   StreamSubscription<List<TeacherMovement>>? _movementSubscription;
-  StreamSubscription<List<GroupAssignment>>? _assignmentSubscription;
-  Set<String> _assignedTeacherMovementIds = const {};
   int _movementLoadToken = 0;
 
   bool get _hasMovementOverride =>
@@ -353,7 +329,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
       _startWatchingTeacherMovements();
     }
-    _startWatchingTeacherAssignments();
   }
 
   ElixrGroup? _firstActiveGroup() {
@@ -396,25 +371,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   void _onTeacherMovements(List<TeacherMovement> movements) {
     unawaited(_loadAssignableTeacherMovements(movements));
-  }
-
-  void _startWatchingTeacherAssignments() {
-    try {
-      _assignmentSubscription = widget.creationService.assignmentRepository
-          .watchTeacherAssignments(teacherId: widget.teacherId)
-          .listen((assignments) {
-            if (!mounted) return;
-            setState(() {
-              _assignedTeacherMovementIds = {
-                for (final assignment in assignments)
-                  if (assignment.isTeacherCreated) assignment.movementId,
-              };
-            });
-          });
-    } catch (_) {
-      // The repository-level delete check remains authoritative if this
-      // optional live hint cannot be established.
-    }
   }
 
   Future<void> _loadAssignableTeacherMovements(
@@ -466,7 +422,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _selectedTeacherCreatedMovement = assignable.firstOrNull;
       }
     });
-    _scheduleFirstTeacherMovementCreation();
   }
 
   bool _isAssignableTeacherRevision(TeacherMovementRevision revision) {
@@ -478,14 +433,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   @override
   void dispose() {
     unawaited(_movementSubscription?.cancel());
-    unawaited(_assignmentSubscription?.cancel());
     _maxScoreController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _classroomScoped ? 'Create assignment' : 'Assign movement';
+    final title = _classroomScoped ? 'Create assignment' : 'Assign to class';
     final subtitle = _classroomScoped
         ? 'Choose a movement, set expectations, and send it to your class.'
         : 'Choose a class and set the deadline before you publish it.';
@@ -502,7 +456,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             CommandBarButton(
               key: const Key('teacher_assignment_back'),
               icon: const Icon(FluentIcons.back),
-              label: const Text('Cancel'),
+              label: const Text('Back'),
               onPressed: _submitting ? null : () => Navigator.pop(context),
             ),
           ],
@@ -563,7 +517,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       isTeacherCreated: _isTeacherCreated,
       dueAt: _dueAt,
       canSubmit: _canSubmit,
+      isSubmitting: _submitting,
       maximumScore: int.tryParse(_maxScoreController.text.trim()),
+      onSubmit: _canSubmit ? () => _submit(context) : null,
     );
     final wide = availableWidth >= _teacherAssignmentWideBreakpoint;
 
@@ -596,17 +552,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.lg),
           summary,
         ],
-        const SizedBox(height: AppSpacing.lg),
-        _ComposerActionBar(
-          canSubmit: _canSubmit,
-          isSubmitting: _submitting,
-          label: _classroomScoped ? 'Create assignment' : 'Assign movement',
-          onCancel: _submitting ? null : () => Navigator.pop(context),
-          onSubmit: _canSubmit ? () => _submit(context) : null,
-        ),
         const SizedBox(height: AppSpacing.md),
         Text(
-          'You can manage this assignment from the Assignments workspace after it is created.',
+          'Publishing sends this existing movement to the selected classroom. '
+          'Movement content stays reusable in your library.',
           textAlign: TextAlign.center,
           style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
         ),
@@ -661,25 +610,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         ),
         const SizedBox(height: AppSpacing.lg),
         if (_classroomScoped) ...[
-          _ComposerField(
-            label: 'Movement source',
-            hint: 'Choose who provides the movement assessment.',
-            child: ComboBox<_AssignmentOriginSelection>(
-              key: const Key('teacher_assignment_source'),
-              value: _origin,
-              isExpanded: true,
-              items: const [
-                ComboBoxItem(
-                  value: _AssignmentOriginSelection.official,
-                  child: Text('Official ELIXR'),
-                ),
-                ComboBoxItem(
-                  value: _AssignmentOriginSelection.teacherCreated,
-                  child: Text('My Movement'),
-                ),
-              ],
-              onChanged: _submitting ? null : _onOriginChanged,
-            ),
+          _MovementSourceSelector(
+            selected: _origin,
+            enabled: !_submitting,
+            onChanged: _onOriginChanged,
           ),
           const SizedBox(height: AppSpacing.md),
           _classroomMovementPicker(context),
@@ -790,93 +724,86 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   }
 
   Widget _classroomMovementPicker(BuildContext context) {
-    final items = <Widget>[];
     if (_origin == _AssignmentOriginSelection.official) {
-      items.add(
-        _ComposerField(
-          label: 'Movement',
-          hint: 'Trainees will receive ELIXR-guided scoring.',
-          child: ComboBox<String>(
-            key: const Key('teacher_assignment_movement'),
-            value: _selectedOfficialMovement?.name,
-            isExpanded: true,
-            items: [
-              for (final movement in _enabledOfficialMovements)
-                ComboBoxItem(value: movement.name, child: Text(movement.name)),
-            ],
-            onChanged: _submitting ? null : _onOfficialMovementChanged,
-          ),
-        ),
+      return _MovementChoiceList(
+        key: const Key('teacher_assignment_movement'),
+        children: [
+          for (final movement in _enabledOfficialMovements)
+            _MovementChoiceCard(
+              key: Key('teacher_assignment_official_${movement.name}'),
+              title: movement.name,
+              metadata:
+                  '${movement.difficulty} · ${movement.supportedProps.map((prop) => prop.displayLabel).join(', ')}',
+              description: movement.description,
+              movementName: movement.name,
+              selected: _selectedOfficialMovement?.name == movement.name,
+              enabled: !_submitting,
+              onPressed: () => _onOfficialMovementChanged(movement.name),
+            ),
+        ],
       );
-    } else {
-      if (_loadingTeacherMovements) {
-        return _teacherMovementLoadingState(context);
-      }
-      if (_teacherMovements.isEmpty) {
-        return _firstTeacherMovementState(context);
-      }
-      items.add(
-        _ComposerField(
-          label: 'Movement',
-          hint: 'Trainees submit a recording for your review.',
-          child: ComboBox<String>(
-            key: const Key('teacher_assignment_movement'),
-            value: _selectedTeacherCreatedMovement?.id,
-            isExpanded: true,
-            items: [
-              for (final movement in _teacherMovements)
-                ComboBoxItem(value: movement.id, child: Text(movement.title)),
-            ],
-            onChanged: _submitting ? null : _onTeacherMovementChanged,
-          ),
-        ),
-      );
+    }
+
+    if (_loadingTeacherMovements) {
+      return _teacherMovementLoadingState(context);
+    }
+    if (_teacherMovements.isEmpty) {
+      return _firstTeacherMovementState(context);
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ...items,
-        if (_origin == _AssignmentOriginSelection.teacherCreated) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.xs,
-            children: [
-              Button(
-                key: const Key('teacher_assignment_create_movement'),
-                onPressed: _submitting || _creatingTeacherMovement
-                    ? null
-                    : _showCreateTeacherMovement,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.add, size: 14),
-                    SizedBox(width: 6),
-                    Text('Create another movement'),
-                  ],
-                ),
+        _MovementChoiceList(
+          key: const Key('teacher_assignment_movement'),
+          children: [
+            for (final movement in _teacherMovements)
+              _MovementChoiceCard(
+                key: Key('teacher_assignment_custom_${movement.id}'),
+                title: movement.title,
+                metadata: _teacherMovementMetadata(movement),
+                description: _teacherMovementDescription(movement),
+                movementName: movement.title,
+                selected: _selectedTeacherCreatedMovement?.id == movement.id,
+                enabled: !_submitting,
+                isTeacherCreated: true,
+                onPressed: () => _onTeacherMovementChanged(movement.id),
               ),
-              Tooltip(
-                message: _selectedTeacherMovementIsAssigned
-                    ? 'This movement is used by an assignment and cannot be deleted.'
-                    : 'Permanently delete this unused movement.',
-                child: Button(
-                  key: const Key('teacher_assignment_delete_movement'),
-                  onPressed:
-                      _submitting ||
-                          _creatingTeacherMovement ||
-                          _deletingTeacherMovement ||
-                          _selectedTeacherMovementIsAssigned
-                      ? null
-                      : _confirmDeleteTeacherMovement,
-                  child: const Text('Delete'),
-                ),
-              ),
-            ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Button(
+            key: const Key('teacher_assignment_create_movement'),
+            onPressed: _submitting || _creatingTeacherMovement
+                ? null
+                : _showCreateTeacherMovement,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(FluentIcons.add, size: 14),
+                SizedBox(width: 6),
+                Text('Create movement'),
+              ],
+            ),
           ),
-        ],
+        ),
       ],
     );
+  }
+
+  String _teacherMovementMetadata(TeacherMovement movement) {
+    final spec = _teacherMovementRevisions[movement.id]?.spec;
+    if (spec is TeacherReviewedMovementSpec) {
+      return 'Teacher reviewed · ${spec.requiredProp.displayLabel}';
+    }
+    return 'Teacher reviewed';
+  }
+
+  String _teacherMovementDescription(TeacherMovement movement) {
+    final spec = _teacherMovementRevisions[movement.id]?.spec;
+    if (spec is TeacherReviewedMovementSpec) return spec.instructions;
+    return 'Trainees submit a recording for your review.';
   }
 
   Widget _teacherMovementLoadingState(BuildContext context) {
@@ -959,12 +886,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     );
   }
 
-  bool get _selectedTeacherMovementIsAssigned {
-    final movement = _selectedTeacherCreatedMovement;
-    return movement != null &&
-        _assignedTeacherMovementIds.contains(movement.id);
-  }
-
   void _onOriginChanged(_AssignmentOriginSelection? value) {
     if (value == null) return;
     setState(() {
@@ -976,31 +897,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       } else {
         _selectedOfficialMovement = null;
         _selectedTeacherCreatedMovement ??= _teacherMovements.firstOrNull;
-        _hasPromptedForFirstTeacherMovement = false;
       }
-    });
-    _scheduleFirstTeacherMovementCreation();
-  }
-
-  void _scheduleFirstTeacherMovementCreation() {
-    if (!_classroomScoped ||
-        !_isTeacherCreated ||
-        _loadingTeacherMovements ||
-        _teacherMovements.isNotEmpty ||
-        _movementLoadError != null ||
-        _creatingTeacherMovement ||
-        _hasPromptedForFirstTeacherMovement) {
-      return;
-    }
-    _hasPromptedForFirstTeacherMovement = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          !_isTeacherCreated ||
-          _teacherMovements.isNotEmpty ||
-          _creatingTeacherMovement) {
-        return;
-      }
-      unawaited(_showCreateTeacherMovement());
     });
   }
 
@@ -1103,77 +1000,25 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
   }
 
-  Future<void> _confirmDeleteTeacherMovement() async {
-    final movement = _selectedTeacherCreatedMovement;
-    if (movement == null || _selectedTeacherMovementIsAssigned) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => ContentDialog(
-        title: const Text('Delete this movement?'),
-        content: Text(
-          '${movement.title} and all of its revisions will be permanently '
-          'removed. This cannot be undone.',
-        ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('teacher_assignment_confirm_delete_movement'),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      _deletingTeacherMovement = true;
-      _validationError = null;
-    });
-    try {
-      await widget.creationService.deleteTeacherReviewedMovement(
-        movement: movement,
-      );
-      if (!mounted) return;
-      setState(() {
-        _teacherMovements = [
-          for (final item in _teacherMovements)
-            if (item.id != movement.id) item,
-        ];
-        final revisions = {..._teacherMovementRevisions};
-        revisions.remove(movement.id);
-        _teacherMovementRevisions = revisions;
-        _selectedTeacherCreatedMovement = _teacherMovements.firstOrNull;
-        _hasPromptedForFirstTeacherMovement = true;
-      });
-    } on ClassroomException catch (error) {
-      if (mounted) {
-        setState(
-          () => _validationError =
-              error.message ?? 'That movement could not be deleted.',
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _validationError = 'That movement could not be deleted.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _deletingTeacherMovement = false);
-    }
-  }
-
   Future<void> _selectCreatedTeacherMovement(TeacherMovement movement) async {
     final repository = widget.movementRepository;
     if (repository == null) return;
-    final revision = await repository.getRevision(
-      movementId: movement.id,
-      revisionId: movement.currentRevisionId,
-    );
+    TeacherMovementRevision? revision;
+    try {
+      revision = await repository.getRevision(
+        movementId: movement.id,
+        revisionId: movement.currentRevisionId,
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _validationError =
+              'The movement was created, but its assignment details could not '
+              'be loaded. Try selecting it again.',
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     if (revision == null || !_isAssignableTeacherRevision(revision)) {
       setState(
@@ -1182,6 +1027,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       );
       return;
     }
+    final loadedRevision = revision;
     setState(() {
       _teacherMovements = [
         for (final item in _teacherMovements)
@@ -1190,7 +1036,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       ];
       _teacherMovementRevisions = {
         ..._teacherMovementRevisions,
-        movement.id: revision,
+        movement.id: loadedRevision,
       };
       _origin = _AssignmentOriginSelection.teacherCreated;
       _selectedOfficialMovement = null;
@@ -1450,6 +1296,205 @@ class _ComposerSectionHeading extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MovementSourceSelector extends StatelessWidget {
+  const _MovementSourceSelector({
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final _AssignmentOriginSelection selected;
+  final bool enabled;
+  final ValueChanged<_AssignmentOriginSelection?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const Key('teacher_assignment_source'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Movement library',
+          style: AppTheme.label(color: context.elixTextPrimary),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
+          children: [
+            Expanded(
+              child: ToggleButton(
+                key: const Key('teacher_assignment_source_official'),
+                checked: selected == _AssignmentOriginSelection.official,
+                onChanged: enabled
+                    ? (_) => onChanged(_AssignmentOriginSelection.official)
+                    : null,
+                child: const Text('Official ELIXR'),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: ToggleButton(
+                key: const Key('teacher_assignment_source_mine'),
+                checked: selected == _AssignmentOriginSelection.teacherCreated,
+                onChanged: enabled
+                    ? (_) =>
+                          onChanged(_AssignmentOriginSelection.teacherCreated)
+                    : null,
+                child: const Text('My Movements'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          selected == _AssignmentOriginSelection.official
+              ? 'Official movements use ELIXR-guided assessment.'
+              : 'Your reusable movements are reviewed by you.',
+          style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        ),
+      ],
+    );
+  }
+}
+
+class _MovementChoiceList extends StatelessWidget {
+  const _MovementChoiceList({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Choose a movement',
+          style: AppTheme.label(color: context.elixTextPrimary),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 680 ? 2 : 1;
+            final itemWidth = columns == 2
+                ? (constraints.maxWidth - AppSpacing.sm) / 2
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final child in children)
+                  SizedBox(width: itemWidth, child: child),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _MovementChoiceCard extends StatelessWidget {
+  const _MovementChoiceCard({
+    super.key,
+    required this.title,
+    required this.metadata,
+    required this.description,
+    required this.movementName,
+    required this.selected,
+    required this.enabled,
+    required this.onPressed,
+    this.isTeacherCreated = false,
+  });
+
+  final String title;
+  final String metadata;
+  final String description;
+  final String movementName;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onPressed;
+  final bool isTeacherCreated;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = isTeacherCreated
+        ? context.elixColors.brandSecondary
+        : context.elixColors.brandPrimary;
+    final highContrast = context.isHighContrast;
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: '$title, $metadata',
+      child: Button(
+        onPressed: enabled ? onPressed : null,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: selected && !highContrast
+                ? accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? accent : context.elixColors.borderSubtle,
+              width: selected || highContrast ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: MovementImage(movementName: movementName, size: 56),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      metadata,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(color: accent),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Icon(
+                selected
+                    ? FluentIcons.completed_solid
+                    : FluentIcons.circle_ring,
+                size: 18,
+                color: selected ? accent : context.elixTextSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1716,7 +1761,7 @@ class _DueDateField extends StatelessWidget {
             content: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Add a due date'),
+                Text('Add a due date (optional)'),
                 SizedBox(height: 2),
                 Text('Default is one week from today.'),
               ],
@@ -1749,7 +1794,9 @@ class _AssignmentSummaryCard extends StatelessWidget {
     required this.isTeacherCreated,
     required this.dueAt,
     required this.canSubmit,
+    required this.isSubmitting,
     required this.maximumScore,
+    required this.onSubmit,
   });
 
   final ElixrGroup? group;
@@ -1758,7 +1805,9 @@ class _AssignmentSummaryCard extends StatelessWidget {
   final bool isTeacherCreated;
   final DateTime? dueAt;
   final bool canSubmit;
+  final bool isSubmitting;
   final int? maximumScore;
+  final VoidCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) {
@@ -1793,7 +1842,7 @@ class _AssignmentSummaryCard extends StatelessWidget {
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
-                    'Assignment preview',
+                    'Assignment summary',
                     style: AppTheme.cardTitle(color: context.elixTextPrimary),
                   ),
                 ),
@@ -1873,6 +1922,14 @@ class _AssignmentSummaryCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                const SizedBox(height: AppSpacing.md),
+                ElixPrimaryButton(
+                  key: const Key('teacher_assignment_create'),
+                  label: 'Publish assignment',
+                  icon: FluentIcons.send,
+                  isLoading: isSubmitting,
+                  onPressed: onSubmit,
+                ),
               ],
             ),
           ),
@@ -1950,102 +2007,6 @@ class _SummaryItem extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ComposerActionBar extends StatelessWidget {
-  const _ComposerActionBar({
-    required this.canSubmit,
-    required this.isSubmitting,
-    required this.label,
-    required this.onCancel,
-    required this.onSubmit,
-  });
-
-  final bool canSubmit;
-  final bool isSubmitting;
-  final String label;
-  final VoidCallback? onCancel;
-  final VoidCallback? onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    final highContrast = context.isHighContrast;
-    final actionButtons = Wrap(
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
-      alignment: WrapAlignment.end,
-      children: [
-        SizedBox(
-          height: 60,
-          child: Button(
-            key: const Key('teacher_assignment_cancel'),
-            style: ButtonStyle(
-              padding: WidgetStateProperty.all(
-                const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-              ),
-              shape: WidgetStateProperty.all(
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-              ),
-            ),
-            onPressed: onCancel,
-            child: const Text('Cancel'),
-          ),
-        ),
-        SizedBox(
-          height: 60,
-          child: ElixPrimaryButton(
-            key: const Key('teacher_assignment_create'),
-            label: label,
-            icon: FluentIcons.send,
-            expanded: false,
-            dense: false,
-            isLoading: isSubmitting,
-            onPressed: onSubmit,
-          ),
-        ),
-      ],
-    );
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.elixPanelSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: highContrast
-              ? context.elixBorder
-              : context.elixColors.brandPrimary.withValues(alpha: 0.18),
-          width: highContrast ? 2 : 1,
-        ),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 620;
-          final message = Text(
-            canSubmit
-                ? 'Ready to share with your class.'
-                : 'Complete the required details above.',
-            style: AppTheme.supporting(color: context.elixTextSecondary),
-          );
-          if (compact) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                message,
-                const SizedBox(height: AppSpacing.md),
-                Align(alignment: Alignment.centerRight, child: actionButtons),
-              ],
-            );
-          }
-          return Row(
-            children: [
-              Expanded(child: message),
-              actionButtons,
-            ],
-          );
-        },
-      ),
     );
   }
 }

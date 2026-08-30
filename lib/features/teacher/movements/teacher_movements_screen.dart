@@ -60,6 +60,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       movementRepository: context.read<TeacherMovementRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
       submissionRepository: context.read<AssignmentSubmissionRepository>(),
+      ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
       // The production app provides chat. Keeping this optional lets the
       // movements workspace render in isolated hosts that do not need result
       // messaging (for example, lightweight widget tests).
@@ -93,7 +94,8 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
           header: ElixEditorialPageHeader(
             heading: 'Movements',
             eyebrow: 'TEACHER WORKSPACE',
-            subtitle: 'Build and assign movement practice.',
+            subtitle:
+                'Manage reusable Official ELIXR and teacher-created movements.',
             commandBar: controller.tab == TeacherMovementsTab.mine
                 ? CommandBar(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -277,14 +279,15 @@ class _OfficialList extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.md),
               Button(
+                key: Key('teacher_movement_assign_official_${movement.name}'),
                 onPressed: controller.busy
                     ? null
-                    : () => _showAssignDialog(
+                    : () => _showAssignToClass(
                         context,
                         controller,
                         official: movement,
                       ),
-                child: const Text('Assign'),
+                child: const Text('Assign to class'),
               ),
             ],
           ),
@@ -361,14 +364,15 @@ class _MyMovementsList extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Button(
+                  key: Key('teacher_movement_assign_custom_${movement.id}'),
                   onPressed: controller.busy
                       ? null
-                      : () => _showAssignDialog(
+                      : () => _showAssignToClass(
                           context,
                           controller,
                           custom: movement,
                         ),
-                  child: const Text('Assign'),
+                  child: const Text('Assign to class'),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Tooltip(
@@ -625,7 +629,7 @@ Future<void> _showCreateOrEditMovement(
   );
 }
 
-Future<void> _showAssignDialog(
+Future<void> _showAssignToClass(
   BuildContext context,
   TeacherMovementsController controller, {
   Movement? official,

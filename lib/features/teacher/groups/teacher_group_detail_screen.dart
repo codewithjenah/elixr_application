@@ -534,7 +534,7 @@ class _AssignmentsSection extends StatelessWidget {
               ),
               ElixPrimaryButton(
                 key: const Key('teacher_group_create_assignment'),
-                label: 'Create assignment',
+                label: 'New assignment',
                 icon: FluentIcons.add,
                 expanded: false,
                 dense: true,
@@ -567,7 +567,7 @@ class _AssignmentsSection extends StatelessWidget {
                 if (group.isActive) ...[
                   const SizedBox(height: 4),
                   Text(
-                    'Create an assignment for this class.',
+                    'Use New assignment to send an existing movement to this class.',
                     style: AppTheme.caption.copyWith(
                       color: context.elixTextSecondary,
                     ),

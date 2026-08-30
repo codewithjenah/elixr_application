@@ -42,6 +42,7 @@ class _TeacherMovementBuilderDialogState
   late final TextEditingController _instructions;
   late final TextEditingController _safety;
   String? _validationMessage;
+  bool _saving = false;
 
   bool get _isEditing => widget.existing != null;
   bool get _isRetiredTemplate =>
@@ -80,7 +81,7 @@ class _TeacherMovementBuilderDialogState
   }
 
   Future<void> _save() async {
-    if (_isRetiredTemplate) return;
+    if (_isRetiredTemplate || _saving) return;
     _syncDraftText();
     final titleError = TeacherReviewedMovementSpec.validateTitle(_draft.title);
     final instructionsError = TeacherReviewedMovementSpec.validateInstructions(
@@ -97,27 +98,35 @@ class _TeacherMovementBuilderDialogState
       });
       return;
     }
-    if (_isEditing) {
-      await widget.onEditTeacherReviewed?.call(
-        title: _draft.title,
-        instructions: _draft.instructions,
-        requiredProp: _draft.requiredProp,
-        safetyGuidance: _draft.safetyGuidance,
-      );
-    } else {
-      await widget.onCreateTeacherReviewed(
-        title: _draft.title,
-        instructions: _draft.instructions,
-        requiredProp: _draft.requiredProp,
-        safetyGuidance: _draft.safetyGuidance,
-      );
+    setState(() {
+      _saving = true;
+      _validationMessage = null;
+    });
+    try {
+      if (_isEditing) {
+        await widget.onEditTeacherReviewed?.call(
+          title: _draft.title,
+          instructions: _draft.instructions,
+          requiredProp: _draft.requiredProp,
+          safetyGuidance: _draft.safetyGuidance,
+        );
+      } else {
+        await widget.onCreateTeacherReviewed(
+          title: _draft.title,
+          instructions: _draft.instructions,
+          requiredProp: _draft.requiredProp,
+          safetyGuidance: _draft.safetyGuidance,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
     if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final fieldsEnabled = !_isRetiredTemplate;
+    final fieldsEnabled = !_isRetiredTemplate && !_saving;
     return ContentDialog(
       title: Text(_isEditing ? 'Edit movement' : 'Create movement'),
       constraints: const BoxConstraints(maxWidth: 620, maxHeight: 720),
@@ -204,7 +213,7 @@ class _TeacherMovementBuilderDialogState
       ),
       actions: [
         Button(
-          onPressed: () => Navigator.pop(context),
+          onPressed: _saving ? null : () => Navigator.pop(context),
           child: const Text('Close'),
         ),
         if (!_isRetiredTemplate)
@@ -213,6 +222,7 @@ class _TeacherMovementBuilderDialogState
             label: _isEditing ? 'Save revision' : 'Create',
             expanded: false,
             dense: true,
+            isLoading: _saving,
             onPressed: widget.onEditTeacherReviewed == null && _isEditing
                 ? null
                 : _save,

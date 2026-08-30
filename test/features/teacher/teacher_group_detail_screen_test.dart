@@ -374,7 +374,13 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('No assignments yet.'), findsOneWidget);
-      expect(find.text('Create an assignment for this class.'), findsOneWidget);
+      expect(
+        find.text(
+          'Use New assignment to send an existing movement to this class.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('New assignment'), findsOneWidget);
       final createButton = tester.widget<ElixPrimaryButton>(
         find.byKey(const Key('teacher_group_create_assignment')),
       );
@@ -483,13 +489,16 @@ void main() {
     await tester.tap(find.byKey(const Key('teacher_group_create_assignment')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_source')),
+      find.byKey(const Key('teacher_assignment_source_mine')),
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('teacher_assignment_movement')), findsNothing);
+    expect(find.byKey(const ValueKey('builder-title')), findsNothing);
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_create_movement')),
+    );
+    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byKey(const ValueKey('builder-title')),
@@ -595,11 +604,9 @@ void main() {
     await tester.tap(find.byKey(const Key('teacher_group_create_assignment')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
-      find.byKey(const Key('teacher_assignment_source')),
+      find.byKey(const Key('teacher_assignment_source_mine')),
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_source')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('My Movement').last);
+    await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('teacher_assignment_max_score')),

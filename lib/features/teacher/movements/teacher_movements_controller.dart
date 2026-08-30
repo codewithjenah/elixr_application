@@ -62,6 +62,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required this.assignmentRepository,
     this.submissionRepository,
     this.chatRepository,
+    this.ensureTeacherAuthorization,
   });
 
   final String teacherId;
@@ -71,6 +72,7 @@ class TeacherMovementsController extends ChangeNotifier {
   final ClassroomAssignmentRepository assignmentRepository;
   final AssignmentSubmissionRepository? submissionRepository;
   final ChatRepository? chatRepository;
+  final Future<bool> Function()? ensureTeacherAuthorization;
 
   late final TeacherAssignmentCreationService assignmentCreationService =
       TeacherAssignmentCreationService(
@@ -78,6 +80,7 @@ class TeacherMovementsController extends ChangeNotifier {
         teacherDisplayName: teacherDisplayName,
         assignmentRepository: assignmentRepository,
         movementRepository: movementRepository,
+        ensureTeacherAuthorization: ensureTeacherAuthorization,
       );
 
   TeacherMovementsTab tab = TeacherMovementsTab.official;
