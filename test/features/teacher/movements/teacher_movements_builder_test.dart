@@ -100,6 +100,7 @@ void main() {
     TeacherReviewedSaveCallback? onCreate,
     Size size = const Size(1280, 900),
     FluentThemeData? theme,
+    TextScaler? textScaler,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
@@ -109,6 +110,10 @@ void main() {
     await tester.pumpWidget(
       FluentApp(
         theme: theme ?? AppTheme.dark,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: child!,
+        ),
         home: TeacherMovementBuilderDialog(
           existing: existing,
           existingRevision: existingRevision,
@@ -350,10 +355,69 @@ void main() {
     expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(560));
   });
 
+  testWidgets(
+    'builder uses a desktop two-column layout with bounded multiline fields',
+    (tester) async {
+      await pumpBuilder(tester, size: const Size(1366, 768));
+
+      final practiceSetup = find.text('Practice setup');
+      final safetyHeading = find.text('Safety guidance');
+      final safetyField = find.byKey(const ValueKey('builder-safety'));
+      final save = find.byKey(const ValueKey('teacher-reviewed-save'));
+      final initialSafetyRect = tester.getRect(safetyField);
+
+      expect(
+        tester.getTopLeft(practiceSetup).dy,
+        closeTo(tester.getTopLeft(safetyHeading).dy, 1),
+      );
+      expect(initialSafetyRect.bottom, lessThan(tester.getTopLeft(save).dy));
+
+      await tester.enterText(
+        safetyField,
+        List<String>.filled(40, 'Keep the practice area clear.').join('\n'),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(tester.getRect(safetyField).height, initialSafetyRect.height);
+      expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(768));
+    },
+  );
+
+  testWidgets('builder collapses its lower form area at narrow widths', (
+    tester,
+  ) async {
+    await pumpBuilder(tester, size: const Size(680, 900));
+
+    expect(
+      tester.getTopLeft(find.text('Safety guidance')).dy,
+      greaterThan(tester.getTopLeft(find.text('Practice setup')).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('builder preserves accessible footer actions at large text', (
+    tester,
+  ) async {
+    await pumpBuilder(
+      tester,
+      size: const Size(720, 560),
+      textScaler: const TextScaler.linear(1.5),
+    );
+
+    final save = find.byKey(const ValueKey('teacher-reviewed-save'));
+    expect(tester.takeException(), isNull);
+    expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(560));
+  });
+
   testWidgets('builder renders with light and high-contrast palettes', (
     tester,
   ) async {
-    for (final theme in [AppTheme.light, AppTheme.highContrastDark]) {
+    for (final theme in [
+      AppTheme.light,
+      AppTheme.dark,
+      AppTheme.highContrastDark,
+    ]) {
       await pumpBuilder(tester, theme: theme);
 
       expect(tester.takeException(), isNull);

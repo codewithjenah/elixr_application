@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
@@ -130,6 +132,10 @@ class _TeacherMovementBuilderDialogState
   @override
   Widget build(BuildContext context) {
     final fieldsEnabled = !_isRetiredTemplate && !_saving;
+    final maxDialogHeight = math.max(
+      1.0,
+      MediaQuery.sizeOf(context).height - (AppSpacing.lg * 2),
+    );
     final accent = _isRetiredTemplate
         ? context.elixColors.warning
         : context.elixColors.brandPrimary;
@@ -146,8 +152,8 @@ class _TeacherMovementBuilderDialogState
           icon: FluentIcons.learning_tools,
           iconColor: accent,
           headerAccentColor: accent,
-          maxWidth: 640,
-          maxHeight: 760,
+          maxWidth: 800,
+          maxHeight: maxDialogHeight,
           scrollableContent: true,
           uniformActionSize: const Size(132, 40),
           content: Column(
@@ -159,17 +165,17 @@ class _TeacherMovementBuilderDialogState
                 _ValidationNotice(message: _validationMessage!),
               ],
               const SizedBox(height: AppSpacing.md),
-              _BuilderSection(
+              _FormSection(
                 icon: FluentIcons.edit,
                 title: 'Movement details',
-                description:
-                    'Give trainees a clear name and precise practice steps.',
+                description: 'Name the movement and its practice steps.',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _BuilderField(
                       label: 'Title',
                       helperText: 'Use a short, recognizable movement name.',
+                      showHelper: false,
                       child: TextBox(
                         key: const ValueKey('builder-title'),
                         controller: _title,
@@ -178,7 +184,7 @@ class _TeacherMovementBuilderDialogState
                         placeholder: 'Movement title',
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.md),
+                    const SizedBox(height: AppSpacing.sm),
                     _BuilderField(
                       label: 'Instructions',
                       helperText:
@@ -187,8 +193,8 @@ class _TeacherMovementBuilderDialogState
                         key: const ValueKey('builder-instructions'),
                         controller: _instructions,
                         enabled: fieldsEnabled,
-                        minLines: 4,
-                        maxLines: 6,
+                        minLines: 3,
+                        maxLines: 3,
                         placeholder: 'Enter step-by-step practice guidance',
                       ),
                     ),
@@ -196,56 +202,79 @@ class _TeacherMovementBuilderDialogState
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              _BuilderSection(
-                icon: FluentIcons.product_variant,
-                title: 'Practice setup',
-                description:
-                    'Choose the prop trainees need before they begin recording.',
-                child: _BuilderField(
-                  label: 'Required prop',
-                  helperText:
-                      'This appears with the assignment preparation details.',
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ComboBox<TrainingProp>(
-                      value: _draft.requiredProp,
-                      items: [
-                        for (final value in TrainingProp.values)
-                          ComboBoxItem(
-                            value: value,
-                            child: Text(value.displayLabel),
-                          ),
-                      ],
-                      onChanged: fieldsEnabled
-                          ? (value) {
-                              if (value == null) return;
-                              setState(() => _draft.requiredProp = value);
-                            }
-                          : null,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final practiceSetup = _FormSection(
+                    icon: FluentIcons.product_variant,
+                    title: 'Practice setup',
+                    description:
+                        'Choose the prop trainees need before recording.',
+                    compact: true,
+                    child: _BuilderField(
+                      label: 'Required prop',
+                      helperText: 'Required before recording begins.',
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ComboBox<TrainingProp>(
+                          value: _draft.requiredProp,
+                          isExpanded: true,
+                          items: [
+                            for (final value in TrainingProp.values)
+                              ComboBoxItem(
+                                value: value,
+                                child: Text(value.displayLabel),
+                              ),
+                          ],
+                          onChanged: fieldsEnabled
+                              ? (value) {
+                                  if (value == null) return;
+                                  setState(() => _draft.requiredProp = value);
+                                }
+                              : null,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _BuilderSection(
-                icon: FluentIcons.shield,
-                title: 'Safety guidance',
-                description:
-                    'Optional supporting advice for a safer practice space.',
-                optional: true,
-                child: _BuilderField(
-                  label: 'Guidance for trainees',
-                  helperText:
-                      'Add setup, clearance, or handling reminders when useful.',
-                  child: TextBox(
-                    key: const ValueKey('builder-safety'),
-                    controller: _safety,
-                    enabled: fieldsEnabled,
-                    minLines: 2,
-                    maxLines: 3,
-                    placeholder: 'Example: Keep the practice area clear',
-                  ),
-                ),
+                  );
+                  final safetyGuidance = _FormSection(
+                    icon: FluentIcons.shield,
+                    title: 'Safety guidance',
+                    description: 'Optional advice for a safer practice space.',
+                    optional: true,
+                    compact: true,
+                    child: _BuilderField(
+                      label: 'Guidance for trainees',
+                      helperText: 'Add clearance or handling reminders.',
+                      child: TextBox(
+                        key: const ValueKey('builder-safety'),
+                        controller: _safety,
+                        enabled: fieldsEnabled,
+                        minLines: 3,
+                        maxLines: 3,
+                        placeholder: 'Example: Keep the practice area clear',
+                      ),
+                    ),
+                  );
+
+                  if (constraints.maxWidth >= 620) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: practiceSetup),
+                        const SizedBox(width: AppSpacing.xl),
+                        Expanded(child: safetyGuidance),
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      practiceSetup,
+                      const SizedBox(height: AppSpacing.lg),
+                      safetyGuidance,
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -279,47 +308,103 @@ class _ReviewModeNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = isRetiredTemplate
-        ? context.elixColors.warning
-        : context.elixColors.brandSecondary;
-    return ElixPanelCard(
-      accent: tone,
-      showAccentBar: true,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            isRetiredTemplate ? FluentIcons.warning : FluentIcons.education,
-            size: 18,
-            color: context.isHighContrast ? context.elixTextPrimary : tone,
+    if (isRetiredTemplate) {
+      final tone = context.elixColors.warning;
+      return ElixPanelCard(
+        accent: tone,
+        showAccentBar: true,
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: _ReviewNoticeContent(tone: tone),
+      );
+    }
+
+    final tone = context.elixColors.brandSecondary;
+    return Semantics(
+      label: 'Teacher reviewed. No automatic ELIXR score is produced.',
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: context.isHighContrast
+              ? context.elixCardSurface
+              : tone.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: context.isHighContrast
+                ? context.elixBorder
+                : tone.withValues(alpha: 0.22),
+            width: context.isHighContrast ? 2 : 1,
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isRetiredTemplate
-                      ? 'Historical template scoring'
-                      : 'Teacher reviewed',
-                  style: AppTheme.label(color: context.elixTextPrimary),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  isRetiredTemplate
-                      ? 'Automatic template assessment has been retired. '
-                            'This historical movement is read-only; previous '
-                            'scores remain available in classroom history.'
-                      : 'The trainee submits a recording and the teacher '
-                            'reviews it. No automatic ELIXR score is produced.',
-                  style: AppTheme.supporting(color: context.elixTextSecondary),
-                ),
-              ],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              FluentIcons.education,
+              size: 15,
+              color: context.isHighContrast ? context.elixTextPrimary : tone,
             ),
-          ),
-        ],
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              'Teacher reviewed',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                'No automatic ELIXR score',
+                textAlign: TextAlign.end,
+                style: AppTheme.caption.copyWith(
+                  color: context.elixTextSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _ReviewNoticeContent extends StatelessWidget {
+  const _ReviewNoticeContent({required this.tone});
+
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          FluentIcons.warning,
+          size: 18,
+          color: context.isHighContrast ? context.elixTextPrimary : tone,
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Historical template scoring',
+                style: AppTheme.label(color: context.elixTextPrimary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Automatic template assessment has been retired. '
+                'This historical movement is read-only; previous scores '
+                'remain available in classroom history.',
+                style: AppTheme.supporting(color: context.elixTextSecondary),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -364,13 +449,14 @@ class _ValidationNotice extends StatelessWidget {
   }
 }
 
-class _BuilderSection extends StatelessWidget {
-  const _BuilderSection({
+class _FormSection extends StatelessWidget {
+  const _FormSection({
     required this.icon,
     required this.title,
     required this.description,
     required this.child,
     this.optional = false,
+    this.compact = false,
   });
 
   final IconData icon;
@@ -378,37 +464,34 @@ class _BuilderSection extends StatelessWidget {
   final String description;
   final Widget child;
   final bool optional;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    return ElixPanelCard(
-      padding: const EdgeInsets.all(AppSpacing.md),
+    return Container(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: context.isHighContrast
+                ? context.elixBorder
+                : context.elixBorder.withValues(alpha: 0.7),
+            width: context.isHighContrast ? 2 : 1,
+          ),
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: context.isHighContrast
-                      ? context.elixCardSurface
-                      : context.elixColors.brandPrimary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: context.isHighContrast
-                      ? Border.all(color: context.elixBorder, width: 2)
-                      : null,
-                ),
-                child: Icon(
-                  icon,
-                  size: 15,
-                  color: context.isHighContrast
-                      ? context.elixTextPrimary
-                      : context.elixColors.brandPrimary,
-                ),
+              Icon(
+                icon,
+                size: 16,
+                color: context.isHighContrast
+                    ? context.elixTextPrimary
+                    : context.elixColors.brandPrimary,
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -451,7 +534,7 @@ class _BuilderSection extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
           child,
         ],
       ),
@@ -464,11 +547,13 @@ class _BuilderField extends StatelessWidget {
     required this.label,
     required this.helperText,
     required this.child,
+    this.showHelper = true,
   });
 
   final String label;
   final String helperText;
   final Widget child;
+  final bool showHelper;
 
   @override
   Widget build(BuildContext context) {
@@ -482,13 +567,18 @@ class _BuilderField extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
-        ExcludeSemantics(
-          child: Text(
-            helperText,
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+        if (showHelper) ...[
+          ExcludeSemantics(
+            child: Text(
+              helperText,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.sm),
+        ] else
+          const SizedBox(height: AppSpacing.xs),
         MergeSemantics(
           child: Semantics(label: label, hint: helperText, child: child),
         ),
