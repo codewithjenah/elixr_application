@@ -243,8 +243,8 @@ class _Detail extends StatelessWidget {
     final showLegacyVerdictActions =
         attempt.status == AssignmentAttemptStatus.submitted &&
         !attempt.isCanonicalTeacherReviewSubmission;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ListView(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       children: [
         Align(
           alignment: Alignment.centerLeft,
