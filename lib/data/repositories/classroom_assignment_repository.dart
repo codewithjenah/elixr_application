@@ -443,6 +443,75 @@ Future<AssignmentAttempt> startTeacherCreatedAttemptWorkflow({
   return promoteDraftToInProgress(existing);
 }
 
+/// Creates the deterministic canonical submission before attempting to read
+/// it. A missing document cannot pass the resource-based Firestore read rule,
+/// so the read is only safe after a Firebase write failure that may mean a
+/// concurrent client already created the same deterministic ID.
+Future<AssignmentAttempt> getOrCreateCanonicalTeacherReviewSubmissionWorkflow({
+  required String traineeId,
+  required GroupAssignment assignment,
+  required Future<void> Function(AssignmentAttempt canonical) create,
+  required Future<AssignmentAttempt?> Function(String attemptId) readExisting,
+  required Future<AssignmentAttempt> Function(AssignmentAttempt existing)
+  promoteLegacyDraft,
+  required bool Function(Object error) shouldReadAfterCreateFailure,
+  required bool Function(Object error) isFallbackReadFailure,
+}) async {
+  final canonical = canonicalTeacherReviewSubmissionAttempt(
+    traineeId: traineeId,
+    assignment: assignment,
+  );
+  try {
+    await create(canonical);
+    return canonical;
+  } catch (error, stackTrace) {
+    if (!shouldReadAfterCreateFailure(error)) rethrow;
+    AssignmentAttempt? existing;
+    try {
+      existing = await readExisting(canonical.id);
+    } catch (readError) {
+      if (isFallbackReadFailure(readError)) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      rethrow;
+    }
+    if (existing == null) {
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    return resolveCanonicalTeacherReviewSubmission(
+      existing: existing,
+      canonical: canonical,
+      traineeId: traineeId,
+      assignment: assignment,
+      promoteLegacyDraft: promoteLegacyDraft,
+    );
+  }
+}
+
+Future<AssignmentAttempt> resolveCanonicalTeacherReviewSubmission({
+  required AssignmentAttempt existing,
+  required AssignmentAttempt canonical,
+  required String traineeId,
+  required GroupAssignment assignment,
+  required Future<AssignmentAttempt> Function(AssignmentAttempt existing)
+  promoteLegacyDraft,
+}) async {
+  if (!sameCanonicalTeacherReviewSubmissionIdentity(existing, canonical)) {
+    throw const ClassroomException(ClassroomError.identityMismatch);
+  }
+  if (isPromotableCanonicalTeacherReviewSubmissionDraft(existing)) {
+    return promoteLegacyDraft(existing);
+  }
+  if (!isReusableCanonicalTeacherReviewSubmission(
+    attempt: existing,
+    traineeId: traineeId,
+    assignment: assignment,
+  )) {
+    throw const ClassroomException(ClassroomError.invalidState);
+  }
+  return existing;
+}
+
 TrainingProp? assignmentAllowedProp(GroupAssignment assignment) {
   return assignment.allowedProp;
 }
@@ -511,6 +580,56 @@ AssignmentAttempt canonicalTeacherReviewSubmissionAttempt({
   );
 }
 
+bool sameCanonicalTeacherReviewSubmissionIdentity(
+  AssignmentAttempt existing,
+  AssignmentAttempt canonical,
+) {
+  return existing.isCanonicalTeacherReviewSubmission &&
+      existing.traineeId == canonical.traineeId &&
+      existing.teacherId == canonical.teacherId &&
+      existing.groupId == canonical.groupId &&
+      existing.assignmentId == canonical.assignmentId &&
+      existing.movementId == canonical.movementId &&
+      existing.revisionId == canonical.revisionId &&
+      existing.origin == canonical.origin &&
+      existing.assessmentMode == canonical.assessmentMode &&
+      existing.attemptKind == canonical.attemptKind &&
+      existing.supersedesAttemptId == null;
+}
+
+bool isPromotableCanonicalTeacherReviewSubmissionDraft(
+  AssignmentAttempt attempt,
+) {
+  return attempt.status == AssignmentAttemptStatus.draft &&
+      hasPristineCanonicalTeacherReviewSubmissionPayload(attempt);
+}
+
+bool hasPristineCanonicalTeacherReviewSubmissionPayload(
+  AssignmentAttempt attempt,
+) {
+  return attempt.abandonedAt == null &&
+      attempt.videoStoragePath == null &&
+      attempt.videoContentType == null &&
+      attempt.videoSizeBytes == null &&
+      attempt.videoDurationMs == null &&
+      attempt.submittedAt == null &&
+      attempt.videoExpiresAt == null &&
+      attempt.videoDeletedAt == null &&
+      attempt.reviewVerdict == null &&
+      attempt.reviewFeedback == null &&
+      attempt.reviewedAt == null &&
+      attempt.gradeScore == null &&
+      attempt.gradeMaxScore == null &&
+      attempt.checkedAt == null &&
+      attempt.reviewUpdatedAt == null &&
+      attempt.reviewRevision == null &&
+      attempt.resultSentRevision == null &&
+      attempt.resultSentAt == null &&
+      attempt.resultMessageId == null &&
+      attempt.deletionFailed == false &&
+      attempt.deletionFailedAt == null;
+}
+
 bool isReusableCanonicalTeacherReviewSubmission({
   required AssignmentAttempt attempt,
   required String traineeId,
@@ -527,9 +646,8 @@ bool isReusableCanonicalTeacherReviewSubmission({
       attempt.assessmentMode == AssessmentMode.teacherReviewed &&
       attempt.attemptKind == AssignmentAttemptKind.teacherReviewSubmission &&
       attempt.supersedesAttemptId == null &&
-      attempt.status != AssignmentAttemptStatus.draft &&
-      attempt.status != AssignmentAttemptStatus.approved &&
-      attempt.status != AssignmentAttemptStatus.needsRetry;
+      attempt.status == AssignmentAttemptStatus.inProgress &&
+      hasPristineCanonicalTeacherReviewSubmissionPayload(attempt);
 }
 
 bool isTeacherAssignmentSubmissionOpen({

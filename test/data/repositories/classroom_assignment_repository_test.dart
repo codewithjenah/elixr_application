@@ -581,12 +581,18 @@ void main() {
         attempt: submitted,
       );
       expect(unsubmitting.status, AssignmentAttemptStatus.unsubmitting);
-      expect(
-        (await assignments.getOrCreateTeacherReviewSubmission(
+      await expectLater(
+        assignments.getOrCreateTeacherReviewSubmission(
           traineeId: 'trainee-1',
           assignment: assignment,
-        )).status,
-        AssignmentAttemptStatus.unsubmitting,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.invalidState,
+          ),
+        ),
       );
       final returnedToDraft = await assignments.completeTeacherReviewUnsubmit(
         traineeId: 'trainee-1',

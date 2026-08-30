@@ -371,71 +371,36 @@ class FirebaseClassroomAssignmentRepository
     if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
       throw const ClassroomException(ClassroomError.deadlinePassed);
     }
-    final canonical = canonicalTeacherReviewSubmissionAttempt(
+    return getOrCreateCanonicalTeacherReviewSubmissionWorkflow(
       traineeId: traineeId,
       assignment: assignment,
-    );
-    AssignmentAttempt? result;
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(_attempts.doc(canonical.id));
-      if (!snapshot.exists || snapshot.data() == null) {
-        transaction.set(
-          _attempts.doc(canonical.id),
-          canonical.toCreateMap(createdAt: FieldValue.serverTimestamp()),
-        );
-        result = canonical;
-        return;
-      }
-      final existing = AssignmentAttempt.tryFromMap(
-        snapshot.data()!,
-        id: snapshot.id,
-      );
-      if (existing == null) {
-        throw const ClassroomException(ClassroomError.malformed);
-      }
-      if (!_sameCanonicalSubmissionIdentity(existing, canonical)) {
-        throw const ClassroomException(ClassroomError.identityMismatch);
-      }
-      if (existing.status == AssignmentAttemptStatus.draft &&
-          existing.abandonedAt == null &&
-          existing.videoStoragePath == null &&
-          existing.videoContentType == null &&
-          existing.videoSizeBytes == null &&
-          existing.videoDurationMs == null &&
-          existing.submittedAt == null &&
-          existing.videoExpiresAt == null &&
-          existing.videoDeletedAt == null &&
-          existing.reviewVerdict == null &&
-          existing.reviewFeedback == null &&
-          existing.reviewedAt == null &&
-          existing.gradeScore == null &&
-          existing.gradeMaxScore == null &&
-          existing.checkedAt == null &&
-          existing.reviewUpdatedAt == null &&
-          existing.reviewRevision == null &&
-          existing.resultSentRevision == null &&
-          existing.resultSentAt == null &&
-          existing.resultMessageId == null &&
-          existing.deletionFailed == false &&
-          existing.deletionFailedAt == null) {
-        transaction.update(_attempts.doc(existing.id), {
+      create: (canonical) async {
+        await _attempts
+            .doc(canonical.id)
+            .set(
+              canonical.toCreateMap(createdAt: FieldValue.serverTimestamp()),
+            );
+      },
+      readExisting: (attemptId) async {
+        final snapshot = await _attempts.doc(attemptId).get();
+        if (!snapshot.exists || snapshot.data() == null) return null;
+        return AssignmentAttempt.tryFromMap(
+              snapshot.data()!,
+              id: snapshot.id,
+            ) ??
+            (throw const ClassroomException(ClassroomError.malformed));
+      },
+      promoteLegacyDraft: (existing) async {
+        await _attempts.doc(existing.id).update({
           'status': AssignmentAttemptStatus.inProgress.wireValue,
           'deletion_failed': FieldValue.delete(),
           'deletion_failed_at': FieldValue.delete(),
         });
-        result = existing.copyWith(status: AssignmentAttemptStatus.inProgress);
-        return;
-      }
-      if (!isReusableCanonicalTeacherReviewSubmission(
-        attempt: existing,
-        traineeId: traineeId,
-        assignment: assignment,
-      )) {
-        throw const ClassroomException(ClassroomError.invalidState);
-      }
-      result = existing;
-    });
-    return result!;
+        return existing.copyWith(status: AssignmentAttemptStatus.inProgress);
+      },
+      shouldReadAfterCreateFailure: _isFirebaseException,
+      isFallbackReadFailure: _isFirebaseException,
+    );
   }
 
   @override
@@ -849,22 +814,7 @@ class FirebaseClassroomAssignmentRepository
     return error is FirebaseException && error.code == 'permission-denied';
   }
 
-  static bool _sameCanonicalSubmissionIdentity(
-    AssignmentAttempt existing,
-    AssignmentAttempt canonical,
-  ) {
-    return existing.isCanonicalTeacherReviewSubmission &&
-        existing.traineeId == canonical.traineeId &&
-        existing.teacherId == canonical.teacherId &&
-        existing.groupId == canonical.groupId &&
-        existing.assignmentId == canonical.assignmentId &&
-        existing.movementId == canonical.movementId &&
-        existing.revisionId == canonical.revisionId &&
-        existing.origin == canonical.origin &&
-        existing.assessmentMode == canonical.assessmentMode &&
-        existing.attemptKind == canonical.attemptKind &&
-        existing.supersedesAttemptId == null;
-  }
+  static bool _isFirebaseException(Object error) => error is FirebaseException;
 
   static void _sortAssignments(List<GroupAssignment> items) {
     items.sort((a, b) {

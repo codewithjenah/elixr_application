@@ -21,6 +21,7 @@ import 'package:elixr_core/repositories/auth_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 const _assignment = GroupAssignment(
   id: 'asg-bbb',
@@ -40,6 +41,7 @@ const _assignment = GroupAssignment(
 
 class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
   Duration? startDelay;
+  Object? startError;
   int startCalls = 0;
 
   @override
@@ -48,6 +50,8 @@ class _DelayedStartAssignments extends InMemoryClassroomAssignmentRepository {
     required GroupAssignment assignment,
   }) async {
     startCalls += 1;
+    final error = startError;
+    if (error != null) throw error;
     final delay = startDelay;
     if (delay != null) {
       await Future<void>.delayed(delay);
@@ -327,4 +331,35 @@ void main() {
     ws.acceptPrepare();
     await tester.pump();
   });
+
+  testWidgets(
+    'assignment initialization permission denial does not prepare the camera',
+    (tester) async {
+      assignments.startError = FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'permission-denied',
+        message: 'Missing or insufficient permissions.',
+      );
+      await pumpScreen(
+        tester,
+        assignment: const TeacherCreatedAssignmentPractice(
+          assignment: _assignment,
+        ),
+      );
+
+      screenKey.currentState!.debugStartSession();
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.text(
+          'You no longer have permission to start this classroom assignment.',
+        ),
+        findsWidgets,
+      );
+      expect(assignments.startCalls, 1);
+      expect(ws.beginCalls, 0);
+      expect(ws.preparePayloads, isEmpty);
+    },
+  );
 }

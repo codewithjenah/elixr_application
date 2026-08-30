@@ -11,6 +11,10 @@ class _PermissionDenied implements Exception {}
 
 class _OtherFailure implements Exception {}
 
+class _FirebaseWriteFailure implements Exception {}
+
+class _FallbackReadFailure implements Exception {}
+
 GroupAssignment _assignment() => const GroupAssignment(
   id: 'asgCustom',
   teacherId: 'teacher-1',
@@ -61,7 +65,186 @@ AssignmentAttempt _attempt({
   );
 }
 
+AssignmentAttempt _canonical({
+  AssignmentAttemptStatus status = AssignmentAttemptStatus.inProgress,
+  String teacherId = 'teacher-1',
+}) {
+  final canonical = canonicalTeacherReviewSubmissionAttempt(
+    traineeId: 'trainee-1',
+    assignment: _assignment(),
+  );
+  return AssignmentAttempt(
+    id: canonical.id,
+    traineeId: canonical.traineeId,
+    teacherId: teacherId,
+    groupId: canonical.groupId,
+    assignmentId: canonical.assignmentId,
+    movementId: canonical.movementId,
+    revisionId: canonical.revisionId,
+    origin: canonical.origin,
+    assessmentMode: canonical.assessmentMode,
+    attemptKind: canonical.attemptKind,
+    status: status,
+  );
+}
+
+Future<AssignmentAttempt> _startCanonical({
+  required Future<void> Function(AssignmentAttempt) create,
+  required Future<AssignmentAttempt?> Function(String) readExisting,
+  required Future<AssignmentAttempt> Function(AssignmentAttempt) promote,
+}) {
+  return getOrCreateCanonicalTeacherReviewSubmissionWorkflow(
+    traineeId: 'trainee-1',
+    assignment: _assignment(),
+    create: create,
+    readExisting: readExisting,
+    promoteLegacyDraft: promote,
+    shouldReadAfterCreateFailure: (error) => error is _FirebaseWriteFailure,
+    isFallbackReadFailure: (error) => error is _FallbackReadFailure,
+  );
+}
+
 void main() {
+  test('canonical first create succeeds before any read', () async {
+    var read = false;
+
+    final result = await _startCanonical(
+      create: (canonical) async {
+        expect(canonical.status, AssignmentAttemptStatus.inProgress);
+      },
+      readExisting: (_) async {
+        read = true;
+        return null;
+      },
+      promote: (_) async => fail('must not promote a new canonical attempt'),
+    );
+
+    expect(read, isFalse);
+    expect(result.id, 'review_sub_asgCustom_trainee-1');
+    expect(result.status, AssignmentAttemptStatus.inProgress);
+  });
+
+  test(
+    'canonical create race reads and reuses existing in_progress attempt',
+    () async {
+      var read = false;
+      final existing = _canonical();
+
+      final result = await _startCanonical(
+        create: (_) async => throw _FirebaseWriteFailure(),
+        readExisting: (_) async {
+          read = true;
+          return existing;
+        },
+        promote: (_) async => fail('must not promote in_progress attempt'),
+      );
+
+      expect(read, isTrue);
+      expect(result, same(existing));
+    },
+  );
+
+  test('canonical legacy draft is promoted after fallback read', () async {
+    final result = await _startCanonical(
+      create: (_) async => throw _FirebaseWriteFailure(),
+      readExisting: (_) async =>
+          _canonical(status: AssignmentAttemptStatus.draft),
+      promote: (existing) async {
+        expect(existing.status, AssignmentAttemptStatus.draft);
+        return existing.copyWith(status: AssignmentAttemptStatus.inProgress);
+      },
+    );
+
+    expect(result.status, AssignmentAttemptStatus.inProgress);
+  });
+
+  for (final status in [
+    AssignmentAttemptStatus.submitted,
+    AssignmentAttemptStatus.unsubmitting,
+    AssignmentAttemptStatus.checked,
+  ]) {
+    test('canonical $status remains blocked from restart', () {
+      expect(
+        () => _startCanonical(
+          create: (_) async => throw _FirebaseWriteFailure(),
+          readExisting: (_) async => _canonical(status: status),
+          promote: (_) async => fail('must not promote $status attempt'),
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.invalidState,
+          ),
+        ),
+      );
+    });
+  }
+
+  test(
+    'canonical malformed or identity-mismatched fallback is rejected',
+    () async {
+      await expectLater(
+        _startCanonical(
+          create: (_) async => throw _FirebaseWriteFailure(),
+          readExisting: (_) async =>
+              throw const ClassroomException(ClassroomError.malformed),
+          promote: (_) async => fail('must not promote malformed attempt'),
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.malformed,
+          ),
+        ),
+      );
+      await expectLater(
+        _startCanonical(
+          create: (_) async => throw _FirebaseWriteFailure(),
+          readExisting: (_) async => _canonical(teacherId: 'other-teacher'),
+          promote: (_) async => fail('must not promote identity mismatch'),
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.identityMismatch,
+          ),
+        ),
+      );
+    },
+  );
+
+  test('create failure with failed fallback read preserves original error', () {
+    expect(
+      () => _startCanonical(
+        create: (_) async => throw _FirebaseWriteFailure(),
+        readExisting: (_) async => throw _FallbackReadFailure(),
+        promote: (_) async => fail('must not promote'),
+      ),
+      throwsA(isA<_FirebaseWriteFailure>()),
+    );
+  });
+
+  test('canonical attempt with abandoned state is blocked from restart', () {
+    expect(
+      () => _startCanonical(
+        create: (_) async => throw _FirebaseWriteFailure(),
+        readExisting: (_) async =>
+            _canonical().copyWith(abandonedAt: DateTime.utc(2026, 8, 30)),
+        promote: (_) async => fail('must not restart abandoned attempt'),
+      ),
+      throwsA(
+        isA<ClassroomException>().having(
+          (error) => error.code,
+          'code',
+          ClassroomError.invalidState,
+        ),
+      ),
+    );
+  });
+
   test('create-first succeeds without reading a missing attempt', () async {
     var created = false;
     var read = false;

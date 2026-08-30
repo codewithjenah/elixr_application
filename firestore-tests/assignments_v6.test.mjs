@@ -13,6 +13,7 @@ import {
   getDoc,
   getDocs,
   query,
+  runTransaction,
   where,
   setDoc,
   updateDoc,
@@ -26,6 +27,7 @@ const PROJECT_ID = 'demo-elixr';
 const GROUP_ID = 'group-1';
 const ASG = 'asgCustom';
 const ATTEMPT = 'review_sub_clip1';
+const CANONICAL_ATTEMPT = `review_sub_${ASG}_trainee`;
 const PATH =
   `assignment_submissions/teacher/${GROUP_ID}/${ASG}/trainee/${ATTEMPT}.mp4`;
 
@@ -91,6 +93,16 @@ function draftDoc(overrides = {}) {
     ...identity(),
     attempt_kind: 'teacher_review_submission',
     status: 'draft',
+    created_at: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+function canonicalInProgressDoc(overrides = {}) {
+  return {
+    ...identity(),
+    attempt_kind: 'teacher_review_submission',
+    status: 'in_progress',
     created_at: serverTimestamp(),
     ...overrides,
   };
@@ -186,6 +198,89 @@ async function seedDraft(overrides = {}) {
 }
 
 describe('Phase 6 teacher_review_submission', () => {
+  test('canonical first-time in_progress submission create succeeds', async () => {
+    await seedClassroom();
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(
+        doc(db, 'assignment_attempts', CANONICAL_ATTEMPT),
+        canonicalInProgressDoc(),
+      ),
+    );
+    const created = await assertSucceeds(
+      getDoc(doc(db, 'assignment_attempts', CANONICAL_ATTEMPT)),
+    );
+    assert.equal(created.data().status, 'in_progress');
+    assert.equal(created.data().attempt_kind, 'teacher_review_submission');
+    assert.equal(created.data().awards_global_xp, false);
+    assert.equal(created.data().source_session_id, undefined);
+  });
+
+  test('missing canonical read is denied even though direct canonical create succeeds', async () => {
+    await seedClassroom();
+    const db = context('trainee').firestore();
+    const ref = doc(db, 'assignment_attempts', CANONICAL_ATTEMPT);
+
+    await assertFails(
+      runTransaction(db, async (transaction) => {
+        await transaction.get(ref);
+        transaction.set(ref, canonicalInProgressDoc());
+      }),
+    );
+    await assertSucceeds(setDoc(ref, canonicalInProgressDoc()));
+  });
+
+  test('canonical legacy draft promotes to in_progress', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'assignment_attempts', CANONICAL_ATTEMPT), {
+        ...canonicalInProgressDoc({ status: 'draft' }),
+        created_at: Timestamp.now(),
+      });
+    });
+    await assertSucceeds(
+      updateDoc(doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT), {
+        status: 'in_progress',
+      }),
+    );
+  });
+
+  test('canonical creation is denied without approved membership', async () => {
+    await seedClassroom({ membership: 'removed' });
+    await assertFails(
+      setDoc(
+        doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT),
+        canonicalInProgressDoc(),
+      ),
+    );
+  });
+
+  test('submitted and checked canonical submissions cannot restart', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'assignment_attempts', CANONICAL_ATTEMPT), {
+        ...canonicalInProgressDoc({ status: 'submitted' }),
+        created_at: Timestamp.now(),
+      });
+    });
+    const trainee = context('trainee').firestore();
+    await assertFails(
+      updateDoc(doc(trainee, 'assignment_attempts', CANONICAL_ATTEMPT), {
+        status: 'in_progress',
+      }),
+    );
+    await seedBypassingRules(async (admin) => {
+      await updateDoc(doc(admin, 'assignment_attempts', CANONICAL_ATTEMPT), {
+        status: 'checked',
+      });
+    });
+    await assertFails(
+      updateDoc(doc(trainee, 'assignment_attempts', CANONICAL_ATTEMPT), {
+        status: 'in_progress',
+      }),
+    );
+  });
+
   test('valid submission draft create', async () => {
     await seedClassroom();
     const db = context('trainee').firestore();

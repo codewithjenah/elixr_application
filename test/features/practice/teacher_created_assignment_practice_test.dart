@@ -1,3 +1,4 @@
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/features/practice/live_practice_screen.dart';
@@ -5,6 +6,7 @@ import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/services/websocket_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -98,6 +100,31 @@ void main() {
     expect(
       livePracticePrepareFailureMessage(Exception('socket exploded')),
       contains('Camera preparation failed'),
+    );
+  });
+
+  test('assignment start failures retain safe, actionable messages', () {
+    expect(
+      livePracticeAssignmentStartFailureMessage(
+        const ClassroomException(ClassroomError.deadlinePassed),
+      ),
+      contains('deadline'),
+    );
+    expect(
+      livePracticeAssignmentStartFailureMessage(
+        const ClassroomException(ClassroomError.invalidState),
+      ),
+      contains('current submission state'),
+    );
+    expect(
+      livePracticeAssignmentStartFailureMessage(
+        FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied'),
+      ),
+      contains('permission'),
+    );
+    expect(
+      livePracticeAssignmentStartFailureMessage(Exception('unavailable')),
+      'Could not start this classroom assignment. Try again.',
     );
   });
 }

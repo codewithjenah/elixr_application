@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +15,7 @@ import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../data/models/assignment_attempt.dart';
+import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/movement.dart';
 import '../../data/models/practice_feedback.dart';
 import '../../data/models/training_prop.dart';
@@ -84,6 +86,31 @@ String livePracticePrepareFailureMessage(Object error) {
     return 'Camera preparation failed. Check the backend and try again.';
   }
   return 'Camera preparation failed. Check the backend and try again.';
+}
+
+/// Keeps assignment-start failures actionable without exposing Firestore rule
+/// details or classroom data in the UI.
+@visibleForTesting
+String livePracticeAssignmentStartFailureMessage(Object error) {
+  if (error is ClassroomException) {
+    return switch (error.code) {
+      ClassroomError.deadlinePassed =>
+        'This assignment is past its deadline and can no longer be started.',
+      ClassroomError.inactive =>
+        'This classroom assignment is no longer active.',
+      ClassroomError.forbidden =>
+        'You no longer have permission to start this classroom assignment.',
+      ClassroomError.malformed || ClassroomError.identityMismatch =>
+        'This classroom assignment has invalid data. Ask your teacher to review it.',
+      ClassroomError.invalidState =>
+        'This assignment cannot be started in its current submission state.',
+      _ => 'Could not start this classroom assignment. Try again.',
+    };
+  }
+  if (error is FirebaseException && error.code == 'permission-denied') {
+    return 'You no longer have permission to start this classroom assignment.';
+  }
+  return 'Could not start this classroom assignment. Try again.';
 }
 
 class LivePracticeScreenState extends State<LivePracticeScreen> {
@@ -389,11 +416,24 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
           });
           return;
         }
-      } catch (_) {
+      } catch (error, stackTrace) {
+        debugPrint(
+          'LivePractice assignment start failed: '
+          'assignment=${assignment.assignment.id} trainee=$traineeId '
+          'error_type=${error.runtimeType} error=$error',
+        );
+        if (error is FirebaseException && error.code == 'permission-denied') {
+          debugPrint(
+            'LivePractice assignment start permission-denied: verify the '
+            'trainee has an approved membership and the assignment is active; '
+            'if both are valid, deploy the current Firestore rules that allow '
+            'canonical teacher_review_submission in_progress creation.',
+          );
+        }
+        debugPrintStack(stackTrace: stackTrace);
         if (!mounted) return;
         setState(() {
-          _sessionError =
-              'Could not start this classroom assignment. Try again.';
+          _sessionError = livePracticeAssignmentStartFailureMessage(error);
         });
         return;
       }
