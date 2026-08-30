@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
@@ -205,6 +206,13 @@ void main() {
     await controller.startForGroup(group.id);
 
     await pumpDetail(tester, controller: controller, groupId: group.id);
+
+    expect(
+      tester.getTopLeft(find.byKey(const Key('teacher_group_back'))).dy,
+      greaterThanOrEqualTo(
+        tester.getBottomLeft(find.byType(ElixEditorialPageHeader)).dy,
+      ),
+    );
 
     await tester.tap(find.byKey(const Key('teacher_group_back')));
     await tester.pumpAndSettle();

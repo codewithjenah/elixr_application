@@ -9,6 +9,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
+import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
 import '../../core/widgets/elix_status_panel.dart';
 import '../../core/widgets/profile_avatar.dart';
@@ -115,20 +116,19 @@ class _ClassDetailBody extends StatelessWidget {
             eyebrow: 'CLASSROOM',
             subtitle: 'Review assignments and activity for this class.',
             variant: ElixEditorialHeaderVariant.compact,
-            commandBar: CommandBar(
-              mainAxisAlignment: MainAxisAlignment.end,
-              primaryItems: [
-                CommandBarButton(
-                  key: const Key('teacher_access_class_back'),
-                  icon: const Icon(FluentIcons.back),
-                  label: const Text('Back to classes'),
-                  onPressed: () => context.go(AppRoutePaths.teacherAccess),
-                ),
-              ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+            child: ElixBackButton(
+              key: const Key('teacher_access_class_back'),
+              label: 'Classes',
+              tooltip: 'Back to classes',
+              semanticLabel: 'Back to classes',
+              onPressed: () => context.go(AppRoutePaths.teacherAccess),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
             child: _buildPageContent(),
           ),
         ],

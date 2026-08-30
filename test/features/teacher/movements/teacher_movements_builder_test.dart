@@ -98,15 +98,17 @@ void main() {
     TeacherMovement? existing,
     TeacherMovementRevision? existingRevision,
     TeacherReviewedSaveCallback? onCreate,
+    Size size = const Size(1280, 900),
+    FluentThemeData? theme,
   }) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.physicalSize = size;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
       FluentApp(
-        theme: AppTheme.dark,
+        theme: theme ?? AppTheme.dark,
         home: TeacherMovementBuilderDialog(
           existing: existing,
           existingRevision: existingRevision,
@@ -180,6 +182,10 @@ void main() {
     expect(find.byKey(const ValueKey('builder-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('builder-instructions')), findsOneWidget);
     expect(find.byKey(const ValueKey('builder-safety')), findsOneWidget);
+    expect(find.bySemanticsLabel('Title'), findsOneWidget);
+    expect(find.bySemanticsLabel('Instructions'), findsOneWidget);
+    expect(find.bySemanticsLabel('Required prop'), findsOneWidget);
+    expect(find.bySemanticsLabel('Guidance for trainees'), findsOneWidget);
     expect(find.text('Template scored'), findsNothing);
     expect(find.text('Live Test'), findsNothing);
     expect(find.text('Create'), findsOneWidget);
@@ -280,6 +286,85 @@ void main() {
 
     gate.complete();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+    'builder keeps validation local and does not submit invalid data',
+    (tester) async {
+      await pumpBuilder(tester);
+
+      await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('builder-validation')), findsOneWidget);
+      expect(find.textContaining('Title'), findsAtLeastNWidgets(1));
+      expect(movements.createCalls, 0);
+    },
+  );
+
+  testWidgets('builder saves the selected prop and optional safety guidance', (
+    tester,
+  ) async {
+    await pumpBuilder(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Shaker Pass',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-instructions')),
+      'Pass the shaker cleanly between hands.',
+    );
+    await tester.ensureVisible(find.text('Bottle').last);
+    await tester.tap(find.text('Bottle').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cocktail Shaker').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('builder-safety')));
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-safety')),
+      'Keep the floor dry.',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    await tester.pumpAndSettle();
+
+    final revision = movements.revisions.values.single;
+    final spec = revision.spec as TeacherReviewedMovementSpec;
+    expect(spec.requiredProp, TrainingProp.shaker);
+    expect(spec.safetyGuidance, 'Keep the floor dry.');
+  });
+
+  testWidgets('builder keeps footer actions accessible in a compact window', (
+    tester,
+  ) async {
+    await pumpBuilder(tester, size: const Size(720, 560));
+
+    final save = find.byKey(const ValueKey('teacher-reviewed-save'));
+    final initialSaveRect = tester.getRect(save);
+    await tester.ensureVisible(find.byKey(const ValueKey('builder-safety')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('builder-safety')), findsOneWidget);
+    expect(tester.getRect(save), initialSaveRect);
+    expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(560));
+  });
+
+  testWidgets('builder renders with light and high-contrast palettes', (
+    tester,
+  ) async {
+    for (final theme in [AppTheme.light, AppTheme.highContrastDark]) {
+      await pumpBuilder(tester, theme: theme);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('builder-title')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('teacher-reviewed-save')),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testWidgets('Official ELIXR list shows catalog movement images', (
@@ -469,5 +554,11 @@ void main() {
     );
     expect(find.text('Save revision'), findsNothing);
     expect(find.text('Template scored'), findsNothing);
+    expect(
+      tester
+          .widget<TextBox>(find.byKey(const ValueKey('builder-title')))
+          .enabled,
+      isFalse,
+    );
   });
 }

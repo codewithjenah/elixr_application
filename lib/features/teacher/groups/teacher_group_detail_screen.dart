@@ -12,6 +12,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
@@ -116,23 +117,25 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
             heading: group?.name ?? 'Group',
             eyebrow: 'TEACHER WORKSPACE',
             variant: ElixEditorialHeaderVariant.compact,
-            commandBar: CommandBar(
-              mainAxisAlignment: MainAxisAlignment.end,
-              primaryItems: [
-                CommandBarButton(
-                  key: const Key('teacher_group_back'),
-                  icon: const Icon(FluentIcons.back),
-                  label: const Text('Back to groups'),
-                  onPressed: () => context.go(AppRoutePaths.teacherGroups),
-                ),
-              ],
-            ),
           ),
-          content: _GroupDetailBody(
-            controller: controller,
-            movementRepository:
-                widget.movementRepository ??
-                _tryReadTeacherMovementRepository(context),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ElixBackButton(
+                key: const Key('teacher_group_back'),
+                label: 'Groups',
+                tooltip: 'Back to groups',
+                semanticLabel: 'Back to groups',
+                onPressed: () => context.go(AppRoutePaths.teacherGroups),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _GroupDetailBody(
+                controller: controller,
+                movementRepository:
+                    widget.movementRepository ??
+                    _tryReadTeacherMovementRepository(context),
+              ),
+            ],
           ),
         );
       },

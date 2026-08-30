@@ -1,5 +1,6 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
+import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -174,6 +175,37 @@ void main() {
     );
     expect(find.text('Start practice'), findsOneWidget);
     expect(find.text('Ada Lovelace (you)'), findsNothing);
+  });
+
+  testWidgets('back returns to the trainee classes list', (tester) async {
+    final group = await approvedClass(name: 'BSHM 4A');
+    final controller = TraineeClassDetailController(
+      groupId: group.id,
+      traineeId: 'trainee-1',
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    await pumpClassDetail(
+      tester,
+      controller: controller,
+      groupRepository: groupRepository,
+      assignmentRepository: assignmentRepository,
+    );
+
+    expect(
+      tester.getTopLeft(find.byKey(const Key('teacher_access_class_back'))).dy,
+      greaterThanOrEqualTo(
+        tester.getBottomLeft(find.byType(ElixEditorialPageHeader)).dy,
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('teacher_access_class_back')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('classes home'), findsOneWidget);
   });
 
   testWidgets('the page header and classwork share one vertical scroll', (

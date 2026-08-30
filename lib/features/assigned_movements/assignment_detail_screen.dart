@@ -8,6 +8,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/router/app_route_paths.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_editorial_header.dart';
+import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
@@ -156,7 +157,13 @@ class _Body extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Button(onPressed: onBack, child: const Text('Back')),
+            ElixBackButton(
+              key: const Key('assignment_detail_back'),
+              label: 'Assigned movements',
+              tooltip: 'Back to assigned movements',
+              semanticLabel: 'Back to assigned movements',
+              onPressed: onBack,
+            ),
             const SizedBox(height: AppSpacing.md),
             Expanded(
               child: wide
@@ -524,7 +531,13 @@ class _Message extends StatelessWidget {
           children: [
             Text(message, textAlign: TextAlign.center, style: AppTheme.body),
             const SizedBox(height: AppSpacing.md),
-            Button(onPressed: onBack, child: const Text('Back')),
+            ElixBackButton(
+              key: const Key('assignment_detail_message_back'),
+              label: 'Assigned movements',
+              tooltip: 'Back to assigned movements',
+              semanticLabel: 'Back to assigned movements',
+              onPressed: onBack,
+            ),
             if (onRetry != null) ...[
               const SizedBox(height: AppSpacing.sm),
               Button(onPressed: onRetry, child: const Text('Retry')),

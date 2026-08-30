@@ -1,4 +1,5 @@
 import 'package:elixr_application/core/router/app_route_paths.dart';
+import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/profile_avatar.dart';
 import 'package:elixr_application/data/models/public_profile.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
@@ -239,5 +240,30 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('profile:trainee'), findsOneWidget);
+  });
+
+  testWidgets('back returns to the teacher students list', (tester) async {
+    groups.seedGroup(activeGroup());
+    groups.seedMembership(
+      membership(
+        groupId: 'group-1',
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+      ),
+    );
+    await pumpDetail(tester);
+    await tester.pump();
+
+    expect(
+      tester.getTopLeft(find.byKey(const Key('teacher_student_back'))).dy,
+      greaterThanOrEqualTo(
+        tester.getBottomLeft(find.byType(ElixEditorialPageHeader)).dy,
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('teacher_student_back')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('students home'), findsOneWidget);
   });
 }

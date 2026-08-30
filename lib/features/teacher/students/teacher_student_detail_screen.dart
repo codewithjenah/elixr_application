@@ -12,6 +12,7 @@ import '../../../core/router/app_route_paths.dart';
 import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
+import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/repositories/public_profile_repository.dart';
@@ -137,15 +138,23 @@ class _TeacherStudentDetailScreenState
                           context.go(location);
                         },
                 ),
-                CommandBarButton(
-                  icon: const Icon(FluentIcons.back),
-                  label: const Text('Back to Students'),
-                  onPressed: () => context.go(AppRoutePaths.teacherStudents),
-                ),
               ],
             ),
           ),
-          content: _DetailBody(controller: controller),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ElixBackButton(
+                key: const Key('teacher_student_back'),
+                label: 'Students',
+                tooltip: 'Back to students',
+                semanticLabel: 'Back to students',
+                onPressed: () => context.go(AppRoutePaths.teacherStudents),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _DetailBody(controller: controller),
+            ],
+          ),
         );
       },
     );
