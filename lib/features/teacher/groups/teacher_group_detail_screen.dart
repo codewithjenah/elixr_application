@@ -213,47 +213,49 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
             eyebrow: 'TEACHER WORKSPACE',
             variant: ElixEditorialHeaderVariant.compact,
           ),
-          scrollable: false,
+          // The classroom overview uses the page scroll view so its desktop
+          // scrollbar sits at the outer content edge. Assignment work owns a
+          // bounded scroll view to keep its roster/review layout stable.
+          scrollable: assignment == null,
           content: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               backButton,
               const SizedBox(height: AppSpacing.md),
-              Expanded(
-                child: assignment != null
-                    ? TeacherAssignmentWorkPane(
-                        controller: classwork,
-                        profilePictureUrlFor: controller.profilePictureUrlFor,
-                        onOpenTrainee: (selectedTraineeId) async {
-                          await classwork.selectTrainee(selectedTraineeId);
-                          if (!context.mounted) return;
-                          context.go(
-                            AppRoutePaths.teacherGroupClasswork(
-                              widget.groupId,
-                              assignment.id,
-                              traineeId: selectedTraineeId,
-                            ),
-                          );
-                        },
-                        onEditAssignment:
-                            group?.isActive == true && assignment.isActive
-                            ? (selectedAssignment) => _showEditAssignmentDialog(
-                                context,
-                                classwork,
-                                selectedAssignment,
-                              )
-                            : null,
-                      )
-                    : SingleChildScrollView(
-                        child: _GroupDetailBody(
-                          controller: controller,
-                          classworkController: classwork,
-                          movementRepository:
-                              widget.movementRepository ??
-                              _tryReadTeacherMovementRepository(context),
+              if (assignment == null)
+                _GroupDetailBody(
+                  controller: controller,
+                  classworkController: classwork,
+                  movementRepository:
+                      widget.movementRepository ??
+                      _tryReadTeacherMovementRepository(context),
+                )
+              else
+                Expanded(
+                  child: TeacherAssignmentWorkPane(
+                    controller: classwork,
+                    profilePictureUrlFor: controller.profilePictureUrlFor,
+                    onOpenTrainee: (selectedTraineeId) async {
+                      await classwork.selectTrainee(selectedTraineeId);
+                      if (!context.mounted) return;
+                      context.go(
+                        AppRoutePaths.teacherGroupClasswork(
+                          widget.groupId,
+                          assignment.id,
+                          traineeId: selectedTraineeId,
                         ),
-                      ),
-              ),
+                      );
+                    },
+                    onEditAssignment:
+                        group?.isActive == true && assignment.isActive
+                        ? (selectedAssignment) => _showEditAssignmentDialog(
+                            context,
+                            classwork,
+                            selectedAssignment,
+                          )
+                        : null,
+                  ),
+                ),
             ],
           ),
         );
