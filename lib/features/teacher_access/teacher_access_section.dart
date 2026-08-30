@@ -259,7 +259,7 @@ class _AccessMetricsRow extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: ElixStatCard(
-              label: 'My classes',
+              label: 'My classrooms',
               value: '${controller.approvedGroupMemberships.length}',
               icon: FluentIcons.completed,
             ),
@@ -747,7 +747,7 @@ class _EmptyClassesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _AccessSectionPanel(
-      title: 'Your classes',
+      title: 'Your classrooms',
       icon: FluentIcons.completed,
       child: _EmptyHint(
         message: 'You are not in a class yet. Join with a class code above.',
@@ -761,7 +761,7 @@ class _ClassesHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ElixSectionHeader(heading: 'Your classes');
+    return const ElixSectionHeader(heading: 'Your classrooms');
   }
 }
 
@@ -796,14 +796,19 @@ class _ApprovedClassesGrid extends StatelessWidget {
           runSpacing: gap,
           children: [
             for (final membership in controller.approvedGroupMemberships)
-              SizedBox(
-                width: cardWidth,
-                child: TraineeClassCard(
-                  groupId: membership.groupId,
-                  className:
-                      controller.groupNamesById[membership.groupId]?.name ??
-                      'Class',
-                  teacherName: membership.teacherDisplayName,
+              Builder(
+                builder: (context) {
+                  final teacherName = controller.teacherDisplayNameFor(
+                    membership,
+                  );
+                  return SizedBox(
+                    width: cardWidth,
+                    child: TraineeClassCard(
+                      groupId: membership.groupId,
+                      className:
+                          controller.groupNamesById[membership.groupId]?.name ??
+                          'Class',
+                      teacherName: teacherName,
                   sectionLabel:
                       controller.groupNamesById[membership.groupId]?.isActive ==
                           false
@@ -812,14 +817,14 @@ class _ApprovedClassesGrid extends StatelessWidget {
                   workItems: classCardWorkItemsFromAssignments(
                     controller.assignmentsFor(membership.groupId),
                   ),
-                  ownerInitials: userInitials(membership.teacherDisplayName),
-                  ownerPhotoUrl: controller.teacherProfilePictureUrlFor(
-                    membership.teacherId,
-                  ),
-                  onOpen: () => openClass?.call(membership.groupId),
-                  menuItems: openClass == null
-                      ? null
-                      : (_) => [
+                      ownerInitials: userInitials(teacherName),
+                      ownerPhotoUrl: controller.teacherProfilePictureUrlFor(
+                        membership.teacherId,
+                      ),
+                      onOpen: () => openClass?.call(membership.groupId),
+                      menuItems: openClass == null
+                          ? null
+                          : (_) => [
                           MenuFlyoutItem(
                             text: const Text('Open class'),
                             onPressed: () => openClass(membership.groupId),
@@ -837,8 +842,10 @@ class _ApprovedClassesGrid extends StatelessWidget {
                                     membership,
                                   ),
                           ),
-                        ],
-                ),
+                            ],
+                    ),
+                  );
+                },
               ),
           ],
         );

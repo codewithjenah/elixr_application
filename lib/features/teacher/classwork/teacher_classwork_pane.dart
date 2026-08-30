@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
@@ -183,6 +184,8 @@ class _AssignmentRow extends StatelessWidget {
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: Row(
                     children: [
+                      _AssignmentMovementIcon(assignment: assignment),
+                      const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,6 +244,27 @@ class _AssignmentRow extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _AssignmentMovementIcon extends StatelessWidget {
+  const _AssignmentMovementIcon({required this.assignment});
+
+  final GroupAssignment assignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final movementName = assignment.officialMovementName ??
+        assignment.displayTitle;
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: context.elixColors.brandPrimary.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: MovementImage(movementName: movementName, size: 52),
     );
   }
 }

@@ -72,7 +72,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
     if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
-          heading: 'Groups',
+          heading: 'Classrooms',
           eyebrow: 'TEACHER WORKSPACE',
         ),
         content: Center(child: ProgressRing()),
@@ -84,7 +84,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
-            heading: 'Groups',
+            heading: 'Classrooms',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle: 'Organize your trainee classes and access.',
             commandBar: CommandBar(
@@ -93,7 +93,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
                 CommandBarButton(
                   key: const Key('teacher_groups_create'),
                   icon: const Icon(FluentIcons.add),
-                  label: const Text('Create group'),
+                  label: const Text('Create classroom'),
                   onPressed: controller.busy
                       ? null
                       : () => _showCreateGroupDialog(context, controller),
@@ -143,7 +143,7 @@ class _GroupsGrid extends StatelessWidget {
           Row(
             children: [
               Text(
-                'Your classes',
+                'Your classrooms',
                 style: AppTheme.headingMedium.copyWith(
                   fontSize: 16,
                   color: context.elixTextPrimary,
@@ -241,7 +241,7 @@ Future<void> _showCreateGroupDialog(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Create group'),
+      title: const Text('Create classroom'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

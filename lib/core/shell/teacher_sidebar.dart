@@ -38,7 +38,7 @@ const teacherSidebarItems = [
     group: TeacherSidebarGroup.classroom,
   ),
   TeacherSidebarItem(
-    label: 'Groups',
+    label: 'Classrooms',
     icon: FluentIcons.people,
     route: AppRoutePaths.teacherGroups,
     group: TeacherSidebarGroup.classroom,

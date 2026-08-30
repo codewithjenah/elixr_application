@@ -39,6 +39,7 @@ class TeacherAccessController extends ChangeNotifier {
   final Map<String, ElixrGroup> groupNamesById = {};
   Map<String, List<GroupAssignment>> assignmentsByGroupId = const {};
   final Map<String, String> _teacherProfilePictureUrls = {};
+  final Map<String, String> _teacherDisplayNames = {};
   final Map<String, StreamSubscription<PublicProfile?>> _teacherProfileSubs =
       {};
   int _assignmentLoadGen = 0;
@@ -61,6 +62,16 @@ class TeacherAccessController extends ChangeNotifier {
     final url = _teacherProfilePictureUrls[teacherId]?.trim();
     if (url == null || url.isEmpty) return null;
     return url;
+  }
+
+  /// Prefer the teacher's current profile name over the display name captured
+  /// when the trainee joined the class. The membership value remains the
+  /// offline/backward-compatible fallback.
+  String teacherDisplayNameFor(GroupMembership membership) {
+    final profileName = _teacherDisplayNames[membership.teacherId]?.trim();
+    return profileName == null || profileName.isEmpty
+        ? membership.teacherDisplayName
+        : profileName;
   }
 
   int get pendingJoinCount => pendingGroupMemberships.length;
@@ -292,6 +303,7 @@ class TeacherAccessController extends ChangeNotifier {
     for (final id in staleIds) {
       unawaited(_teacherProfileSubs.remove(id)?.cancel());
       _teacherProfilePictureUrls.remove(id);
+      _teacherDisplayNames.remove(id);
     }
 
     for (final teacherId in teacherIds) {
@@ -305,12 +317,20 @@ class TeacherAccessController extends ChangeNotifier {
               final next = (trimmed == null || trimmed.isEmpty)
                   ? null
                   : trimmed;
-              final previous = _teacherProfilePictureUrls[teacherId];
-              if (previous == next) return;
+              final name = profile?.displayName.trim();
+              final nextName = name == null || name.isEmpty ? null : name;
+              final previousImage = _teacherProfilePictureUrls[teacherId];
+              final previousName = _teacherDisplayNames[teacherId];
+              if (previousImage == next && previousName == nextName) return;
               if (next == null) {
                 _teacherProfilePictureUrls.remove(teacherId);
               } else {
                 _teacherProfilePictureUrls[teacherId] = next;
+              }
+              if (nextName == null) {
+                _teacherDisplayNames.remove(teacherId);
+              } else {
+                _teacherDisplayNames[teacherId] = nextName;
               }
               _safeNotifyListeners();
             },
@@ -331,6 +351,7 @@ class TeacherAccessController extends ChangeNotifier {
     }
     _teacherProfileSubs.clear();
     _teacherProfilePictureUrls.clear();
+    _teacherDisplayNames.clear();
   }
 
   void _safeNotifyListeners() {

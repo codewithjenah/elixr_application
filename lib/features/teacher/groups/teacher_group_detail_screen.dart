@@ -202,9 +202,9 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
               )
             : ElixBackButton(
                 key: const Key('teacher_group_back'),
-                label: 'Groups',
-                tooltip: 'Back to groups',
-                semanticLabel: 'Back to groups',
+                label: 'Classrooms',
+                tooltip: 'Back to classrooms',
+                semanticLabel: 'Back to classrooms',
                 onPressed: () => context.go(AppRoutePaths.teacherGroups),
               );
         return TeacherScaffoldPage(
@@ -985,7 +985,7 @@ Future<void> _showRenameDialog(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Rename group'),
+      title: const Text('Rename classroom'),
       content: TextBox(controller: nameController, autofocus: true),
       actions: [
         Button(
@@ -1012,7 +1012,7 @@ Future<void> _confirmArchive(
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
-      title: const Text('Archive this group?'),
+      title: const Text('Archive this classroom?'),
       content: const Text(
         'Students already in this class stay. New students will not be able '
         'to join with this class code.',

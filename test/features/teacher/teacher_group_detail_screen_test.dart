@@ -2,6 +2,7 @@ import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
+import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
@@ -359,6 +360,13 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Normal Grip'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is MovementImage && widget.movementName == 'Normal Grip',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Hand Stall'), findsNothing);
 
     final openClasswork = find.byKey(Key('teacher_classwork_open_${own.id}'));

@@ -161,7 +161,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Dashboard'), findsWidgets);
-    expect(find.text('Groups'), findsOneWidget);
+    expect(find.text('Classrooms'), findsOneWidget);
     expect(find.text('Faculties'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('Leaderboard'), findsWidgets);

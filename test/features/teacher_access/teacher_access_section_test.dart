@@ -268,12 +268,12 @@ void main() {
       );
 
       expect(find.text('Waiting'), findsOneWidget);
-      expect(find.text('My classes'), findsOneWidget);
+      expect(find.text('My classrooms'), findsOneWidget);
       expect(find.text('Join a class'), findsOneWidget);
       expect(find.text('Waiting to join'), findsOneWidget);
       expect(find.text('Waiting to join a class'), findsNothing);
       expect(find.text('Waiting for a teacher'), findsNothing);
-      expect(find.text('Your classes'), findsOneWidget);
+      expect(find.text('Your classrooms'), findsOneWidget);
       expect(find.text('Linked teachers'), findsNothing);
       expect(find.text('Teachers not in a class'), findsNothing);
       expect(
@@ -468,7 +468,7 @@ void main() {
       'teacher-1',
       const PublicProfile(
         userId: 'teacher-1',
-        displayName: 'Grace Hopper',
+        displayName: 'Jiro Lapuz',
         visibility: ProfileVisibility.public,
         profilePictureUrl: 'https://example.test/grace.png',
       ),
@@ -479,6 +479,7 @@ void main() {
       find.byKey(Key('teacher_access_group_teacher_avatar_${group.id}')),
     );
     expect(avatar.networkImageUrl, 'https://example.test/grace.png');
+    expect(find.text('Jiro Lapuz'), findsOneWidget);
 
     profiles.emit('teacher-1', null);
     await tester.pump();
