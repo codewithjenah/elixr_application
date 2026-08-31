@@ -23,6 +23,7 @@ abstract final class FirestoreCollections {
   static const groups = 'groups';
   static const groupInvites = 'group_invites';
   static const groupMemberships = 'group_memberships';
+  static const classroomAnnouncements = 'announcements';
   static const classroomTeacherAccess = 'classroom_teacher_access';
   static const trainingPlans = 'training_plans';
   static const teacherMovements = 'teacher_movements';

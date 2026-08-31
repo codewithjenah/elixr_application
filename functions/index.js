@@ -143,21 +143,30 @@ function buildArchivedConversationData({
   return archivedData;
 }
 
-async function authenticatedUid(request) {
-  const authorization = request.get('authorization') || '';
+function setCors(response) {
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set(
+    'Access-Control-Allow-Headers',
+    'Authorization, Content-Type, X-Firebase-Authorization',
+  );
+  response.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+}
+
+function firebaseBearerToken(request) {
+  const authorization = request.get('x-firebase-authorization') ||
+    request.get('authorization') || '';
   const match = authorization.match(/^Bearer\s+(.+)$/i);
-  if (!match) return null;
+  return match ? match[1] : null;
+}
+
+async function authenticatedUid(request) {
+  const token = firebaseBearerToken(request);
+  if (!token) return null;
   try {
-    return (await getAuth().verifyIdToken(match[1], true)).uid;
+    return (await getAuth().verifyIdToken(token, true)).uid;
   } catch (_) {
     return null;
   }
-}
-
-function setCors(response) {
-  response.set('Access-Control-Allow-Origin', '*');
-  response.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-  response.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 }
 
 const OFFICIAL_ASSIGNMENTS = new Map([
@@ -386,31 +395,25 @@ async function listTraineeAssignmentsHandler(
       const snapshot = await query.get();
       documents.push(...snapshot.docs);
     }
-    // Canonical targeted assignments never carry recipient identities. Query
-    // only this trainee's private projection, then validate every projection
-    // against its canonical assignment and current approved membership.
-    const recipientSnapshot = await firestore.collectionGroup('assignment_recipients')
-      .where('trainee_id', '==', uid).get();
+    // Canonical targeted assignments never carry recipient identities. The
+    // assignments above are already scoped to the trainee's approved classes,
+    // so direct-read only this trainee's projection under each known targeted
+    // assignment. This avoids a collection-group index dependency at runtime.
     const targetedIds = new Set();
-    for (const recipientDocument of recipientSnapshot.docs) {
-      const path = typeof recipientDocument.ref?.path === 'string'
-        ? recipientDocument.ref.path.split('/')
-        : [];
-      if (path.length !== 4 || path[0] !== 'group_assignments' ||
-          path[2] !== 'assignment_recipients' || path[3] !== uid ||
-          recipientDocument.id !== uid) continue;
-      const recipient = recipientDocument.data();
-      const assignmentId = path[1];
-      if (!validRecipientProjection(recipient, assignmentId, uid)) continue;
-      const assignmentDocument = await firestore.collection('group_assignments').doc(assignmentId).get();
-      if (!assignmentDocument.exists) continue;
+    for (const assignmentDocument of documents) {
       const assignment = assignmentDocument.data();
-      if (!assignment || typeof assignment !== 'object') continue;
-      if (requestedGroupId && assignment.group_id !== requestedGroupId) continue;
+      if (!assignment || typeof assignment !== 'object' ||
+          !Object.hasOwn(assignment, 'audience_type') ||
+          assignment.audience_type === 'entire_class') continue;
+      const recipientDocument = await assignmentDocument.ref
+        .collection('assignment_recipients').doc(uid).get();
+      if (!recipientDocument.exists) continue;
+      const recipient = recipientDocument.data();
       if (teacherByGroupId.get(assignment.group_id) !== assignment.teacher_id ||
-          !assignmentAudienceAllows(assignment, uid, recipient, assignmentId)) continue;
-      targetedIds.add(assignmentId);
-      documents.push(assignmentDocument);
+          !assignmentAudienceAllows(
+            assignment, uid, recipient, assignmentDocument.id,
+          )) continue;
+      targetedIds.add(assignmentDocument.id);
     }
     const uniqueDocuments = [...new Map(documents.map((document) => [document.id, document])).values()];
     const assignments = uniqueDocuments
@@ -439,9 +442,8 @@ function boundedText(value, max, {required = true} = {}) {
 
 async function createClassroomAssignmentHandler(request, response, {
   verifyToken = async (request) => {
-    const authorization = request.get('authorization') || '';
-    const match = authorization.match(/^Bearer\s+(.+)$/i);
-    return match ? getAuth().verifyIdToken(match[1], true) : null;
+    const token = firebaseBearerToken(request);
+    return token ? getAuth().verifyIdToken(token, true) : null;
   }, databaseFactory = getFirestore,
 } = {}) {
   setCors(response);

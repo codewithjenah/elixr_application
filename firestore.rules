@@ -2768,6 +2768,91 @@ service cloud.firestore {
         && resource.data.teacher_id == request.auth.uid;
     }
 
+    // Classroom announcements are group-scoped broadcasts. Their audience is
+    // intentionally dynamic: an approved current member can read the class
+    // history, while a removed member loses access immediately.
+    function announcementKeys() {
+      return [
+        'group_id', 'teacher_id', 'title', 'body', 'created_at', 'edited_at',
+        'schema_version'
+      ];
+    }
+
+    function validAnnouncementText(value, maxLength) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= maxLength
+        && value.matches('.*[^[:space:]].*');
+    }
+
+    function isApprovedAnnouncementMember(groupId) {
+      let membershipRef = groupMembershipPath(groupId, request.auth.uid);
+      return isSignedIn()
+        && exists(groupPath(groupId))
+        && get(groupPath(groupId)).data.status == 'active'
+        && exists(membershipRef)
+        && get(membershipRef).data.group_id == groupId
+        && get(membershipRef).data.trainee_id == request.auth.uid
+        && get(membershipRef).data.status == 'approved'
+        && get(membershipRef).data.teacher_id
+          == get(groupPath(groupId)).data.teacher_id;
+    }
+
+    function isAnnouncementOwner(groupId) {
+      return isVerifiedTeacher()
+        && exists(groupPath(groupId))
+        && get(groupPath(groupId)).data.teacher_id == request.auth.uid;
+    }
+
+    function validAnnouncementCreate(data, groupId) {
+      return isAnnouncementOwner(groupId)
+        && get(groupPath(groupId)).data.status == 'active'
+        && data.keys().hasOnly(announcementKeys())
+        && data.keys().hasAll(announcementKeys())
+        && data.group_id == groupId
+        && isParticipantId(data.group_id)
+        && isParticipantId(data.teacher_id)
+        && data.teacher_id == request.auth.uid
+        && validAnnouncementText(data.title, 120)
+        && validAnnouncementText(data.body, 2000)
+        && data.created_at == request.time
+        && data.edited_at == null
+        && data.schema_version == 1;
+    }
+
+    function validAnnouncementUpdate(groupId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      return isAnnouncementOwner(groupId)
+        && get(groupPath(groupId)).data.status == 'active'
+        && after.keys().hasOnly(announcementKeys())
+        && after.keys().hasAll(announcementKeys())
+        && after.diff(before).affectedKeys().hasOnly([
+          'title', 'body', 'edited_at'
+        ])
+        && after.group_id == before.group_id
+        && after.teacher_id == before.teacher_id
+        && before.teacher_id == request.auth.uid
+        && after.created_at == before.created_at
+        && after.schema_version == before.schema_version
+        && validAnnouncementText(after.title, 120)
+        && validAnnouncementText(after.body, 2000)
+        && after.edited_at == request.time;
+    }
+
+    match /groups/{groupId}/announcements/{announcementId} {
+      allow get, list: if isSignedIn()
+        && (
+          isAnnouncementOwner(groupId)
+          || isApprovedAnnouncementMember(groupId)
+        );
+      allow create: if validAnnouncementCreate(request.resource.data, groupId);
+      allow update: if validAnnouncementUpdate(groupId);
+      // A Teacher can moderate history after archiving a class. This is also
+      // needed by account erasure before the Teacher profile is removed.
+      allow delete: if isAnnouncementOwner(groupId);
+    }
+
     match /group_invites/{inviteId} {
       allow get: if isSignedIn();
       allow list: if false;

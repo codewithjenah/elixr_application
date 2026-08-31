@@ -1,6 +1,7 @@
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/chat_repository.dart';
+import 'package:elixr_core/repositories/classroom_announcement_repository.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -29,6 +30,8 @@ import '../classwork/teacher_classwork_controller.dart';
 import '../classwork/teacher_classwork_pane.dart';
 import '../movements/teacher_assignment_composer.dart';
 import '../../teacher_access/trainee_class_card.dart';
+import '../../classroom_announcements/classroom_announcements_controller.dart';
+import '../../classroom_announcements/classroom_announcements_pane.dart';
 import 'teacher_groups_controller.dart';
 
 class TeacherGroupDetailScreen extends StatefulWidget {
@@ -37,6 +40,7 @@ class TeacherGroupDetailScreen extends StatefulWidget {
     required this.groupId,
     this.controller,
     this.classworkController,
+    this.announcementsController,
     this.movementRepository,
     this.initialAssignmentId,
     this.initialTraineeId,
@@ -45,6 +49,7 @@ class TeacherGroupDetailScreen extends StatefulWidget {
   final String groupId;
   final TeacherGroupsController? controller;
   final TeacherClassworkController? classworkController;
+  final ClassroomAnnouncementsController? announcementsController;
   final TeacherMovementRepository? movementRepository;
   final String? initialAssignmentId;
   final String? initialTraineeId;
@@ -57,12 +62,15 @@ class TeacherGroupDetailScreen extends StatefulWidget {
 class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
   TeacherGroupsController? _owned;
   TeacherClassworkController? _ownedClasswork;
+  ClassroomAnnouncementsController? _ownedAnnouncements;
   late final bool _ownsController;
   late final bool _ownsClassworkController;
 
   TeacherGroupsController? get _controller => widget.controller ?? _owned;
   TeacherClassworkController? get _classworkController =>
       widget.classworkController ?? _ownedClasswork;
+  ClassroomAnnouncementsController? get _announcementsController =>
+      widget.announcementsController ?? _ownedAnnouncements;
 
   @override
   void initState() {
@@ -137,6 +145,19 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
         approvedMembershipsListenable: groupsController,
       )..start();
     }
+    if (_ownedAnnouncements == null && widget.announcementsController == null) {
+      final announcements = _tryRead<ClassroomAnnouncementRepository>(context);
+      if (announcements != null) {
+        _ownedAnnouncements = ClassroomAnnouncementsController(
+          repository: announcements,
+          groupId: widget.groupId,
+          currentUserId: userId,
+          canManage: true,
+          isGroupActive: () => _controller?.selectedGroup?.isActive == true,
+          ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
+        )..start();
+      }
+    }
   }
 
   @override
@@ -147,6 +168,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     if (_ownsClassworkController) {
       _ownedClasswork?.dispose();
     }
+    _ownedAnnouncements?.dispose();
     super.dispose();
   }
 
@@ -166,7 +188,11 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
     }
 
     return AnimatedBuilder(
-      animation: Listenable.merge([controller, classwork]),
+      animation: Listenable.merge([
+        controller,
+        classwork,
+        ?_announcementsController,
+      ]),
       builder: (context, _) {
         final group = controller.selectedGroup;
         final assignment = classwork.selectedAssignment;
@@ -226,6 +252,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
                 _GroupDetailBody(
                   controller: controller,
                   classworkController: classwork,
+                  announcementsController: _announcementsController,
                   movementRepository:
                       widget.movementRepository ??
                       _tryReadTeacherMovementRepository(context),
@@ -268,11 +295,13 @@ class _GroupDetailBody extends StatelessWidget {
   const _GroupDetailBody({
     required this.controller,
     required this.classworkController,
+    required this.announcementsController,
     required this.movementRepository,
   });
 
   final TeacherGroupsController controller;
   final TeacherClassworkController classworkController;
+  final ClassroomAnnouncementsController? announcementsController;
   final TeacherMovementRepository? movementRepository;
 
   @override
@@ -432,6 +461,18 @@ class _GroupDetailBody extends StatelessWidget {
                   )
                 : null,
           )
+        else if (controller.tab == TeacherGroupDetailTab.announcements)
+          announcementsController == null
+              ? const ElixStatusPanel(
+                  message: 'Announcements are not available right now.',
+                  isError: true,
+                )
+              : ClassroomAnnouncementsPane(
+                  controller: announcementsController!,
+                  teacherDisplayName: controller.teacherDisplayName,
+                  canManage: true,
+                  groupIsActive: group.isActive,
+                )
         else
           _StudentsSection(controller: controller),
       ],
@@ -455,6 +496,13 @@ class _GroupDetailTabBar extends StatelessWidget {
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
       children: [
+        _GroupDetailTab(
+          key: const Key('teacher_group_tab_announcements'),
+          label: 'Announcements',
+          icon: FluentIcons.megaphone,
+          selected: selectedTab == TeacherGroupDetailTab.announcements,
+          onPressed: () => onChanged(TeacherGroupDetailTab.announcements),
+        ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_assignments'),
           label: 'Classwork',

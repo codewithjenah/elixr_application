@@ -1,4 +1,5 @@
 import 'package:elixr_core/repositories/group_repository.dart';
+import 'package:elixr_core/repositories/classroom_announcement_repository.dart';
 import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +19,8 @@ import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../../services/auth_service.dart';
 import '../assigned_movements/assigned_movement_list.dart';
+import '../classroom_announcements/classroom_announcements_controller.dart';
+import '../classroom_announcements/classroom_announcements_pane.dart';
 import 'trainee_class_card.dart';
 import 'trainee_class_detail_controller.dart';
 
@@ -26,10 +29,12 @@ class TraineeClassDetailScreen extends StatefulWidget {
     super.key,
     required this.groupId,
     this.controller,
+    this.announcementsController,
   });
 
   final String groupId;
   final TraineeClassDetailController? controller;
+  final ClassroomAnnouncementsController? announcementsController;
 
   @override
   State<TraineeClassDetailScreen> createState() =>
@@ -38,9 +43,12 @@ class TraineeClassDetailScreen extends StatefulWidget {
 
 class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
   TraineeClassDetailController? _owned;
+  ClassroomAnnouncementsController? _ownedAnnouncements;
   late final bool _ownsController;
 
   TraineeClassDetailController? get _controller => widget.controller ?? _owned;
+  ClassroomAnnouncementsController? get _announcementsController =>
+      widget.announcementsController ?? _ownedAnnouncements;
 
   @override
   void initState() {
@@ -51,34 +59,54 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_ownsController || _owned != null) return;
-    final traineeId = context.read<AuthService>().currentUser?.id;
-    if (traineeId == null) return;
-    PublicProfileRepository? publicProfileRepository;
-    try {
-      publicProfileRepository = context.read<PublicProfileRepository>();
-    } on ProviderNotFoundException {
-      publicProfileRepository = null;
+    final injected = widget.controller;
+    if (_ownsController && _owned == null) {
+      final traineeId = context.read<AuthService>().currentUser?.id;
+      if (traineeId == null) return;
+      PublicProfileRepository? publicProfileRepository;
+      try {
+        publicProfileRepository = context.read<PublicProfileRepository>();
+      } on ProviderNotFoundException {
+        publicProfileRepository = null;
+      }
+      AssignmentSubmissionRepository? submissionRepository;
+      try {
+        submissionRepository = context.read<AssignmentSubmissionRepository>();
+      } on ProviderNotFoundException {
+        submissionRepository = null;
+      }
+      _owned = TraineeClassDetailController(
+        groupId: widget.groupId,
+        traineeId: traineeId,
+        groupRepository: context.read<GroupRepository>(),
+        assignmentRepository: context.read<ClassroomAssignmentRepository>(),
+        submissionRepository: submissionRepository,
+        publicProfileRepository: publicProfileRepository,
+      )..start();
     }
-    AssignmentSubmissionRepository? submissionRepository;
+    final traineeId = injected?.traineeId ?? _owned?.traineeId;
+    if (traineeId == null || _announcementsController != null) return;
+    ClassroomAnnouncementRepository? announcements;
     try {
-      submissionRepository = context.read<AssignmentSubmissionRepository>();
+      announcements = context.read<ClassroomAnnouncementRepository>();
     } on ProviderNotFoundException {
-      submissionRepository = null;
+      announcements = null;
     }
-    _owned = TraineeClassDetailController(
-      groupId: widget.groupId,
-      traineeId: traineeId,
-      groupRepository: context.read<GroupRepository>(),
-      assignmentRepository: context.read<ClassroomAssignmentRepository>(),
-      submissionRepository: submissionRepository,
-      publicProfileRepository: publicProfileRepository,
-    )..start();
+    if (announcements != null) {
+      _ownedAnnouncements = ClassroomAnnouncementsController(
+        repository: announcements,
+        groupId: widget.groupId,
+        currentUserId: traineeId,
+        canManage: false,
+        isGroupActive: () => _controller?.group?.isActive == true,
+      )..start();
+    }
   }
 
   @override
   void dispose() {
     _owned?.dispose();
+    _ownedAnnouncements?.dispose();
     super.dispose();
   }
 
@@ -89,10 +117,13 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
       return const ElixScaffoldPage(content: Center(child: ProgressRing()));
     }
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([controller, ?_announcementsController]),
       builder: (context, _) {
         return ElixScaffoldPage(
-          content: _ClassDetailBody(controller: controller),
+          content: _ClassDetailBody(
+            controller: controller,
+            announcements: _announcementsController,
+          ),
         );
       },
     );
@@ -100,9 +131,10 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
 }
 
 class _ClassDetailBody extends StatelessWidget {
-  const _ClassDetailBody({required this.controller});
+  const _ClassDetailBody({required this.controller, this.announcements});
 
   final TraineeClassDetailController controller;
+  final ClassroomAnnouncementsController? announcements;
 
   @override
   Widget build(BuildContext context) {
@@ -169,6 +201,14 @@ class _ClassDetailBody extends StatelessWidget {
           runSpacing: AppSpacing.sm,
           children: [
             _ClassDetailTab(
+              key: const Key('teacher_access_class_tab_announcements'),
+              label: 'Announcements',
+              icon: FluentIcons.megaphone,
+              selected: controller.tab == TraineeClassDetailTab.announcements,
+              onPressed: () =>
+                  controller.setTab(TraineeClassDetailTab.announcements),
+            ),
+            _ClassDetailTab(
               key: const Key('teacher_access_class_tab_classwork'),
               label: 'Classwork',
               icon: FluentIcons.education,
@@ -190,9 +230,22 @@ class _ClassDetailBody extends StatelessWidget {
           ElixStatusPanel(message: controller.errorMessage!, isError: true),
           const SizedBox(height: AppSpacing.md),
         ],
-        controller.tab == TraineeClassDetailTab.classwork
-            ? _ClassworkPane(controller: controller)
-            : _PeoplePane(controller: controller),
+        if (controller.tab == TraineeClassDetailTab.classwork)
+          _ClassworkPane(controller: controller)
+        else if (controller.tab == TraineeClassDetailTab.announcements)
+          announcements == null
+              ? const ElixStatusPanel(
+                  message: 'Announcements are not available right now.',
+                  isError: true,
+                )
+              : ClassroomAnnouncementsPane(
+                  controller: announcements!,
+                  teacherDisplayName: controller.teacherDisplayName,
+                  canManage: false,
+                  groupIsActive: controller.group?.isActive == true,
+                )
+        else
+          _PeoplePane(controller: controller),
       ],
     );
   }

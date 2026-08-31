@@ -441,9 +441,9 @@ void _logAccountPurgeFailure(Object error) {
   );
 }
 
-/// Purges Phase 2 `groups`, `group_invites`, and `group_memberships` data for
-/// account erasure. Trainees lose their memberships; Teachers lose owned groups,
-/// active group invites (derived from group pointers), and related memberships.
+/// Purges Phase 2 classroom data for account erasure. Trainees lose their
+/// memberships; Teachers lose owned groups, announcement subcollections, active
+/// group invites (derived from group pointers), and related memberships.
 @visibleForTesting
 Future<void> purgePhase2GroupDataForAccountErasure({
   required FirebaseFirestore firestore,
@@ -465,6 +465,12 @@ Future<void> purgePhase2GroupDataForAccountErasure({
       .where('teacher_id', isEqualTo: uid)
       .get();
   for (final doc in ownedGroups.docs) {
+    final announcementDocs = await doc.reference
+        .collection(FirestoreCollections.classroomAnnouncements)
+        .get();
+    for (final announcement in announcementDocs.docs) {
+      refs[announcement.reference.path] = announcement.reference;
+    }
     final inviteCode = doc.data()['invite_code'];
     if (inviteCode is String &&
         inviteCode.isNotEmpty &&

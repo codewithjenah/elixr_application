@@ -93,6 +93,17 @@ void main() {
             'trainee_id': 'trainee-1',
             'status': 'approved',
           });
+      await firestore
+          .collection(FirestoreCollections.groups)
+          .doc('g1')
+          .collection(FirestoreCollections.classroomAnnouncements)
+          .doc('announcement-1')
+          .set({
+            'group_id': 'g1',
+            'teacher_id': 'teacher-1',
+            'title': 'Reminder',
+            'body': 'Practice Hand Stall.',
+          });
       await firestore.collection(FirestoreCollections.groups).doc('g2').set({
         'teacher_id': 'teacher-2',
         'invite_code': 'ABCD2345EFGH',
@@ -128,6 +139,16 @@ void main() {
         (await firestore
                 .collection(FirestoreCollections.groupMemberships)
                 .doc('g1_trainee')
+                .get())
+            .exists,
+        isFalse,
+      );
+      expect(
+        (await firestore
+                .collection(FirestoreCollections.groups)
+                .doc('g1')
+                .collection(FirestoreCollections.classroomAnnouncements)
+                .doc('announcement-1')
                 .get())
             .exists,
         isFalse,

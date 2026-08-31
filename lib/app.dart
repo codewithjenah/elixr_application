@@ -14,6 +14,8 @@ import 'package:elixr_core/repositories/firebase_teacher_evidence_repository.dar
 import 'package:elixr_core/repositories/teacher_evidence_repository.dart';
 import 'package:elixr_core/repositories/chat_repository.dart';
 import 'package:elixr_core/repositories/firebase_chat_repository.dart';
+import 'package:elixr_core/repositories/classroom_announcement_repository.dart';
+import 'package:elixr_core/repositories/firebase_classroom_announcement_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -119,6 +121,9 @@ class _ElixrAppState extends State<ElixrApp> {
         ChangeNotifierProvider.value(value: _cameraDeviceService),
         ChangeNotifierProvider.value(value: _joinLinkService),
         Provider<ChatRepository>.value(value: _chatRepository),
+        Provider<ClassroomAnnouncementRepository>(
+          create: (_) => FirebaseClassroomAnnouncementRepository(),
+        ),
         Provider<ActivityReadStore>(create: (_) => FileActivityReadStore()),
         ChangeNotifierProxyProvider<AuthService, MessageUnreadService>(
           create: (_) => MessageUnreadService(repository: _chatRepository),

@@ -342,6 +342,9 @@ assignment, public-profile, and other feature collections described below):
   pointers written with approved classroom membership. Protected progress and
   saved-image reads re-check the current group owner and membership; this
   pointer is not trusted by itself.
+- `groups/{groupId}/announcements` — Teacher-authored classroom broadcasts.
+  Approved current members of an active class can read its history; posts are
+  not direct messages and do not create unread counters or read receipts.
 
 The client uses snake_case Firestore fields such as `user_id`, `movement_name`, `created_at`, and `feedback_type`. Query indexes are declared in `firestore.indexes.json`.
 

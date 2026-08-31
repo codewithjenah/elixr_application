@@ -11,7 +11,7 @@ import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/public_profile_repository.dart';
 import '../assigned_movements/assigned_movements_controller.dart';
 
-enum TraineeClassDetailTab { classwork, people }
+enum TraineeClassDetailTab { classwork, announcements, people }
 
 class TraineeClassDetailController extends ChangeNotifier {
   TraineeClassDetailController({

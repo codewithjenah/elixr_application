@@ -294,7 +294,11 @@ class FirebaseClassroomAssignmentRepository
     final client = _httpClientFactory();
     try {
       final request = await client.getUrl(endpoint).timeout(requestTimeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      // Cloud Run can treat a standard Authorization header as a Google OIDC
+      // invocation token before this public Function receives the request.
+      // Keep the Firebase ID token in the dedicated header verified by our
+      // Function handler instead.
+      request.headers.set('X-Firebase-Authorization', 'Bearer $token');
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final response = await request.close().timeout(requestTimeout);
       final body = await utf8.decoder
@@ -982,7 +986,7 @@ class FirebaseClassroomAssignmentRepository
       final request = await client
           .postUrl(apiBaseUri.resolve('createClassroomAssignment'))
           .timeout(requestTimeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.set('X-Firebase-Authorization', 'Bearer $token');
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(requestPayload));
       final response = await request.close().timeout(requestTimeout);
@@ -1048,30 +1052,32 @@ class FirebaseClassroomAssignmentRepository
     List<GroupAssignment> assignments,
     String teacherId,
   ) async {
-    final byId = {
-      for (final assignment in assignments) assignment.id: assignment,
-    };
     final recipientsByAssignment = <String, Set<String>>{};
-    final snapshot = await _firestore
-        .collectionGroup(FirestoreCollections.assignmentRecipients)
-        .where('teacher_id', isEqualTo: teacherId)
-        .get();
-    for (final doc in snapshot.docs) {
-      final path = doc.reference.path.split('/');
-      if (path.length != 4 ||
-          path[0] != FirestoreCollections.groupAssignments ||
-          path[2] != FirestoreCollections.assignmentRecipients ||
-          path[3] != doc.id) {
-        continue;
-      }
-      final id = doc.reference.parent.parent?.id;
-      if (id == null) continue;
-      final assignment = byId[id];
-      final data = doc.data();
-      if (assignment != null &&
-          _validRecipient(data, assignment, doc.id) &&
-          doc.id == data['trainee_id']) {
-        recipientsByAssignment.putIfAbsent(id, () => <String>{}).add(doc.id);
+    final targetedAssignments = assignments
+        .where((assignment) => !assignment.audience.isEntireClass)
+        .toList(growable: false);
+
+    // Query only known assignment subcollections. Besides keeping recipient
+    // reads narrowly scoped, this avoids making the Teacher classwork screen
+    // depend on a collection-group single-field index becoming ready.
+    final recipientSnapshots = await Future.wait([
+      for (final assignment in targetedAssignments)
+        _assignments
+            .doc(assignment.id)
+            .collection(FirestoreCollections.assignmentRecipients)
+            .where('teacher_id', isEqualTo: teacherId)
+            .get(),
+    ]);
+    for (var index = 0; index < targetedAssignments.length; index++) {
+      final assignment = targetedAssignments[index];
+      for (final doc in recipientSnapshots[index].docs) {
+        final data = doc.data();
+        if (_validRecipient(data, assignment, doc.id) &&
+            doc.id == data['trainee_id']) {
+          recipientsByAssignment
+              .putIfAbsent(assignment.id, () => <String>{})
+              .add(doc.id);
+        }
       }
     }
     return [

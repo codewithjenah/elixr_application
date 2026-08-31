@@ -54,6 +54,24 @@ function fakeAssignmentDatabase({memberships, assignments, recipients = []}) {
   const docs = (values) => values.map((value) => ({
     id: value.id,
     data: () => value.data,
+    ref: {
+      collection(name) {
+        assert.equal(name, 'assignment_recipients');
+        return {
+          doc(traineeId) {
+            const recipient = recipients.find((item) =>
+              item.assignmentId === value.id && item.traineeId === traineeId,
+            );
+            return {
+              get: async () => ({
+                exists: Boolean(recipient),
+                data: () => recipient?.data,
+              }),
+            };
+          },
+        };
+      },
+    },
   }));
   return {
     assignmentQueries,
@@ -92,30 +110,6 @@ function fakeAssignmentDatabase({memberships, assignments, recipients = []}) {
                 (item) => groupIds.includes(item.data.group_id),
               )),
             }),
-          };
-        },
-      };
-    },
-    collectionGroup(name) {
-      assert.equal(name, 'assignment_recipients');
-      return {
-        where(field, operator, value) {
-          assert.equal(field, 'trainee_id');
-          assert.equal(operator, '==');
-          return {
-            get: async () => ({docs: recipients.filter(
-              (item) => item.data.trainee_id === value,
-            ).map((item) => ({
-              id: item.traineeId,
-              data: () => item.data,
-              ref: {
-                path: `group_assignments/${item.assignmentId}/assignment_recipients/${item.traineeId}`,
-                parent: {
-                  id: 'assignment_recipients',
-                  parent: {id: item.assignmentId},
-                },
-              },
-            }))}),
           };
         },
       };
