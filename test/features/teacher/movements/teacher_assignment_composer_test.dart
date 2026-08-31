@@ -11,14 +11,20 @@ import 'package:elixr_application/data/repositories/in_memory_classroom_assignme
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
 import 'package:elixr_application/features/teacher/movements/teacher_assignment_composer.dart';
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
+  _TrackingAssignments({required InMemoryGroupRepository groupRepository})
+    : super(groupRepository: groupRepository);
+
   int officialCalls = 0;
   int teacherCreatedCalls = 0;
   Completer<void>? createGate;
   Object? teacherCreatedError;
+  AssignmentAudience? lastAudience;
 
   @override
   Future<GroupAssignment> createOfficialAssignment({
@@ -28,8 +34,10 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     officialCalls++;
+    lastAudience = audience;
     final gate = createGate;
     if (gate != null) await gate.future;
     return super.createOfficialAssignment(
@@ -39,6 +47,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       officialMovementName: officialMovementName,
       dueAt: dueAt,
       displayInstructions: displayInstructions,
+      audience: audience,
     );
   }
 
@@ -51,8 +60,10 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     DateTime? dueAt,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     teacherCreatedCalls++;
+    lastAudience = audience;
     final error = teacherCreatedError;
     if (error != null) throw error;
     return super.createTeacherCreatedAssignment(
@@ -63,6 +74,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      audience: audience,
     );
   }
 }
@@ -110,17 +122,62 @@ void main() {
     name: 'BSIT-4A',
     status: ElixrGroupStatus.active,
   );
+  const otherGroup = ElixrGroup(
+    id: 'group-2',
+    teacherId: 'teacher-1',
+    name: 'BSIT-4B',
+    status: ElixrGroupStatus.active,
+  );
 
   late InMemoryTeacherMovementRepository movements;
+  late InMemoryGroupRepository groups;
   late _TrackingAssignments assignments;
 
   setUp(() {
     movements = InMemoryTeacherMovementRepository();
-    assignments = _TrackingAssignments();
+    groups = InMemoryGroupRepository();
+    groups.seedGroup(group);
+    groups.seedGroup(otherGroup);
+    for (final trainee in const [
+      ('trainee-1', 'Ada Lovelace'),
+      ('trainee-2', 'Katherine Johnson'),
+      ('trainee-3', 'Alan Turing'),
+    ]) {
+      groups.seedMembership(
+        GroupMembership(
+          id: GroupMembership.documentId(
+            groupId: group.id,
+            traineeId: trainee.$1,
+          ),
+          groupId: group.id,
+          teacherId: group.teacherId,
+          traineeId: trainee.$1,
+          traineeDisplayName: trainee.$2,
+          teacherDisplayName: 'Grace Hopper',
+          status: GroupMembershipStatus.approved,
+        ),
+      );
+    }
+    groups.seedMembership(
+      GroupMembership(
+        id: GroupMembership.documentId(
+          groupId: otherGroup.id,
+          traineeId: 'trainee-4',
+        ),
+        groupId: otherGroup.id,
+        teacherId: otherGroup.teacherId,
+        traineeId: 'trainee-4',
+        traineeDisplayName: 'Margaret Hamilton',
+        teacherDisplayName: 'Grace Hopper',
+        status: GroupMembershipStatus.approved,
+      ),
+    );
+    assignments = _TrackingAssignments(groupRepository: groups);
   });
 
   tearDown(() {
     movements.dispose();
+    groups.dispose();
     assignments.dispose();
   });
 
@@ -130,6 +187,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         assignmentRepository: assignments,
         movementRepository: movements,
+        groupRepository: groups,
       );
 
   Future<TeacherMovement> createTeacherMovement() {
@@ -185,6 +243,53 @@ void main() {
     },
   );
 
+  test(
+    'shared creation service forwards and validates targeted audiences',
+    () async {
+      final selected = AssignmentAudience.selectedStudents(const [
+        'trainee-1',
+        'trainee-2',
+      ]);
+
+      final assignment = await service().create(
+        group: group,
+        audience: selected,
+        officialMovement: movementCatalog.first,
+      );
+
+      expect(assignment.audience.type, AssignmentAudienceType.selectedStudents);
+      expect(assignment.audience.targetTraineeIds, ['trainee-1', 'trainee-2']);
+      expect(
+        assignments.lastAudience?.targetTraineeIds,
+        selected.targetTraineeIds,
+      );
+
+      final customMovement = await createTeacherMovement();
+      final individual = await service().create(
+        group: group,
+        audience: AssignmentAudience.individualStudent(const ['trainee-1']),
+        teacherCreatedMovement: customMovement,
+      );
+      expect(individual.isTeacherCreated, isTrue);
+      expect(
+        individual.audience.type,
+        AssignmentAudienceType.individualStudent,
+      );
+      expect(individual.audience.targetTraineeIds, ['trainee-1']);
+
+      await expectLater(
+        service().create(
+          group: group,
+          audience: AssignmentAudience.individualStudent(const ['trainee-4']),
+          officialMovement: movementCatalog.first,
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(assignments.officialCalls, 1);
+      expect(assignments.teacherCreatedCalls, 1);
+    },
+  );
+
   test('shared creation service refreshes a stale movement snapshot', () async {
     final staleMovement = await createTeacherMovement();
     final editedMovement = await movements.editMovement(
@@ -213,6 +318,7 @@ void main() {
         teacherDisplayName: 'Grace Hopper',
         assignmentRepository: assignments,
         movementRepository: movements,
+        groupRepository: groups,
         ensureTeacherAuthorization: () async {
           authorizationChecks++;
           return true;
@@ -234,6 +340,8 @@ void main() {
     required TeacherAssignmentCreationService creationService,
     Movement? officialMovement,
     TeacherMovement? teacherCreatedMovement,
+    List<ElixrGroup> availableGroups = const [group],
+    ElixrGroup? lockedGroup,
     Size size = const Size(1280, 900),
   }) async {
     tester.view.physicalSize = size;
@@ -246,8 +354,10 @@ void main() {
         home: TeacherAssignmentComposer(
           teacherId: 'teacher-1',
           teacherDisplayName: 'Grace Hopper',
-          groups: const [group],
+          groups: availableGroups,
           movementRepository: movements,
+          groupRepository: groups,
+          lockedGroup: lockedGroup,
           creationService: creationService,
           officialMovement: officialMovement,
           teacherCreatedMovement: teacherCreatedMovement,
@@ -280,6 +390,172 @@ void main() {
     expect(assignments.teacherCreatedCalls, 0);
   });
 
+  testWidgets(
+    'targeted audience selection is visible, counted, and forwarded',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+      );
+
+      final entireChoice = find.byKey(
+        const Key('teacher_assignment_audience_entire'),
+      );
+      expect(
+        tester
+            .widget<RadioButton>(
+              find.descendant(
+                of: entireChoice,
+                matching: find.byType(RadioButton),
+              ),
+            )
+            .checked,
+        isTrue,
+      );
+
+      final selectedChoice = find.byKey(
+        const Key('teacher_assignment_audience_selected'),
+      );
+      await tester.ensureVisible(selectedChoice);
+      await tester.tap(selectedChoice);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('teacher_assignment_roster')),
+        findsOneWidget,
+      );
+      expect(find.text('0 selected'), findsOneWidget);
+      expect(
+        tester
+            .widget<ElixPrimaryButton>(
+              find.byKey(const Key('teacher_assignment_create')),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_trainee_trainee-1')),
+      );
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_trainee_trainee-2')),
+      );
+      await tester.pump();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('teacher_assignment_create')),
+      );
+      await tester.tap(find.byKey(const Key('teacher_assignment_create')));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+
+      expect(assignments.officialCalls, 1);
+      expect(
+        assignments.lastAudience?.type,
+        AssignmentAudienceType.selectedStudents,
+      );
+      expect(
+        assignments.lastAudience?.targetTraineeIds,
+        containsAll(['trainee-1', 'trainee-2']),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+    },
+  );
+
+  testWidgets(
+    'individual mode and classroom changes clear stale hidden targets',
+    (tester) async {
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        officialMovement: movementCatalog.first,
+        availableGroups: const [group, otherGroup],
+      );
+
+      final individualChoice = find.byKey(
+        const Key('teacher_assignment_audience_individual'),
+      );
+      await tester.ensureVisible(individualChoice);
+      await tester.tap(individualChoice);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('teacher_assignment_trainee_trainee-1')),
+      );
+      await tester.pump();
+      expect(find.text('1 selected'), findsOneWidget);
+
+      final classroom = find.byKey(const Key('teacher_assignment_class'));
+      await tester.ensureVisible(classroom);
+      expect(tester.widget<ComboBox<String>>(classroom).value, group.id);
+      tester.widget<ComboBox<String>>(classroom).onChanged!(otherGroup.id);
+      await tester.pump();
+      expect(tester.widget<ComboBox<String>>(classroom).value, otherGroup.id);
+      expect(find.text('0 selected'), findsOneWidget);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('teacher_assignment_trainee_trainee-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('teacher_assignment_trainee_trainee-4')),
+        findsOneWidget,
+      );
+      expect(find.text('0 selected'), findsOneWidget);
+
+      final entireChoice = find.byKey(
+        const Key('teacher_assignment_audience_entire'),
+      );
+      await tester.ensureVisible(entireChoice);
+      await tester.tap(entireChoice);
+      await tester.pump();
+      expect(find.byKey(const Key('teacher_assignment_roster')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 200));
+    },
+  );
+
+  testWidgets('classroom-first flow publishes an individual assignment', (
+    tester,
+  ) async {
+    await pumpComposer(tester, creationService: service(), lockedGroup: group);
+
+    final individualChoice = find.byKey(
+      const Key('teacher_assignment_audience_individual'),
+    );
+    await tester.ensureVisible(individualChoice);
+    await tester.tap(individualChoice);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('teacher_assignment_trainee_trainee-2')),
+    );
+    await tester.pump();
+
+    final publish = find.byKey(const Key('teacher_assignment_create'));
+    await tester.ensureVisible(publish);
+    await tester.tap(publish);
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+
+    expect(assignments.officialCalls, 1);
+    expect(
+      assignments.lastAudience?.type,
+      AssignmentAudienceType.individualStudent,
+    );
+    expect(assignments.lastAudience?.targetTraineeIds, ['trainee-2']);
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
   testWidgets('assignment sources switch inside the responsive composer', (
     tester,
   ) async {
@@ -290,6 +566,9 @@ void main() {
     expect(find.byKey(const Key('teacher_assignment_form')), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
 
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
@@ -306,6 +585,9 @@ void main() {
     final customMovement = await createTeacherMovement();
     await pumpComposer(tester, creationService: service());
 
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
@@ -322,6 +604,9 @@ void main() {
   ) async {
     await pumpComposer(tester, creationService: service());
 
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
@@ -364,6 +649,9 @@ void main() {
   ) async {
     await pumpComposer(tester, creationService: service());
 
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
 
@@ -385,6 +673,9 @@ void main() {
     movements = _RevisionReadFailureMovements();
     await pumpComposer(tester, creationService: service());
 
+    await tester.ensureVisible(
+      find.byKey(const Key('teacher_assignment_source_mine')),
+    );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
     await tester.tap(

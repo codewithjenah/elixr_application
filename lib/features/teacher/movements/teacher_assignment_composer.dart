@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/auth/teacher_auth_messages.dart';
@@ -35,6 +37,7 @@ class TeacherAssignmentCreationService {
     required this.teacherId,
     required this.teacherDisplayName,
     required this.assignmentRepository,
+    required this.groupRepository,
     this.movementRepository,
     this.ensureTeacherAuthorization,
   });
@@ -42,6 +45,7 @@ class TeacherAssignmentCreationService {
   final String teacherId;
   final String teacherDisplayName;
   final ClassroomAssignmentRepository assignmentRepository;
+  final GroupRepository groupRepository;
   final TeacherMovementRepository? movementRepository;
   final Future<bool> Function()? ensureTeacherAuthorization;
 
@@ -52,6 +56,7 @@ class TeacherAssignmentCreationService {
   /// the same current-revision semantics.
   Future<GroupAssignment> create({
     required ElixrGroup group,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
     Movement? officialMovement,
     TeacherMovement? teacherCreatedMovement,
     int maxScore = 100,
@@ -70,6 +75,20 @@ class TeacherAssignmentCreationService {
       ensureTeacherAssignmentMaxScore(maxScore);
     }
     await _ensureTeacherAuthorization();
+    if (!audience.isEntireClass) {
+      final members = await groupRepository
+          .watchGroupMemberships(
+            groupId: group.id,
+            teacherId: teacherId,
+            status: GroupMembershipStatus.approved,
+          )
+          .first;
+      ensureAssignmentAudienceMatchesRoster(
+        audience: audience,
+        group: group,
+        memberships: members,
+      );
+    }
 
     final official = officialMovement;
     if (official != null) {
@@ -80,6 +99,7 @@ class TeacherAssignmentCreationService {
         officialMovementName: official.name,
         dueAt: dueAt,
         displayInstructions: official.description,
+        audience: audience,
       );
     }
 
@@ -118,6 +138,7 @@ class TeacherAssignmentCreationService {
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      audience: audience,
     );
   }
 
@@ -169,6 +190,7 @@ Future<bool?> showTeacherAssignmentComposer(
   required List<ElixrGroup> groups,
   required TeacherMovementRepository? movementRepository,
   required ClassroomAssignmentRepository assignmentRepository,
+  required GroupRepository groupRepository,
   TeacherAssignmentCreationService? creationService,
   ElixrGroup? lockedGroup,
   Movement? officialMovement,
@@ -182,6 +204,7 @@ Future<bool?> showTeacherAssignmentComposer(
         teacherId: teacherId,
         teacherDisplayName: teacherDisplayName,
         assignmentRepository: assignmentRepository,
+        groupRepository: groupRepository,
         movementRepository: movementRepository,
         ensureTeacherAuthorization: ensureTeacherAuthorization,
       );
@@ -200,6 +223,7 @@ Future<bool?> showTeacherAssignmentComposer(
             groups: groups,
             movementRepository: movementRepository,
             creationService: service,
+            groupRepository: groupRepository,
             lockedGroup: lockedGroup,
             officialMovement: officialMovement,
             teacherCreatedMovement: teacherCreatedMovement,
@@ -233,6 +257,7 @@ class TeacherAssignmentComposer extends StatefulWidget {
     required this.groups,
     required this.movementRepository,
     required this.creationService,
+    required this.groupRepository,
     this.lockedGroup,
     this.officialMovement,
     this.teacherCreatedMovement,
@@ -243,6 +268,7 @@ class TeacherAssignmentComposer extends StatefulWidget {
   final List<ElixrGroup> groups;
   final TeacherMovementRepository? movementRepository;
   final TeacherAssignmentCreationService creationService;
+  final GroupRepository groupRepository;
   final ElixrGroup? lockedGroup;
   final Movement? officialMovement;
   final TeacherMovement? teacherCreatedMovement;
@@ -254,9 +280,14 @@ class TeacherAssignmentComposer extends StatefulWidget {
 
 enum _AssignmentOriginSelection { official, teacherCreated }
 
+extension on AssignmentAudienceType {
+  bool get isTargeted => this != AssignmentAudienceType.entireClass;
+}
+
 class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   late final bool _classroomScoped;
   late final TextEditingController _maxScoreController;
+  late final TextEditingController _rosterSearchController;
   late ElixrGroup? _selectedGroup;
   late Movement? _selectedOfficialMovement;
   late TeacherMovement? _selectedTeacherCreatedMovement;
@@ -271,7 +302,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   List<TeacherMovement> _teacherMovements = const [];
   Map<String, TeacherMovementRevision> _teacherMovementRevisions = const {};
   StreamSubscription<List<TeacherMovement>>? _movementSubscription;
+  StreamSubscription<List<GroupMembership>>? _rosterSubscription;
   int _movementLoadToken = 0;
+  int _rosterLoadToken = 0;
+  AssignmentAudienceType _audienceType = AssignmentAudienceType.entireClass;
+  Set<String> _targetTraineeIds = const {};
+  List<GroupMembership> _eligibleTrainees = const [];
+  bool _loadingRoster = false;
+  String? _rosterLoadError;
 
   bool get _hasMovementOverride =>
       widget.officialMovement != null || widget.teacherCreatedMovement != null;
@@ -307,18 +345,39 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return revision != null && _isAssignableTeacherRevision(revision);
   }
 
+  bool get _hasValidAudience => switch (_audienceType) {
+    AssignmentAudienceType.entireClass => _targetTraineeIds.isEmpty,
+    AssignmentAudienceType.selectedStudents =>
+      _targetTraineeIds.isNotEmpty &&
+          _targetTraineeIds.length <= AssignmentAudience.maxTargetTrainees,
+    AssignmentAudienceType.individualStudent => _targetTraineeIds.length == 1,
+  };
+
+  AssignmentAudience get _audience => switch (_audienceType) {
+    AssignmentAudienceType.entireClass =>
+      const AssignmentAudience.entireClass(),
+    AssignmentAudienceType.selectedStudents =>
+      AssignmentAudience.selectedStudents(_targetTraineeIds),
+    AssignmentAudienceType.individualStudent =>
+      AssignmentAudience.individualStudent(_targetTraineeIds),
+  };
+
   bool get _canSubmit =>
       !_submitting &&
       _selectedGroup?.isActive == true &&
       (_selectedOfficialMovement != null || _hasValidTeacherMovement) &&
       (!_classroomScoped || !_isTeacherCreated || !_loadingTeacherMovements) &&
-      _hasValidMaxScore;
+      _hasValidMaxScore &&
+      _hasValidAudience &&
+      (!_audienceType.isTargeted ||
+          (!_loadingRoster && _rosterLoadError == null));
 
   @override
   void initState() {
     super.initState();
     _classroomScoped = !_hasMovementOverride;
     _maxScoreController = TextEditingController(text: '100');
+    _rosterSearchController = TextEditingController();
     _selectedGroup = widget.lockedGroup ?? _firstActiveGroup();
     _selectedOfficialMovement = widget.officialMovement;
     _selectedTeacherCreatedMovement = widget.teacherCreatedMovement;
@@ -328,6 +387,73 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (_classroomScoped) {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
       _startWatchingTeacherMovements();
+    }
+  }
+
+  Future<void> _watchRosterForSelectedGroup() async {
+    final token = ++_rosterLoadToken;
+    await _rosterSubscription?.cancel();
+    _rosterSubscription = null;
+    final group = _selectedGroup;
+    if (!mounted || token != _rosterLoadToken) return;
+    setState(() {
+      _loadingRoster = group != null;
+      _rosterLoadError = null;
+      _eligibleTrainees = const [];
+      _targetTraineeIds = const {};
+      _rosterSearchController.clear();
+    });
+    if (group == null) return;
+    try {
+      _rosterSubscription = widget.groupRepository
+          .watchApprovedGroupMembers(
+            groupId: group.id,
+            teacherId: widget.teacherId,
+          )
+          .listen(
+            (members) {
+              if (!mounted || token != _rosterLoadToken) return;
+              final eligible =
+                  [
+                    for (final member in members)
+                      if (member.groupId == group.id &&
+                          member.teacherId == widget.teacherId &&
+                          member.hasClassroomAuthorization)
+                        member,
+                  ]..sort(
+                    (a, b) => a.traineeDisplayName.toLowerCase().compareTo(
+                      b.traineeDisplayName.toLowerCase(),
+                    ),
+                  );
+              final validIds = eligible
+                  .map((member) => member.traineeId)
+                  .toSet();
+              setState(() {
+                _eligibleTrainees = eligible;
+                _targetTraineeIds = _targetTraineeIds
+                    .where(validIds.contains)
+                    .toSet();
+                _loadingRoster = false;
+                _rosterLoadError = null;
+                _validationError = null;
+              });
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!mounted || token != _rosterLoadToken) return;
+              setState(() {
+                _loadingRoster = false;
+                _rosterLoadError = 'Could not load this classroom roster.';
+                _targetTraineeIds = const {};
+              });
+            },
+          );
+    } catch (_) {
+      if (!mounted || token != _rosterLoadToken) return;
+      setState(() {
+        _loadingRoster = false;
+        _rosterLoadError = 'Could not load this classroom roster.';
+        _targetTraineeIds = const {};
+      });
     }
   }
 
@@ -433,7 +559,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   @override
   void dispose() {
     unawaited(_movementSubscription?.cancel());
+    unawaited(_rosterSubscription?.cancel());
     _maxScoreController.dispose();
+    _rosterSearchController.dispose();
     super.dispose();
   }
 
@@ -519,6 +647,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       canSubmit: _canSubmit,
       isSubmitting: _submitting,
       maximumScore: int.tryParse(_maxScoreController.text.trim()),
+      audienceLabel: _audienceSummaryLabel,
       onSubmit: _canSubmit ? () => _submit(context) : null,
     );
     final wide = availableWidth >= _teacherAssignmentWideBreakpoint;
@@ -569,8 +698,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       children: [
         _ComposerSectionHeading(
           icon: FluentIcons.people,
-          eyebrow: 'AUDIENCE',
-          title: 'Who is this for?',
+          eyebrow: 'CLASSROOM',
+          title: 'Where should it go?',
           description: _classroomScoped
               ? 'This assignment will be shared with one class.'
               : 'Choose the class that should receive this movement.',
@@ -599,6 +728,23 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               onChanged: _submitting ? null : _onGroupChanged,
             ),
           ),
+        const SizedBox(height: AppSpacing.xl),
+        _ComposerSectionHeading(
+          icon: FluentIcons.contact,
+          eyebrow: 'AUDIENCE',
+          title: 'Who should receive it?',
+          description: 'Choose the whole class, a small group, or one trainee.',
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _AssignmentAudienceSelector(
+          selected: _audienceType,
+          enabled: !_submitting,
+          onChanged: _onAudienceTypeChanged,
+        ),
+        if (_audienceType.isTargeted) ...[
+          const SizedBox(height: AppSpacing.md),
+          _buildRosterPicker(context),
+        ],
         const SizedBox(height: AppSpacing.xl),
         _ComposerSectionHeading(
           icon: FluentIcons.learning_tools,
@@ -713,6 +859,23 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _selectedOfficialMovement?.name ??
       _selectedTeacherCreatedMovement?.title ??
       'Choose a movement';
+
+  String get _audienceSummaryLabel {
+    switch (_audienceType) {
+      case AssignmentAudienceType.entireClass:
+        return 'Entire class';
+      case AssignmentAudienceType.selectedStudents:
+        final count = _targetTraineeIds.length;
+        return count == 1 ? '1 selected student' : '$count selected students';
+      case AssignmentAudienceType.individualStudent:
+        if (_targetTraineeIds.length != 1) return 'Choose one student';
+        final id = _targetTraineeIds.single;
+        for (final member in _eligibleTrainees) {
+          if (member.traineeId == id) return member.traineeDisplayName;
+        }
+        return '1 student';
+    }
+  }
 
   String get _movementModeLabel {
     final custom = _selectedTeacherCreatedMovement;
@@ -907,11 +1070,169 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (group.id == value) {
         setState(() {
           _selectedGroup = group;
+          _targetTraineeIds = const {};
           _validationError = null;
         });
+        if (_audienceType.isTargeted) {
+          unawaited(_watchRosterForSelectedGroup());
+        }
         return;
       }
     }
+  }
+
+  void _onAudienceTypeChanged(AssignmentAudienceType value) {
+    if (_audienceType == value || _submitting) return;
+    final shouldLoadRoster =
+        value.isTargeted &&
+        (_eligibleTrainees.isEmpty || _rosterLoadError != null);
+    if (value == AssignmentAudienceType.entireClass) {
+      _rosterLoadToken++;
+      unawaited(_rosterSubscription?.cancel());
+      _rosterSubscription = null;
+    }
+    setState(() {
+      if (value == AssignmentAudienceType.entireClass) {
+        _targetTraineeIds = const {};
+        _eligibleTrainees = const [];
+        _rosterLoadError = null;
+        _loadingRoster = false;
+        _rosterSearchController.clear();
+      } else if (value == AssignmentAudienceType.individualStudent &&
+          _targetTraineeIds.length != 1) {
+        _targetTraineeIds = const {};
+      }
+      _audienceType = value;
+      _validationError = null;
+    });
+    if (shouldLoadRoster) unawaited(_watchRosterForSelectedGroup());
+  }
+
+  Widget _buildRosterPicker(BuildContext context) {
+    if (_loadingRoster) {
+      return const _AudienceRosterState(
+        key: Key('teacher_assignment_roster_loading'),
+        message: 'Loading eligible trainees…',
+        loading: true,
+      );
+    }
+    if (_rosterLoadError != null) {
+      return _AudienceRosterState(
+        key: const Key('teacher_assignment_roster_error'),
+        message: _rosterLoadError!,
+        actionLabel: 'Retry',
+        onAction: _watchRosterForSelectedGroup,
+      );
+    }
+    if (_eligibleTrainees.isEmpty) {
+      return const _AudienceRosterState(
+        key: Key('teacher_assignment_roster_empty'),
+        message: 'No approved trainees are available in this classroom.',
+      );
+    }
+    final query = _rosterSearchController.text.trim().toLowerCase();
+    final visible = [
+      for (final member in _eligibleTrainees)
+        if (query.isEmpty ||
+            member.traineeDisplayName.toLowerCase().contains(query))
+          member,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextBox(
+                key: const Key('teacher_assignment_roster_search'),
+                controller: _rosterSearchController,
+                enabled: !_submitting,
+                placeholder: 'Search trainees',
+                prefix: const Padding(
+                  padding: EdgeInsets.only(left: 10),
+                  child: Icon(FluentIcons.search, size: 14),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              '${_targetTraineeIds.length} selected',
+              key: const Key('teacher_assignment_selected_count'),
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          constraints: const BoxConstraints(maxHeight: 264),
+          decoration: BoxDecoration(
+            border: Border.all(color: context.elixBorder),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: visible.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Text(
+                    'No trainees match that search.',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  key: const Key('teacher_assignment_roster'),
+                  shrinkWrap: true,
+                  itemCount: visible.length,
+                  separatorBuilder: (_, _) => const Divider(size: 1),
+                  itemBuilder: (context, index) {
+                    final member = visible[index];
+                    final selected = _targetTraineeIds.contains(
+                      member.traineeId,
+                    );
+                    return _AudienceTraineeRow(
+                      member: member,
+                      selected: selected,
+                      multiple:
+                          _audienceType ==
+                          AssignmentAudienceType.selectedStudents,
+                      enabled: !_submitting,
+                      onPressed: () => _toggleTrainee(member.traineeId),
+                    );
+                  },
+                ),
+        ),
+        if (_audienceType == AssignmentAudienceType.selectedStudents &&
+            _targetTraineeIds.length >= AssignmentAudience.maxTargetTrainees)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              'You can select up to ${AssignmentAudience.maxTargetTrainees} trainees per targeted assignment.',
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _toggleTrainee(String traineeId) {
+    if (_submitting) return;
+    setState(() {
+      if (_audienceType == AssignmentAudienceType.individualStudent) {
+        _targetTraineeIds = {traineeId};
+      } else if (_targetTraineeIds.contains(traineeId)) {
+        _targetTraineeIds = {..._targetTraineeIds}..remove(traineeId);
+      } else if (_targetTraineeIds.length <
+          AssignmentAudience.maxTargetTrainees) {
+        _targetTraineeIds = {..._targetTraineeIds, traineeId};
+      }
+      _validationError = null;
+    });
   }
 
   void _onOfficialMovementChanged(String? value) {
@@ -1062,6 +1383,17 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (_isTeacherCreated && !_hasValidMaxScore) {
       return 'Enter a maximum score from 1 to 100.';
     }
+    if (_audienceType.isTargeted && _rosterLoadError != null) {
+      return _rosterLoadError;
+    }
+    if (_audienceType == AssignmentAudienceType.selectedStudents &&
+        _targetTraineeIds.isEmpty) {
+      return 'Select at least one trainee.';
+    }
+    if (_audienceType == AssignmentAudienceType.individualStudent &&
+        _targetTraineeIds.length != 1) {
+      return 'Select one trainee.';
+    }
     return null;
   }
 
@@ -1082,6 +1414,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     try {
       await widget.creationService.create(
         group: group,
+        audience: _audience,
         officialMovement: _selectedOfficialMovement,
         teacherCreatedMovement: _isTeacherCreated
             ? _selectedTeacherCreatedMovement
@@ -1104,6 +1437,238 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _validationError = 'That assignment could not be created.';
       });
     }
+  }
+}
+
+class _AssignmentAudienceSelector extends StatelessWidget {
+  const _AssignmentAudienceSelector({
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final AssignmentAudienceType selected;
+  final bool enabled;
+  final ValueChanged<AssignmentAudienceType> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _AudienceChoice(
+          key: const Key('teacher_assignment_audience_entire'),
+          title: 'Entire class',
+          description: 'Every approved trainee in this classroom receives it.',
+          checked: selected == AssignmentAudienceType.entireClass,
+          enabled: enabled,
+          onPressed: () => onChanged(AssignmentAudienceType.entireClass),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _AudienceChoice(
+          key: const Key('teacher_assignment_audience_selected'),
+          title: 'Selected students',
+          description: 'Only the trainees you select receive it.',
+          checked: selected == AssignmentAudienceType.selectedStudents,
+          enabled: enabled,
+          onPressed: () => onChanged(AssignmentAudienceType.selectedStudents),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _AudienceChoice(
+          key: const Key('teacher_assignment_audience_individual'),
+          title: 'Individual student',
+          description: 'Choose one trainee for focused practice.',
+          checked: selected == AssignmentAudienceType.individualStudent,
+          enabled: enabled,
+          onPressed: () => onChanged(AssignmentAudienceType.individualStudent),
+        ),
+      ],
+    );
+  }
+}
+
+class _AudienceChoice extends StatelessWidget {
+  const _AudienceChoice({
+    super.key,
+    required this.title,
+    required this.description,
+    required this.checked,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String title;
+  final String description;
+  final bool checked;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = context.elixColors.brandPrimary;
+    return Semantics(
+      button: true,
+      selected: checked,
+      label: '$title. $description',
+      child: HoverButton(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onPressed: enabled ? onPressed : null,
+        builder: (context, states) => AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: checked
+                ? accent.withValues(alpha: 0.10)
+                : context.elixCardSurface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: checked ? accent : context.elixBorder,
+              width: checked ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RadioButton(
+                checked: checked,
+                onChanged: enabled ? (_) => onPressed() : null,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTheme.body.copyWith(
+                        color: context.elixTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      style: AppTheme.caption.copyWith(
+                        color: context.elixTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AudienceTraineeRow extends StatelessWidget {
+  const _AudienceTraineeRow({
+    required this.member,
+    required this.selected,
+    required this.multiple,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final GroupMembership member;
+  final bool selected;
+  final bool multiple;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: member.traineeDisplayName,
+      child: HoverButton(
+        key: Key('teacher_assignment_trainee_${member.traineeId}'),
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onPressed: enabled ? onPressed : null,
+        builder: (context, states) => Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              if (multiple)
+                Checkbox(
+                  checked: selected,
+                  onChanged: enabled ? (_) => onPressed() : null,
+                )
+              else
+                RadioButton(
+                  checked: selected,
+                  onChanged: enabled ? (_) => onPressed() : null,
+                ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  member.traineeDisplayName,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.body.copyWith(
+                    color: context.elixTextPrimary,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AudienceRosterState extends StatelessWidget {
+  const _AudienceRosterState({
+    super.key,
+    required this.message,
+    this.loading = false,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String message;
+  final bool loading;
+  final String? actionLabel;
+  final Future<void> Function()? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: context.elixCardSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.elixBorder),
+      ),
+      child: Row(
+        children: [
+          if (loading) ...[
+            const SizedBox(width: 18, height: 18, child: ProgressRing()),
+            const SizedBox(width: AppSpacing.sm),
+          ],
+          Expanded(
+            child: Text(
+              message,
+              style: AppTheme.caption.copyWith(
+                color: context.elixTextSecondary,
+              ),
+            ),
+          ),
+          if (actionLabel != null && onAction != null)
+            Button(
+              onPressed: () => unawaited(onAction!()),
+              child: Text(actionLabel!),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1796,6 +2361,7 @@ class _AssignmentSummaryCard extends StatelessWidget {
     required this.canSubmit,
     required this.isSubmitting,
     required this.maximumScore,
+    required this.audienceLabel,
     required this.onSubmit,
   });
 
@@ -1807,6 +2373,7 @@ class _AssignmentSummaryCard extends StatelessWidget {
   final bool canSubmit;
   final bool isSubmitting;
   final int? maximumScore;
+  final String audienceLabel;
   final VoidCallback? onSubmit;
 
   @override
@@ -1861,8 +2428,14 @@ class _AssignmentSummaryCard extends StatelessWidget {
               children: [
                 _SummaryItem(
                   icon: FluentIcons.people,
-                  label: 'Assigned to',
+                  label: 'Classroom',
                   value: group?.name ?? 'Choose a class',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _SummaryItem(
+                  icon: FluentIcons.contact,
+                  label: 'Audience',
+                  value: audienceLabel,
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 _SummaryItem(

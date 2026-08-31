@@ -1,5 +1,6 @@
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
@@ -20,6 +21,7 @@ abstract class ClassroomAssignmentRepository {
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   });
 
   Future<GroupAssignment> createTeacherCreatedAssignment({
@@ -30,6 +32,7 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     DateTime? dueAt,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   });
 
   Future<void> archiveAssignment({
@@ -61,6 +64,12 @@ abstract class ClassroomAssignmentRepository {
 
   Future<List<GroupAssignment>> fetchAssignmentsForGroup({
     required String groupId,
+  });
+
+  /// Returns only assignments this authenticated Trainee may access.
+  Future<List<GroupAssignment>> fetchAssignmentsForTrainee({
+    required String traineeId,
+    String? groupId,
   });
 
   Stream<List<AssignmentAttempt>> watchAttemptsForAssignment({
@@ -190,6 +199,30 @@ void ensureTeacherOwnsActiveGroup({
   }
 }
 
+/// Verifies that every targeted Trainee is currently an approved member of
+/// [group]. Callers must obtain [memberships] from the current roster source
+/// immediately before writing a targeted assignment.
+void ensureAssignmentAudienceMatchesRoster({
+  required AssignmentAudience audience,
+  required ElixrGroup group,
+  required Iterable<GroupMembership> memberships,
+}) {
+  if (!group.isActive) {
+    throw const ClassroomException(ClassroomError.inactive);
+  }
+  if (audience.isEntireClass) return;
+  final approvedIds = <String>{
+    for (final membership in memberships)
+      if (membership.isApproved &&
+          membership.groupId == group.id &&
+          membership.teacherId == group.teacherId)
+        membership.traineeId,
+  };
+  if (!approvedIds.containsAll(audience.targetTraineeIds)) {
+    throw const ClassroomException(ClassroomError.forbidden);
+  }
+}
+
 Map<String, dynamic> officialAssignmentPayload({
   required String teacherId,
   required String teacherDisplayName,
@@ -197,6 +230,7 @@ Map<String, dynamic> officialAssignmentPayload({
   required String officialMovementName,
   required String displayInstructions,
   DateTime? dueAt,
+  AssignmentAudience audience = const AssignmentAudience.entireClass(),
   required Object createdAt,
   required Object updatedAt,
 }) {
@@ -219,6 +253,7 @@ Map<String, dynamic> officialAssignmentPayload({
     'display_title': identity.catalogName,
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
+    ...audience.toMap(),
     'created_at': createdAt,
     'updated_at': updatedAt,
     if (displayInstructions.trim().isNotEmpty)
@@ -235,6 +270,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required TeacherMovementRevision revision,
   int maxScore = 100,
   DateTime? dueAt,
+  AssignmentAudience audience = const AssignmentAudience.entireClass(),
   required Object createdAt,
   required Object updatedAt,
   bool includeGradingFields = true,
@@ -278,6 +314,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'allowed_prop': revision.spec.requiredProp.protocolValue,
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
+    ...audience.toMap(),
     if (includeGradingFields) ...{
       'max_score': maxScore,
       'grading_locked': false,
@@ -347,6 +384,10 @@ AssignmentAttempt teacherCreatedDraftAttempt({
   required GroupAssignment assignment,
   DateTime? createdAt,
 }) {
+  ensureAssignmentAvailableToTrainee(
+    traineeId: traineeId,
+    assignment: assignment,
+  );
   if (!assignment.isTeacherCreated) {
     throw const ClassroomException(ClassroomError.identityMismatch);
   }
@@ -523,6 +564,10 @@ AssignmentAttempt teacherReviewSubmissionDraftAttempt({
   String? supersedesAttemptId,
   DateTime? createdAt,
 }) {
+  ensureAssignmentAvailableToTrainee(
+    traineeId: traineeId,
+    assignment: assignment,
+  );
   if (!assignment.isTeacherCreated) {
     throw const ClassroomException(ClassroomError.identityMismatch);
   }
@@ -554,6 +599,10 @@ AssignmentAttempt canonicalTeacherReviewSubmissionAttempt({
   required GroupAssignment assignment,
   DateTime? createdAt,
 }) {
+  ensureAssignmentAvailableToTrainee(
+    traineeId: traineeId,
+    assignment: assignment,
+  );
   if (!assignment.isTeacherCreated ||
       assignment.assessmentMode != AssessmentMode.teacherReviewed) {
     throw const ClassroomException(ClassroomError.identityMismatch);
@@ -578,6 +627,15 @@ AssignmentAttempt canonicalTeacherReviewSubmissionAttempt({
     status: AssignmentAttemptStatus.inProgress,
     createdAt: createdAt,
   );
+}
+
+void ensureAssignmentAvailableToTrainee({
+  required String traineeId,
+  required GroupAssignment assignment,
+}) {
+  if (!assignment.isAvailableToTrainee(traineeId)) {
+    throw const ClassroomException(ClassroomError.forbidden);
+  }
 }
 
 bool sameCanonicalTeacherReviewSubmissionIdentity(

@@ -168,7 +168,9 @@ class TeacherClassworkController extends ChangeNotifier {
             assignments = [
               for (final assignment in items)
                 if (assignment.groupId == groupId &&
-                    assignment.teacherId == teacherId)
+                    assignment.teacherId == teacherId &&
+                    (fixedTraineeId == null ||
+                        assignment.isAvailableToTrainee(fixedTraineeId!)))
                   assignment,
             ]..sort(_compareAssignments);
             _syncAttemptSubscriptions();
@@ -346,6 +348,7 @@ class TeacherClassworkController extends ChangeNotifier {
     var checked = 0;
     var notTurnedIn = 0;
     for (final member in approvedMemberships) {
+      if (!assignment.isAvailableToTrainee(member.traineeId)) continue;
       final attempt = latestVisibleAttemptFor(
         assignmentId: assignmentId,
         traineeId: member.traineeId,
@@ -381,6 +384,19 @@ class TeacherClassworkController extends ChangeNotifier {
       }
     }
     return 'Student';
+  }
+
+  String audienceLabel(GroupAssignment assignment) {
+    switch (assignment.audience.type) {
+      case AssignmentAudienceType.entireClass:
+        return 'Entire class';
+      case AssignmentAudienceType.selectedStudents:
+        final count = assignment.audience.targetTraineeIds.length;
+        return count == 1 ? '1 student' : '$count students';
+      case AssignmentAudienceType.individualStudent:
+        final target = assignment.audience.targetTraineeIds.single;
+        return 'Individual: ${traineeName(target)}';
+    }
   }
 
   Future<void> selectAssignment(String? assignmentId) async {

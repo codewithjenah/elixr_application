@@ -567,7 +567,10 @@ class AnalyticsCalculator {
             attempt.groupId == assignment.groupId,
       );
       for (final student in students) {
-        if (!student.belongsTo(assignment.groupId)) continue;
+        if (!student.belongsTo(assignment.groupId) ||
+            !assignment.isAvailableToTrainee(student.traineeId)) {
+          continue;
+        }
         expected++;
         final latest = AssignmentAttemptSemantics.latestVisible(
           attempts: assignmentAttempts,

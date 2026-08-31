@@ -798,6 +798,7 @@ Future<void> _showGroupAssignmentComposer(
     teacherId: controller.teacherId,
     teacherDisplayName: controller.teacherDisplayName,
     assignmentRepository: assignmentRepository,
+    groupRepository: controller.repository,
     movementRepository: movementRepository,
     ensureTeacherAuthorization: ensureTeacherAuthorization,
   );
@@ -808,6 +809,7 @@ Future<void> _showGroupAssignmentComposer(
     groups: [currentGroup],
     movementRepository: movementRepository,
     assignmentRepository: assignmentRepository,
+    groupRepository: controller.repository,
     creationService: service,
     lockedGroup: currentGroup,
   );

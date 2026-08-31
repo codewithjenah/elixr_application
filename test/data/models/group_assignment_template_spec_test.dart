@@ -40,6 +40,72 @@ Map<String, dynamic> _spec({String laterality = 'either'}) {
 }
 
 void main() {
+  test(
+    'legacy assignment without audience fields is available to entire class',
+    () {
+      final assignment = GroupAssignment.tryFromMap(_base(), id: 'asg1');
+
+      expect(assignment, isNotNull);
+      expect(assignment!.audience.type, AssignmentAudienceType.entireClass);
+      expect(assignment.audience.targetTraineeIds, isEmpty);
+      expect(assignment.isAvailableToTrainee('any-trainee'), isTrue);
+    },
+  );
+
+  test('selected and individual assignment audiences parse and filter', () {
+    final selected = GroupAssignment.tryFromMap({
+      ..._base(),
+      'audience_type': 'selected_students',
+      'target_trainee_ids': ['trainee-a', 'trainee-b'],
+    }, id: 'selected');
+    final individual = GroupAssignment.tryFromMap({
+      ..._base(),
+      'audience_type': 'individual_student',
+      'target_trainee_ids': ['trainee-a'],
+    }, id: 'individual');
+
+    expect(selected?.audience.type, AssignmentAudienceType.selectedStudents);
+    expect(selected?.isAvailableToTrainee('trainee-b'), isTrue);
+    expect(selected?.isAvailableToTrainee('trainee-c'), isFalse);
+    expect(individual?.audience.type, AssignmentAudienceType.individualStudent);
+    expect(individual?.isAvailableToTrainee('trainee-a'), isTrue);
+    expect(individual?.isAvailableToTrainee('trainee-b'), isFalse);
+  });
+
+  test('malformed audience combinations fail closed', () {
+    final malformed = [
+      {'audience_type': 'entire_class'},
+      {'target_trainee_ids': <String>[]},
+      {
+        'audience_type': 'entire_class',
+        'target_trainee_ids': ['trainee-a'],
+      },
+      {'audience_type': 'selected_students', 'target_trainee_ids': <String>[]},
+      {
+        'audience_type': 'individual_student',
+        'target_trainee_ids': ['trainee-a', 'trainee-b'],
+      },
+      {
+        'audience_type': 'selected_students',
+        'target_trainee_ids': ['trainee-a', 'trainee-a'],
+      },
+      {
+        'audience_type': 'selected_students',
+        'target_trainee_ids': [
+          for (var i = 0; i <= AssignmentAudience.maxTargetTrainees; i++)
+            'trainee-$i',
+        ],
+      },
+    ];
+
+    for (final fields in malformed) {
+      expect(
+        GroupAssignment.tryFromMap({..._base(), ...fields}, id: 'asg1'),
+        isNull,
+      );
+    }
+  });
+
   test('teacher_reviewed old shape still parses without assessment_spec', () {
     final assignment = GroupAssignment.tryFromMap(_base(), id: 'asg1');
     expect(assignment, isNotNull);

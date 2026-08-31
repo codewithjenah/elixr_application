@@ -19,6 +19,125 @@ enum GroupAssignmentStatus {
   }
 }
 
+/// Persistent audience for a classroom assignment.
+///
+/// The wire values are part of the assignment document contract. New writes
+/// always include both `audience_type` and `target_trainee_ids`; documents
+/// from before this contract are interpreted as [entireClass].
+enum AssignmentAudienceType {
+  entireClass('entire_class'),
+  selectedStudents('selected_students'),
+  individualStudent('individual_student');
+
+  const AssignmentAudienceType(this.wireValue);
+
+  final String wireValue;
+
+  static AssignmentAudienceType? tryParse(String? value) {
+    for (final type in values) {
+      if (type.wireValue == value) return type;
+    }
+    return null;
+  }
+}
+
+class AssignmentAudience {
+  // Firestore validates each target membership on create. Teacher-created
+  // assignments also read the user, group, movement, and revision, leaving
+  // room for at most five target reads under the 10-document rule limit.
+  static const maxTargetTrainees = 5;
+
+  const AssignmentAudience.entireClass()
+    : type = AssignmentAudienceType.entireClass,
+      targetTraineeIds = const [];
+
+  AssignmentAudience.selectedStudents(Iterable<String> targetTraineeIds)
+    : this._(AssignmentAudienceType.selectedStudents, targetTraineeIds);
+
+  AssignmentAudience.individualStudent(Iterable<String> targetTraineeIds)
+    : this._(AssignmentAudienceType.individualStudent, targetTraineeIds);
+
+  AssignmentAudience._(this.type, Iterable<String> targetTraineeIds)
+    : targetTraineeIds = List.unmodifiable(
+        targetTraineeIds.map(_requireTraineeId),
+      ) {
+    final targets = this.targetTraineeIds;
+    if (targets.toSet().length != targets.length ||
+        targets.length > maxTargetTrainees ||
+        (type == AssignmentAudienceType.selectedStudents && targets.isEmpty) ||
+        (type == AssignmentAudienceType.individualStudent &&
+            targets.length != 1)) {
+      throw ArgumentError.value(
+        targetTraineeIds,
+        'targetTraineeIds',
+        'Target IDs do not match the assignment audience.',
+      );
+    }
+  }
+
+  final AssignmentAudienceType type;
+  final List<String> targetTraineeIds;
+
+  bool get isEntireClass => type == AssignmentAudienceType.entireClass;
+
+  bool isAvailableToTrainee(String traineeId) =>
+      isEntireClass || targetTraineeIds.contains(traineeId.trim());
+
+  Map<String, dynamic> toMap() => {
+    'audience_type': type.wireValue,
+    'target_trainee_ids': targetTraineeIds,
+  };
+
+  static AssignmentAudience? tryFromMap(Map<String, dynamic> map) {
+    final hasType = map.containsKey('audience_type');
+    final hasTargets = map.containsKey('target_trainee_ids');
+    if (!hasType && !hasTargets) return const AssignmentAudience.entireClass();
+    if (!hasType || !hasTargets) return null;
+    final type = AssignmentAudienceType.tryParse(
+      map['audience_type'] is String ? map['audience_type'] as String : null,
+    );
+    final rawTargets = map['target_trainee_ids'];
+    if (type == null || rawTargets is! List) return null;
+    final targets = <String>[];
+    for (final value in rawTargets) {
+      if (value is! String) return null;
+      final normalized = _tryTraineeId(value);
+      if (normalized == null) return null;
+      targets.add(normalized);
+    }
+    try {
+      return switch (type) {
+        AssignmentAudienceType.entireClass when targets.isEmpty =>
+          const AssignmentAudience.entireClass(),
+        AssignmentAudienceType.selectedStudents =>
+          AssignmentAudience.selectedStudents(targets),
+        AssignmentAudienceType.individualStudent =>
+          AssignmentAudience.individualStudent(targets),
+        _ => null,
+      };
+    } on ArgumentError {
+      return null;
+    }
+  }
+
+  static String _requireTraineeId(String value) {
+    final normalized = _tryTraineeId(value);
+    if (normalized == null) {
+      throw ArgumentError.value(
+        value,
+        'targetTraineeIds',
+        'Invalid trainee ID.',
+      );
+    }
+    return normalized;
+  }
+
+  static String? _tryTraineeId(String value) {
+    final normalized = value.trim();
+    return normalized.isEmpty || normalized.length > 128 ? null : normalized;
+  }
+}
+
 /// Classroom assignment at `group_assignments/{assignmentId}`.
 ///
 /// Trainees read this document (including the display snapshot) instead of
@@ -47,6 +166,7 @@ class GroupAssignment {
     this.dueAt,
     this.createdAt,
     this.updatedAt,
+    this.audience = const AssignmentAudience.entireClass(),
   });
 
   final String id;
@@ -79,11 +199,14 @@ class GroupAssignment {
   final DateTime? dueAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final AssignmentAudience audience;
 
   bool get isActive => status == GroupAssignmentStatus.active;
   bool get isOfficial => origin == MovementOrigin.officialElixr;
   bool get isTeacherCreated => origin == MovementOrigin.teacherCreated;
   bool get isRetiredTemplate => assessmentMode == AssessmentMode.templateScored;
+  bool isAvailableToTrainee(String traineeId) =>
+      audience.isAvailableToTrainee(traineeId);
 
   bool get isOverdue {
     final due = dueAt;
@@ -99,6 +222,7 @@ class GroupAssignment {
     DateTime? dueAt,
     bool clearGradingLockedAt = false,
     bool clearDueAt = false,
+    AssignmentAudience? audience,
   }) {
     return GroupAssignment(
       id: id,
@@ -125,6 +249,7 @@ class GroupAssignment {
       dueAt: clearDueAt ? null : (dueAt ?? this.dueAt),
       createdAt: createdAt,
       updatedAt: updatedAt,
+      audience: audience ?? this.audience,
     );
   }
 
@@ -171,6 +296,9 @@ class GroupAssignment {
         groupName == null) {
       return null;
     }
+
+    final audience = AssignmentAudience.tryFromMap(map);
+    if (audience == null) return null;
 
     final officialName = _readBounded(
       map['official_movement_name'],
@@ -280,6 +408,7 @@ class GroupAssignment {
       dueAt: TeacherRosterInvite.readDateTime(map['due_at']),
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       updatedAt: TeacherRosterInvite.readDateTime(map['updated_at']),
+      audience: audience,
     );
   }
 

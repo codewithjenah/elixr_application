@@ -227,13 +227,15 @@ class AssignmentDetailController extends ChangeNotifier {
       authorized = false;
       return;
     }
-    authorized = _memberships.any(
-      (membership) =>
-          membership.groupId == current.groupId &&
-          membership.teacherId == current.teacherId &&
-          membership.traineeId == traineeId &&
-          membership.hasClassroomAuthorization,
-    );
+    authorized =
+        _memberships.any(
+          (membership) =>
+              membership.groupId == current.groupId &&
+              membership.teacherId == current.teacherId &&
+              membership.traineeId == traineeId &&
+              membership.hasClassroomAuthorization,
+        ) &&
+        current.isAvailableToTrainee(traineeId);
   }
 
   Future<void> _ensureAttemptsWatch() async {

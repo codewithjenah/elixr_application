@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/repositories/group_repository.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
@@ -16,11 +18,14 @@ class InMemoryClassroomAssignmentRepository
   InMemoryClassroomAssignmentRepository({
     DateTime Function()? now,
     String Function()? generateId,
+    GroupRepository? groupRepository,
   }) : _now = now,
-       _generateId = generateId ?? _defaultId;
+       _generateId = generateId ?? _defaultId,
+       _groupRepository = groupRepository;
 
   final DateTime Function()? _now;
   final String Function() _generateId;
+  final GroupRepository? _groupRepository;
 
   final Map<String, GroupAssignment> assignments = {};
   final Map<String, AssignmentAttempt> attempts = {};
@@ -62,8 +67,16 @@ class InMemoryClassroomAssignmentRepository
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
+    if (!audience.isEntireClass) {
+      await _ensureAudienceTargetsAreApprovedMembers(
+        teacherId: teacherId,
+        group: group,
+        audience: audience,
+      );
+    }
     final id = _generateId();
     final created = now;
     final payload = officialAssignmentPayload(
@@ -73,6 +86,7 @@ class InMemoryClassroomAssignmentRepository
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
+      audience: audience,
       createdAt: created,
       updatedAt: created,
     );
@@ -93,8 +107,16 @@ class InMemoryClassroomAssignmentRepository
     required TeacherMovementRevision revision,
     int maxScore = 100,
     DateTime? dueAt,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
+    if (!audience.isEntireClass) {
+      await _ensureAudienceTargetsAreApprovedMembers(
+        teacherId: teacherId,
+        group: group,
+        audience: audience,
+      );
+    }
     final id = _generateId();
     final created = now;
     final payload = teacherCreatedAssignmentPayload(
@@ -105,6 +127,7 @@ class InMemoryClassroomAssignmentRepository
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      audience: audience,
       createdAt: created,
       updatedAt: created,
     );
@@ -157,6 +180,7 @@ class InMemoryClassroomAssignmentRepository
       dueAt: existing.dueAt,
       createdAt: existing.createdAt,
       updatedAt: now,
+      audience: existing.audience,
     );
     _emitTeacher(teacherId);
   }
@@ -236,6 +260,56 @@ class InMemoryClassroomAssignmentRepository
     final items = assignments.values
         .where((assignment) => assignment.groupId == groupId)
         .toList();
+    _sortAssignments(items);
+    return items;
+  }
+
+  @override
+  Future<List<GroupAssignment>> fetchAssignmentsForTrainee({
+    required String traineeId,
+    String? groupId,
+  }) async {
+    var items = assignments.values
+        .where(
+          (assignment) =>
+              assignment.isAvailableToTrainee(traineeId) &&
+              (groupId == null || assignment.groupId == groupId),
+        )
+        .toList();
+    final groupRepository = _groupRepository;
+    if (groupRepository != null && items.isNotEmpty) {
+      final approvedClasses = <(String, String)>{};
+      final classes = <(String, String)>{
+        for (final assignment in items)
+          (assignment.groupId, assignment.teacherId),
+      };
+      for (final classroom in classes) {
+        final memberships = await groupRepository
+            .watchGroupMemberships(
+              groupId: classroom.$1,
+              teacherId: classroom.$2,
+              status: GroupMembershipStatus.approved,
+            )
+            .first;
+        if (memberships.any(
+          (membership) =>
+              membership.traineeId == traineeId &&
+              membership.groupId == classroom.$1 &&
+              membership.teacherId == classroom.$2 &&
+              membership.hasClassroomAuthorization,
+        )) {
+          approvedClasses.add(classroom);
+        }
+      }
+      items = [
+        for (final assignment in items)
+          if (approvedClasses.contains((
+            assignment.groupId,
+            assignment.teacherId,
+          )))
+            assignment,
+      ];
+    }
     _sortAssignments(items);
     return items;
   }
@@ -838,6 +912,30 @@ class InMemoryClassroomAssignmentRepository
     _emitAssignmentAttempts(attempt.teacherId, attempt.assignmentId);
     _emitTraineeAttempts(attempt.traineeId);
     _emitTeacherAttempts(attempt.teacherId);
+  }
+
+  Future<void> _ensureAudienceTargetsAreApprovedMembers({
+    required String teacherId,
+    required ElixrGroup group,
+    required AssignmentAudience audience,
+  }) async {
+    if (audience.isEntireClass) return;
+    final repository = _groupRepository;
+    if (repository == null) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final memberships = await repository
+        .watchGroupMemberships(
+          groupId: group.id,
+          teacherId: teacherId,
+          status: GroupMembershipStatus.approved,
+        )
+        .first;
+    ensureAssignmentAudienceMatchesRoster(
+      audience: audience,
+      group: group,
+      memberships: memberships,
+    );
   }
 
   void _emitTeacher(String teacherId) {

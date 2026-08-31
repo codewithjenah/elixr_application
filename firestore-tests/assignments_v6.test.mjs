@@ -108,7 +108,11 @@ function canonicalInProgressDoc(overrides = {}) {
   };
 }
 
-async function seedClassroom({ membership = 'approved' } = {}) {
+async function seedClassroom({
+  membership = 'approved',
+  audienceType,
+  targetTraineeIds = [],
+} = {}) {
   await seedBypassingRules(async (admin) => {
     await setDoc(doc(admin, 'users', 'teacher'), {
       full_name: 'Grace Hopper',
@@ -179,6 +183,12 @@ async function seedClassroom({ membership = 'approved' } = {}) {
       group_name: 'BSHM 4A',
       display_instructions: 'Hold the tin upright.',
       allowed_prop: 'bottle',
+      ...(audienceType == null
+        ? {}
+        : {
+            audience_type: audienceType,
+            target_trainee_ids: targetTraineeIds,
+          }),
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
     });
@@ -247,6 +257,19 @@ describe('Phase 6 teacher_review_submission', () => {
 
   test('canonical creation is denied without approved membership', async () => {
     await seedClassroom({ membership: 'removed' });
+    await assertFails(
+      setDoc(
+        doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT),
+        canonicalInProgressDoc(),
+      ),
+    );
+  });
+
+  test('canonical creation is denied for an untargeted approved trainee', async () => {
+    await seedClassroom({
+      audienceType: 'individual_student',
+      targetTraineeIds: ['otherTrainee'],
+    });
     await assertFails(
       setDoc(
         doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT),

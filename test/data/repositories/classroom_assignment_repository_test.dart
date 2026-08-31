@@ -3,12 +3,15 @@ import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/assignment_submission_limits.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
+import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
 import 'package:elixr_core/constants/coaching_movement_names.dart';
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ElixrGroup _group({
@@ -53,6 +56,75 @@ void main() {
     expect(assignment.revisionId, identity.revisionId);
     expect(assignment.groupName, 'BSHM 4A');
     expect(assignment.dueAt, DateTime.utc(2026, 8, 21, 12));
+  });
+
+  test(
+    'targeted assignments require approved targets and filter trainee reads',
+    () async {
+      final groups = InMemoryGroupRepository();
+      groups.seedMembership(
+        const GroupMembership(
+          id: 'g1_trainee-a',
+          groupId: 'g1',
+          teacherId: 'teacher-1',
+          traineeId: 'trainee-a',
+          traineeDisplayName: 'Trainee A',
+          teacherDisplayName: 'Grace Hopper',
+          status: GroupMembershipStatus.approved,
+        ),
+      );
+      assignments.dispose();
+      assignments = InMemoryClassroomAssignmentRepository(
+        groupRepository: groups,
+        now: () => DateTime.utc(2026, 8, 20),
+        generateId: () => 'targeted',
+      );
+
+      final assignment = await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        officialMovementName: 'Hand Stall',
+        audience: AssignmentAudience.individualStudent(['trainee-a']),
+      );
+
+      expect(
+        assignment.audience.type,
+        AssignmentAudienceType.individualStudent,
+      );
+      expect(
+        await assignments.fetchAssignmentsForTrainee(traineeId: 'trainee-a'),
+        [assignment],
+      );
+      expect(
+        await assignments.fetchAssignmentsForTrainee(traineeId: 'trainee-b'),
+        isEmpty,
+      );
+      await expectLater(
+        assignments.createOfficialAssignment(
+          teacherId: 'teacher-1',
+          teacherDisplayName: 'Grace Hopper',
+          group: _group(),
+          officialMovementName: 'Hand Stall',
+          audience: AssignmentAudience.individualStudent(['trainee-b']),
+        ),
+        throwsA(isA<ClassroomException>()),
+      );
+      groups.dispose();
+    },
+  );
+
+  test('targeted in-memory creation rejects a missing membership source', () {
+    expect(
+      () => assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        officialMovementName: 'Hand Stall',
+        audience: AssignmentAudience.individualStudent(['trainee-a']),
+      ),
+      throwsA(isA<ClassroomException>()),
+    );
   });
 
   test('Teacher cannot assign to another Teacher group', () async {

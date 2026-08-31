@@ -119,6 +119,9 @@ class TeacherClassworkAssignmentList extends StatelessWidget {
               if (index > 0) const SizedBox(height: AppSpacing.sm),
               _AssignmentRow(
                 assignment: controller.assignments[index],
+                audienceLabel: controller.audienceLabel(
+                  controller.assignments[index],
+                ),
                 counts: controller.rosterCountsFor(
                   controller.assignments[index].id,
                 ),
@@ -147,6 +150,7 @@ class TeacherClassworkAssignmentList extends StatelessWidget {
 class _AssignmentRow extends StatelessWidget {
   const _AssignmentRow({
     required this.assignment,
+    required this.audienceLabel,
     required this.counts,
     required this.statusUnavailable,
     required this.onOpen,
@@ -155,6 +159,7 @@ class _AssignmentRow extends StatelessWidget {
   });
 
   final GroupAssignment assignment;
+  final String audienceLabel;
   final TeacherAssignmentRosterCounts counts;
   final bool statusUnavailable;
   final VoidCallback onOpen;
@@ -199,6 +204,7 @@ class _AssignmentRow extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               '${assignment.origin.displayLabel} · '
+                              '$audienceLabel · '
                               '${assignment.isActive ? 'Active' : 'Archived'}'
                               '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}',
                               style: AppTheme.caption.copyWith(
@@ -255,8 +261,8 @@ class _AssignmentMovementIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final movementName = assignment.officialMovementName ??
-        assignment.displayTitle;
+    final movementName =
+        assignment.officialMovementName ?? assignment.displayTitle;
     return Container(
       width: 56,
       height: 56,
@@ -525,6 +531,7 @@ class _AssignmentHeader extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '${assignment.origin.displayLabel} · '
+            '${controller.audienceLabel(assignment)} · '
             '${assignment.isActive ? 'Active' : 'Archived'}'
             '${assignment.dueAt == null ? '' : ' · Due ${_formatDue(assignment.dueAt!)}'}'
             '${assignment.isTeacherCreated ? ' · Maximum $maximum${assignment.gradingLocked ? ' (locked)' : ''}' : ''}',
@@ -603,11 +610,18 @@ class _Roster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final members = controller.approvedMemberships;
+    final members = [
+      for (final member in controller.approvedMemberships)
+        if (assignment.isAvailableToTrainee(member.traineeId)) member,
+    ];
     if (members.isEmpty) {
-      return const ElixStatusPanel(
-        title: 'No students yet',
-        message: 'Share the class code, then approve students who join.',
+      return ElixStatusPanel(
+        title: assignment.audience.isEntireClass
+            ? 'No students yet'
+            : 'No assigned students available',
+        message: assignment.audience.isEntireClass
+            ? 'Share the class code, then approve students who join.'
+            : 'The targeted students are no longer approved members of this class.',
       );
     }
     return Column(
@@ -644,8 +658,7 @@ class _Roster extends StatelessWidget {
               final submittedAt = attempt?.submittedAt;
               return Semantics(
                 button: true,
-                label:
-                    '${member.traineeDisplayName}, profile picture, $status',
+                label: '${member.traineeDisplayName}, profile picture, $status',
                 child: HoverButton(
                   key: Key('teacher_classwork_student_${member.traineeId}'),
                   cursor: SystemMouseCursors.click,
@@ -688,9 +701,7 @@ class _Roster extends StatelessWidget {
                               networkImageUrl: profilePictureUrlFor?.call(
                                 member.traineeId,
                               ),
-                              initials: userInitials(
-                                member.traineeDisplayName,
-                              ),
+                              initials: userInitials(member.traineeDisplayName),
                               radius: 22,
                               showBorder: false,
                             ),

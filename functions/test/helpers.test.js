@@ -3,12 +3,15 @@ const test = require('node:test');
 
 const {
   archivedConversationId,
+  assignmentAudienceAllows,
+  assignmentJsonValue,
   authenticatedUid,
   buildArchivedConversationData,
   buildSearchPrefixes,
   conversationIdFor,
   isActiveChatProfile,
   isSearchRateLimited,
+  listTraineeAssignmentsHandler,
   normalizeSearchText,
   sanitizeDirectoryDocuments,
   sanitizedResult,
@@ -20,6 +23,70 @@ const {
   legacyMessageId,
   shouldReplaceConversationSummary,
 } = require('../lib/migration_helpers');
+
+function fakeResponse() {
+  return {
+    headers: {},
+    statusCode: null,
+    body: null,
+    set(name, value) {
+      this.headers[name] = value;
+      return this;
+    },
+    status(value) {
+      this.statusCode = value;
+      return this;
+    },
+    json(value) {
+      this.body = value;
+      return this;
+    },
+    send(value) {
+      this.body = value;
+      return this;
+    },
+  };
+}
+
+function fakeAssignmentDatabase({memberships, assignments}) {
+  const assignmentQueries = [];
+  const docs = (values) => values.map((value) => ({
+    id: value.id,
+    data: () => value.data,
+  }));
+  return {
+    assignmentQueries,
+    collection(name) {
+      return {
+        where(field, operator, value) {
+          assert.equal(field, name === 'group_memberships'
+            ? 'trainee_id'
+            : 'group_id');
+          if (name === 'group_memberships') {
+            assert.equal(operator, '==');
+            return {
+              get: async () => ({
+                docs: docs(memberships.filter(
+                  (item) => item.data.trainee_id === value,
+                )),
+              }),
+            };
+          }
+          assert.equal(name, 'group_assignments');
+          assignmentQueries.push({operator, value});
+          const groupIds = operator === 'in' ? value : [value];
+          return {
+            get: async () => ({
+              docs: docs(assignments.filter(
+                (item) => groupIds.includes(item.data.group_id),
+              )),
+            }),
+          };
+        },
+      };
+    },
+  };
+}
 
 test('normalizes diacritics and whitespace for private directory search', () => {
   assert.equal(normalizeSearchText('  José   DELA Cruz '), 'jose dela cruz');
@@ -86,6 +153,198 @@ test('rate limit boundary is deterministic', () => {
 
 test('missing bearer authentication is rejected before token verification', async () => {
   assert.equal(await authenticatedUid({get: () => ''}), null);
+});
+
+test('assignment audience filtering preserves legacy and isolates targets', () => {
+  assert.equal(assignmentAudienceAllows({}, 'trainee-a'), true);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'entire_class',
+    target_trainee_ids: [],
+  }, 'trainee-a'), true);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'selected_students',
+    target_trainee_ids: ['trainee-a', 'trainee-b'],
+  }, 'trainee-a'), true);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'selected_students',
+    target_trainee_ids: ['trainee-b'],
+  }, 'trainee-a'), false);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'individual_student',
+    target_trainee_ids: ['trainee-a', 'trainee-b'],
+  }, 'trainee-a'), false);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'entire_class',
+  }, 'trainee-a'), false);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'selected_students',
+    target_trainee_ids: ['trainee-a', 'trainee-a'],
+  }, 'trainee-a'), false);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'selected_students',
+    target_trainee_ids: [
+      'trainee-a', 'trainee-b', 'trainee-c',
+      'trainee-d', 'trainee-e', 'trainee-f',
+    ],
+  }, 'trainee-a'), false);
+  assert.equal(assignmentAudienceAllows({
+    audience_type: 'individual_student',
+    target_trainee_ids: ['not a valid id'],
+  }, 'not a valid id'), false);
+});
+
+test('assignment JSON timestamps are converted recursively', () => {
+  const timestamp = {toDate: () => new Date('2026-08-31T00:00:00.000Z')};
+  assert.deepEqual(assignmentJsonValue({created_at: timestamp}), {
+    created_at: '2026-08-31T00:00:00.000Z',
+  });
+});
+
+test('trainee assignment handler authenticates, scopes, and filters', async () => {
+  const timestamp = {toDate: () => new Date('2026-08-31T00:00:00.000Z')};
+  const database = fakeAssignmentDatabase({
+    memberships: [
+      {
+        id: 'g1_trainee-a',
+        data: {
+          trainee_id: 'trainee-a',
+          teacher_id: 'teacher-a',
+          group_id: 'g1',
+          status: 'approved',
+        },
+      },
+      {
+        id: 'g2_trainee-a',
+        data: {
+          trainee_id: 'trainee-a',
+          teacher_id: 'teacher-a',
+          group_id: 'g2',
+          status: 'removed',
+        },
+      },
+    ],
+    assignments: [
+      {
+        id: 'legacy',
+        data: {
+          group_id: 'g1',
+          teacher_id: 'teacher-a',
+          created_at: timestamp,
+        },
+      },
+      {
+        id: 'selected',
+        data: {
+          group_id: 'g1',
+          teacher_id: 'teacher-a',
+          audience_type: 'selected_students',
+          target_trainee_ids: ['trainee-a', 'trainee-b'],
+        },
+      },
+      {
+        id: 'not-targeted',
+        data: {
+          group_id: 'g1',
+          teacher_id: 'teacher-a',
+          audience_type: 'individual_student',
+          target_trainee_ids: ['trainee-b'],
+        },
+      },
+      {
+        id: 'wrong-owner',
+        data: {group_id: 'g1', teacher_id: 'teacher-b'},
+      },
+      {
+        id: 'malformed',
+        data: {
+          group_id: 'g1',
+          teacher_id: 'teacher-a',
+          audience_type: 'selected_students',
+          target_trainee_ids: ['trainee-a', 'trainee-a'],
+        },
+      },
+    ],
+  });
+  const response = fakeResponse();
+
+  await listTraineeAssignmentsHandler(
+    {method: 'GET', query: {group_id: 'g1'}},
+    response,
+    {
+      authenticate: async () => 'trainee-a',
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body.assignments.map((item) => item.id), [
+    'legacy',
+    'selected',
+  ]);
+  assert.equal(
+    response.body.assignments[0].created_at,
+    '2026-08-31T00:00:00.000Z',
+  );
+  assert.deepEqual(database.assignmentQueries, [{operator: '==', value: 'g1'}]);
+});
+
+test('trainee assignment handler rejects missing auth before database access', async () => {
+  const response = fakeResponse();
+  let databaseAccessed = false;
+
+  await listTraineeAssignmentsHandler(
+    {method: 'GET', query: {}},
+    response,
+    {
+      authenticate: async () => null,
+      databaseFactory: () => {
+        databaseAccessed = true;
+        throw new Error('should not be called');
+      },
+    },
+  );
+
+  assert.equal(response.statusCode, 401);
+  assert.deepEqual(response.body, {error: 'unauthenticated'});
+  assert.equal(databaseAccessed, false);
+});
+
+test('trainee assignment handler chunks classroom queries at thirty', async () => {
+  const memberships = Array.from({length: 31}, (_, index) => ({
+    id: `g${index}_trainee-a`,
+    data: {
+      trainee_id: 'trainee-a',
+      teacher_id: 'teacher-a',
+      group_id: `g${index}`,
+      status: 'approved',
+    },
+  }));
+  const assignments = memberships.map((membership, index) => ({
+    id: `assignment-${index}`,
+    data: {
+      group_id: membership.data.group_id,
+      teacher_id: 'teacher-a',
+      audience_type: 'entire_class',
+      target_trainee_ids: [],
+    },
+  }));
+  const database = fakeAssignmentDatabase({memberships, assignments});
+  const response = fakeResponse();
+
+  await listTraineeAssignmentsHandler(
+    {method: 'GET', query: {}},
+    response,
+    {
+      authenticate: async () => 'trainee-a',
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.assignments.length, 31);
+  assert.equal(database.assignmentQueries.length, 2);
+  assert.equal(database.assignmentQueries[0].value.length, 30);
+  assert.equal(database.assignmentQueries[1].operator, '==');
 });
 
 test('account erasure excludes deleting profiles and builds idempotent archives', () => {

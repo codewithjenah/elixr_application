@@ -118,18 +118,19 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
           .watchTraineeMemberships(traineeId: traineeId)
           .first;
       if (!mounted) return;
-      final authorized = memberships.any(
-        (membership) =>
-            membership.groupId == assignment.groupId &&
-            membership.teacherId == assignment.teacherId &&
-            membership.traineeId == traineeId &&
-            membership.hasClassroomAuthorization,
-      );
+      final authorized =
+          memberships.any(
+            (membership) =>
+                membership.groupId == assignment.groupId &&
+                membership.teacherId == assignment.teacherId &&
+                membership.traineeId == traineeId &&
+                membership.hasClassroomAuthorization,
+          ) &&
+          assignment.isAvailableToTrainee(traineeId);
       if (!authorized) {
         setState(() {
           _loading = false;
-          _error =
-              'You need to be accepted into this class before you can practice this assignment.';
+          _error = 'This assignment is not available to your account.';
         });
         return;
       }

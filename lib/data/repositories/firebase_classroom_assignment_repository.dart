@@ -1,6 +1,12 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/models/elixr_group.dart';
+import 'package:elixr_core/models/group_membership.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
@@ -14,16 +20,36 @@ import 'classroom_assignment_repository.dart';
 
 class FirebaseClassroomAssignmentRepository
     implements ClassroomAssignmentRepository {
-  FirebaseClassroomAssignmentRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  FirebaseClassroomAssignmentRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    Uri? apiBaseUri,
+    HttpClient Function()? httpClientFactory,
+    this.requestTimeout = const Duration(seconds: 10),
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _auth = auth ?? FirebaseAuth.instance,
+       apiBaseUri = apiBaseUri ?? Uri.parse(_configuredApiBaseUrl),
+       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+
+  static const _configuredApiBaseUrl = String.fromEnvironment(
+    'ELIXR_ASSIGNMENTS_API_BASE_URL',
+    defaultValue: 'https://asia-southeast1-elixr-app-2026.cloudfunctions.net/',
+  );
 
   final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
+  final Uri apiBaseUri;
+  final HttpClient Function() _httpClientFactory;
+  final Duration requestTimeout;
 
   CollectionReference<Map<String, dynamic>> get _assignments =>
       _firestore.collection(FirestoreCollections.groupAssignments);
 
   CollectionReference<Map<String, dynamic>> get _attempts =>
       _firestore.collection(FirestoreCollections.assignmentAttempts);
+
+  CollectionReference<Map<String, dynamic>> get _memberships =>
+      _firestore.collection(FirestoreCollections.groupMemberships);
 
   @override
   Future<GroupAssignment> createOfficialAssignment({
@@ -33,8 +59,14 @@ class FirebaseClassroomAssignmentRepository
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
+    await _ensureAudienceTargetsAreApprovedMembers(
+      teacherId: teacherId,
+      group: group,
+      audience: audience,
+    );
     final payload = officialAssignmentPayload(
       teacherId: teacherId,
       teacherDisplayName: teacherDisplayName,
@@ -42,6 +74,7 @@ class FirebaseClassroomAssignmentRepository
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
+      audience: audience,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     );
@@ -64,8 +97,14 @@ class FirebaseClassroomAssignmentRepository
     required TeacherMovementRevision revision,
     int maxScore = 100,
     DateTime? dueAt,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
+    await _ensureAudienceTargetsAreApprovedMembers(
+      teacherId: teacherId,
+      group: group,
+      audience: audience,
+    );
     var persistedPayload = teacherCreatedAssignmentPayload(
       teacherId: teacherId,
       teacherDisplayName: teacherDisplayName,
@@ -74,6 +113,7 @@ class FirebaseClassroomAssignmentRepository
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      audience: audience,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     );
@@ -94,6 +134,7 @@ class FirebaseClassroomAssignmentRepository
         revision: revision,
         maxScore: maxScore,
         dueAt: dueAt,
+        audience: audience,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         includeGradingFields: false,
@@ -244,6 +285,78 @@ class FirebaseClassroomAssignmentRepository
         .toList();
     _sortAssignments(items);
     return items;
+  }
+
+  @override
+  Future<List<GroupAssignment>> fetchAssignmentsForTrainee({
+    required String traineeId,
+    String? groupId,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null || user.uid != traineeId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final token = await user.getIdToken();
+    if (token == null || token.isEmpty) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final endpoint = apiBaseUri
+        .resolve('listTraineeAssignments')
+        .replace(queryParameters: {'group_id': ?groupId});
+    final client = _httpClientFactory();
+    try {
+      final request = await client.getUrl(endpoint).timeout(requestTimeout);
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final response = await request.close().timeout(requestTimeout);
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        throw const ClassroomException(ClassroomError.forbidden);
+      }
+      if (response.statusCode != HttpStatus.ok) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      final decoded = jsonDecode(body);
+      final values = decoded is Map<String, dynamic>
+          ? decoded['assignments']
+          : null;
+      if (values is! List) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      final items = <GroupAssignment>[];
+      for (final value in values) {
+        if (value is! Map) {
+          continue;
+        }
+        final map = Map<String, dynamic>.from(value);
+        final id = map['id'];
+        if (id is! String || id.trim().isEmpty || id.trim().length > 128) {
+          continue;
+        }
+        final assignment = GroupAssignment.tryFromMap(map, id: id.trim());
+        if (assignment != null &&
+            assignment.isAvailableToTrainee(traineeId) &&
+            (groupId == null || assignment.groupId == groupId)) {
+          items.add(assignment);
+        }
+      }
+      _sortAssignments(items);
+      return items;
+    } on ClassroomException {
+      rethrow;
+    } on TimeoutException {
+      throw const ClassroomException(ClassroomError.invalidState);
+    } on SocketException {
+      throw const ClassroomException(ClassroomError.invalidState);
+    } on FormatException {
+      throw const ClassroomException(ClassroomError.malformed);
+    } finally {
+      client.close(force: true);
+    }
   }
 
   @override
@@ -815,6 +928,30 @@ class FirebaseClassroomAssignmentRepository
   }
 
   static bool _isFirebaseException(Object error) => error is FirebaseException;
+
+  /// Re-read the approved roster immediately before a targeted assignment is
+  /// written. This is intentionally one constrained membership query, not one
+  /// read per target.
+  Future<void> _ensureAudienceTargetsAreApprovedMembers({
+    required String teacherId,
+    required ElixrGroup group,
+    required AssignmentAudience audience,
+  }) async {
+    if (audience.isEntireClass) return;
+    final snapshot = await _memberships
+        .where('teacher_id', isEqualTo: teacherId)
+        .where('group_id', isEqualTo: group.id)
+        .where('status', isEqualTo: GroupMembershipStatus.approved.name)
+        .get();
+    ensureAssignmentAudienceMatchesRoster(
+      audience: audience,
+      group: group,
+      memberships: [
+        for (final doc in snapshot.docs)
+          ?GroupMembership.tryFromMap(doc.data(), id: doc.id),
+      ],
+    );
+  }
 
   static void _sortAssignments(List<GroupAssignment> items) {
     items.sort((a, b) {

@@ -43,6 +43,7 @@ class TeacherMovementsController extends ChangeNotifier {
         teacherId: teacherId,
         teacherDisplayName: teacherDisplayName,
         assignmentRepository: assignmentRepository,
+        groupRepository: groupRepository,
         movementRepository: movementRepository,
         ensureTeacherAuthorization: ensureTeacherAuthorization,
       );

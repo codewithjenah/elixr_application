@@ -271,12 +271,17 @@ class TeacherAccessController extends ChangeNotifier {
       for (final membership in approvedGroupMemberships) membership.groupId,
     ];
     try {
-      final next = <String, List<GroupAssignment>>{};
-      for (final groupId in groupIds) {
-        if (_disposed || gen != _assignmentLoadGen) return;
-        next[groupId] = await repo.fetchAssignmentsForGroup(groupId: groupId);
-      }
+      final visible = await repo.fetchAssignmentsForTrainee(
+        traineeId: traineeId,
+      );
       if (_disposed || gen != _assignmentLoadGen) return;
+      final next = {
+        for (final groupId in groupIds)
+          groupId: [
+            for (final assignment in visible)
+              if (assignment.groupId == groupId) assignment,
+          ],
+      };
       assignmentsByGroupId = next;
       _safeNotifyListeners();
     } catch (error, stackTrace) {

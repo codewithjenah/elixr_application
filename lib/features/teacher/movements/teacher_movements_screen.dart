@@ -467,6 +467,7 @@ Future<void> _showAssignToClass(
     groups: controller.activeGroups,
     movementRepository: controller.movementRepository,
     assignmentRepository: controller.assignmentRepository,
+    groupRepository: controller.groupRepository,
     creationService: controller.assignmentCreationService,
     officialMovement: official,
     teacherCreatedMovement: custom,

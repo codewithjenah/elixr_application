@@ -337,6 +337,38 @@ Collections (IDs in `packages/elixr_core/lib/database/firestore_collections.dart
 - `group_assignments/{assignmentId}` — frozen identity: `teacher_id`, `group_id`, `movement_id`, `revision_id`, `origin` (`official_elixr`|`teacher_created`), `assessment_mode`. Frozen display snapshot: `display_title`, `teacher_display_name`, `group_name`, `official_movement_name`, `allowed_prop`, `display_instructions`, `display_safety_guidance`. Lifecycle after create: `status`, `updated_at`, optional `due_at` only. Official requires `official_movement_name`. Teacher-created create must snapshot the movement’s **current** revision (`display_title` = movement title, `display_instructions` / `allowed_prop` / optional `display_safety_guidance` = revision spec).
 - `assignment_attempts/{attemptId}` — frozen identity including `awards_global_xp: false`. Official pointer: `attempt_kind=practice_pointer`, `status=submitted`, `source_session_id`, copied V2 rubric fields, document ID `official_ptr_{sessionId}`. Teacher-created Phase 5: `attempt_kind=teacher_review_draft`, `status` `draft`|`in_progress`, no session/rubric/video/review fields, canonical first-attempt ID `tc_draft_{assignmentId}_{traineeId}`.
 
+### Targeted assignment audience contract
+
+Current source extends the single canonical `group_assignments` document with
+`audience_type` (`entire_class`, `selected_students`, or
+`individual_student`) and `target_trainee_ids`. New entire-class writes use an
+empty target list, selected-student writes require one to five unique approved
+members of the assignment classroom, and individual writes require exactly one.
+Both fields are immutable with the assignment snapshot. Documents that predate
+both fields remain compatible and are interpreted as entire-class assignments;
+partially present or malformed audience data fails closed.
+
+Target membership is re-read before publishing and validated again by
+Firestore rules. Trainee direct reads, official session/pointer creation, and
+Teacher-reviewed attempt creation/submit transitions require both current
+approved classroom membership and audience inclusion. Teacher ownership access
+is unchanged. A removed target loses new read/start/submit access without
+invalidating access for other still-approved targets.
+
+Trainee discovery uses the authenticated `listTraineeAssignments` HTTPS
+Function. The Function derives the caller identity from the Firebase bearer
+token, resolves only that caller's approved memberships, and filters legacy,
+entire-class, and explicit targets server-side. The client no longer issues a
+broad classroom assignment query, because Firestore rules cannot safely treat a
+broad query as a per-document filter. This design needs no new composite index;
+the Admin SDK queries use the existing single-field indexes and bounded chunks.
+The client defaults to the deployed `elixr-app-2026` Function URL; local or
+alternate environments can set `ELIXR_ASSIGNMENTS_API_BASE_URL` with a Dart
+compile-time define.
+The explicit target cap is five so rule-time membership validation remains
+within Firestore's 10-document access limit for both Official ELIXR and
+Teacher-created assignment writes.
+
 `sessions` gained optional `assignment_context: { assignment_id, group_id, teacher_id, movement_id, revision_id }` — present only for official assigned guided sessions; immutable after create.
 
 Official pointer ID helper: `assignmentAttemptIdForOfficialSession(sessionId)` → `official_ptr_{sessionId}`. Teacher-created first draft helper: `assignmentAttemptIdForTeacherCreatedDraft` → `tc_draft_{assignmentId}_{traineeId}` (also enforced in Firestore rules).

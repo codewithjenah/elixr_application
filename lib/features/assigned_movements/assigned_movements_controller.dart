@@ -44,8 +44,8 @@ class AssignedMovementsController extends ChangeNotifier {
 
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
-  List<GroupMembership> _memberships = const [];
   List<AssignmentAttempt> _attempts = const [];
+  Set<String> _approvedGroupIds = const {};
 
   Future<void> start() async {
     loading = true;
@@ -58,8 +58,11 @@ class AssignedMovementsController extends ChangeNotifier {
         _membershipsSub = groupRepository
             .watchTraineeMemberships(traineeId: traineeId)
             .listen(
-              (value) {
-                _memberships = value;
+              (memberships) {
+                _approvedGroupIds = {
+                  for (final membership in memberships)
+                    if (membership.isApproved) membership.groupId,
+                };
                 if (!membershipsFirst.isCompleted) membershipsFirst.complete();
                 unawaited(_reloadAssignments());
               },
@@ -108,26 +111,16 @@ class AssignedMovementsController extends ChangeNotifier {
 
   Future<void> _reloadAssignments() async {
     try {
-      final List<GroupAssignment> loaded;
-      final scopedGroupId = filterGroupId;
-      if (scopedGroupId != null) {
-        loaded = await assignmentRepository.fetchAssignmentsForGroup(
-          groupId: scopedGroupId,
-        );
-      } else {
-        final approved = _memberships
-            .where((membership) => membership.hasClassroomAuthorization)
-            .toList();
-        loaded = <GroupAssignment>[];
-        for (final membership in approved) {
-          loaded.addAll(
-            await assignmentRepository.fetchAssignmentsForGroup(
-              groupId: membership.groupId,
-            ),
-          );
-        }
-      }
-      _assignments = loaded;
+      final loaded = await assignmentRepository.fetchAssignmentsForTrainee(
+        traineeId: traineeId,
+        groupId: filterGroupId,
+      );
+      _assignments = filterGroupId == null
+          ? [
+              for (final assignment in loaded)
+                if (_approvedGroupIds.contains(assignment.groupId)) assignment,
+            ]
+          : loaded;
       _rebuildItems();
       errorMessage = null;
       notifyListeners();

@@ -2868,6 +2868,7 @@ service cloud.firestore {
         && assignment.group_id == ctx.group_id
         && assignment.movement_id == ctx.movement_id
         && assignment.revision_id == ctx.revision_id
+        && assignmentAllowsTrainee(assignment, request.auth.uid)
         && assignment.official_movement_name == data.movement_name
         && membership.group_id == ctx.group_id
         && membership.trainee_id == request.auth.uid
@@ -3042,8 +3043,84 @@ service cloud.firestore {
       return groupAssignmentRequiredKeys().concat([
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
-        'grading_locked', 'grading_locked_at',
+        'grading_locked', 'grading_locked_at', 'audience_type',
+        'target_trainee_ids',
       ]);
+    }
+    function hasAssignmentAudienceFields(data) {
+      return data.keys().hasAll(['audience_type', 'target_trainee_ids']);
+    }
+    function isLegacyEntireClassAssignment(data) {
+      return !data.keys().hasAny(['audience_type', 'target_trainee_ids']);
+    }
+    function validAssignmentTarget(data, index) {
+      let traineeId = data.target_trainee_ids[index];
+      let membership = get(
+        groupMembershipPath(data.group_id, traineeId)
+      ).data;
+      return isClassroomDocId(traineeId)
+        && membership.group_id == data.group_id
+        && membership.teacher_id == data.teacher_id
+        && membership.trainee_id == traineeId
+        && membership.status == 'approved';
+    }
+    function validAssignmentTargetId(data, index) {
+      return isClassroomDocId(data.target_trainee_ids[index]);
+    }
+    function validAssignmentTargetIds(data) {
+      let size = data.target_trainee_ids.size();
+      return (size < 1 || validAssignmentTargetId(data, 0))
+        && (size < 2 || validAssignmentTargetId(data, 1))
+        && (size < 3 || validAssignmentTargetId(data, 2))
+        && (size < 4 || validAssignmentTargetId(data, 3))
+        && (size < 5 || validAssignmentTargetId(data, 4));
+    }
+    function validAssignmentTargets(data) {
+      let size = data.target_trainee_ids.size();
+      return (size < 1 || validAssignmentTarget(data, 0))
+        && (size < 2 || validAssignmentTarget(data, 1))
+        && (size < 3 || validAssignmentTarget(data, 2))
+        && (size < 4 || validAssignmentTarget(data, 3))
+        && (size < 5 || validAssignmentTarget(data, 4));
+    }
+    function validAssignmentAudienceShape(data) {
+      return hasAssignmentAudienceFields(data)
+        && data.audience_type in [
+          'entire_class', 'selected_students', 'individual_student'
+        ]
+        && data.target_trainee_ids is list
+        && data.target_trainee_ids.size() <= 5
+        && data.target_trainee_ids.toSet().size()
+          == data.target_trainee_ids.size()
+        && validAssignmentTargetIds(data)
+        && (
+          data.audience_type == 'entire_class'
+            ? data.target_trainee_ids.size() == 0
+            : data.audience_type == 'individual_student'
+              ? data.target_trainee_ids.size() == 1
+                && isClassroomDocId(data.target_trainee_ids[0])
+              : data.target_trainee_ids.size() >= 1
+        );
+    }
+    function validAssignmentAudienceCreate(data) {
+      return validAssignmentAudienceShape(data)
+        && validAssignmentTargets(data);
+    }
+    function assignmentAllowsTrainee(data, traineeId) {
+      return isLegacyEntireClassAssignment(data)
+        || (
+          validAssignmentAudienceShape(data)
+          && (
+            data.audience_type == 'entire_class'
+            || traineeId in data.target_trainee_ids
+          )
+        );
+    }
+    function traineeCanAccessAssignment(data, traineeId) {
+      let membership = get(groupMembershipPath(data.group_id, traineeId)).data;
+      return assignmentAllowsTrainee(data, traineeId)
+        && hasApprovedTraineeMembership(data.group_id, traineeId)
+        && membership.teacher_id == data.teacher_id;
     }
     function validOfficialAssignmentCreate(data) {
       return data.origin == 'official_elixr'
@@ -3107,6 +3184,7 @@ service cloud.firestore {
       return isVerifiedTeacher()
         && data.keys().hasAll(groupAssignmentRequiredKeys())
         && data.keys().hasOnly(groupAssignmentAllowedKeys())
+        && validAssignmentAudienceCreate(data)
         && data.teacher_id == request.auth.uid
         && isParticipantId(data.teacher_id)
         && isClassroomDocId(data.group_id)
@@ -3154,6 +3232,10 @@ service cloud.firestore {
           == resource.data.get('display_instructions', '__elixr_absent__')
         && request.resource.data.get('display_safety_guidance', '__elixr_absent__')
           == resource.data.get('display_safety_guidance', '__elixr_absent__')
+        && request.resource.data.get('audience_type', '__elixr_absent__')
+          == resource.data.get('audience_type', '__elixr_absent__')
+        && request.resource.data.get('target_trainee_ids', [])
+          == resource.data.get('target_trainee_ids', [])
         && request.resource.data.status in ['active', 'archived']
         && request.resource.data.updated_at == request.time
         && (
@@ -3200,11 +3282,9 @@ service cloud.firestore {
       allow get: if isSignedIn()
         && (
           resource.data.teacher_id == request.auth.uid
-          || hasApprovedTraineeMembership(resource.data.group_id, request.auth.uid)
+          || traineeCanAccessAssignment(resource.data, request.auth.uid)
         );
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
-      allow list: if isSignedIn()
-        && hasApprovedTraineeMembership(resource.data.group_id, request.auth.uid);
       allow create: if validGroupAssignmentCreate(request.resource.data);
       allow update: if validGroupAssignmentUpdate();
       allow delete: if isSignedIn()
@@ -3293,11 +3373,13 @@ service cloud.firestore {
         && assignment.revision_id == data.revision_id
         && assignment.origin == data.origin
         && assignment.assessment_mode == data.assessment_mode
+        && assignmentAllowsTrainee(assignment, data.trainee_id)
         && assignment.status == 'active';
     }
     function assignmentSubmissionIsOpen(data) {
       let assignment = get(assignmentPath(data.assignment_id)).data;
       return assignment.status == 'active'
+        && traineeCanAccessAssignment(assignment, data.trainee_id)
         && (
           !assignment.keys().hasAny(['due_at'])
           || request.time <= assignment.due_at
@@ -3459,6 +3541,7 @@ service cloud.firestore {
       return resource.data.trainee_id == request.auth.uid
         && resource.data.attempt_kind == 'teacher_review_draft'
         && resource.data.origin == 'teacher_created'
+        && assignmentSubmissionIsOpen(resource.data)
         && assignmentAttemptIdentityUnchanged()
         && request.resource.data.keys().hasOnly(teacherDraftAllowedKeys())
         && resource.data.status == 'draft'
@@ -3494,6 +3577,7 @@ service cloud.firestore {
           + resource.data.trainee_id
         && resource.data.status == 'draft'
         && after.status == 'in_progress'
+        && assignmentSubmissionIsOpen(resource.data)
         && assignmentAttemptIdentityUnchanged()
         && after.keys().hasOnly(assignmentAttemptIdentityKeys())
         && !after.keys().hasAny([

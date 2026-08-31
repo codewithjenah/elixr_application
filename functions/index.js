@@ -160,6 +160,54 @@ function setCors(response) {
   response.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 }
 
+function assignmentAudienceAllows(data, traineeId) {
+  const hasType = Object.hasOwn(data, 'audience_type');
+  const hasTargets = Object.hasOwn(data, 'target_trainee_ids');
+  if (!hasType && !hasTargets) return true;
+  if (!hasType || !hasTargets || !Array.isArray(data.target_trainee_ids)) {
+    return false;
+  }
+  const targets = data.target_trainee_ids;
+  if (targets.length > 5 || new Set(targets).size !== targets.length ||
+      targets.some((target) => typeof target !== 'string' ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(target))) {
+    return false;
+  }
+  if (data.audience_type === 'entire_class') {
+    return targets.length === 0;
+  }
+  if (data.audience_type === 'individual_student') {
+    return targets.length === 1 && targets[0] === traineeId;
+  }
+  if (data.audience_type === 'selected_students') {
+    return targets.length > 0 && targets.includes(traineeId);
+  }
+  return false;
+}
+
+function assignmentJsonValue(value) {
+  if (value && typeof value.toDate === 'function') {
+    return value.toDate().toISOString();
+  }
+  if (Array.isArray(value)) return value.map(assignmentJsonValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        assignmentJsonValue(nested),
+      ]),
+    );
+  }
+  return value;
+}
+
+function sanitizedAssignment(document) {
+  return {
+    ...assignmentJsonValue(document.data()),
+    id: document.id,
+  };
+}
+
 async function enforceSearchRateLimit(uid) {
   const firestore = getFirestore();
   const ref = firestore.collection('chat_search_rate_limits').doc(uid);
@@ -245,6 +293,88 @@ exports.searchChatUsers = onRequest(
     const results = sanitizeDirectoryDocuments(uid, documents);
     response.status(200).json({results});
   },
+);
+
+async function listTraineeAssignmentsHandler(
+  request,
+  response,
+  {authenticate = authenticatedUid, databaseFactory = getFirestore} = {},
+) {
+  setCors(response);
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+  if (request.method !== 'GET') {
+    response.status(405).json({error: 'method_not_allowed'});
+    return;
+  }
+  const uid = await authenticate(request);
+  if (!uid) {
+    response.status(401).json({error: 'unauthenticated'});
+    return;
+  }
+  const requestedGroupId = String(request.query.group_id || '').trim();
+  if (requestedGroupId &&
+      !/^[A-Za-z0-9_-]{1,128}$/.test(requestedGroupId)) {
+    response.status(400).json({error: 'invalid_group'});
+    return;
+  }
+
+  try {
+    const firestore = databaseFactory();
+    const memberships = await firestore
+      .collection('group_memberships')
+      .where('trainee_id', '==', uid)
+      .get();
+    const approvedMemberships = memberships.docs
+      .map((document) => ({id: document.id, data: document.data()}))
+      .filter(({id, data}) => data.trainee_id === uid &&
+        data.status === 'approved' &&
+        typeof data.group_id === 'string' &&
+        typeof data.teacher_id === 'string' &&
+        /^[A-Za-z0-9_-]{1,128}$/.test(data.group_id) &&
+        /^[A-Za-z0-9_-]{1,128}$/.test(data.teacher_id) &&
+        id === `${data.group_id}_${uid}`)
+      .map(({data}) => data);
+    const teacherByGroupId = new Map(
+      approvedMemberships.map((data) => [data.group_id, data.teacher_id]),
+    );
+    let groupIds = [...teacherByGroupId.keys()];
+    if (requestedGroupId) {
+      groupIds = groupIds.includes(requestedGroupId) ? [requestedGroupId] : [];
+    }
+    if (groupIds.length === 0) {
+      response.status(200).json({assignments: []});
+      return;
+    }
+
+    const documents = [];
+    for (let index = 0; index < groupIds.length; index += 30) {
+      const chunk = groupIds.slice(index, index + 30);
+      let query = firestore.collection('group_assignments');
+      query = chunk.length === 1
+        ? query.where('group_id', '==', chunk[0])
+        : query.where('group_id', 'in', chunk);
+      const snapshot = await query.get();
+      documents.push(...snapshot.docs);
+    }
+    const assignments = documents
+      .filter((document) => {
+        const data = document.data();
+        return teacherByGroupId.get(data.group_id) === data.teacher_id &&
+          assignmentAudienceAllows(data, uid);
+      })
+      .map(sanitizedAssignment);
+    response.status(200).json({assignments});
+  } catch (_) {
+    response.status(503).json({error: 'unavailable'});
+  }
+}
+
+exports.listTraineeAssignments = onRequest(
+  {region: REGION, cors: false, timeoutSeconds: 15},
+  listTraineeAssignmentsHandler,
 );
 
 exports.projectChatUserDirectory = onDocumentWritten(
@@ -412,4 +542,8 @@ exports._test = {
   archivedConversationId,
   buildArchivedConversationData,
   authenticatedUid,
+  assignmentAudienceAllows,
+  assignmentJsonValue,
+  sanitizedAssignment,
+  listTraineeAssignmentsHandler,
 };

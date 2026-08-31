@@ -155,15 +155,34 @@ void main() {
     expect(find.byKey(const Key('teacher_classwork_roster')), findsNothing);
   });
 
+  testWidgets('targeted assignment roster excludes untargeted classmates', (
+    tester,
+  ) async {
+    assignments.seedAssignment(
+      assignments.assignments['assignment']!.copyWith(
+        audience: AssignmentAudience.individualStudent(const ['student']),
+      ),
+    );
+    await pumpPane(tester, const Size(1280, 720));
+
+    expect(
+      find.byKey(const Key('teacher_classwork_student_student')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_classwork_student_alan')),
+      findsNothing,
+    );
+    expect(find.textContaining('Individual: Ada Lovelace'), findsOneWidget);
+  });
+
   testWidgets('roster rows expose semantics and support keyboard activation', (
     tester,
   ) async {
     await pumpPane(tester, const Size(1280, 720));
 
     expect(
-      find.bySemanticsLabel(
-        'Ada Lovelace, profile picture, Not turned in',
-      ),
+      find.bySemanticsLabel('Ada Lovelace, profile picture, Not turned in'),
       findsOneWidget,
     );
 

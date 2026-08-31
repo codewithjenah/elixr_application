@@ -114,7 +114,14 @@ function assignmentContext(assignmentId = ASG_A) {
   };
 }
 
-function officialAssignmentDoc(assignmentId = ASG_A) {
+function officialAssignmentDoc(
+  assignmentId = ASG_A,
+  {
+    audienceType = 'entire_class',
+    targetTraineeIds = [],
+    legacy = false,
+  } = {},
+) {
   const ctx = assignmentContext(assignmentId);
   const name = assignmentId === ASG_B ? 'Normal Grip' : 'Hand Stall';
   return {
@@ -129,6 +136,12 @@ function officialAssignmentDoc(assignmentId = ASG_A) {
     teacher_display_name: 'Grace Hopper',
     group_name: 'BSHM 4A',
     official_movement_name: name,
+    ...(legacy
+      ? {}
+      : {
+          audience_type: audienceType,
+          target_trainee_ids: targetTraineeIds,
+        }),
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   };
@@ -230,7 +243,96 @@ async function seedClassroom({ secondAssignment = true } = {}) {
   });
 }
 
+async function seedApprovedOtherTrainee() {
+  await seedBypassingRules(async (admin) => {
+    await setDoc(doc(admin, 'group_memberships', `${GROUP_ID}_otherTrainee`), {
+      group_id: GROUP_ID,
+      teacher_id: 'teacher',
+      trainee_id: 'otherTrainee',
+      teacher_display_name: 'Grace Hopper',
+      trainee_display_name: 'Other Trainee',
+      status: 'approved',
+      invite_id: '7KPMXR4DQ2WT',
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+    });
+  });
+}
+
 describe('Phase 5 official assignment session+pointer contract', () => {
+  test('assignment reads enforce audience while legacy remains entire-class', async () => {
+    await seedClassroom({secondAssignment: false});
+    await seedApprovedOtherTrainee();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgTargetTrainee'),
+        officialAssignmentDoc(ASG_A, {
+          audienceType: 'individual_student',
+          targetTraineeIds: ['trainee'],
+        }),
+      );
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgTargetOther'),
+        officialAssignmentDoc(ASG_A, {
+          audienceType: 'individual_student',
+          targetTraineeIds: ['otherTrainee'],
+        }),
+      );
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgLegacy'),
+        officialAssignmentDoc(ASG_A, {legacy: true}),
+      );
+    });
+
+    const traineeDb = context('trainee').firestore();
+    const otherDb = context('otherTrainee').firestore();
+    await assertSucceeds(
+      getDoc(doc(traineeDb, 'group_assignments', 'asgTargetTrainee')),
+    );
+    await assertFails(
+      getDoc(doc(traineeDb, 'group_assignments', 'asgTargetOther')),
+    );
+    await assertSucceeds(
+      getDoc(doc(otherDb, 'group_assignments', 'asgTargetOther')),
+    );
+    await assertSucceeds(
+      getDoc(doc(traineeDb, 'group_assignments', 'asgLegacy')),
+    );
+    await assertSucceeds(
+      getDoc(doc(context('teacher').firestore(), 'group_assignments', 'asgTargetOther')),
+    );
+    await assertFails(
+      getDocs(query(
+        collection(traineeDb, 'group_assignments'),
+        where('group_id', '==', GROUP_ID),
+      )),
+    );
+  });
+
+  test('untargeted trainee cannot create an official session or pointer', async () => {
+    await seedClassroom({secondAssignment: false});
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', ASG_A),
+        officialAssignmentDoc(ASG_A, {
+          audienceType: 'individual_student',
+          targetTraineeIds: ['otherTrainee'],
+        }),
+      );
+    });
+    const db = context('trainee').firestore();
+    const sessionId = 'untargetedSession';
+    const batch = writeBatch(db);
+    batch.set(
+      doc(db, 'sessions', sessionId),
+      v2Session({context: assignmentContext(ASG_A)}),
+    );
+    batch.set(
+      doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
+      officialPointer({sessionId}),
+    );
+    await assertFails(batch.commit());
+  });
   test('ordinary official non-assignment session creation still succeeds', async () => {
     await seedClassroom();
     const db = context('trainee').firestore();
@@ -520,6 +622,8 @@ describe('Phase 5 teacher movements and attempts', () => {
         group_name: 'BSHM 4A',
         display_instructions: 'Hold the tin upright.',
         allowed_prop: 'bottle',
+        audience_type: 'entire_class',
+        target_trainee_ids: [],
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       }),
@@ -712,6 +816,8 @@ function teacherCreatedAssignmentDoc({
   displayInstructions = 'Hold the tin upright.',
   displaySafetyGuidance,
   allowedProp = 'bottle',
+  audienceType = 'entire_class',
+  targetTraineeIds = [],
 } = {}) {
   return {
     teacher_id: 'teacher',
@@ -729,6 +835,8 @@ function teacherCreatedAssignmentDoc({
       ? {}
       : { display_safety_guidance: displaySafetyGuidance }),
     allowed_prop: allowedProp,
+    audience_type: audienceType,
+    target_trainee_ids: targetTraineeIds,
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   };
@@ -786,6 +894,42 @@ async function seedTeacherMovement({
 }
 
 describe('Phase 5 integrity: Teacher movement edits require new revisions', () => {
+  test('assignment create validates audience shape and approved classroom targets', async () => {
+    await seedClassroom();
+    await seedTeacherMovement();
+    await seedApprovedOtherTrainee();
+    const db = context('teacher').firestore();
+    const create = (id, overrides) => setDoc(
+      doc(db, 'group_assignments', id),
+      {
+        ...teacherCreatedAssignmentDoc(overrides),
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      },
+    );
+
+    await assertSucceeds(create('asgSelected', {
+      audienceType: 'selected_students',
+      targetTraineeIds: ['trainee', 'otherTrainee'],
+    }));
+    await assertFails(create('asgDuplicateTargets', {
+      audienceType: 'selected_students',
+      targetTraineeIds: ['trainee', 'trainee'],
+    }));
+    await assertFails(create('asgEmptySelected', {
+      audienceType: 'selected_students',
+      targetTraineeIds: [],
+    }));
+    await assertFails(create('asgBadIndividual', {
+      audienceType: 'individual_student',
+      targetTraineeIds: ['trainee', 'otherTrainee'],
+    }));
+    await assertFails(create('asgCrossClassTarget', {
+      audienceType: 'individual_student',
+      targetTraineeIds: ['notInThisClass'],
+    }));
+  });
+
   test('title change with same current_revision_id is denied', async () => {
     await seedClassroom();
     await seedTeacherMovement();
@@ -1239,6 +1383,8 @@ describe('Phase 5 integrity: template_scored writes remain closed', () => {
         group_name: 'BSHM 4A',
         display_instructions: 'Hold the tin upright.',
         allowed_prop: 'bottle',
+        audience_type: 'entire_class',
+        target_trainee_ids: [],
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       }),
@@ -1269,6 +1415,38 @@ describe('Phase 5 integrity: canonical teacher-created draft attempt IDs', () =>
       setDoc(
         doc(db, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
         teacherDraftAttempt(),
+      ),
+    );
+  });
+
+  test('existing draft cannot start after classroom access is removed', async () => {
+    await seedClassroom();
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgCustom'),
+        teacherCreatedAssignmentDoc(),
+      );
+      await setDoc(
+        doc(admin, 'assignment_attempts', 'tc_draft_asgCustom_trainee'),
+        {
+          ...teacherDraftAttempt({ status: 'draft' }),
+          created_at: Timestamp.now(),
+        },
+      );
+      await updateDoc(
+        doc(admin, 'group_memberships', `${GROUP_ID}_trainee`),
+        { status: 'removed', updated_at: Timestamp.now() },
+      );
+    });
+
+    await assertFails(
+      updateDoc(
+        doc(
+          context('trainee').firestore(),
+          'assignment_attempts',
+          'tc_draft_asgCustom_trainee',
+        ),
+        { status: 'in_progress' },
       ),
     );
   });

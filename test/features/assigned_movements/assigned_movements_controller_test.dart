@@ -156,4 +156,38 @@ void main() {
 
     expect(controller.items.map((item) => item.assignment.id), ['asg-a']);
   });
+
+  test('fixed-group fetch still requires an approved membership', () async {
+    final groups = InMemoryGroupRepository();
+    addTearDown(groups.dispose);
+    groups.seedGroup(
+      const ElixrGroup(
+        id: 'g1',
+        teacherId: 'teacher-1',
+        name: 'BSHM 4A',
+        status: ElixrGroupStatus.active,
+      ),
+    );
+    groups.seedMembership(
+      _membership(groupId: 'g1', status: GroupMembershipStatus.removed),
+    );
+
+    final assignments = InMemoryClassroomAssignmentRepository(
+      groupRepository: groups,
+    );
+    addTearDown(assignments.dispose);
+    assignments.seedAssignment(_assignment(id: 'asg-a', groupId: 'g1'));
+
+    final controller = AssignedMovementsController(
+      traineeId: 'trainee-1',
+      groupRepository: groups,
+      assignmentRepository: assignments,
+      filterGroupId: 'g1',
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    expect(controller.items, isEmpty);
+    expect(controller.errorMessage, isNull);
+  });
 }
