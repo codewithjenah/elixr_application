@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -12,10 +15,13 @@ import '../../core/widgets/elix_back_button.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../core/widgets/elix_scaffold_page.dart';
+import '../../core/widgets/elixr_video_player.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/models/teacher_activity_assessment.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
+import '../../data/repositories/teacher_movement_repository.dart';
 import '../../services/auth_service.dart';
 import 'assigned_movement_list.dart';
 import 'assignment_detail_controller.dart';
@@ -152,7 +158,11 @@ class _Body extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 960;
-        final header = _AssignmentHeader(assignment: assignment);
+        final header = _AssignmentHeader(
+          assignment: assignment,
+          attempts: controller.attempts,
+          movementRepository: _tryMovementRepository(context),
+        );
         final work = _YourWork(
           controller: controller,
           assignment: assignment,
@@ -215,6 +225,17 @@ class _Body extends StatelessWidget {
   }
 
   AssignmentAttempt? _selectedAttempt(AssignmentDetailController controller) {
+    if (controller.assignment?.activityAssessment != null) {
+      final id = selectedAttemptId;
+      if (id != null) {
+        for (final attempt in controller.attempts) {
+          if (attempt.id == id && !attempt.isAbandonedTeacherReviewDraft) {
+            return attempt;
+          }
+        }
+      }
+      return controller.latestClipSubmission;
+    }
     if (controller.assignment?.isTeacherCreated == true) {
       return controller.currentSubmission ?? controller.latestAttempt;
     }
@@ -229,21 +250,31 @@ class _Body extends StatelessWidget {
 }
 
 class _AssignmentHeader extends StatelessWidget {
-  const _AssignmentHeader({required this.assignment});
+  const _AssignmentHeader({
+    required this.assignment,
+    required this.attempts,
+    this.movementRepository,
+  });
 
   final GroupAssignment assignment;
+  final List<AssignmentAttempt> attempts;
+  final TeacherMovementRepository? movementRepository;
 
   @override
   Widget build(BuildContext context) {
+    final activityAssessment = assignment.activityAssessment;
     return ElixPanelCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ElixEditorialHeader(
-            heading: assignment.displayTitle,
+            heading: activityAssessment == null
+                ? assignment.displayTitle
+                : 'Teacher Activity: ${assignment.displayTitle}',
             variant: ElixEditorialHeaderVariant.compact,
-            subtitle:
-                '${assignment.teacherDisplayName} · ${assignment.groupName}',
+            subtitle: activityAssessment == null
+                ? '${assignment.teacherDisplayName} · ${assignment.groupName}'
+                : 'A guided recording for your Teacher to review',
           ),
           const SizedBox(height: AppSpacing.sm),
           Wrap(
@@ -270,6 +301,21 @@ class _AssignmentHeader extends StatelessWidget {
                 ),
             ],
           ),
+          if (activityAssessment != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            if (activityAssessment.demonstrationVideo != null) ...[
+              _ActivityDemoCard(
+                metadata: activityAssessment.demonstrationVideo!,
+                repository: movementRepository,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            _TeacherActivityOverview(
+              assignment: assignment,
+              assessment: activityAssessment,
+              attempts: attempts,
+            ),
+          ],
           if (assignment.displayInstructions != null &&
               assignment.displayInstructions!.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
@@ -286,6 +332,196 @@ class _AssignmentHeader extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+TeacherMovementRepository? _tryMovementRepository(BuildContext context) {
+  try {
+    return context.read<TeacherMovementRepository>();
+  } on ProviderNotFoundException {
+    return null;
+  }
+}
+
+class _ActivityDemoCard extends StatefulWidget {
+  const _ActivityDemoCard({required this.metadata, required this.repository});
+
+  final TeacherActivityVideoMetadata metadata;
+  final TeacherMovementRepository? repository;
+
+  @override
+  State<_ActivityDemoCard> createState() => _ActivityDemoCardState();
+}
+
+class _ActivityDemoCardState extends State<_ActivityDemoCard> {
+  final ElixrPlaybackSession _playback = ElixrPlaybackSession();
+  File? _file;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_open());
+  }
+
+  Future<void> _open() async {
+    final repository = widget.repository;
+    if (repository == null) {
+      setState(() => _error = StateError('Demo playback unavailable.'));
+      return;
+    }
+    try {
+      final file = await repository.openActivityDemonstration(widget.metadata);
+      if (!mounted) {
+        await repository.releaseActivityDemonstration(file);
+        return;
+      }
+      setState(() => _file = file);
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    }
+  }
+
+  Future<void> _release() async {
+    await _playback.release();
+    final file = _file;
+    if (file != null) {
+      await widget.repository?.releaseActivityDemonstration(file);
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_release());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ElixPanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Teacher demonstration', style: AppTheme.headingMedium),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            height: 220,
+            child: _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'The private demonstration could not be opened.',
+                          textAlign: TextAlign.center,
+                          style: AppTheme.body.copyWith(color: AppColors.error),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Button(
+                          onPressed: () {
+                            setState(() => _error = null);
+                            unawaited(_open());
+                          },
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _file == null
+                ? const Center(child: ProgressRing())
+                : ElixrVideoPlayer(
+                    source: Uri.file(_file!.path),
+                    mirrored: false,
+                    session: _playback,
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TeacherActivityOverview extends StatelessWidget {
+  const _TeacherActivityOverview({
+    required this.assignment,
+    required this.assessment,
+    required this.attempts,
+  });
+
+  final GroupAssignment assignment;
+  final TeacherActivityAssessmentConfig assessment;
+  final List<AssignmentAttempt> attempts;
+
+  @override
+  Widget build(BuildContext context) {
+    final readiness = assessment.readiness;
+    final consumed = attempts
+        .where((attempt) => attempt.recordingStartedAt != null)
+        .length;
+    final maximum = assessment.attemptPolicy.maximumAttempts;
+    final attemptSummary = assessment.attemptPolicy.isUnlimited
+        ? '$consumed used · Unlimited attempts'
+        : '$consumed used · ${maximum! - consumed < 0 ? 0 : maximum - consumed} remaining of $maximum';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Before you start', style: AppTheme.headingMedium),
+        const SizedBox(height: AppSpacing.sm),
+        _ActivityDetail(label: 'Teacher', value: assignment.teacherDisplayName),
+        _ActivityDetail(label: 'Class', value: assignment.groupName),
+        _ActivityDetail(
+          label: 'Deadline',
+          value: assignedMovementDueLabel(assignment),
+        ),
+        _ActivityDetail(
+          label: 'Recording',
+          value: '${assessment.recordingDurationSeconds} seconds',
+        ),
+        _ActivityDetail(label: 'Attempts', value: attemptSummary),
+        const SizedBox(height: AppSpacing.md),
+        Text('Camera readiness', style: AppTheme.headingMedium),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Prop: ${readiness.prop.displayLabel}\n'
+          'Hands: ${readiness.hands.displayLabel}\n'
+          'Body: ${readiness.body.displayLabel}',
+          style: AppTheme.body,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text('How your Teacher will review it', style: AppTheme.headingMedium),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          '${assessment.rubric.template.displayLabel} · '
+          '${assessment.rubric.maximumScore} points maximum',
+          style: AppTheme.body,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        for (final criterion in assessment.rubric.criteria)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: Text(
+              '${criterion.label} (${criterion.maximumPoints} points): '
+              '${criterion.description}',
+              style: AppTheme.bodySecondary,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ActivityDetail extends StatelessWidget {
+  const _ActivityDetail({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Text('$label: $value', style: AppTheme.body),
     );
   }
 }
@@ -308,7 +544,19 @@ class _YourWork extends StatelessWidget {
     final current = assignment.isTeacherCreated
         ? controller.currentSubmission
         : selected;
-    final canStart = canStartAssignedMovement(assignment, current, current);
+    final isTeacherActivity = assignment.activityAssessment != null;
+    final maximumAttempts =
+        assignment.activityAssessment?.attemptPolicy.maximumAttempts;
+    final consumedAttempts = controller.attempts
+        .where((attempt) => attempt.recordingStartedAt != null)
+        .length;
+    final hasAvailableActivityAttempt =
+        maximumAttempts == null || consumedAttempts < maximumAttempts;
+    final canStart =
+        canStartAssignedMovement(assignment, current, current) &&
+        (!isTeacherActivity || hasAvailableActivityAttempt);
+    final attemptAssessment =
+        current?.activityAssessmentSnapshot ?? assignment.activityAssessment;
     return Column(
       key: const Key('assignment_detail_your_work'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -332,7 +580,19 @@ class _YourWork extends StatelessWidget {
             openLocalPlayback: controller.openLocalPlayback,
             releaseLocalPlayback: controller.releaseLocalPlayback,
           ),
+        if (attemptAssessment != null && current != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'This Activity recording uses the saved '
+            '${attemptAssessment.rubric.template.displayLabel} rubric '
+            '(${attemptAssessment.rubric.maximumScore} points maximum).',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
+        ],
         if (assignment.isTeacherCreated &&
+            !isTeacherActivity &&
             current?.hasAttachedDraftClip == true) ...[
           const SizedBox(height: AppSpacing.md),
           if (controller.turnInErrorMessage != null)
@@ -344,7 +604,9 @@ class _YourWork extends StatelessWidget {
             ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Recording attached. Your Teacher cannot see it until you turn it in.',
+            isTeacherActivity
+                ? 'Your Activity recording uploaded but was not sent to your Teacher.'
+                : 'Recording attached. Your Teacher cannot see it until you turn it in.',
             style: AppTheme.bodySecondary.copyWith(
               color: context.elixTextSecondary,
             ),
@@ -358,6 +620,8 @@ class _YourWork extends StatelessWidget {
                 FilledButton(
                   onPressed: controller.turnInBusy
                       ? null
+                      : isTeacherActivity
+                      ? controller.turnIn
                       : () => _confirmTurnIn(
                           context,
                           controller,
@@ -366,18 +630,23 @@ class _YourWork extends StatelessWidget {
                         ),
                   child: controller.turnInBusy
                       ? const ProgressRing()
-                      : const Text('Turn in'),
+                      : Text(
+                          isTeacherActivity
+                              ? 'Retry automatic submission'
+                              : 'Turn in',
+                        ),
                 ),
-                Button(
-                  onPressed: controller.draftRemovalBusy
-                      ? null
-                      : () => controller.removeAttachedDraft(),
-                  child: Text(
-                    controller.draftRemovalBusy
-                        ? 'Removing…'
-                        : 'Remove recording',
+                if (!isTeacherActivity)
+                  Button(
+                    onPressed: controller.draftRemovalBusy
+                        ? null
+                        : () => controller.removeAttachedDraft(),
+                    child: Text(
+                      controller.draftRemovalBusy
+                          ? 'Removing…'
+                          : 'Remove recording',
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -402,22 +671,28 @@ class _YourWork extends StatelessWidget {
             child: const Text('Retry removal'),
           ),
         ],
-        if (!assignment.isTeacherCreated && controller.attempts.length > 1) ...[
+        if ((!assignment.isTeacherCreated || isTeacherActivity) &&
+            controller.attempts
+                    .where((attempt) => !attempt.isAbandonedTeacherReviewDraft)
+                    .length >
+                1) ...[
           const SizedBox(height: AppSpacing.lg),
           Text('Attempt history', style: AppTheme.headingMedium),
           const SizedBox(height: AppSpacing.sm),
           for (final attempt in controller.attempts)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: _AttemptHistoryRow(
-                assignment: assignment,
-                attempt: attempt,
-                selected: selected?.id == attempt.id,
-                onTap: () => onSelectAttempt(attempt.id),
+            if (!attempt.isAbandonedTeacherReviewDraft)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: _AttemptHistoryRow(
+                  assignment: assignment,
+                  attempt: attempt,
+                  selected: selected?.id == attempt.id,
+                  onTap: () => onSelectAttempt(attempt.id),
+                ),
               ),
-            ),
         ],
         if (assignment.isTeacherCreated &&
+            !isTeacherActivity &&
             current?.status == AssignmentAttemptStatus.submitted) ...[
           const SizedBox(height: AppSpacing.md),
           if (controller.unsubmitErrorMessage != null)
@@ -453,6 +728,7 @@ class _YourWork extends StatelessWidget {
             ),
         ],
         if (assignment.isTeacherCreated &&
+            !isTeacherActivity &&
             current?.status == AssignmentAttemptStatus.unsubmitting) ...[
           const SizedBox(height: AppSpacing.md),
           if (controller.unsubmitErrorMessage != null)
@@ -488,7 +764,9 @@ class _YourWork extends StatelessWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: ElixPill(
-              text: assignedMovementActionLabel(assignment, current),
+              text: isTeacherActivity && !hasAvailableActivityAttempt
+                  ? 'No attempts remaining'
+                  : assignedMovementActionLabel(assignment, current),
               color: context.elixTextSecondary,
             ),
           ),

@@ -1,17 +1,26 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_activity_assessment.dart';
 import '../models/training_prop.dart';
 import 'teacher_movement_repository.dart';
 
 class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
-  FirebaseTeacherMovementRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  FirebaseTeacherMovementRepository({
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance;
 
   final FirebaseFirestore _firestore;
+  final FirebaseStorage _storage;
 
   CollectionReference<Map<String, dynamic>> get _movements =>
       _firestore.collection(FirestoreCollections.teacherMovements);
@@ -20,18 +29,95 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
       _firestore.collection(FirestoreCollections.groupAssignments);
 
   @override
+  Future<File> openActivityDemonstration(
+    TeacherActivityVideoMetadata metadata,
+  ) async {
+    if (!metadata.storagePath.startsWith('teacher_activity_demos/') ||
+        metadata.contentType != 'video/mp4') {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final root = await getTemporaryDirectory();
+    final cache = Directory('${root.path}/elixr_activity_demos');
+    await cache.create(recursive: true);
+    final objectName = metadata.storagePath.split('/').last;
+    final destination = File(
+      '${cache.path}/${DateTime.now().microsecondsSinceEpoch}_$objectName',
+    );
+    try {
+      await _storage.ref(metadata.storagePath).writeToFile(destination);
+      final size = await destination.length();
+      if (size < 1 ||
+          size > TeacherActivityAssessmentContract.maximumVideoSizeBytes) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      return destination;
+    } catch (_) {
+      if (await destination.exists()) await destination.delete();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> releaseActivityDemonstration(File localFile) async {
+    try {
+      if (await localFile.exists()) await localFile.delete();
+    } on FileSystemException {
+      // A best-effort cache cleanup must not fail page navigation.
+    }
+  }
+
+  @override
+  Future<TeacherActivityVideoMetadata> uploadActivityDemonstration({
+    required String teacherId,
+    required File localFile,
+    required Duration duration,
+    required TeacherActivityDemoSource source,
+    String? assignmentId,
+  }) async {
+    final sizeBytes = await _validatedDemoFileSize(
+      teacherId: teacherId,
+      localFile: localFile,
+      duration: duration,
+    );
+    // A Firestore generated id is opaque and avoids using a user-controlled
+    // local filename in the Storage object path.
+    final opaqueId = _firestore.collection('_ids').doc().id;
+    final assignmentScope = assignmentId?.trim();
+    final storagePath = assignmentScope == null || assignmentScope.isEmpty
+        ? 'teacher_activity_demos/$teacherId/$opaqueId.mp4'
+        : 'teacher_activity_demos/$teacherId/assignments/$assignmentScope/$opaqueId.mp4';
+    final reference = _storage.ref().child(storagePath);
+    await reference.putFile(
+      localFile,
+      SettableMetadata(
+        contentType: 'video/mp4',
+        customMetadata: {'owner_id': teacherId},
+      ),
+    );
+    return TeacherActivityVideoMetadata(
+      storagePath: storagePath,
+      contentType: 'video/mp4',
+      sizeBytes: sizeBytes,
+      durationMs: duration.inMilliseconds,
+      source: source,
+    );
+  }
+
+  @override
   Future<TeacherMovement> createMovement({
     required String teacherId,
     required String title,
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) async {
     final spec = buildTeacherReviewedSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
     final movementRef = _movements.doc();
     final revisionRef = movementRef
@@ -76,12 +162,14 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) async {
     final spec = buildTeacherReviewedSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
     final movementRef = _movements.doc(movementId);
     final existing = await movementRef.get();
@@ -285,4 +373,33 @@ class FirebaseTeacherMovementRepository implements TeacherMovementRepository {
     if (!doc.exists || doc.data() == null) return null;
     return TeacherMovementRevision.tryFromMap(doc.data()!, id: doc.id);
   }
+}
+
+Future<int> _validatedDemoFileSize({
+  required String teacherId,
+  required File localFile,
+  required Duration duration,
+}) async {
+  if (teacherId.trim().isEmpty) {
+    throw const ClassroomException(
+      ClassroomError.malformed,
+      'Missing teacher.',
+    );
+  }
+  if (duration.inMilliseconds < 1 || duration.inMilliseconds > 60000) {
+    throw const ClassroomException(
+      ClassroomError.malformed,
+      'Demonstration videos must be 60 seconds or less.',
+    );
+  }
+  final stat = await localFile.stat();
+  if (stat.type != FileSystemEntityType.file ||
+      stat.size < 1 ||
+      stat.size > 50 * 1024 * 1024) {
+    throw const ClassroomException(
+      ClassroomError.malformed,
+      'Demonstration videos must be an MP4 no larger than 50 MiB.',
+    );
+  }
+  return stat.size;
 }

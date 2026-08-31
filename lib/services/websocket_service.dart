@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../core/constants/app_constants.dart';
 import '../data/models/practice_feedback.dart';
 import '../data/models/training_prop.dart';
+import '../data/models/teacher_activity_assessment.dart';
 import '../data/models/ws_protocol.dart';
 
 enum WebSocketConnectionState { disconnected, connecting, connected, error }
@@ -145,6 +146,7 @@ class WebSocketService extends ChangeNotifier {
     int? legacyCameraIndex,
     String? sessionId,
     bool allowSubmissionRecording = false,
+    TeacherActivityReadinessSpec? readinessSpec,
   }) {
     final resolvedSessionId =
         sessionId ?? _currentSessionId ?? beginPracticeAttempt();
@@ -163,6 +165,7 @@ class WebSocketService extends ChangeNotifier {
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
         allowSubmissionRecording: allowSubmissionRecording,
+        readinessSpec: readinessSpec,
       ),
     );
   }
@@ -233,7 +236,11 @@ class WebSocketService extends ChangeNotifier {
     );
   }
 
-  Future<CommandAck> sendStartSubmissionRecord({String? sessionId}) {
+  Future<CommandAck> sendStartSubmissionRecord({
+    String? sessionId,
+    int durationSeconds =
+        TeacherActivityAssessmentContract.defaultRecordingDurationSeconds,
+  }) {
     final resolvedSessionId = sessionId ?? _currentSessionId;
     if (resolvedSessionId == null || resolvedSessionId.isEmpty) {
       return Future.error(
@@ -248,6 +255,7 @@ class WebSocketService extends ChangeNotifier {
       payload: buildStartSubmissionRecordPayload(
         sessionId: resolvedSessionId,
         requestId: _nextId('req'),
+        durationSeconds: durationSeconds,
       ),
     );
   }
@@ -521,6 +529,7 @@ class WebSocketService extends ChangeNotifier {
     required String sessionId,
     required String requestId,
     bool allowSubmissionRecording = false,
+    TeacherActivityReadinessSpec? readinessSpec,
   }) {
     return _buildSessionPayload(
       action: 'prepare',
@@ -532,6 +541,7 @@ class WebSocketService extends ChangeNotifier {
       sessionId: sessionId,
       requestId: requestId,
       allowSubmissionRecording: allowSubmissionRecording,
+      readinessSpec: readinessSpec,
     );
   }
 
@@ -618,12 +628,21 @@ class WebSocketService extends ChangeNotifier {
   static Map<String, dynamic> buildStartSubmissionRecordPayload({
     required String sessionId,
     required String requestId,
+    int durationSeconds =
+        TeacherActivityAssessmentContract.defaultRecordingDurationSeconds,
   }) {
-    return _buildSubmissionRecordPayload(
+    final payload = _buildSubmissionRecordPayload(
       action: 'start_submission_record',
       sessionId: sessionId,
       requestId: requestId,
     );
+    if (!TeacherActivityAssessmentContract.supportedRecordingDurations.contains(
+      durationSeconds,
+    )) {
+      throw ArgumentError.value(durationSeconds, 'durationSeconds');
+    }
+    payload['duration_seconds'] = durationSeconds;
+    return payload;
   }
 
   @visibleForTesting
@@ -673,6 +692,7 @@ class WebSocketService extends ChangeNotifier {
     required String sessionId,
     required String requestId,
     bool allowSubmissionRecording = false,
+    TeacherActivityReadinessSpec? readinessSpec,
   }) {
     final payload = <String, dynamic>{
       'protocol_version': wsProtocolVersion,
@@ -682,7 +702,9 @@ class WebSocketService extends ChangeNotifier {
       'movement': movement,
       'difficulty': difficulty,
       'prop_type': prop.protocolValue,
-      'bottle_detection_enabled': true,
+      'bottle_detection_enabled':
+          readinessSpec == null ||
+          readinessSpec.prop != ActivityPropRequirement.none,
     };
 
     // Prefer stable device identity. Only while a one-time settings migration
@@ -695,6 +717,9 @@ class WebSocketService extends ChangeNotifier {
     // Omit unless true so existing prepare payloads stay unchanged.
     if (allowSubmissionRecording) {
       payload['allow_submission_recording'] = true;
+    }
+    if (readinessSpec != null) {
+      payload['readiness_spec'] = readinessSpec.toMap();
     }
     return payload;
   }

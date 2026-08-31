@@ -231,7 +231,7 @@ void main() {
       );
       expect(
         AssignmentAttempt.tryFromMap(
-          _submitted(durationMs: 20001),
+          _submitted(durationMs: 60001),
           id: 'review_sub_a',
         ),
         isNull,

@@ -8,7 +8,6 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/router/app_route_paths.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elixr_video_player.dart';
-import '../../../data/models/assignment_submission_limits.dart';
 import '../submission_recording_controller.dart';
 
 class SubmissionRecordingPanel extends StatefulWidget {
@@ -115,9 +114,15 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
         return [
           Button(
             onPressed: widget.cameraReady && controller.canRecord && !busy
-                ? controller.requestConsent
+                ? (controller.isTeacherActivity
+                      ? controller.beginRecording
+                      : controller.requestConsent)
                 : null,
-            child: const Text('Record Submission'),
+            child: Text(
+              controller.isTeacherActivity
+                  ? 'Start Activity recording'
+                  : 'Record Submission',
+            ),
           ),
         ];
       case SubmissionRecordingPhase.consent:
@@ -125,7 +130,7 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           Text(
             'This clip is recorded only for this assignment. The assigning '
             'Teacher can review it. Maximum about '
-            '${AssignmentSubmissionLimits.maxDurationSeconds} seconds. It is '
+            '${controller.recordingDurationSeconds} seconds. It is '
             'not public, does not award XP, and ordinary practice stays '
             'unrecorded.',
             style: AppTheme.bodySecondary,
@@ -156,12 +161,11 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           const ProgressRing(),
         ];
       case SubmissionRecordingPhase.recording:
-        final remaining =
-            AssignmentSubmissionLimits.maxDurationSeconds -
-            controller.elapsedSeconds;
+        final limit = controller.recordingDurationSeconds;
+        final remaining = limit - controller.elapsedSeconds;
         return [
           Text(
-            'Recording ${controller.elapsedSeconds}s · ${remaining.clamp(0, AssignmentSubmissionLimits.maxDurationSeconds)}s left',
+            'Recording ${controller.elapsedSeconds}s · ${remaining.clamp(0, limit)}s left',
             style: AppTheme.body,
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -174,6 +178,13 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
         ];
       case SubmissionRecordingPhase.preview:
         final clip = controller.clip;
+        if (controller.isTeacherActivity) {
+          return const [
+            Center(child: ProgressRing()),
+            SizedBox(height: AppSpacing.sm),
+            Text('Submitting your Activity recording…'),
+          ];
+        }
         return [
           if (clip != null)
             SizedBox(
@@ -205,6 +216,19 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           Text('Saving recording…'),
         ];
       case SubmissionRecordingPhase.attached:
+        if (controller.isTeacherActivity) {
+          return [
+            Text(
+              'Your Activity recording is waiting to be sent to your Teacher.',
+              style: AppTheme.body,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Button(
+              onPressed: busy ? null : controller.retryActivitySubmission,
+              child: const Text('Retry automatic submission'),
+            ),
+          ];
+        }
         return [
           Text(
             'Recording attached. Turn it in from the assignment page when you are ready.',
@@ -223,8 +247,10 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
       case SubmissionRecordingPhase.submitted:
         return [
           Text(
-            'Submitted to your Teacher. Preview your clip below. '
-            'This clip does not award XP.',
+            controller.isTeacherActivity
+                ? 'Your Activity recording was submitted to your Teacher for review.'
+                : 'Submitted to your Teacher. Preview your clip below. '
+                      'This clip does not award XP.',
             style: AppTheme.body,
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -238,14 +264,24 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           ),
         ];
       case SubmissionRecordingPhase.failed:
+        final canRetryActivityUpload =
+            controller.isTeacherActivity &&
+            controller.clip != null &&
+            controller.latestSubmission?.activityAssessmentSnapshot != null;
         return [
           Button(
             onPressed: busy
                 ? null
+                : canRetryActivityUpload
+                ? controller.retryActivitySubmission
                 : () => controller.retake(
                     releasePlayback: _previewPlayback.release,
                   ),
-            child: const Text('Try again'),
+            child: Text(
+              canRetryActivityUpload
+                  ? 'Retry automatic submission'
+                  : 'Try again',
+            ),
           ),
         ];
     }

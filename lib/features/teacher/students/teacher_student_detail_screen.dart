@@ -16,6 +16,7 @@ import '../../../core/widgets/elix_back_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -458,7 +459,7 @@ class _ProgressReady extends StatelessWidget {
         else
           ...controller.sessions.map((session) {
             final scoreLabel = session.isRubricAssessed
-                ? '${session.rubric!.total}/12'
+                ? AssessmentScoreDisplay.official(session.rubric!.total)
                 : '${session.legacyScore ?? 0}%';
             return ListTile(
               leading: MovementImage(

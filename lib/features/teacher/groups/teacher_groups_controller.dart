@@ -314,6 +314,31 @@ class TeacherGroupsController extends ChangeNotifier {
     return archiveGroup(group);
   }
 
+  /// Permanently removes a classroom and its assignment data through the
+  /// server-authoritative cascade.  The destructive confirmation is supplied
+  /// only by the confirmation dialog, never by a caller-provided value.
+  Future<void> permanentlyDeleteClassroom(ElixrGroup group) {
+    final assignments = assignmentRepository;
+    if (assignments == null) {
+      errorMessage = 'Classroom deletion is unavailable right now.';
+      notifyListeners();
+      return Future.value();
+    }
+    return _runTeacherAction(
+      operation: 'permanentDeleteClassroom',
+      failureMessage: 'Could not permanently delete that classroom.',
+      action: () async {
+        await assignments.permanentlyDeleteClassroom(
+          teacherId: teacherId,
+          groupId: group.id,
+          confirmation: 'DELETE CLASSROOM',
+        );
+        actionMessage = 'Deleted ${group.name} and its classroom data.';
+        if (selectedGroup?.id == group.id) clearSelection();
+      },
+    );
+  }
+
   Future<void> rotateInvite() {
     final group = selectedGroup;
     if (group == null) return Future.value();

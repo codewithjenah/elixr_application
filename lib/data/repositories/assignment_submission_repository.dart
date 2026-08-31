@@ -41,6 +41,15 @@ abstract class AssignmentSubmissionRepository {
     required SubmissionRecordResult clip,
   });
 
+  /// Uploads and immediately submits a v2 clip against its already-reserved
+  /// authoritative attempt. Upload retries reuse [attempt].
+  Future<AssignmentAttempt> submitTeacherActivityAttemptClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required AssignmentAttempt attempt,
+    required SubmissionRecordResult clip,
+  });
+
   Future<void> deleteSubmissionObject(String storagePath);
 
   Future<SubmissionPlaybackFile?> openLocalPlayback(AssignmentAttempt attempt);
@@ -83,13 +92,13 @@ void ensureLocalClipWithinLimits(SubmissionRecordResult clip) {
   if (clip.sizeBytes <= 0 ||
       clip.sizeBytes > AssignmentSubmissionLimits.maxSizeBytes) {
     throw const AssignmentSubmissionException(
-      'The submission clip is empty or larger than the 15 MiB limit.',
+      'The submission clip is empty or larger than the 50 MiB limit.',
     );
   }
   if (clip.durationMs <= 0 ||
       clip.durationMs > AssignmentSubmissionLimits.maxDurationMs) {
     throw const AssignmentSubmissionException(
-      'The submission clip is empty or longer than 20 seconds.',
+      'The submission clip is empty or longer than 60 seconds.',
     );
   }
   if (clip.localPath.trim().isEmpty) {

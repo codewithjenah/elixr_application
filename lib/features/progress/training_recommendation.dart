@@ -371,8 +371,9 @@ int _compareSessionsChronologically(Session a, Session b) {
 }
 
 /// Stable tie-break value; only used to order same-timestamp sessions.
-int _resultForTieBreak(Session session) =>
-    session.rubricTotal ?? session.legacyScore ?? 0;
+int _resultForTieBreak(Session session) => session.isRubricAssessed
+    ? (session.rubricTotal! / 12 * 1000).round()
+    : (session.legacyScore ?? 0) * 10;
 
 DateTime? _sessionTimestamp(Session session) {
   final raw = session.createdAt;

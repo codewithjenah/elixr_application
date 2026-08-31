@@ -331,7 +331,7 @@ void main() {
     expect(checked?.status, AssignmentAttemptStatus.checked);
     expect(checked?.gradeScore, 92);
     expect(checked?.reviewFeedback, 'Strong control.');
-    expect(find.text('Score: 92/100'), findsOneWidget);
+    expect(find.text('Score: 92/100 • 92%'), findsOneWidget);
   });
 
   testWidgets('attempt load failure never reports work as not turned in', (

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../models/assignment_attempt.dart';
+import '../models/assignment_submission_limits.dart';
 import '../models/group_assignment.dart';
 import '../models/ws_protocol.dart';
 import 'assignment_submission_repository.dart';
@@ -124,6 +125,37 @@ class InMemoryAssignmentSubmissionRepository
       },
       deleteObject: deleteSubmissionObject,
       isObjectNotFound: _isMissing,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> submitTeacherActivityAttemptClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required AssignmentAttempt attempt,
+    required SubmissionRecordResult clip,
+  }) async {
+    ensureLocalClipWithinLimits(clip);
+    if (failNextUpload) {
+      failNextUpload = false;
+      throw const AssignmentSubmissionException('storage upload failed');
+    }
+    final submittedAt = now;
+    return _classroom.markTeacherReviewSubmitted(
+      traineeId: traineeId,
+      attempt: attempt,
+      videoStoragePath: assignmentSubmissionStoragePath(
+        teacherId: attempt.teacherId,
+        groupId: attempt.groupId,
+        assignmentId: attempt.assignmentId,
+        traineeId: traineeId,
+        attemptId: attempt.id,
+      ),
+      videoContentType: clip.contentType,
+      videoSizeBytes: clip.sizeBytes,
+      videoDurationMs: clip.durationMs,
+      submittedAt: submittedAt,
+      videoExpiresAt: unreviewedVideoExpiresAt(submittedAt),
     );
   }
 

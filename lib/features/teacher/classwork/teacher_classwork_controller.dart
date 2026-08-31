@@ -11,6 +11,7 @@ import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 
@@ -477,6 +478,35 @@ class TeacherClassworkController extends ChangeNotifier {
     }
   }
 
+  /// Saves a v2 Teacher Activity rubric review.  The immutable configuration
+  /// snapshot on [attempt] is deliberately used by the repository, so an
+  /// assignment edit can never change how an already-recorded clip is graded.
+  Future<void> saveTeacherActivityRubricReview({
+    required AssignmentAttempt attempt,
+    required GroupAssignment assignment,
+    required Map<String, int> criterionScores,
+    String? feedback,
+  }) async {
+    await _runWrite(() async {
+      final updated = await assignmentRepository
+          .saveTeacherActivityRubricReview(
+            teacherId: teacherId,
+            attempt: attempt,
+            criterionScores: criterionScores,
+            feedback: feedback,
+          );
+      _replaceAttempt(updated);
+    });
+    final checked = latestVisibleAttemptFor(
+      assignmentId: assignment.id,
+      traineeId: attempt.traineeId,
+    );
+    if (checked?.isChecked == true &&
+        checked!.resultSentForCurrentRevision == false) {
+      await sendReviewResult(attempt: checked, assignment: assignment);
+    }
+  }
+
   Future<void> reviewLegacy({
     required AssignmentAttempt attempt,
     required AssignmentReviewVerdict verdict,
@@ -572,11 +602,47 @@ class TeacherClassworkController extends ChangeNotifier {
     );
   }
 
+  Future<void> updateTeacherActivityAssignment({
+    required GroupAssignment assignment,
+    required String displayTitle,
+    required String instructions,
+    String? safetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required TeacherActivityAssessmentConfig activityAssessment,
+  }) {
+    return _runWrite(
+      () => assignmentRepository.updateTeacherActivityAssignment(
+        teacherId: teacherId,
+        assignmentId: assignment.id,
+        expectedConfigurationRevision: assignment.configurationRevision,
+        displayTitle: displayTitle,
+        instructions: instructions,
+        safetyGuidance: safetyGuidance,
+        topic: topic,
+        dueAt: dueAt,
+        audience: audience,
+        activityAssessment: activityAssessment,
+      ),
+    );
+  }
+
   Future<void> archiveAssignment(GroupAssignment assignment) {
     return _runWrite(
       () => assignmentRepository.archiveAssignment(
         teacherId: teacherId,
         assignmentId: assignment.id,
+      ),
+    );
+  }
+
+  Future<void> permanentlyDeleteAssignment(GroupAssignment assignment) {
+    return _runWrite(
+      () => assignmentRepository.permanentlyDeleteAssignment(
+        teacherId: teacherId,
+        assignmentId: assignment.id,
+        confirmation: 'DELETE ASSIGNMENT',
       ),
     );
   }

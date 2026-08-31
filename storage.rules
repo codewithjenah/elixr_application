@@ -68,7 +68,7 @@ service firebase.storage {
     // uploads object bytes first, then PATCHes custom metadata. Never trust
     // custom metadata as the only identifier during CREATE/DELETE.
     function isCanonicalAssignmentMp4Name(fileName) {
-      return fileName.matches('^review_sub_[A-Za-z0-9_-]+[.]mp4$');
+      return fileName.matches('^(review_sub_|activity_)[A-Za-z0-9_-]+[.]mp4$');
     }
 
     function attemptIdFromCanonicalFileName(fileName) {
@@ -130,7 +130,7 @@ service firebase.storage {
         && request.resource.contentType == 'video/mp4'
         && resource.contentType == 'video/mp4'
         && resource.size > 0
-        && resource.size <= 15 * 1024 * 1024;
+        && resource.size <= 50 * 1024 * 1024;
     }
 
     function isAssignmentMetadataBootstrapTransition() {
@@ -157,6 +157,23 @@ service firebase.storage {
       return status in ['submitted', 'approved', 'needs_retry', 'checked'];
     }
 
+    function isCurrentTraineeOfTeacher(teacherId) {
+      let contextRef = /databases/(default)/documents/classroom_teacher_access/$(teacherId + '_' + request.auth.uid);
+      let context = firestore.get(contextRef).data;
+      let membership = firestore.get(
+        /databases/(default)/documents/group_memberships/$(context.group_id + '_' + request.auth.uid)
+      ).data;
+      return isSignedIn()
+        && context.teacher_id == teacherId
+        && context.trainee_id == request.auth.uid
+        && context.schema_version == 1
+        && context.group_id is string
+        && membership.group_id == context.group_id
+        && membership.teacher_id == teacherId
+        && membership.trainee_id == request.auth.uid
+        && membership.status == 'approved';
+    }
+
     function isCanonicalSubmissionAttempt(attemptId, attempt) {
       return attemptId == 'review_sub_' + attempt.assignment_id + '_'
         + attempt.trainee_id;
@@ -171,6 +188,15 @@ service firebase.storage {
     function isActiveSubmissionUploadAnchor(attempt) {
       return attempt.status in ['draft', 'in_progress']
         && !isAbandonedTeacherReviewAnchor(attempt);
+    }
+
+    function isTeacherActivityAttempt(attempt) {
+      return attempt.keys().hasAll([
+        'assignment_configuration_revision', 'activity_assessment_snapshot',
+        'recording_started_at'
+      ])
+        && attempt.assignment_configuration_revision is int
+        && attempt.recording_started_at is timestamp;
     }
 
     // Cloud Storage Security Rules allow at most two Firestore document accesses
@@ -189,10 +215,15 @@ service firebase.storage {
           attempt, teacherId, groupId, assignmentId, traineeId, attemptId
         )
         && isActiveSubmissionUploadAnchor(attempt)
-        && membership.group_id == groupId
-        && membership.teacher_id == teacherId
-        && membership.trainee_id == traineeId
-        && membership.status == 'approved'
+        && (
+          isTeacherActivityAttempt(attempt)
+          || (
+            membership.group_id == groupId
+            && membership.teacher_id == teacherId
+            && membership.trainee_id == traineeId
+            && membership.status == 'approved'
+          )
+        )
         && assignmentCreateMetadataCompatible(
           request.resource.metadata,
           teacherId, groupId, assignmentId, traineeId, attemptId, attempt
@@ -211,10 +242,15 @@ service firebase.storage {
           attempt, teacherId, groupId, assignmentId, traineeId, attemptId
         )
         && isActiveSubmissionUploadAnchor(attempt)
-        && membership.group_id == groupId
-        && membership.teacher_id == teacherId
-        && membership.trainee_id == traineeId
-        && membership.status == 'approved'
+        && (
+          isTeacherActivityAttempt(attempt)
+          || (
+            membership.group_id == groupId
+            && membership.teacher_id == teacherId
+            && membership.trainee_id == traineeId
+            && membership.status == 'approved'
+          )
+        )
         && isImmutableStoredObjectBytes()
         && isAssignmentMetadataBootstrapTransition()
         && assignmentCustomMetadataMatches(
@@ -298,7 +334,7 @@ service firebase.storage {
       allow create: if isOwner(traineeId)
         && isCanonicalAssignmentMp4Name(fileName)
         && request.resource.size > 0
-        && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.size <= 50 * 1024 * 1024
         && request.resource.contentType == 'video/mp4'
         && canCreateAssignmentSubmission(
           teacherId, groupId, assignmentId, traineeId,
@@ -318,6 +354,42 @@ service firebase.storage {
           teacherId, groupId, assignmentId, traineeId,
           attemptIdFromCanonicalFileName(fileName)
         );
+    }
+
+    // Private reusable Activity demonstrations. Teachers own the bytes; only
+    // their currently approved classroom trainees may read them. Assignments
+    // persist an immutable storage path in their configuration snapshot.
+    match /teacher_activity_demos/{teacherId}/{fileName} {
+      allow read: if fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
+        && (isOwner(teacherId) || isCurrentTraineeOfTeacher(teacherId));
+      allow create: if isOwner(teacherId)
+        && fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
+        && request.resource.contentType == 'video/mp4'
+        && request.resource.size > 0
+        && request.resource.size <= 50 * 1024 * 1024
+        && request.resource.metadata != null
+        && request.resource.metadata.size() == 1
+        && request.resource.metadata.owner_id == teacherId;
+      // Revision and Assignment snapshots point at immutable object paths.
+      // Cleanup is server-authoritative after reference analysis.
+      allow update, delete: if false;
+    }
+
+    // Assignment-specific demo overrides use an Assignment-owned prefix so
+    // the authenticated server cascade can remove them with the Assignment.
+    match /teacher_activity_demos/{teacherId}/assignments/{assignmentId}/{fileName} {
+      allow read: if fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
+        && (isOwner(teacherId) || isCurrentTraineeOfTeacher(teacherId));
+      allow create: if isOwner(teacherId)
+        && assignmentId.matches('^[A-Za-z0-9_-]+$')
+        && fileName.matches('^[A-Za-z0-9_-]+[.]mp4$')
+        && request.resource.contentType == 'video/mp4'
+        && request.resource.size > 0
+        && request.resource.size <= 50 * 1024 * 1024
+        && request.resource.metadata != null
+        && request.resource.metadata.size() == 1
+        && request.resource.metadata.owner_id == teacherId;
+      allow update, delete: if false;
     }
 
     // Authenticated users may view any profile avatar (shown across the

@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elixr_video_player.dart';
 import '../../../data/models/assignment_attempt.dart';
+import '../../../data/models/assessment_score_display.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/rubric_assessment.dart';
@@ -587,7 +588,7 @@ class _TeacherReviewedSection extends StatelessWidget {
         if (checked) ...[
           const SizedBox(height: AppSpacing.md),
           Text(
-            'Score: ${attempt.gradeScore}/${attempt.gradeMaxScore}',
+            'Score: ${AssessmentScoreDisplay.teacherActivity(earned: attempt.gradeScore!, maximum: attempt.gradeMaxScore!)}',
             key: const Key('submission_grade'),
             style: AppTheme.headingMedium,
           ),

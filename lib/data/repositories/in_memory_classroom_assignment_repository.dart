@@ -11,6 +11,7 @@ import '../models/assignment_submission_limits.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_activity_assessment.dart';
 import 'classroom_assignment_repository.dart';
 
 class InMemoryClassroomAssignmentRepository
@@ -29,6 +30,7 @@ class InMemoryClassroomAssignmentRepository
 
   final Map<String, GroupAssignment> assignments = {};
   final Map<String, AssignmentAttempt> attempts = {};
+  final Set<String> consumedTeacherActivityAttemptIds = {};
   bool failNextSubmitTransition = false;
 
   final _teacherControllers =
@@ -134,6 +136,10 @@ class InMemoryClassroomAssignmentRepository
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createTeacherCreatedAssignmentWithTopic(
@@ -143,6 +149,10 @@ class InMemoryClassroomAssignmentRepository
     movement: movement,
     revision: revision,
     maxScore: maxScore,
+    activityAssessment: activityAssessment,
+    displayTitle: displayTitle,
+    displayInstructions: displayInstructions,
+    displaySafetyGuidance: displaySafetyGuidance,
     dueAt: dueAt,
     audience: audience,
   );
@@ -155,6 +165,10 @@ class InMemoryClassroomAssignmentRepository
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
@@ -176,6 +190,10 @@ class InMemoryClassroomAssignmentRepository
       movement: movement,
       revision: revision,
       maxScore: maxScore,
+      activityAssessment: activityAssessment,
+      displayTitle: displayTitle,
+      displayInstructions: displayInstructions,
+      displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
       topic: topic,
       audience: audience,
@@ -278,6 +296,75 @@ class InMemoryClassroomAssignmentRepository
       clearTopic: topic == null || topic.trim().isEmpty,
       gradingLocked: maxScore == null ? null : false,
       clearGradingLockedAt: maxScore != null,
+    );
+    assignments[assignmentId] = updated;
+    _emitTeacher(teacherId);
+    return updated;
+  }
+
+  @override
+  Future<GroupAssignment> updateTeacherActivityAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required String displayTitle,
+    required String instructions,
+    String? safetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required TeacherActivityAssessmentConfig activityAssessment,
+  }) async {
+    final existing = assignments[assignmentId];
+    if (existing == null ||
+        existing.teacherId != teacherId ||
+        existing.configurationRevision != expectedConfigurationRevision ||
+        !activityAssessment.isValid) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final consumedByTrainee = <String, int>{};
+    for (final attempt in attempts.values) {
+      if (attempt.assignmentId == assignmentId &&
+          consumedTeacherActivityAttemptIds.contains(attempt.id)) {
+        consumedByTrainee.update(
+          attempt.traineeId,
+          (value) => value + 1,
+          ifAbsent: () => 1,
+        );
+      }
+    }
+    final maximum = activityAssessment.attemptPolicy.maximumAttempts;
+    if (maximum != null &&
+        consumedByTrainee.values.any((count) => count > maximum)) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final updated = GroupAssignment(
+      id: existing.id,
+      teacherId: existing.teacherId,
+      groupId: existing.groupId,
+      movementId: existing.movementId,
+      revisionId: existing.revisionId,
+      origin: existing.origin,
+      assessmentMode: existing.assessmentMode,
+      status: existing.status,
+      displayTitle: displayTitle.trim(),
+      teacherDisplayName: existing.teacherDisplayName,
+      groupName: existing.groupName,
+      topic: topic?.trim().isEmpty == true ? null : topic?.trim(),
+      displayInstructions: instructions.trim(),
+      displaySafetyGuidance: safetyGuidance?.trim().isEmpty == true
+          ? null
+          : safetyGuidance?.trim(),
+      allowedProp: existing.allowedProp,
+      maxScore: activityAssessment.rubric.maximumScore,
+      gradingLocked: existing.gradingLocked,
+      gradingLockedAt: existing.gradingLockedAt,
+      dueAt: dueAt,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+      audience: audience,
+      configurationRevision: existing.configurationRevision + 1,
+      activityAssessment: activityAssessment,
     );
     assignments[assignmentId] = updated;
     _emitTeacher(teacherId);
@@ -410,6 +497,130 @@ class InMemoryClassroomAssignmentRepository
   @override
   Future<AssignmentAttempt?> getAttempt({required String attemptId}) async {
     return attempts[attemptId];
+  }
+
+  @override
+  Future<AssignmentAttempt> reserveTeacherActivityAttempt({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required String requestId,
+  }) async {
+    final config = assignment.activityAssessment;
+    if (config == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final active = attempts.values.where(
+      (attempt) =>
+          attempt.assignmentId == assignment.id &&
+          attempt.traineeId == traineeId &&
+          attempt.activityAssessmentSnapshot != null &&
+          attempt.status == AssignmentAttemptStatus.inProgress,
+    );
+    if (active.isNotEmpty) return active.first;
+    final consumed = attempts.values
+        .where(
+          (attempt) =>
+              attempt.assignmentId == assignment.id &&
+              attempt.traineeId == traineeId &&
+              consumedTeacherActivityAttemptIds.contains(attempt.id),
+        )
+        .length;
+    final maximum = config.attemptPolicy.maximumAttempts;
+    if (maximum != null && consumed >= maximum) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final id = 'activity_${assignment.id}_${traineeId}_${consumed + 1}';
+    final attempt = teacherReviewSubmissionDraftAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      attemptId: id,
+      createdAt: now,
+    ).copyWith(status: AssignmentAttemptStatus.inProgress);
+    attempts[id] = attempt;
+    _emitAssignmentAttempts(assignment.teacherId, assignment.id);
+    _emitTraineeAttempts(traineeId);
+    _emitTeacherAttempts(assignment.teacherId);
+    return attempt;
+  }
+
+  @override
+  Future<void> consumeTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (attempt.traineeId != traineeId ||
+        attempt.activityAssessmentSnapshot == null ||
+        attempts[attempt.id]?.status != AssignmentAttemptStatus.inProgress) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    consumedTeacherActivityAttemptIds.add(attempt.id);
+    attempts[attempt.id] = attempts[attempt.id]!.copyWith(
+      recordingStartedAt: now,
+    );
+    _emitAssignmentAttempts(attempt.teacherId, attempt.assignmentId);
+    _emitTraineeAttempts(traineeId);
+    _emitTeacherAttempts(attempt.teacherId);
+  }
+
+  @override
+  Future<void> abandonTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    final stored = attempts[attempt.id];
+    if (attempt.traineeId != traineeId ||
+        attempt.activityAssessmentSnapshot == null ||
+        stored?.status != AssignmentAttemptStatus.inProgress) {
+      return;
+    }
+    attempts[attempt.id] = stored!.copyWith(
+      status: AssignmentAttemptStatus.draft,
+      abandonedAt: now,
+    );
+    _emitAssignmentAttempts(attempt.teacherId, attempt.assignmentId);
+    _emitTraineeAttempts(traineeId);
+    _emitTeacherAttempts(attempt.teacherId);
+  }
+
+  @override
+  Future<void> permanentlyDeleteAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required String confirmation,
+  }) async {
+    if (confirmation != 'DELETE ASSIGNMENT' ||
+        assignments[assignmentId]?.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    assignments.remove(assignmentId);
+    attempts.removeWhere((_, attempt) => attempt.assignmentId == assignmentId);
+    consumedTeacherActivityAttemptIds.removeWhere(
+      (id) => !attempts.containsKey(id),
+    );
+    _emitTeacher(teacherId);
+  }
+
+  @override
+  Future<void> permanentlyDeleteClassroom({
+    required String teacherId,
+    required String groupId,
+    required String confirmation,
+  }) async {
+    if (confirmation != 'DELETE CLASSROOM') {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final ids = assignments.values
+        .where((item) => item.teacherId == teacherId && item.groupId == groupId)
+        .map((item) => item.id)
+        .toList();
+    for (final id in ids) {
+      await permanentlyDeleteAssignment(
+        teacherId: teacherId,
+        assignmentId: id,
+        confirmation: 'DELETE ASSIGNMENT',
+      );
+    }
   }
 
   @override
@@ -904,6 +1115,41 @@ class InMemoryClassroomAssignmentRepository
     _emitTraineeAttempts(existing.traineeId);
     _emitTeacherAttempts(existing.teacherId);
     return checked;
+  }
+
+  @override
+  Future<AssignmentAttempt> saveTeacherActivityRubricReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required Map<String, int> criterionScores,
+    String? feedback,
+  }) async {
+    final snapshot = attempt.activityAssessmentSnapshot;
+    if (snapshot == null || attempt.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    var total = 0;
+    for (final criterion in snapshot.rubric.criteria) {
+      final value = criterionScores[criterion.id];
+      if (value == null || value < 0 || value > criterion.maximumPoints) {
+        throw const ClassroomException(ClassroomError.invalidGrade);
+      }
+      total += value;
+    }
+    if (criterionScores.length != snapshot.rubric.criteria.length) {
+      throw const ClassroomException(ClassroomError.invalidGrade);
+    }
+    final reviewed = attempt.copyWith(
+      status: AssignmentAttemptStatus.checked,
+      gradeScore: total,
+      gradeMaxScore: snapshot.rubric.maximumScore,
+      criterionScores: criterionScores,
+      reviewFeedback: feedback,
+      checkedAt: now,
+      reviewUpdatedAt: now,
+      reviewRevision: (attempt.reviewRevision ?? 0) + 1,
+    );
+    return _storeAttempt(reviewed);
   }
 
   @override

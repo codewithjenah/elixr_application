@@ -2,6 +2,7 @@ import 'package:elixr_core/utils/manila_day.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../data/models/assessment_score_display.dart';
 import '../../data/models/rubric_assessment.dart';
 import '../../data/models/session.dart';
 
@@ -45,11 +46,12 @@ Color scoreQualityColor(int legacyScore) {
 String legacyScoreLabel(int legacyScore) => 'Legacy Score: $legacyScore/100';
 
 /// Assessment V2 rubric total read-out (0..12).
-String rubricTotalLabel(int rubricTotal) => '$rubricTotal / 12';
+String rubricTotalLabel(int rubricTotal) =>
+    AssessmentScoreDisplay.official(rubricTotal);
 
 /// Assessment V2 rubric average read-out (0..12).
 String rubricAverageLabel(double averageRubricTotal) =>
-    '${averageRubricTotal.toStringAsFixed(1)} / 12';
+    AssessmentScoreDisplay.format(earned: averageRubricTotal, maximum: 12);
 
 /// Performance level for a rubric total, using the model's thresholds.
 PerformanceLevel rubricPerformanceLevel(int rubricTotal) =>

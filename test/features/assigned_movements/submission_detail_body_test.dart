@@ -242,7 +242,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('submission_clip_preview')), findsNothing);
-    expect(find.textContaining('8 / 12'), findsOneWidget);
+    expect(find.textContaining('8/12 • 66.7%'), findsOneWidget);
     expect(find.textContaining('Competent'), findsOneWidget);
     expect(find.textContaining('Correct Technique: 3/3'), findsOneWidget);
     expect(find.textContaining('Stability / Control: 2/3'), findsOneWidget);

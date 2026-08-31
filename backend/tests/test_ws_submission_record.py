@@ -116,8 +116,6 @@ def _assignment_prepare(**overrides):
 def test_start_stop_ack_has_path_not_bytes(monkeypatch, tmp_path: Path):
     _patch_vision(monkeypatch)
     _install_fake_writer(monkeypatch, tmp_path)
-    monkeypatch.setattr(websocket_api, "MAX_SUBMISSION_DURATION_SECONDS", 20)
-
     async def _run():
         ws = FakeWebSocket()
         task = asyncio.create_task(websocket_api.websocket_endpoint(ws))

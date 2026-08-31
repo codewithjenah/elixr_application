@@ -8,12 +8,15 @@ import 'package:elixr_core/repositories/in_memory_group_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('movement library exposes only Official ELIXR and My Movements', () {
-    expect(TeacherMovementsTab.values, [
-      TeacherMovementsTab.official,
-      TeacherMovementsTab.mine,
-    ]);
-  });
+  test(
+    'Teacher Activities library exposes Official ELIXR and teacher activities',
+    () {
+      expect(TeacherMovementsTab.values, [
+        TeacherMovementsTab.official,
+        TeacherMovementsTab.mine,
+      ]);
+    },
+  );
 
   test('official catalog is the enabled ELIXR catalog', () async {
     final groups = InMemoryGroupRepository();
@@ -80,7 +83,7 @@ void main() {
     expect(await movements.getMovement(movementId: custom.id), isNotNull);
     expect(
       controller.errorMessage,
-      'This movement cannot be deleted because it is used by an assignment.',
+      'This Teacher Activity cannot be deleted because it is used by an assignment.',
     );
   });
 }

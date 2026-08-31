@@ -10,6 +10,7 @@ import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/movement_origin.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_activity_assessment.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
 
@@ -31,6 +32,10 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   });
@@ -50,6 +55,19 @@ abstract class ClassroomAssignmentRepository {
     DateTime? dueAt,
     int? maxScore,
     String? topic,
+  });
+
+  Future<GroupAssignment> updateTeacherActivityAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required String displayTitle,
+    required String instructions,
+    String? safetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required TeacherActivityAssessmentConfig activityAssessment,
   });
 
   Future<GroupAssignment> createOfficialAssignmentWithTopic({
@@ -78,6 +96,10 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
@@ -88,6 +110,10 @@ abstract class ClassroomAssignmentRepository {
     movement: movement,
     revision: revision,
     maxScore: maxScore,
+    activityAssessment: activityAssessment,
+    displayTitle: displayTitle,
+    displayInstructions: displayInstructions,
+    displaySafetyGuidance: displaySafetyGuidance,
     dueAt: dueAt,
     audience: audience,
   );
@@ -131,6 +157,39 @@ abstract class ClassroomAssignmentRepository {
   Future<AssignmentAttempt> startTeacherCreatedAttempt({
     required String traineeId,
     required GroupAssignment assignment,
+  });
+
+  /// Server-authoritative v2 reservation. A reservation does not consume a
+  /// finite attempt until [consumeTeacherActivityAttempt] succeeds.
+  Future<AssignmentAttempt> reserveTeacherActivityAttempt({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required String requestId,
+  });
+
+  Future<void> consumeTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  });
+
+  /// Releases the active reservation after cancellation, navigation, or a
+  /// recorder failure. A consumed attempt remains counted and is retained as
+  /// abandoned evidence metadata; an unconsumed reservation costs no attempt.
+  Future<void> abandonTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  });
+
+  Future<void> permanentlyDeleteAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required String confirmation,
+  });
+
+  Future<void> permanentlyDeleteClassroom({
+    required String teacherId,
+    required String groupId,
+    required String confirmation,
   });
 
   Future<AssignmentAttempt> createTeacherReviewSubmissionDraft({
@@ -222,6 +281,13 @@ abstract class ClassroomAssignmentRepository {
     required int gradeScore,
     String? feedback,
     DateTime? reviewedAt,
+  });
+
+  Future<AssignmentAttempt> saveTeacherActivityRubricReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required Map<String, int> criterionScores,
+    String? feedback,
   });
 
   Future<GroupAssignment> updateTeacherAssignmentMaxScore({
@@ -343,6 +409,10 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required TeacherMovement movement,
   required TeacherMovementRevision revision,
   int maxScore = 100,
+  TeacherActivityAssessmentConfig? activityAssessment,
+  String? displayTitle,
+  String? displayInstructions,
+  String? displaySafetyGuidance,
   DateTime? dueAt,
   String? topic,
   AssignmentAudience audience = const AssignmentAudience.entireClass(),
@@ -375,6 +445,28 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     );
   }
 
+  final spec = revision.spec as TeacherReviewedMovementSpec;
+  var resolvedAssessment = activityAssessment ?? spec.effectiveAssessment;
+  if (resolvedAssessment.rubric.maximumScore != maxScore) {
+    if (resolvedAssessment.rubric.template ==
+        TeacherActivityRubricTemplate.custom) {
+      throw const ClassroomException(
+        ClassroomError.invalidGrade,
+        'Custom rubric points must total the Assignment maximum.',
+      );
+    }
+    resolvedAssessment = TeacherActivityAssessmentConfig(
+      readiness: resolvedAssessment.readiness,
+      rubric: TeacherActivityRubric.builtIn(
+        resolvedAssessment.rubric.template,
+        maxScore,
+      ),
+      attemptPolicy: resolvedAssessment.attemptPolicy,
+      recordingDurationSeconds: resolvedAssessment.recordingDurationSeconds,
+      demonstrationVideo: resolvedAssessment.demonstrationVideo,
+    );
+  }
+
   final payload = <String, dynamic>{
     'teacher_id': teacherId,
     'group_id': group.id,
@@ -383,15 +475,21 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'origin': MovementOrigin.teacherCreated.wireValue,
     'assessment_mode': AssessmentMode.teacherReviewed.wireValue,
     'status': GroupAssignmentStatus.active.name,
-    'display_title': movement.title,
-    'display_instructions': revision.spec.instructions,
-    'display_safety_guidance': ?revision.spec.safetyGuidance,
+    'display_title': (displayTitle ?? movement.title).trim(),
+    'display_instructions': (displayInstructions ?? revision.spec.instructions)
+        .trim(),
+    'display_safety_guidance': ?(() {
+      final value = displaySafetyGuidance ?? revision.spec.safetyGuidance;
+      return value?.trim().isEmpty == true ? null : value?.trim();
+    })(),
     'allowed_prop': revision.spec.requiredProp.protocolValue,
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
     ...audience.toMap(),
     if (includeGradingFields) ...{
       'max_score': maxScore,
+      'configuration_revision': 1,
+      'activity_assessment': resolvedAssessment.toMap(),
       'grading_locked': false,
     },
     'created_at': createdAt,
@@ -525,6 +623,10 @@ AssignmentAttempt teacherCreatedDraftAttempt({
     attemptKind: AssignmentAttemptKind.teacherReviewDraft,
     status: AssignmentAttemptStatus.inProgress,
     createdAt: createdAt,
+    assignmentConfigurationRevision: assignment.activityAssessment == null
+        ? null
+        : assignment.configurationRevision,
+    activityAssessmentSnapshot: assignment.activityAssessment,
   );
 }
 
@@ -703,6 +805,10 @@ AssignmentAttempt teacherReviewSubmissionDraftAttempt({
     status: AssignmentAttemptStatus.draft,
     createdAt: createdAt,
     supersedesAttemptId: supersedesAttemptId,
+    assignmentConfigurationRevision: assignment.activityAssessment == null
+        ? null
+        : assignment.configurationRevision,
+    activityAssessmentSnapshot: assignment.activityAssessment,
   );
 }
 
@@ -738,6 +844,10 @@ AssignmentAttempt canonicalTeacherReviewSubmissionAttempt({
     attemptKind: AssignmentAttemptKind.teacherReviewSubmission,
     status: AssignmentAttemptStatus.inProgress,
     createdAt: createdAt,
+    assignmentConfigurationRevision: assignment.activityAssessment == null
+        ? null
+        : assignment.configurationRevision,
+    activityAssessmentSnapshot: assignment.activityAssessment,
   );
 }
 

@@ -400,6 +400,37 @@ def _camera_only_profile() -> ReadinessProfile:
     return _profile(_camera_req())
 
 
+def readiness_profile_from_activity_spec(spec: dict) -> ReadinessProfile:
+    """Build a visibility-only profile from a Teacher Activity contract."""
+    prop = spec.get("prop", "none")
+    hands = spec.get("hands", "none")
+    body = spec.get("body", "none")
+    if prop not in {
+        "none", "one_bottle", "one_shaker", "bottle_and_shaker", "two_bottles"
+    } or hands not in {"none", "one_hand", "two_hands"} or body not in {
+        "none", "upper_body"
+    }:
+        raise ValueError("invalid_readiness_spec")
+
+    requirements = [_camera_req()]
+    if prop == "one_bottle":
+        requirements.append(_bottle_req())
+    elif prop == "one_shaker":
+        requirements.append(_shaker_req())
+    elif prop == "bottle_and_shaker":
+        requirements.extend((_bottle_req(), _shaker_req()))
+    elif prop == "two_bottles":
+        requirements.append(_two_props_req())
+
+    if hands == "one_hand":
+        requirements.append(_supporting_hand_req())
+    elif hands == "two_hands":
+        requirements.append(_two_hands_req())
+    if body == "upper_body":
+        requirements.append(_upper_body_req())
+    return _profile(*requirements)
+
+
 # Legacy movement names resolve to canonical profiles but are not public catalog
 # entries (see enabled_catalog_movements).
 _LEGACY_MOVEMENT_ALIASES: dict[str, str] = {
@@ -442,9 +473,11 @@ def _build_profile(movement: str, prop_type: str) -> ReadinessProfile:
 
 
 def readiness_profile_for(
-    movement: str, prop_type: str = "bottle"
+    movement: str, prop_type: str = "bottle", readiness_spec: dict | None = None
 ) -> ReadinessProfile:
     """Return the authoritative readiness profile for a movement."""
+    if readiness_spec is not None:
+        return readiness_profile_from_activity_spec(readiness_spec)
     return _build_profile(movement, prop_type)
 
 
@@ -455,14 +488,18 @@ def requirements_for(
     return list(readiness_profile_for(movement, prop_type).requirements)
 
 
-def readiness_needs_hands(movement: str, prop_type: str = "bottle") -> bool:
+def readiness_needs_hands(
+    movement: str, prop_type: str = "bottle", readiness_spec: dict | None = None
+) -> bool:
     """Whether the readiness check for *movement* requires a hands detector."""
-    return readiness_profile_for(movement, prop_type).needs_hands()
+    return readiness_profile_for(movement, prop_type, readiness_spec).needs_hands()
 
 
-def readiness_needs_pose(movement: str, prop_type: str = "bottle") -> bool:
+def readiness_needs_pose(
+    movement: str, prop_type: str = "bottle", readiness_spec: dict | None = None
+) -> bool:
     """Whether the readiness check for *movement* requires a pose detector."""
-    return readiness_profile_for(movement, prop_type).needs_pose()
+    return readiness_profile_for(movement, prop_type, readiness_spec).needs_pose()
 
 
 def enabled_catalog_movements() -> tuple[str, ...]:

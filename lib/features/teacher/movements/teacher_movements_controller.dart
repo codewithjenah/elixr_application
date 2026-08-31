@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
@@ -9,6 +10,7 @@ import '../../../data/models/assessment_mode.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
+import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/teacher_movement.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -89,15 +91,15 @@ class TeacherMovementsController extends ChangeNotifier {
   String movementModeLabel(TeacherMovement movement) {
     final revision = revisionFor(movement);
     if (revision?.isRetiredTemplate == true) {
-      return 'Retired template scoring · Historical read-only';
+      return 'Retired Activity scoring · Historical read-only';
     }
     if (!movement.isActive) {
-      return 'Archived · Historical assignments stay pinned';
+      return 'Archived Activity · Historical assignments stay pinned';
     }
     if (revision?.assessmentMode == AssessmentMode.teacherReviewed) {
-      return 'Teacher reviewed · No automatic ELIXR score';
+      return 'Teacher-reviewed Activity · No automatic ELIXR score';
     }
-    return 'Teacher-created movement';
+    return 'Teacher Activity';
   }
 
   Future<void> start() async {
@@ -133,7 +135,7 @@ class TeacherMovementsController extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('[TeacherMovements] start failed: $error\n$stackTrace');
       }
-      errorMessage = 'Could not load the movement library.';
+      errorMessage = 'Could not load Teacher Activities.';
     } finally {
       if (!_disposed) {
         loading = false;
@@ -155,6 +157,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) => _runWrite(
     () => movementRepository.createMovement(
       teacherId: teacherId,
@@ -162,7 +165,19 @@ class TeacherMovementsController extends ChangeNotifier {
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     ),
+  );
+
+  Future<TeacherActivityVideoMetadata> uploadActivityDemonstration({
+    required File localFile,
+    required Duration duration,
+    required TeacherActivityDemoSource source,
+  }) => movementRepository.uploadActivityDemonstration(
+    teacherId: teacherId,
+    localFile: localFile,
+    duration: duration,
+    source: source,
   );
 
   Future<void> editMovement({
@@ -171,6 +186,7 @@ class TeacherMovementsController extends ChangeNotifier {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) => _runWrite(
     () => movementRepository.editMovement(
       teacherId: teacherId,
@@ -179,6 +195,7 @@ class TeacherMovementsController extends ChangeNotifier {
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     ),
   );
 
@@ -193,13 +210,13 @@ class TeacherMovementsController extends ChangeNotifier {
     if (!canManageMovement(movement)) {
       throw const ClassroomException(
         ClassroomError.invalidState,
-        'Only active teacher-reviewed movements can be deleted.',
+        'Only active teacher-reviewed Activities can be deleted.',
       );
     }
     if (hasAssignmentsForMovement(movement)) {
       throw const ClassroomException(
         ClassroomError.invalidState,
-        'This movement cannot be deleted because it is used by an assignment.',
+        'This Teacher Activity cannot be deleted because it is used by an assignment.',
       );
     }
     await movementRepository.deleteMovement(

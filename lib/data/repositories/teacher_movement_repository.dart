@@ -1,16 +1,38 @@
+import 'dart:io';
+
 import '../models/assessment_mode.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_activity_assessment.dart';
 import '../models/teacher_reviewed_movement_spec.dart';
 import '../models/training_prop.dart';
 
 abstract class TeacherMovementRepository {
+  /// Downloads a private Activity demonstration to a local playback cache.
+  Future<File> openActivityDemonstration(TeacherActivityVideoMetadata metadata);
+
+  /// Releases a file returned by [openActivityDemonstration].
+  Future<void> releaseActivityDemonstration(File localFile);
+
+  /// Uploads a locally validated MP4 used as a reusable Teacher Activity demo.
+  ///
+  /// The returned metadata is deliberately storage-path-only: callers persist it
+  /// inside a new immutable movement revision instead of relying on a public URL.
+  Future<TeacherActivityVideoMetadata> uploadActivityDemonstration({
+    required String teacherId,
+    required File localFile,
+    required Duration duration,
+    required TeacherActivityDemoSource source,
+    String? assignmentId,
+  });
+
   Future<TeacherMovement> createMovement({
     required String teacherId,
     required String title,
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   });
 
   /// Publishes a new immutable revision and points [currentRevisionId] at it.
@@ -21,6 +43,7 @@ abstract class TeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   });
 
   Future<void> archiveMovement({
@@ -54,6 +77,7 @@ TeacherReviewedMovementSpec buildTeacherReviewedSpec({
   required String instructions,
   required TrainingProp requiredProp,
   String? safetyGuidance,
+  TeacherActivityAssessmentConfig? assessment,
 }) {
   final titleError = TeacherReviewedMovementSpec.validateTitle(title);
   if (titleError != null) throw _malformed(titleError);
@@ -73,6 +97,11 @@ TeacherReviewedMovementSpec buildTeacherReviewedSpec({
       if (trimmed == null || trimmed.isEmpty) return null;
       return trimmed;
     }(),
+    assessment:
+        assessment ??
+        TeacherActivityAssessmentConfig.newActivityDefaults(
+          legacyProp: requiredProp,
+        ),
   );
 }
 

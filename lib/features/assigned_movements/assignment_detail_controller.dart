@@ -55,6 +55,16 @@ class AssignmentDetailController extends ChangeNotifier {
   /// Newest clip the trainee actually turned in, so Your work can replay it
   /// even if a later draft exists.
   AssignmentAttempt? get latestClipSubmission {
+    if (assignment?.activityAssessment != null) {
+      for (final attempt in attempts) {
+        if (attempt.activityAssessmentSnapshot == null) continue;
+        if (attempt.isReviewFacingSubmission ||
+            attempt.status == AssignmentAttemptStatus.inProgress) {
+          return attempt;
+        }
+      }
+      return null;
+    }
     AssignmentAttempt? canonical;
     for (final attempt in attempts) {
       if (attempt.isCanonicalTeacherReviewSubmission) {
@@ -156,13 +166,18 @@ class AssignmentDetailController extends ChangeNotifier {
   Future<bool> turnIn() async {
     final current = currentSubmission;
     final currentAssignment = assignment;
+    final activityAssessment =
+        current?.activityAssessmentSnapshot ??
+        currentAssignment?.activityAssessment;
     if (current == null ||
         currentAssignment == null ||
         !current.hasAttachedDraftClip) {
       return false;
     }
     if (!isTeacherAssignmentSubmissionOpen(assignment: currentAssignment)) {
-      turnInErrorMessage = 'This assignment is past its due date.';
+      turnInErrorMessage = activityAssessment == null
+          ? 'This assignment is past its due date.'
+          : 'This Teacher Activity is past its deadline.';
       _notify();
       return false;
     }

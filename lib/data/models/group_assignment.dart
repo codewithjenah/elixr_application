@@ -4,11 +4,13 @@ import 'assessment_mode.dart';
 import 'assessment_spec.dart';
 import 'movement_origin.dart';
 import 'teacher_reviewed_movement_spec.dart';
+import 'teacher_activity_assessment.dart';
 import 'training_prop.dart';
 
 enum GroupAssignmentStatus {
   active,
-  archived;
+  archived,
+  deleting;
 
   static GroupAssignmentStatus? tryParse(String? value) {
     if (value == null) return null;
@@ -175,6 +177,8 @@ class GroupAssignment {
     this.allowedProp,
     this.assessmentSpec,
     this.maxScore,
+    this.configurationRevision = 1,
+    this.activityAssessment,
     this.gradingLocked = false,
     this.gradingLockedAt,
     this.dueAt,
@@ -209,6 +213,11 @@ class GroupAssignment {
   /// as `/100` for compatibility, while all new Teacher-created assignments
   /// write the explicit field.
   final int? maxScore;
+  final int configurationRevision;
+
+  /// Resolved, assignment-owned Teacher Activity configuration. Null means a
+  /// legacy assignment whose historical manual-grade behavior is preserved.
+  final TeacherActivityAssessmentConfig? activityAssessment;
   final bool gradingLocked;
   final DateTime? gradingLockedAt;
   final DateTime? dueAt;
@@ -232,6 +241,8 @@ class GroupAssignment {
   GroupAssignment copyWith({
     GroupAssignmentStatus? status,
     int? maxScore,
+    int? configurationRevision,
+    TeacherActivityAssessmentConfig? activityAssessment,
     bool? gradingLocked,
     DateTime? gradingLockedAt,
     DateTime? dueAt,
@@ -260,6 +271,9 @@ class GroupAssignment {
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
       maxScore: maxScore ?? this.maxScore,
+      configurationRevision:
+          configurationRevision ?? this.configurationRevision,
+      activityAssessment: activityAssessment ?? this.activityAssessment,
       gradingLocked: gradingLocked ?? this.gradingLocked,
       gradingLockedAt: clearGradingLockedAt
           ? null
@@ -364,6 +378,8 @@ class GroupAssignment {
     }
 
     int? maxScore;
+    var configurationRevision = 1;
+    TeacherActivityAssessmentConfig? activityAssessment;
     var gradingLocked = false;
     DateTime? gradingLockedAt;
     if (origin == MovementOrigin.teacherCreated &&
@@ -375,6 +391,20 @@ class GroupAssignment {
         // Compatibility for Phase 5/6 records created before grading became
         // an explicit assignment-level contract.
         maxScore = 100;
+      }
+      if (map.containsKey('configuration_revision')) {
+        final value = map['configuration_revision'];
+        if (value is! int || value < 1) return null;
+        configurationRevision = value;
+      }
+      if (map.containsKey('activity_assessment')) {
+        activityAssessment = TeacherActivityAssessmentConfig.tryFrom(
+          map['activity_assessment'],
+        );
+        if (activityAssessment == null ||
+            activityAssessment.rubric.maximumScore != maxScore) {
+          return null;
+        }
       }
       if (map.containsKey('grading_locked')) {
         if (map['grading_locked'] is! bool) return null;
@@ -426,6 +456,8 @@ class GroupAssignment {
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
       maxScore: maxScore,
+      configurationRevision: configurationRevision,
+      activityAssessment: activityAssessment,
       gradingLocked: gradingLocked,
       gradingLockedAt: gradingLockedAt,
       dueAt: TeacherRosterInvite.readDateTime(map['due_at']),

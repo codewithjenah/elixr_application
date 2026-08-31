@@ -32,6 +32,7 @@ import 'just_dance/movement_setlist_dialog.dart';
 import 'practice_run_phase.dart';
 import 'submission_recording_controller.dart';
 import 'widgets/movement_rotation_overlay.dart';
+import 'widgets/readiness_checklist_panel.dart';
 import 'widgets/submission_recording_panel.dart';
 import 'widgets/training_action_area.dart';
 import 'widgets/training_camera_workspace.dart';
@@ -131,6 +132,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   String? _sessionError;
   bool _leaving = false;
   bool _startInFlight = false;
+  bool _activityAutoStartRequested = false;
+  bool _activityReservationReleased = false;
+  bool _reservationReleaseInFlight = false;
   SubmissionRecordingController? _recording;
 
   /// True while a WebSocket prepare/activate command is awaiting ack.
@@ -185,6 +189,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   @override
   void dispose() {
     _recording?.removeListener(_onRecordingChanged);
+    unawaited(_recording?.releaseActivityAttempt() ?? Future<void>.value());
     _recording?.dispose();
     _feedbackSub?.cancel();
     _previewSub?.cancel();
@@ -230,11 +235,25 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   void _onWsStateChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    final isActivity =
+        widget.teacherCreatedAssignment?.assignment.activityAssessment != null;
+    if (isActivity &&
+        !_activityAutoStartRequested &&
+        _ws.isConnected &&
+        _run.phase == PracticeRunPhase.idle) {
+      _activityAutoStartRequested = true;
+      unawaited(_startSession());
+    }
   }
 
   void _onRunChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_run.consumeAutoStartDue()) {
+      _onActivityReadinessStable();
+    }
   }
 
   void _publishFrame(Uint8List? bytes) {
@@ -249,6 +268,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
 
   Future<void> _stopWebSocketSession() async {
     await _recording?.abandonLocalClip();
+    await _recording?.releaseActivityAttempt();
     try {
       await _ws.stopPracticeSession();
     } on CommandTimeoutException {
@@ -275,7 +295,12 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: false,
       );
       if (startCountdown) {
-        unawaited(_startCountdownOverlay());
+        if (_isTeacherActivityV2) {
+          _run.enterReadiness();
+          unawaited(_beginActivityReadiness());
+        } else {
+          unawaited(_startCountdownOverlay());
+        }
       }
       return;
     }
@@ -316,7 +341,25 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
         isFatal: false,
       );
       if (startCountdown) {
-        unawaited(_startCountdownOverlay());
+        if (_isTeacherActivityV2) {
+          _run.enterReadiness();
+          unawaited(_beginActivityReadiness());
+        } else {
+          unawaited(_startCountdownOverlay());
+        }
+      }
+      return;
+    }
+
+    if (_run.isReadiness) {
+      _publishFrame(feedback.frameJpegBytes);
+      if (!_run.readinessFrozen) {
+        _run.applyReadinessFeedback(
+          items: feedback.readinessItems ?? const [],
+          complete: feedback.readinessComplete ?? false,
+          stable: feedback.readinessStable ?? false,
+          progress: feedback.readinessStableProgress ?? 0,
+        );
       }
       return;
     }
@@ -325,6 +368,14 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       _publishFrame(feedback.frameJpegBytes);
       if (_sessionError != null) {
         setState(() => _sessionError = null);
+      }
+      if (_isTeacherActivityV2 && feedback.readinessStable == false) {
+        _run.onActivationRejected();
+        unawaited(_releaseReservationAfterReadinessLoss());
+        setState(() {
+          _sessionError =
+              'Readiness was lost. Hold the required setup steady to restart the countdown.';
+        });
       }
       return;
     }
@@ -354,6 +405,96 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     if (!mounted || !_run.isPreparingCamera) return;
     if (!_run.countdownTriggered) return;
     _run.enterCountdown();
+  }
+
+  bool get _isTeacherActivityV2 =>
+      widget.teacherCreatedAssignment?.assignment.activityAssessment != null;
+
+  Future<void> _beginActivityReadiness() async {
+    final generation = _run.lifecycleGeneration;
+    try {
+      final ack = await _ws.sendBeginReadiness();
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      if (!ack.accepted) {
+        throw StateError(
+          ack.message ?? ack.errorCode ?? 'Readiness check was rejected.',
+        );
+      }
+    } catch (error) {
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      _run.onPreviewFeedback(
+        hasJpegFrame: false,
+        isFatal: true,
+        fatalMessage:
+            'Readiness check failed. Check the backend and try again.',
+      );
+      unawaited(_stopWebSocketSession());
+      setState(() {
+        _sessionError =
+            'Readiness check failed. Check the backend and try again.';
+      });
+    }
+  }
+
+  void _onActivityReadinessStable() {
+    if (!_isTeacherActivityV2 ||
+        _commandInFlight ||
+        _reservationReleaseInFlight) {
+      return;
+    }
+    final stable = _run.readiness.stable || (_run.readinessStable == true);
+    if (!_run.requestStartPractice(readinessStable: stable)) return;
+    unawaited(_confirmActivityReadiness());
+  }
+
+  Future<void> _confirmActivityReadiness() async {
+    final generation = _run.lifecycleGeneration;
+    _commandInFlight = true;
+    try {
+      if (_activityReservationReleased) {
+        await _recording?.reserveActivityAttempt();
+        if (!mounted || generation != _run.lifecycleGeneration) return;
+        _activityReservationReleased = false;
+      }
+      final ack = await _ws.sendConfirmReadiness();
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      if (!ack.accepted) {
+        _run.onConfirmReadinessRejected(
+          errorCode: ack.errorCode,
+          message: ack.message,
+        );
+        return;
+      }
+      if (!_run.onConfirmReadinessAccepted()) return;
+      final settings = context.read<SettingsService>();
+      await _sfx.setVolume(settings.soundEnabled ? settings.musicVolume : 0.0);
+      await _sfx.playCountdown();
+    } catch (_) {
+      if (!mounted || generation != _run.lifecycleGeneration) return;
+      _run.onConfirmReadinessRejected();
+      setState(() {
+        _sessionError = 'Readiness confirmation failed. Try again.';
+      });
+    } finally {
+      _commandInFlight = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _releaseReservationAfterReadinessLoss() async {
+    if (_reservationReleaseInFlight) return;
+    _reservationReleaseInFlight = true;
+    try {
+      await _recording?.releaseActivityAttempt();
+      if (!mounted) return;
+      _activityReservationReleased = true;
+    } finally {
+      _reservationReleaseInFlight = false;
+      if (mounted) {
+        setState(() {});
+        _onActivityReadinessStable();
+      }
+    }
   }
 
   Future<void> _connect() async {
@@ -405,11 +546,35 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       if (traineeId == null || _leaving || !mounted) return;
       final assignmentRepo = context.read<ClassroomAssignmentRepository>();
       try {
-        final submission = await assignmentRepo
-            .getOrCreateTeacherReviewSubmission(
-              traineeId: traineeId,
-              assignment: assignment.assignment,
-            );
+        final submission = assignment.assignment.activityAssessment == null
+            ? await assignmentRepo.getOrCreateTeacherReviewSubmission(
+                traineeId: traineeId,
+                assignment: assignment.assignment,
+              )
+            : (await assignmentRepo
+                      .watchAttemptsForTrainee(traineeId: traineeId)
+                      .first)
+                  .where(
+                    (attempt) =>
+                        attempt.assignmentId == assignment.assignment.id &&
+                        attempt.activityAssessmentSnapshot != null,
+                  )
+                  .fold<AssignmentAttempt?>(
+                    null,
+                    (latest, attempt) =>
+                        latest == null ||
+                            (attempt.createdAt ?? DateTime(1970)).isAfter(
+                              latest.createdAt ?? DateTime(1970),
+                            )
+                        ? attempt
+                        : latest,
+                  );
+        if (submission == null) {
+          throw const ClassroomException(
+            ClassroomError.invalidState,
+            'No reserved Activity attempt is available.',
+          );
+        }
         if (submission.status != AssignmentAttemptStatus.inProgress) {
           if (!mounted) return;
           setState(() {
@@ -473,6 +638,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
             ? settings.pendingLegacyCameraIndex
             : null,
         allowSubmissionRecording: assignment != null,
+        readinessSpec: assignment?.assignment.activityAssessment?.readiness,
       );
       if (!mounted || _leaving) return;
       if (!_run.isPreparingCamera) return;
@@ -568,6 +734,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       if (widget.teacherCreatedAssignment == null) {
         _rotation.start();
       }
+      if (_isTeacherActivityV2) {
+        await _recording?.beginActivityRecordingNow();
+      }
       if (mounted) setState(() {});
     } catch (error) {
       if (!mounted) return;
@@ -606,7 +775,10 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
   }
 
   Future<void> _stopSession() async {
-    if (_run.isPreparingCamera || _run.isCountdown || _run.isError) {
+    if (_run.isPreparingCamera ||
+        _run.isReadiness ||
+        _run.isCountdown ||
+        _run.isError) {
       await _cancelPreActive();
       return;
     }
@@ -670,7 +842,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     return switch (_run.phase) {
       PracticeRunPhase.idle => TrainingSessionPhase.ready,
       PracticeRunPhase.preparingCamera => TrainingSessionPhase.preparingCamera,
-      PracticeRunPhase.readiness => TrainingSessionPhase.preparingCamera,
+      PracticeRunPhase.readiness => TrainingSessionPhase.readiness,
       PracticeRunPhase.countdown => TrainingSessionPhase.getReady,
       PracticeRunPhase.active => TrainingSessionPhase.inProgress,
       PracticeRunPhase.completed => TrainingSessionPhase.completed,
@@ -710,7 +882,7 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                     ? 'Follow the set, or freestyle — nothing is scored or '
                           'locked.'
                     : (assignment.instructions.isEmpty
-                          ? 'Practice this teacher-created movement. ELIXR does not score it automatically.'
+                          ? 'Practice this Teacher Activity. Your Teacher reviews the recording.'
                           : assignment.instructions),
                 connectionState: _ws.connectionState,
                 connecting: _connecting,
@@ -763,12 +935,27 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                         : _run.elapsedSeconds,
                   ),
                 ),
-                statusContent: TrainingStatusRow(
-                  detection: resolveDetectionStatus(
-                    sessionActive: isTrainingActive,
-                    bottleDetected: isTrainingActive ? _bottleDetected : null,
-                  ),
-                ),
+                statusContent:
+                    (_run.isReadiness ||
+                        (_run.isCountdown && _run.readiness.frozen))
+                    ? ReadinessChecklistPanel(
+                        items: _run.readiness.displayItems,
+                        progress: _run.readiness.stableProgress,
+                        stable: _run.readiness.stable,
+                        complete: _run.readiness.complete,
+                        frozen: _run.readiness.frozen,
+                        streamStale: _run.readiness.streamStale,
+                        recoverableMessage: _run.readiness.recoverableMessage,
+                        readyCount: _run.readiness.readyCount,
+                      )
+                    : TrainingStatusRow(
+                        detection: resolveDetectionStatus(
+                          sessionActive: isTrainingActive,
+                          bottleDetected: isTrainingActive
+                              ? _bottleDetected
+                              : null,
+                        ),
+                      ),
                 notice: Text(
                   assignment == null
                       ? 'No score or session history will be saved.'
@@ -803,7 +990,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                   kind: actionKind,
                   startLabel: assignment == null
                       ? 'Start Playground'
-                      : 'Start assignment practice',
+                      : (_isTeacherActivityV2
+                            ? 'Preparing attempt…'
+                            : 'Start assignment practice'),
                   onPressed: switch (actionKind) {
                     TrainingActionKind.finish => _stopSession,
                     TrainingActionKind.cancel => _cancelPreActive,

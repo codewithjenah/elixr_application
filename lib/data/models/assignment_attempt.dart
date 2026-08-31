@@ -6,6 +6,7 @@ import 'assignment_attempt_ids.dart';
 import 'assignment_submission_limits.dart';
 import 'movement_origin.dart';
 import 'training_prop.dart';
+import 'teacher_activity_assessment.dart';
 
 enum AssignmentAttemptKind {
   practicePointer('practice_pointer'),
@@ -118,6 +119,10 @@ class AssignmentAttempt {
     this.resultMessageId,
     this.supersedesAttemptId,
     this.abandonedAt,
+    this.recordingStartedAt,
+    this.assignmentConfigurationRevision,
+    this.activityAssessmentSnapshot,
+    this.criterionScores,
   });
 
   final String id;
@@ -165,6 +170,10 @@ class AssignmentAttempt {
   final String? resultMessageId;
   final String? supersedesAttemptId;
   final DateTime? abandonedAt;
+  final DateTime? recordingStartedAt;
+  final int? assignmentConfigurationRevision;
+  final TeacherActivityAssessmentConfig? activityAssessmentSnapshot;
+  final Map<String, int>? criterionScores;
 
   int? get rubricTotal => rubric?.total;
   PerformanceLevel? get performanceLevel => rubric?.performanceLevel;
@@ -282,6 +291,12 @@ class AssignmentAttempt {
     if (supersedesAttemptId != null) {
       map['supersedes_attempt_id'] = supersedesAttemptId;
     }
+    if (assignmentConfigurationRevision != null &&
+        activityAssessmentSnapshot != null) {
+      map['assignment_configuration_revision'] =
+          assignmentConfigurationRevision;
+      map['activity_assessment_snapshot'] = activityAssessmentSnapshot!.toMap();
+    }
     return map;
   }
 
@@ -311,6 +326,10 @@ class AssignmentAttempt {
     String? resultMessageId,
     String? supersedesAttemptId,
     DateTime? abandonedAt,
+    DateTime? recordingStartedAt,
+    int? assignmentConfigurationRevision,
+    TeacherActivityAssessmentConfig? activityAssessmentSnapshot,
+    Map<String, int>? criterionScores,
     bool clearVideoStoragePath = false,
     bool clearVideoMetadata = false,
     bool clearDraftSavedAt = false,
@@ -402,6 +421,13 @@ class AssignmentAttempt {
           : (resultMessageId ?? this.resultMessageId),
       supersedesAttemptId: supersedesAttemptId ?? this.supersedesAttemptId,
       abandonedAt: abandonedAt ?? this.abandonedAt,
+      recordingStartedAt: recordingStartedAt ?? this.recordingStartedAt,
+      activityAssessmentSnapshot:
+          activityAssessmentSnapshot ?? this.activityAssessmentSnapshot,
+      assignmentConfigurationRevision:
+          assignmentConfigurationRevision ??
+          this.assignmentConfigurationRevision,
+      criterionScores: criterionScores ?? this.criterionScores,
     );
   }
 
@@ -490,11 +516,55 @@ class AssignmentAttempt {
       map['deletion_failed_at'],
     );
     final abandonedAt = TeacherRosterInvite.readDateTime(map['abandoned_at']);
+    final recordingStartedAt = TeacherRosterInvite.readDateTime(
+      map['recording_started_at'],
+    );
     final deletionFailed = map['deletion_failed'] == true;
     final videoSizeBytes = _readInt(map['video_size_bytes']);
     final videoDurationMs = _readInt(map['video_duration_ms']);
+    final assignmentConfigurationRevision = _readInt(
+      map['assignment_configuration_revision'],
+    );
+    final activityAssessmentSnapshot = TeacherActivityAssessmentConfig.tryFrom(
+      map['activity_assessment_snapshot'],
+    );
+    Map<String, int>? criterionScores;
+    if (map.containsKey('criterion_scores')) {
+      final rawScores = map['criterion_scores'];
+      if (rawScores is! Map) return null;
+      criterionScores = {};
+      for (final entry in rawScores.entries) {
+        if (entry.key is! String || entry.value is! int) return null;
+        criterionScores[entry.key as String] = entry.value as int;
+      }
+    }
+    if ((assignmentConfigurationRevision == null) !=
+            (activityAssessmentSnapshot == null) ||
+        (assignmentConfigurationRevision != null &&
+            assignmentConfigurationRevision < 1)) {
+      return null;
+    }
     final gradeScore = _readInt(map['grade_score']);
     final gradeMaxScore = _readInt(map['grade_max_score']);
+    if (activityAssessmentSnapshot != null && criterionScores != null) {
+      final criteria = activityAssessmentSnapshot.rubric.criteria;
+      final expectedIds = criteria.map((item) => item.id).toSet();
+      if (criterionScores.length != expectedIds.length ||
+          !criterionScores.keys.toSet().containsAll(expectedIds) ||
+          gradeScore == null ||
+          gradeMaxScore != activityAssessmentSnapshot.rubric.maximumScore) {
+        return null;
+      }
+      var total = 0;
+      for (final criterion in criteria) {
+        final score = criterionScores[criterion.id];
+        if (score == null || score < 0 || score > criterion.maximumPoints) {
+          return null;
+        }
+        total += score;
+      }
+      if (total != gradeScore) return null;
+    }
     final reviewRevision = _readInt(map['review_revision']);
     final resultSentRevision = _readInt(map['result_sent_revision']);
     final resultMessageId = _readBounded(
@@ -547,6 +617,7 @@ class AssignmentAttempt {
       'result_sent_at': resultSentAt,
       'deletion_failed_at': deletionFailedAt,
       'abandoned_at': abandonedAt,
+      'recording_started_at': recordingStartedAt,
     }.entries) {
       if (map.containsKey(entry.key) &&
           map[entry.key] != null &&
@@ -719,6 +790,10 @@ class AssignmentAttempt {
       resultMessageId: resultMessageId,
       supersedesAttemptId: supersedesAttemptId,
       abandonedAt: abandonedAt,
+      recordingStartedAt: recordingStartedAt,
+      assignmentConfigurationRevision: assignmentConfigurationRevision,
+      activityAssessmentSnapshot: activityAssessmentSnapshot,
+      criterionScores: criterionScores,
     );
   }
 

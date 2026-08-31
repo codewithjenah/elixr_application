@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/teacher_movement_revision_spec.dart';
 import 'package:elixr_application/data/models/teacher_reviewed_movement_spec.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -37,6 +40,53 @@ void main() {
     expect(revision!.assessmentMode, AssessmentMode.teacherReviewed);
     expect(revision.spec, isA<TeacherReviewedMovementSpec>());
     expect(revision.spec.isTeacherReviewOnly, isTrue);
+  });
+
+  test(
+    'demo upload returns bounded opaque metadata without a public URL',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'elixr_demo_test_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final clip = File('${directory.path}${Platform.pathSeparator}demo.mp4');
+      await clip.writeAsBytes(<int>[0, 0, 0, 24, 102, 116, 121, 112]);
+
+      final metadata = await repo.uploadActivityDemonstration(
+        teacherId: 'teacher-1',
+        localFile: clip,
+        duration: const Duration(seconds: 12),
+        source: TeacherActivityDemoSource.uploaded,
+      );
+
+      expect(
+        metadata.storagePath,
+        startsWith('teacher_activity_demos/teacher-1/'),
+      );
+      expect(metadata.storagePath, endsWith('.mp4'));
+      expect(metadata.contentType, 'video/mp4');
+      expect(metadata.sizeBytes, 8);
+      expect(metadata.durationMs, 12000);
+      expect(metadata.source, TeacherActivityDemoSource.uploaded);
+      expect(repo.demonstrationMedia[metadata.storagePath], metadata);
+    },
+  );
+
+  test('demo upload rejects clips over the contract duration', () async {
+    final directory = await Directory.systemTemp.createTemp('elixr_demo_test_');
+    addTearDown(() => directory.delete(recursive: true));
+    final clip = File('${directory.path}${Platform.pathSeparator}demo.mp4');
+    await clip.writeAsBytes(<int>[1]);
+
+    expect(
+      () => repo.uploadActivityDemonstration(
+        teacherId: 'teacher-1',
+        localFile: clip,
+        duration: const Duration(seconds: 61),
+        source: TeacherActivityDemoSource.recorded,
+      ),
+      throwsA(isA<ClassroomException>()),
+    );
   });
 
   test('edit creates a new teacher-reviewed revision', () async {

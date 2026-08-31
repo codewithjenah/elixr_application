@@ -3,9 +3,9 @@
 /// These are initial engineering defaults, not experimentally validated
 /// camera or storage measurements.
 abstract final class AssignmentSubmissionLimits {
-  static const maxDurationSeconds = 20;
-  static const maxDurationMs = 20000;
-  static const maxSizeBytes = 15 * 1024 * 1024;
+  static const maxDurationSeconds = 60;
+  static const maxDurationMs = 60000;
+  static const maxSizeBytes = 50 * 1024 * 1024;
   static const maxPlaybackDownloadBytes = maxSizeBytes + (256 * 1024);
   static const reviewCacheDirname = 'elixr_review_cache';
   static const contentType = 'video/mp4';

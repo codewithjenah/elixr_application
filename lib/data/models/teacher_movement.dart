@@ -134,7 +134,8 @@ class TeacherMovementRevision {
         teacherId == null ||
         mode == null ||
         spec == null ||
-        schemaVersion != TeacherReviewedMovementSpec.currentSchemaVersion) {
+        (schemaVersion != TeacherReviewedMovementSpec.currentSchemaVersion &&
+            schemaVersion != TeacherReviewedMovementSpec.legacySchemaVersion)) {
       return null;
     }
     return TeacherMovementRevision(

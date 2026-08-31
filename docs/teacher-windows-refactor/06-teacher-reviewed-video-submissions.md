@@ -1,21 +1,35 @@
 # Phase 6 — Teacher-reviewed video submissions
 
-## Current single-submission and grading contract
+## Current Teacher Activity submission and grading contract
 
-New Teacher-created assignments have exactly one reusable
-`teacher_review_submission` per trainee: `review_sub_{assignmentId}_{traineeId}`.
-Its lifecycle is `in_progress` (empty or private attached recording) `→ submitted → checked`; `unsubmitting` is a
-temporary cleanup state. Unsubmit is trainee-confirmed, claimed in Firestore
-before Storage deletion, and reusable after successful deletion. A failed
-delete leaves `unsubmitting` plus retry metadata so the clip is never silently
-reported as withdrawn.
+Schema-2 Teacher Activity Assignments use multiple authoritative attempt
+documents rather than the legacy reusable `review_sub_*` document. The old
+single-submission lifecycle remains supported only for assignments without an
+`activity_assessment` payload.
 
-Teachers create these assignments with `max_score` from 1 to 100. The first
-checked review snapshots that maximum into `grade_max_score`, writes the
-required whole-number `grade_score`, optional bounded `review_feedback`,
-`checked_at`, `review_updated_at`, and monotonic `review_revision`. It also
-locks the assignment maximum. Editing a checked review clears the sent marker
-and increments the revision.
+The trainee action is **Start attempt**. ELIXR reserves an attempt, prepares the
+existing Python-owned camera, runs the Assignment's visibility-only readiness
+check, waits for stable inputs, automatically confirms readiness, shows a
+three-second countdown, and starts recording at zero. Losing readiness during
+the countdown revokes confirmation and returns to the checklist without
+consuming a slot. Recorder duration is an Assignment snapshot preset
+(15/30/45/60 seconds); the synchronized upper bounds are 60 seconds and
+50 MiB. No second `VideoCapture` is opened.
+
+After recording, the same attempt is uploaded and transitioned directly to
+`submitted`; there is no v2 Use recording or Turn in step. Upload retries reuse
+the same attempt and object path. Leaving after recording starts still counts;
+cancelling before recording starts releases an unconsumed reservation. Finite
+attempts preserve completed evidence. Unlimited replacement cleanup never
+deletes the current reviewable clip before the replacement is persisted.
+
+V2 grading reads the immutable rubric snapshot on the attempt. The Teacher
+enters bounded points for every criterion; the server calculates
+`grade_score`, fixes `grade_max_score` to the snapshot maximum, marks the
+attempt checked, and locks new attempts in the per-trainee state. Legacy
+assignments retain manual total grading. Display normalization is presentation
+only: Official ELIXR remains raw `/12` plus percentage, while Teacher Activity
+grades show earned/max plus percentage.
 
 `Send to student` uses the idempotency key
 `{submissionId}:{reviewRevision}` and sends the assignment title, `Score:
@@ -23,9 +37,10 @@ earned/max`, and an optional `Feedback:` line. The attempt stores the sent
 revision, timestamp, and message ID. A retry therefore returns the same result
 message instead of creating a duplicate.
 
-## Turn in workflow
+## Legacy Turn in workflow
 
-After a Trainee chooses **Use this recording**, the MP4 is private attached
+For a historical assignment without schema-2 assessment configuration, after a
+Trainee chooses **Use this recording**, the MP4 is private attached
 work on the canonical in-progress attempt (`draft_saved_at`). **Turn in** is
 the separate confirmation that transitions the work to `submitted`; only then
 can the assigning Teacher open the clip or see it in the review queue. A
@@ -472,6 +487,12 @@ Phase 6 functional behavior is **production verified** (2026-08-22). Cleaned Sto
 | Phase 6 production closed | YES |
 | Phase 7 started | NO |
 
+## Legacy Phase 6 closure appendix
+
+The remainder of this appendix records the pre-v2 single-submission release.
+It is historical evidence, not the current Teacher Activity lifecycle. Shared
+recorder limits noted below have since been raised to 60 seconds / 50 MiB.
+
 ### Protocol commands
 
 - `start_submission_record` / `stop_submission_record` / `cancel_submission_record`
@@ -485,8 +506,9 @@ Phase 6 functional behavior is **production verified** (2026-08-22). Cleaned Sto
 
 - `backend/vision/submission_recorder.py` copies frames from the existing Python camera/session flow
 - Does **not** open a second `cv2.VideoCapture`
-- Hard cap `MAX_SUBMISSION_DURATION_SECONDS = 20` (backend, independent of UI)
-- Size bound `MAX_SUBMISSION_SIZE_BYTES = 15 MiB`
+- Current shared hard cap `MAX_SUBMISSION_DURATION_SECONDS = 60` (backend,
+  independent of UI; legacy assignments still use their compatibility path)
+- Current shared size bound `MAX_SUBMISSION_SIZE_BYTES = 50 MiB`
 - Temp dir `{temp}/elixr_submissions/clip_{uuid}.mp4`
 - One recorder per WebSocket session; cancel/stop/disconnect/session replace/cleanup are deterministic
 - `VideoWriter.write()`: `None` and `True` are success; explicit boolean `False` is `record_failed`. Older Python bindings return `None`; OpenCV 5 returns `bool`. Do not use `if not writer.write(...)`.
@@ -520,7 +542,9 @@ JPEG `session_evidence` rules are unchanged.
 ### Firestore transitions
 
 - Create draft: trainee, current approved membership, active teacher-created / teacher-reviewed assignment, no video/review/`abandoned_at` fields
-- Trainee submit: draft/in_progress **without** `abandoned_at` → submitted with canonical path, size 1..15MiB, duration 1..20000ms, `submitted_at == request.time`, `video_expires_at` ~30 days (29–31 day window)
+- Historical Phase 6 transition: draft/in_progress **without** `abandoned_at`
+  → submitted with canonical path. Current shared validation accepts at most
+  50 MiB / 60000 ms; schema-2 attempts are reserved server-side.
 - Trainee abandon: draft without video/review/`source_session_id` → `abandoned_at == request.time`; frozen identity unchanged; `awards_global_xp` stays false. Optional `video_deleted_at` if the leftover object is already gone, or `deletion_failed` if object cleanup is pending. Cannot later submit, self-approve, rewrite identity, or clear `abandoned_at`.
 - Teacher review: submitted → approved|needs_retry, verdict matches status, `reviewed_at == request.time`, expires ~14 days (13–15 day window)
 - Cleanup: owner or frozen Teacher may only touch path / deleted_at / deletion_failed; cannot rewrite review/status/identity. Abandoned drafts allow the same cleanup keys so leftover objects can be reconciled from the canonical path.
@@ -584,7 +608,8 @@ Phase 6 — PRODUCTION CLOSED
 - Live lifecycle: one Delete rule, age 30+ days, prefix assignment_submissions/ only (2026-08-22T06:16:36+0000)
 - Lifecycle-triggered deletion observed: NO (asynchronous/age-based; not a closure prerequisite)
 - Trainee self-approve blocked: yes
-- Planning defaults used (unvalidated): 20s / 15MiB / 30d unreviewed / 14d reviewed / 30d object age
+- Historical planning defaults were 20s / 15MiB. Current code bounds are
+  60s / 50MiB; physical Windows writer characterization remains required.
 - Phase 7: NOT STARTED
 ```
 

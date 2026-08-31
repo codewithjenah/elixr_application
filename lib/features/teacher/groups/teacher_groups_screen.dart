@@ -271,6 +271,16 @@ class _GroupsGrid extends StatelessWidget {
                                         group,
                                       ),
                               ),
+                            MenuFlyoutItem(
+                              text: const Text('Delete permanently'),
+                              onPressed: controller.busy
+                                  ? null
+                                  : () => _confirmPermanentlyDeleteGroup(
+                                      context,
+                                      controller,
+                                      group,
+                                    ),
+                            ),
                           ],
                         ),
                       ),
@@ -413,6 +423,62 @@ Future<void> _confirmArchiveGroup(
     ),
   );
   if (accepted == true) await controller.archiveGroup(group);
+}
+
+Future<void> _confirmPermanentlyDeleteGroup(
+  BuildContext context,
+  TeacherGroupsController controller,
+  ElixrGroup group,
+) async {
+  final confirmation = TextEditingController();
+  var phraseMatches = false;
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => ContentDialog(
+        title: const Text('Permanently delete classroom?'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This permanently deletes “${group.name}” and all classroom '
+                'assignments, submissions, memberships, and uploaded media.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Text('Type DELETE CLASSROOM to continue.'),
+              const SizedBox(height: AppSpacing.xs),
+              TextBox(
+                key: const Key('teacher_groups_delete_confirmation'),
+                controller: confirmation,
+                autofocus: true,
+                onChanged: (value) => setDialogState(
+                  () => phraseMatches = value == 'DELETE CLASSROOM',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('teacher_groups_confirm_delete'),
+            onPressed: phraseMatches
+                ? () => Navigator.pop(dialogContext, true)
+                : null,
+            child: const Text('Delete permanently'),
+          ),
+        ],
+      ),
+    ),
+  );
+  confirmation.dispose();
+  if (accepted == true) await controller.permanentlyDeleteClassroom(group);
 }
 
 T? _maybeRead<T>(BuildContext context) {

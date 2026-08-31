@@ -25,6 +25,7 @@ from assessment.readiness import (
     ReadinessTracker,
     readiness_needs_hands,
     readiness_needs_pose,
+    readiness_profile_for,
 )
 from assessment.rule_engine import (
     evaluate_movement,
@@ -44,7 +45,6 @@ from config import (
     EVIDENCE_MAX_HEIGHT,
     EVIDENCE_MAX_WIDTH,
     JPEG_QUALITY,
-    MAX_SUBMISSION_DURATION_SECONDS,
     OVERLAY_MAX_AGE_S,
     READINESS_SNAPSHOT_MAX_AGE_S,
     SESSION_PREP_TIMEOUT_S,
@@ -455,6 +455,7 @@ class VisionSession:
         camera_device_id: str | None = None,
         bottle_detection_enabled: bool = True,
         session_id: str | None = None,
+        readiness_spec: dict | None = None,
     ):
         if prop_type not in {"bottle", "shaker", "bottle_and_shaker"}:
             raise ValueError("invalid_prop_type")
@@ -470,6 +471,7 @@ class VisionSession:
         self.camera_device_id = camera_device_id
         self.bottle_detection_enabled = bottle_detection_enabled
         self.session_id = session_id
+        self.readiness_spec = readiness_spec
 
         self.camera = CameraCapture(
             camera_index=camera_index,
@@ -798,8 +800,12 @@ class VisionSession:
             self._sync_landmark_detectors(needs_hands=False, needs_pose=False)
             return
         self._sync_landmark_detectors(
-            needs_hands=readiness_needs_hands(self.movement, self.prop_type),
-            needs_pose=readiness_needs_pose(self.movement, self.prop_type),
+            needs_hands=readiness_needs_hands(
+                self.movement, self.prop_type, self.readiness_spec
+            ),
+            needs_pose=readiness_needs_pose(
+                self.movement, self.prop_type, self.readiness_spec
+            ),
         )
 
     def begin_readiness(self) -> bool:
@@ -818,6 +824,9 @@ class VisionSession:
             self._readiness_tracker = ReadinessTracker(
                 self.movement,
                 self.prop_type,
+                profile=readiness_profile_for(
+                    self.movement, self.prop_type, self.readiness_spec
+                ),
             )
             self._latest_readiness_snapshot = None
             self._latest_readiness_observed_at = None
@@ -1123,8 +1132,12 @@ class VisionSession:
         bottles = list(normalized.bottles)
         shakers = list(normalized.shakers)
 
-        needs_h = readiness_needs_hands(self.movement, self.prop_type)
-        needs_p = readiness_needs_pose(self.movement, self.prop_type)
+        needs_h = readiness_needs_hands(
+            self.movement, self.prop_type, self.readiness_spec
+        )
+        needs_p = readiness_needs_pose(
+            self.movement, self.prop_type, self.readiness_spec
+        )
 
         hands = None
         if needs_h and self.hands_detector is not None:
@@ -1154,10 +1167,23 @@ class VisionSession:
 
         snapshot = None
         observed_at = time.monotonic()
-        if self._readiness_tracker is not None and not self._readiness_confirmed:
+        if self._readiness_tracker is not None and (
+            not self._readiness_confirmed or self.readiness_spec is not None
+        ):
             snapshot = self._readiness_tracker.update(obs)
             self._latest_readiness_snapshot = snapshot
             self._latest_readiness_observed_at = observed_at
+            # Teacher Activities require the configured inputs to remain
+            # observable through the countdown. Unlike guided calibration,
+            # losing readiness revokes confirmation so activation cannot start
+            # a finite assessment recording unfairly.
+            if (
+                self.readiness_spec is not None
+                and self._readiness_confirmed
+                and not snapshot.readiness_stable
+            ):
+                self._readiness_confirmed = False
+                self._frozen_readiness_snapshot = None
         elif self._readiness_confirmed and self._frozen_readiness_snapshot is not None:
             snapshot = self._frozen_readiness_snapshot
             # Keep freshness advancing so post-confirm frames stay current, but
@@ -1713,6 +1739,7 @@ async def _cv_session_loop(
     session_id: str | None = None,
     prepare_gate: dict | None = None,
     send_text: SendText | None = None,
+    readiness_spec: dict | None = None,
 ):
     async def _send(payload: str) -> None:
         if send_text is not None:
@@ -1728,6 +1755,7 @@ async def _cv_session_loop(
             camera_device_id=camera_device_id,
             bottle_detection_enabled=bottle_detection_enabled,
             session_id=session_id,
+            readiness_spec=readiness_spec,
         )
     except Exception:
         logger.exception("Failed to initialize vision session")
@@ -2309,6 +2337,7 @@ async def websocket_endpoint(websocket: WebSocket):
         start_active: bool,
         session_id: str | None,
         wait_for_prepare: bool,
+        readiness_spec: dict | None = None,
     ) -> tuple[bool, str | None, str | None]:
         nonlocal session_task, current_session_id, submission_recording_allowed
 
@@ -2344,6 +2373,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_id=session_id,
                 prepare_gate=prepare_gate,
                 send_text=safe_send,
+                readiness_spec=readiness_spec,
             )
         )
 
@@ -2437,6 +2467,11 @@ async def websocket_endpoint(websocket: WebSocket):
             start_active=start_active,
             session_id=command.session_id,
             wait_for_prepare=True,
+            readiness_spec=(
+                command.readiness_spec.model_dump()
+                if command.readiness_spec is not None
+                else None
+            ),
         )
 
         if ok:
@@ -2745,7 +2780,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await _reject("submission_already_recording")
             return
 
-        recorder = SubmissionRecorder()
+        recorder = SubmissionRecorder(max_duration_s=command.duration_seconds)
         try:
             await asyncio.to_thread(recorder.start)
         except SubmissionRecorderError as exc:
@@ -2772,7 +2807,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         async def _cap() -> None:
             try:
-                await asyncio.sleep(MAX_SUBMISSION_DURATION_SECONDS)
+                await asyncio.sleep(command.duration_seconds)
                 current = submission_recorder
                 if current is not None:
                     await asyncio.to_thread(current.finalize_due_to_cap)

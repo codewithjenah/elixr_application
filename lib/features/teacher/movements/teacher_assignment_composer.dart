@@ -21,6 +21,7 @@ import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/movement.dart';
 import '../../../data/models/teacher_movement.dart';
+import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/models/teacher_reviewed_movement_spec.dart';
 import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
@@ -60,6 +61,10 @@ class TeacherAssignmentCreationService {
     Movement? officialMovement,
     TeacherMovement? teacherCreatedMovement,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
   }) async {
@@ -122,7 +127,7 @@ class TeacherAssignmentCreationService {
     if (movementRepository == null) {
       throw const ClassroomException(
         ClassroomError.notFound,
-        'Teacher-created movement data is unavailable right now.',
+        'Teacher Activity data is unavailable right now.',
       );
     }
     // The picker can hold a snapshot from before the teacher edits or
@@ -153,6 +158,10 @@ class TeacherAssignmentCreationService {
         movement: custom,
         revision: revision,
         maxScore: maxScore,
+        activityAssessment: activityAssessment,
+        displayTitle: displayTitle,
+        displayInstructions: displayInstructions,
+        displaySafetyGuidance: displaySafetyGuidance,
         dueAt: dueAt,
         audience: audience,
       );
@@ -164,6 +173,10 @@ class TeacherAssignmentCreationService {
       movement: custom,
       revision: revision,
       maxScore: maxScore,
+      activityAssessment: activityAssessment,
+      displayTitle: displayTitle,
+      displayInstructions: displayInstructions,
+      displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
       topic: normalizedTopic,
       audience: audience,
@@ -175,12 +188,13 @@ class TeacherAssignmentCreationService {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) async {
     final movementRepository = this.movementRepository;
     if (movementRepository == null) {
       throw const ClassroomException(
         ClassroomError.notFound,
-        'Teacher-created movement data is unavailable right now.',
+        'Teacher Activity data is unavailable right now.',
       );
     }
     await _ensureTeacherAuthorization();
@@ -190,6 +204,7 @@ class TeacherAssignmentCreationService {
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
   }
 
@@ -315,6 +330,9 @@ extension on AssignmentAudienceType {
 class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   late final bool _classroomScoped;
   late final TextEditingController _maxScoreController;
+  late final TextEditingController _assignmentTitleController;
+  late final TextEditingController _instructionsController;
+  late final TextEditingController _safetyGuidanceController;
   late final TextEditingController _topicController;
   late final TextEditingController _rosterSearchController;
   late ElixrGroup? _selectedGroup;
@@ -339,6 +357,17 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   List<GroupMembership> _eligibleTrainees = const [];
   bool _loadingRoster = false;
   String? _rosterLoadError;
+  ActivityPropRequirement _readinessProp = ActivityPropRequirement.oneBottle;
+  ActivityHandRequirement _readinessHands = ActivityHandRequirement.none;
+  ActivityBodyRequirement _readinessBody = ActivityBodyRequirement.none;
+  TeacherActivityRubricTemplate _rubricTemplate =
+      TeacherActivityRubricTemplate.standardTechnique;
+  TeacherActivityAttemptPolicy _attemptPolicy =
+      TeacherActivityAttemptPolicy.defaultPolicy;
+  int _recordingDurationSeconds =
+      TeacherActivityAssessmentContract.defaultRecordingDurationSeconds;
+  TeacherActivityVideoMetadata? _demonstrationVideo;
+  List<_CustomCriterionDraft> _customCriteria = [];
 
   bool get _hasMovementOverride =>
       widget.officialMovement != null || widget.teacherCreatedMovement != null;
@@ -364,6 +393,90 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (!_isTeacherCreated) return true;
     final value = int.tryParse(_maxScoreController.text.trim());
     return value != null && value >= 1 && value <= 100;
+  }
+
+  int? get _maximumScore => int.tryParse(_maxScoreController.text.trim());
+
+  TeacherActivityRubric? get _activityRubric {
+    final maximum = _maximumScore;
+    if (maximum == null || maximum < 1 || maximum > 100) return null;
+    if (_rubricTemplate != TeacherActivityRubricTemplate.custom) {
+      return TeacherActivityRubric.builtIn(_rubricTemplate, maximum);
+    }
+    final criteria = <TeacherActivityRubricCriterion>[];
+    for (var index = 0; index < _customCriteria.length; index++) {
+      final draft = _customCriteria[index];
+      final label = draft.label.text.trim();
+      final description = draft.description.text.trim();
+      final points = int.tryParse(draft.maximumPoints.text.trim());
+      if (label.isEmpty ||
+          label.length > 80 ||
+          description.isEmpty ||
+          description.length > 500 ||
+          points == null ||
+          points < 1 ||
+          points > 100) {
+        return null;
+      }
+      criteria.add(
+        TeacherActivityRubricCriterion(
+          id: 'criterion_${index + 1}',
+          label: label,
+          description: description,
+          maximumPoints: points,
+        ),
+      );
+    }
+    final rubric = TeacherActivityRubric(
+      template: TeacherActivityRubricTemplate.custom,
+      maximumScore: maximum,
+      criteria: criteria,
+    );
+    return rubric.isValid ? rubric : null;
+  }
+
+  TeacherActivityAssessmentConfig? get _activityAssessment {
+    if (!_isTeacherCreated) return null;
+    final rubric = _activityRubric;
+    if (rubric == null) return null;
+    final config = TeacherActivityAssessmentConfig(
+      readiness: TeacherActivityReadinessSpec(
+        prop: _readinessProp,
+        hands: _readinessHands,
+        body: _readinessBody,
+      ),
+      rubric: rubric,
+      attemptPolicy: _attemptPolicy,
+      recordingDurationSeconds: _recordingDurationSeconds,
+      demonstrationVideo: _demonstrationVideo,
+    );
+    return config.isValid ? config : null;
+  }
+
+  bool get _hasValidActivityAssessment =>
+      !_isTeacherCreated || _activityAssessment != null;
+
+  String? get _activityDetailsValidation {
+    if (!_isTeacherCreated) return null;
+    if (TeacherReviewedMovementSpec.validateTitle(
+          _assignmentTitleController.text,
+        ) !=
+        null) {
+      return 'Enter an assignment title of 80 characters or fewer.';
+    }
+    if (TeacherReviewedMovementSpec.validateInstructions(
+          _instructionsController.text,
+        ) !=
+        null) {
+      return 'Enter assignment instructions of 2,000 characters or fewer.';
+    }
+    if (TeacherReviewedMovementSpec.validateSafetyGuidance(
+          _safetyGuidanceController.text,
+        ) !=
+        null) {
+      return 'Safety guidance must be 1,000 characters or fewer.';
+    }
+    return null;
   }
 
   bool get _hasValidTeacherMovement {
@@ -395,6 +508,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       (_selectedOfficialMovement != null || _hasValidTeacherMovement) &&
       (!_classroomScoped || !_isTeacherCreated || !_loadingTeacherMovements) &&
       _hasValidMaxScore &&
+      _hasValidActivityAssessment &&
+      _activityDetailsValidation == null &&
       _hasValidAudience &&
       (!_audienceType.isTargeted ||
           (!_loadingRoster && _rosterLoadError == null));
@@ -403,7 +518,14 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   void initState() {
     super.initState();
     _classroomScoped = !_hasMovementOverride;
-    _maxScoreController = TextEditingController(text: '100');
+    _maxScoreController = TextEditingController(
+      text: '${TeacherActivityAssessmentContract.defaultMaximumScore}',
+    );
+    _assignmentTitleController = TextEditingController(
+      text: widget.teacherCreatedMovement?.title ?? '',
+    );
+    _instructionsController = TextEditingController();
+    _safetyGuidanceController = TextEditingController();
     _topicController = TextEditingController();
     _rosterSearchController = TextEditingController();
     _selectedGroup = widget.lockedGroup ?? _firstActiveGroup();
@@ -415,6 +537,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (_classroomScoped) {
       _selectedOfficialMovement = _enabledOfficialMovements.firstOrNull;
       _startWatchingTeacherMovements();
+    } else {
+      unawaited(_prefillActivityDefaultsForSelectedMovement());
     }
   }
 
@@ -498,8 +622,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   void _startWatchingTeacherMovements() {
     final repository = widget.movementRepository;
     if (repository == null) {
-      _movementLoadError =
-          'Teacher-created movements are unavailable right now.';
+      _movementLoadError = 'Teacher Activities are unavailable right now.';
       return;
     }
     _loadingTeacherMovements = true;
@@ -512,14 +635,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               if (!mounted) return;
               setState(() {
                 _loadingTeacherMovements = false;
-                _movementLoadError =
-                    'Could not load Teacher-created movements.';
+                _movementLoadError = 'Could not load Teacher Activities.';
               });
             },
           );
     } catch (_) {
       _loadingTeacherMovements = false;
-      _movementLoadError = 'Could not load Teacher-created movements.';
+      _movementLoadError = 'Could not load Teacher Activities.';
     }
   }
 
@@ -554,7 +676,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (!mounted || token != _movementLoadToken) return;
       setState(() {
         _loadingTeacherMovements = false;
-        _movementLoadError = 'Could not load Teacher-created movements.';
+        _movementLoadError = 'Could not load Teacher Activities.';
       });
       return;
     }
@@ -589,6 +711,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     unawaited(_movementSubscription?.cancel());
     unawaited(_rosterSubscription?.cancel());
     _maxScoreController.dispose();
+    _assignmentTitleController.dispose();
+    _instructionsController.dispose();
+    _safetyGuidanceController.dispose();
+    for (final draft in _customCriteria) {
+      draft.dispose();
+    }
     _topicController.dispose();
     _rosterSearchController.dispose();
     super.dispose();
@@ -677,6 +805,12 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       isSubmitting: _submitting,
       maximumScore: int.tryParse(_maxScoreController.text.trim()),
       audienceLabel: _audienceSummaryLabel,
+      readinessLabel: _isTeacherCreated ? _readinessSummaryLabel : null,
+      attemptsLabel: _isTeacherCreated ? _attemptPolicy.displayLabel : null,
+      recordingDurationSeconds: _isTeacherCreated
+          ? _recordingDurationSeconds
+          : null,
+      rubricLabel: _isTeacherCreated ? _rubricTemplate.displayLabel : null,
       onSubmit: _canSubmit ? () => _submit(context) : null,
     );
     final wide = availableWidth >= _teacherAssignmentWideBreakpoint;
@@ -806,35 +940,60 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         if (_isTeacherCreated && _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
-            icon: FluentIcons.calculator,
-            eyebrow: 'ASSESSMENT',
-            title: 'Set the grading limit',
+            icon: FluentIcons.edit,
+            eyebrow: 'ASSIGNMENT DETAILS',
+            title: 'Adapt the activity for this class',
             description:
-                'Teacher-reviewed work uses the maximum score you define.',
+                'These fields are captured on the Assignment; your reusable Teacher Activity stays unchanged.',
           ),
           const SizedBox(height: AppSpacing.lg),
           _ComposerField(
-            label: 'Maximum score',
-            hint: 'Enter a value from 1 to 100.',
+            label: 'Assignment title',
+            hint: 'Required · up to 80 characters',
             child: TextBox(
-              key: const Key('teacher_assignment_max_score'),
-              controller: _maxScoreController,
-              keyboardType: TextInputType.number,
-              maxLength: 3,
+              key: const Key('teacher_assignment_title'),
+              controller: _assignmentTitleController,
+              maxLength: TeacherReviewedMovementSpec.titleMaxLength,
               enabled: !_submitting,
               onChanged: (_) => setState(() => _validationError = null),
             ),
           ),
-          if (!_hasValidMaxScore && _validationError == null)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.xs),
-              child: Text(
-                'Enter a maximum score from 1 to 100.',
-                style: AppTheme.caption.copyWith(
-                  color: context.elixColors.error,
-                ),
-              ),
+          const SizedBox(height: AppSpacing.md),
+          _ComposerField(
+            label: 'Instructions',
+            hint: 'Required · explain what the trainee should practice.',
+            child: TextBox(
+              key: const Key('teacher_assignment_instructions'),
+              controller: _instructionsController,
+              maxLines: 4,
+              maxLength: TeacherReviewedMovementSpec.instructionsMaxLength,
+              enabled: !_submitting,
+              onChanged: (_) => setState(() => _validationError = null),
             ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _ComposerField(
+            label: 'Safety guidance',
+            hint: 'Optional · visible before the trainee starts an attempt.',
+            child: TextBox(
+              key: const Key('teacher_assignment_safety_guidance'),
+              controller: _safetyGuidanceController,
+              maxLines: 3,
+              maxLength: TeacherReviewedMovementSpec.safetyGuidanceMaxLength,
+              enabled: !_submitting,
+              onChanged: (_) => setState(() => _validationError = null),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.calculator,
+            eyebrow: 'ASSESSMENT',
+            title: 'Configure this activity assignment',
+            description:
+                'These settings override the reusable Teacher Activity defaults for this classroom only.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _activityAssessmentFields(context),
         ],
         if (!_isTeacherCreated || _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -903,10 +1062,265 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     );
   }
 
+  Widget _activityAssessmentFields(BuildContext context) {
+    final maximum = _maximumScore;
+    final isPreset = TeacherActivityAssessmentContract.supportedMaximumScores
+        .contains(maximum);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ComposerField(
+          label: 'Maximum score',
+          hint: 'Use a preset or enter a custom maximum from 1 to 100.',
+          child: ComboBox<String>(
+            key: const Key('teacher_assignment_maximum_preset'),
+            value: isPreset ? '$maximum' : 'custom',
+            isExpanded: true,
+            items: const [
+              ComboBoxItem(value: '30', child: Text('30 points')),
+              ComboBoxItem(value: '50', child: Text('50 points')),
+              ComboBoxItem(value: '100', child: Text('100 points')),
+              ComboBoxItem(value: 'custom', child: Text('Custom maximum')),
+            ],
+            onChanged: _submitting
+                ? null
+                : (value) {
+                    if (value == null) return;
+                    setState(() {
+                      if (value != 'custom') _maxScoreController.text = value;
+                      _validationError = null;
+                    });
+                  },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _ComposerField(
+          label: isPreset ? 'Score maximum override' : 'Custom maximum score',
+          hint: 'Enter a value from 1 to 100.',
+          child: TextBox(
+            key: const Key('teacher_assignment_max_score'),
+            controller: _maxScoreController,
+            keyboardType: TextInputType.number,
+            maxLength: 3,
+            enabled: !_submitting,
+            onChanged: (_) => setState(() => _validationError = null),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _ComposerField(
+          label: 'Readiness requirements',
+          hint:
+              'Visibility is checked before recording; it does not score technique.',
+          child: Column(
+            children: [
+              _activityOptionPicker<ActivityPropRequirement>(
+                key: const Key('teacher_assignment_readiness_prop'),
+                value: _readinessProp,
+                values: ActivityPropRequirement.values,
+                label: (value) => value.displayLabel,
+                onChanged: (value) => setState(() => _readinessProp = value),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _activityOptionPicker<ActivityHandRequirement>(
+                key: const Key('teacher_assignment_readiness_hands'),
+                value: _readinessHands,
+                values: ActivityHandRequirement.values,
+                label: (value) => value.displayLabel,
+                onChanged: (value) => setState(() => _readinessHands = value),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _activityOptionPicker<ActivityBodyRequirement>(
+                key: const Key('teacher_assignment_readiness_body'),
+                value: _readinessBody,
+                values: ActivityBodyRequirement.values,
+                label: (value) => value.displayLabel,
+                onChanged: (value) => setState(() => _readinessBody = value),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _ComposerField(
+          label: 'Attempt allowance',
+          hint:
+              'A finite attempt is used only after recording genuinely starts.',
+          child: ComboBox<String>(
+            key: const Key('teacher_assignment_attempt_policy'),
+            value: _attemptPolicy.isUnlimited
+                ? 'unlimited'
+                : '${_attemptPolicy.maximumAttempts}',
+            isExpanded: true,
+            items: const [
+              ComboBoxItem(value: '1', child: Text('1 attempt')),
+              ComboBoxItem(value: '2', child: Text('2 attempts')),
+              ComboBoxItem(value: '3', child: Text('3 attempts')),
+              ComboBoxItem(
+                value: 'unlimited',
+                child: Text('Unlimited attempts'),
+              ),
+            ],
+            onChanged: _submitting
+                ? null
+                : (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _attemptPolicy = value == 'unlimited'
+                          ? const TeacherActivityAttemptPolicy.unlimited()
+                          : TeacherActivityAttemptPolicy.finite(
+                              int.parse(value),
+                            );
+                    });
+                  },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _ComposerField(
+          label: 'Recording duration',
+          hint: 'The recording automatically stops at the selected limit.',
+          child: ComboBox<int>(
+            key: const Key('teacher_assignment_recording_duration'),
+            value: _recordingDurationSeconds,
+            isExpanded: true,
+            items: [
+              for (final seconds
+                  in TeacherActivityAssessmentContract
+                      .supportedRecordingDurations)
+                ComboBoxItem(value: seconds, child: Text('$seconds seconds')),
+            ],
+            onChanged: _submitting
+                ? null
+                : (value) => setState(() => _recordingDurationSeconds = value!),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _ComposerField(
+          label: 'Rubric',
+          hint: 'Built-in criteria scale deterministically to the maximum.',
+          child: ComboBox<TeacherActivityRubricTemplate>(
+            key: const Key('teacher_assignment_rubric_template'),
+            value: _rubricTemplate,
+            isExpanded: true,
+            items: [
+              for (final template in TeacherActivityRubricTemplate.values)
+                ComboBoxItem(
+                  value: template,
+                  child: Text(template.displayLabel),
+                ),
+            ],
+            onChanged: _submitting
+                ? null
+                : (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _rubricTemplate = value;
+                      if (value == TeacherActivityRubricTemplate.custom &&
+                          _customCriteria.isEmpty) {
+                        _customCriteria = List.generate(
+                          3,
+                          (index) => _CustomCriterionDraft(index + 1),
+                        );
+                      }
+                    });
+                  },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _rubricPreview(context),
+      ],
+    );
+  }
+
+  Widget _activityOptionPicker<T>({
+    required Key key,
+    required T value,
+    required List<T> values,
+    required String Function(T value) label,
+    required ValueChanged<T> onChanged,
+  }) => ComboBox<T>(
+    key: key,
+    value: value,
+    isExpanded: true,
+    items: [
+      for (final item in values)
+        ComboBoxItem(value: item, child: Text(label(item))),
+    ],
+    onChanged: _submitting
+        ? null
+        : (item) {
+            if (item != null) onChanged(item);
+          },
+  );
+
+  Widget _rubricPreview(BuildContext context) {
+    if (_rubricTemplate == TeacherActivityRubricTemplate.custom) {
+      return _customRubricEditor(context);
+    }
+    final rubric = _activityRubric;
+    if (rubric == null) return const SizedBox.shrink();
+    return _RubricCriteriaPreview(criteria: rubric.criteria);
+  }
+
+  Widget _customRubricEditor(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final entry in _customCriteria.indexed) ...[
+        _CustomCriterionEditor(
+          key: Key('teacher_assignment_custom_criterion_${entry.$1}'),
+          index: entry.$1 + 1,
+          draft: entry.$2,
+          enabled: !_submitting,
+          canRemove: _customCriteria.length > 3,
+          onChanged: () => setState(() => _validationError = null),
+          onRemove: () => setState(() {
+            final removed = _customCriteria.removeAt(entry.$1);
+            removed.dispose();
+          }),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+      ],
+      if (_customCriteria.length < 5)
+        Button(
+          key: const Key('teacher_assignment_add_criterion'),
+          onPressed: _submitting
+              ? null
+              : () => setState(
+                  () => _customCriteria.add(
+                    _CustomCriterionDraft(_customCriteria.length + 1),
+                  ),
+                ),
+          child: const Text('Add criterion'),
+        ),
+      if (_activityRubric == null)
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.xs),
+          child: Text(
+            'Use 3–5 complete criteria whose points total the maximum.',
+            style: AppTheme.caption.copyWith(color: context.elixColors.error),
+          ),
+        ),
+    ],
+  );
+
   String get _movementTitle =>
       _selectedOfficialMovement?.name ??
-      _selectedTeacherCreatedMovement?.title ??
+      (_isTeacherCreated && _assignmentTitleController.text.trim().isNotEmpty
+          ? _assignmentTitleController.text.trim()
+          : _selectedTeacherCreatedMovement?.title) ??
       'Choose a movement';
+
+  String get _readinessSummaryLabel {
+    final requirements = <String>[];
+    if (_readinessProp != ActivityPropRequirement.none) {
+      requirements.add(_readinessProp.displayLabel);
+    }
+    if (_readinessHands != ActivityHandRequirement.none) {
+      requirements.add(_readinessHands.displayLabel);
+    }
+    if (_readinessBody != ActivityBodyRequirement.none) {
+      requirements.add(_readinessBody.displayLabel);
+    }
+    return requirements.isEmpty ? 'Camera only' : requirements.join(' · ');
+  }
 
   String get _audienceSummaryLabel {
     switch (_audienceType) {
@@ -1110,6 +1524,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _selectedTeacherCreatedMovement ??= _teacherMovements.firstOrNull;
       }
     });
+    if (value == _AssignmentOriginSelection.teacherCreated) {
+      unawaited(_prefillActivityDefaultsForSelectedMovement());
+    }
   }
 
   void _onGroupChanged(String? value) {
@@ -1292,6 +1709,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           _selectedTeacherCreatedMovement = movement;
           _validationError = null;
         });
+        unawaited(_prefillActivityDefaultsForSelectedMovement());
         return;
       }
     }
@@ -1301,8 +1719,8 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     if (_submitting || _creatingTeacherMovement) return;
     if (widget.movementRepository == null) {
       setState(
-        () => _validationError =
-            'Teacher-created movements are unavailable right now.',
+        () =>
+            _validationError = 'Teacher Activities are unavailable right now.',
       );
       return;
     }
@@ -1315,31 +1733,65 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     TeacherMovement? created;
     String? creationError;
     try {
-      await showDialog<void>(
-        context: context,
-        builder: (_) => TeacherMovementBuilderDialog(
-          onCreateTeacherReviewed:
-              ({
-                required title,
-                required instructions,
-                required requiredProp,
-                safetyGuidance,
-              }) async {
-                try {
-                  created = await widget.creationService
-                      .createTeacherReviewedMovement(
-                        title: title,
-                        instructions: instructions,
-                        requiredProp: requiredProp,
-                        safetyGuidance: safetyGuidance,
-                      );
-                } on ClassroomException catch (error) {
-                  creationError =
-                      error.message ?? 'That movement could not be created.';
-                } catch (_) {
-                  creationError = 'That movement could not be created.';
-                }
-              },
+      await Navigator.of(context).push<void>(
+        PageRouteBuilder<void>(
+          pageBuilder: (_, _, _) => TeacherMovementBuilderDialog(
+            onCreateTeacherReviewed:
+                ({
+                  required title,
+                  required instructions,
+                  required requiredProp,
+                  safetyGuidance,
+                }) async {
+                  try {
+                    created = await widget.creationService
+                        .createTeacherReviewedMovement(
+                          title: title,
+                          instructions: instructions,
+                          requiredProp: requiredProp,
+                          safetyGuidance: safetyGuidance,
+                        );
+                  } on ClassroomException catch (error) {
+                    creationError =
+                        error.message ?? 'That movement could not be created.';
+                  } catch (_) {
+                    creationError = 'That movement could not be created.';
+                  }
+                },
+            onCreateActivity:
+                ({
+                  required title,
+                  required instructions,
+                  required requiredProp,
+                  required assessment,
+                  safetyGuidance,
+                }) async {
+                  try {
+                    created = await widget.creationService
+                        .createTeacherReviewedMovement(
+                          title: title,
+                          instructions: instructions,
+                          requiredProp: requiredProp,
+                          safetyGuidance: safetyGuidance,
+                          assessment: assessment,
+                        );
+                  } on ClassroomException catch (error) {
+                    creationError =
+                        error.message ?? 'That Activity could not be created.';
+                  } catch (_) {
+                    creationError = 'That Activity could not be created.';
+                  }
+                },
+            onUploadDemonstration: widget.movementRepository == null
+                ? null
+                : ({required localFile, required duration, required source}) =>
+                      widget.movementRepository!.uploadActivityDemonstration(
+                        teacherId: widget.teacherId,
+                        localFile: localFile,
+                        duration: duration,
+                        source: source,
+                      ),
+          ),
         ),
       );
       if (!mounted) return;
@@ -1401,6 +1853,57 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _movementLoadError = null;
       _validationError = null;
     });
+    await _prefillActivityDefaultsForSelectedMovement();
+  }
+
+  Future<void> _prefillActivityDefaultsForSelectedMovement() async {
+    final movement = _selectedTeacherCreatedMovement;
+    if (movement == null) return;
+    final selectedMovementId = movement.id;
+    var revision = _teacherMovementRevisions[movement.id];
+    final repository = widget.movementRepository;
+    if (revision == null && repository != null) {
+      try {
+        revision = await repository.getRevision(
+          movementId: movement.id,
+          revisionId: movement.currentRevisionId,
+        );
+      } catch (_) {
+        return;
+      }
+    }
+    if (!mounted ||
+        _selectedTeacherCreatedMovement?.id != selectedMovementId ||
+        revision?.spec is! TeacherReviewedMovementSpec) {
+      return;
+    }
+    final spec = revision!.spec as TeacherReviewedMovementSpec;
+    final assessment = spec.effectiveAssessment;
+    for (final draft in _customCriteria) {
+      draft.dispose();
+    }
+    final isCustom =
+        assessment.rubric.template == TeacherActivityRubricTemplate.custom;
+    setState(() {
+      _assignmentTitleController.text = movement.title;
+      _instructionsController.text = spec.instructions;
+      _safetyGuidanceController.text = spec.safetyGuidance ?? '';
+      _maxScoreController.text = '${assessment.rubric.maximumScore}';
+      _readinessProp = assessment.readiness.prop;
+      _readinessHands = assessment.readiness.hands;
+      _readinessBody = assessment.readiness.body;
+      _rubricTemplate = assessment.rubric.template;
+      _attemptPolicy = assessment.attemptPolicy;
+      _recordingDurationSeconds = assessment.recordingDurationSeconds;
+      _demonstrationVideo = assessment.demonstrationVideo;
+      _customCriteria = isCustom
+          ? [
+              for (final criterion in assessment.rubric.criteria)
+                _CustomCriterionDraft.fromCriterion(criterion),
+            ]
+          : [];
+      _validationError = null;
+    });
   }
 
   String? _formValidationError() {
@@ -1418,6 +1921,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     if (_isTeacherCreated && !_hasValidMaxScore) {
       return 'Enter a maximum score from 1 to 100.';
+    }
+    final activityDetailsValidation = _activityDetailsValidation;
+    if (activityDetailsValidation != null) return activityDetailsValidation;
+    if (_isTeacherCreated && !_hasValidActivityAssessment) {
+      return 'Complete the rubric so its criteria total the assignment maximum.';
     }
     if (_audienceType.isTargeted && _rosterLoadError != null) {
       return _rosterLoadError;
@@ -1456,6 +1964,16 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             ? _selectedTeacherCreatedMovement
             : null,
         maxScore: int.tryParse(_maxScoreController.text.trim()) ?? 100,
+        activityAssessment: _activityAssessment,
+        displayTitle: _isTeacherCreated
+            ? _assignmentTitleController.text.trim()
+            : null,
+        displayInstructions: _isTeacherCreated
+            ? _instructionsController.text.trim()
+            : null,
+        displaySafetyGuidance: _isTeacherCreated
+            ? _safetyGuidanceController.text.trim()
+            : null,
         dueAt: _dueAt,
         topic: _topicController.text,
       );
@@ -1475,6 +1993,139 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       });
     }
   }
+}
+
+class _CustomCriterionDraft {
+  _CustomCriterionDraft(int number)
+    : label = TextEditingController(text: 'Criterion $number'),
+      description = TextEditingController(),
+      maximumPoints = TextEditingController();
+
+  _CustomCriterionDraft.fromCriterion(TeacherActivityRubricCriterion value)
+    : label = TextEditingController(text: value.label),
+      description = TextEditingController(text: value.description),
+      maximumPoints = TextEditingController(text: '${value.maximumPoints}');
+
+  final TextEditingController label;
+  final TextEditingController description;
+  final TextEditingController maximumPoints;
+
+  void dispose() {
+    label.dispose();
+    description.dispose();
+    maximumPoints.dispose();
+  }
+}
+
+class _RubricCriteriaPreview extends StatelessWidget {
+  const _RubricCriteriaPreview({required this.criteria});
+
+  final List<TeacherActivityRubricCriterion> criteria;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const Key('teacher_assignment_rubric_preview'),
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      color: context.elixCardSurface,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: context.elixBorder),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final criterion in criteria) ...[
+          Text(
+            '${criterion.label} · ${criterion.maximumPoints} pts',
+            style: AppTheme.caption.copyWith(
+              color: context.elixTextPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            criterion.description,
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+      ],
+    ),
+  );
+}
+
+class _CustomCriterionEditor extends StatelessWidget {
+  const _CustomCriterionEditor({
+    super.key,
+    required this.index,
+    required this.draft,
+    required this.enabled,
+    required this.canRemove,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _CustomCriterionDraft draft;
+  final bool enabled;
+  final bool canRemove;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      border: Border.all(color: context.elixBorder),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Criterion $index', style: AppTheme.cardTitle()),
+            ),
+            if (canRemove)
+              IconButton(
+                icon: const Icon(FluentIcons.delete),
+                onPressed: enabled ? onRemove : null,
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: Key('teacher_assignment_criterion_${index}_label'),
+          controller: draft.label,
+          enabled: enabled,
+          maxLength: 80,
+          placeholder: 'Criterion label',
+          onChanged: (_) => onChanged(),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: Key('teacher_assignment_criterion_${index}_description'),
+          controller: draft.description,
+          enabled: enabled,
+          maxLength: 500,
+          maxLines: 2,
+          placeholder: 'What should the teacher look for?',
+          onChanged: (_) => onChanged(),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: Key('teacher_assignment_criterion_${index}_points'),
+          controller: draft.maximumPoints,
+          enabled: enabled,
+          keyboardType: TextInputType.number,
+          maxLength: 3,
+          placeholder: 'Maximum points',
+          onChanged: (_) => onChanged(),
+        ),
+      ],
+    ),
+  );
 }
 
 class _AssignmentAudienceSelector extends StatelessWidget {
@@ -1945,7 +2596,7 @@ class _MovementSourceSelector extends StatelessWidget {
                     ? (_) =>
                           onChanged(_AssignmentOriginSelection.teacherCreated)
                     : null,
-                child: const Text('My Movements'),
+                child: const Text('Teacher Activities'),
               ),
             ),
           ],
@@ -2399,6 +3050,10 @@ class _AssignmentSummaryCard extends StatelessWidget {
     required this.isSubmitting,
     required this.maximumScore,
     required this.audienceLabel,
+    this.readinessLabel,
+    this.attemptsLabel,
+    this.recordingDurationSeconds,
+    this.rubricLabel,
     required this.onSubmit,
   });
 
@@ -2411,6 +3066,10 @@ class _AssignmentSummaryCard extends StatelessWidget {
   final bool isSubmitting;
   final int? maximumScore;
   final String audienceLabel;
+  final String? readinessLabel;
+  final String? attemptsLabel;
+  final int? recordingDurationSeconds;
+  final String? rubricLabel;
   final VoidCallback? onSubmit;
 
   @override
@@ -2491,6 +3150,38 @@ class _AssignmentSummaryCard extends StatelessWidget {
                             : 'Up to $maximumScore points'
                       : 'Automatic ELIXR scoring',
                 ),
+                if (readinessLabel != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SummaryItem(
+                    icon: FluentIcons.camera,
+                    label: 'Readiness',
+                    value: readinessLabel!,
+                  ),
+                ],
+                if (attemptsLabel != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SummaryItem(
+                    icon: FluentIcons.repeat_all,
+                    label: 'Attempts',
+                    value: attemptsLabel!,
+                  ),
+                ],
+                if (recordingDurationSeconds != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SummaryItem(
+                    icon: FluentIcons.video,
+                    label: 'Recording',
+                    value: '$recordingDurationSeconds seconds',
+                  ),
+                ],
+                if (rubricLabel != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _SummaryItem(
+                    icon: FluentIcons.bulleted_list,
+                    label: 'Rubric',
+                    value: rubricLabel!,
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 _SummaryItem(
                   icon: FluentIcons.calendar,

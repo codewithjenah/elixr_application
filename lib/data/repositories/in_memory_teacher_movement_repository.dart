@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../models/assessment_mode.dart';
 import '../models/classroom_exceptions.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_activity_assessment.dart';
 import '../models/training_prop.dart';
 import 'teacher_movement_repository.dart';
 
@@ -18,6 +20,8 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
 
   final Map<String, TeacherMovement> movements = {};
   final Map<String, TeacherMovementRevision> revisions = {};
+  final Map<String, TeacherActivityVideoMetadata> demonstrationMedia = {};
+  final Map<String, File> demonstrationFiles = {};
   int _counter = 0;
 
   final _teacherControllers =
@@ -26,6 +30,55 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
   static String _defaultId() => 'tm-${DateTime.now().microsecondsSinceEpoch}';
 
   DateTime get now => (_now?.call() ?? DateTime.now()).toUtc();
+
+  @override
+  Future<TeacherActivityVideoMetadata> uploadActivityDemonstration({
+    required String teacherId,
+    required File localFile,
+    required Duration duration,
+    required TeacherActivityDemoSource source,
+    String? assignmentId,
+  }) async {
+    if (teacherId.trim().isEmpty ||
+        duration.inMilliseconds < 1 ||
+        duration.inMilliseconds > 60000) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final stat = await localFile.stat();
+    if (stat.type != FileSystemEntityType.file ||
+        stat.size < 1 ||
+        stat.size > 50 * 1024 * 1024) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final assignmentScope = assignmentId?.trim();
+    final path = assignmentScope == null || assignmentScope.isEmpty
+        ? 'teacher_activity_demos/$teacherId/${_generateId()}.mp4'
+        : 'teacher_activity_demos/$teacherId/assignments/$assignmentScope/${_generateId()}.mp4';
+    final metadata = TeacherActivityVideoMetadata(
+      storagePath: path,
+      contentType: 'video/mp4',
+      sizeBytes: stat.size,
+      durationMs: duration.inMilliseconds,
+      source: source,
+    );
+    demonstrationMedia[path] = metadata;
+    demonstrationFiles[path] = localFile;
+    return metadata;
+  }
+
+  @override
+  Future<File> openActivityDemonstration(
+    TeacherActivityVideoMetadata metadata,
+  ) async {
+    final file = demonstrationFiles[metadata.storagePath];
+    if (file == null || !await file.exists()) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    return file;
+  }
+
+  @override
+  Future<void> releaseActivityDemonstration(File localFile) async {}
 
   void dispose() {
     for (final controller in _teacherControllers.values) {
@@ -41,12 +94,14 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) async {
     final spec = buildTeacherReviewedSpec(
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
     final movementId = _generateId();
     final revisionId = '${movementId}_v${++_counter}';
@@ -82,6 +137,7 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) async {
     final existing = movements[movementId];
     if (existing == null) {
@@ -99,6 +155,7 @@ class InMemoryTeacherMovementRepository implements TeacherMovementRepository {
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
     final previousRevisionId = existing.currentRevisionId;
     final revisionId = '${movementId}_v${++_counter}';

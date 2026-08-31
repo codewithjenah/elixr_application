@@ -183,8 +183,8 @@ void main() {
 
   group('history rubric formatting', () {
     test('rubric helpers report the 0..12 scale', () {
-      expect(rubricTotalLabel(10), '10 / 12');
-      expect(rubricAverageLabel(8.25), '8.3 / 12');
+      expect(rubricTotalLabel(10), '10/12 • 83.3%');
+      expect(rubricAverageLabel(8.25), '8.3/12 • 68.8%');
       expect(rubricPerformanceLevel(10), PerformanceLevel.proficient);
       expect(rubricPerformanceLevel(12), PerformanceLevel.mastered);
       expect(rubricPerformanceLevel(0), PerformanceLevel.beginning);
@@ -207,7 +207,7 @@ void main() {
       expect(find.text('Performance'), findsOneWidget);
       expect(find.text('Proficient'), findsOneWidget);
       expect(find.text('Rubric Total'), findsOneWidget);
-      expect(find.text('10 / 12'), findsOneWidget);
+      expect(find.text('10/12 • 83.3%'), findsOneWidget);
 
       expect(find.text('Correct Technique'), findsOneWidget);
       expect(find.text('Stability / Control'), findsOneWidget);
@@ -390,9 +390,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Average Rubric'), findsOneWidget);
-      expect(find.text('9.5 / 12'), findsOneWidget);
+      expect(find.text('9.5/12 • 79.2%'), findsOneWidget);
       expect(find.text('Best Rubric'), findsOneWidget);
-      expect(find.text('11 / 12'), findsOneWidget);
+      expect(find.text('11/12 • 91.7%'), findsOneWidget);
       expect(find.text('Average Score'), findsNothing);
       expect(find.text('Best Score'), findsNothing);
     });
@@ -442,7 +442,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Average Rubric'), findsOneWidget);
-      expect(find.text('9.0 / 12'), findsOneWidget);
+      expect(find.text('9/12 • 75%'), findsOneWidget);
       expect(
         find.text('2 legacy sessions scored 0–100 • average 70/100'),
         findsOneWidget,

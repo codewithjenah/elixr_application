@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/chat_repository.dart';
@@ -7,7 +9,9 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player_win/video_player_win.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -21,6 +25,7 @@ import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
@@ -29,6 +34,7 @@ import '../../../services/auth_service.dart';
 import '../classwork/teacher_classwork_controller.dart';
 import '../classwork/teacher_classwork_pane.dart';
 import '../movements/teacher_assignment_composer.dart';
+import '../movements/teacher_demo_recording_dialog.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import '../../classroom_announcements/classroom_announcements_controller.dart';
 import '../../classroom_announcements/classroom_announcements_pane.dart';
@@ -397,6 +403,17 @@ class _GroupDetailBody extends StatelessWidget {
                           : () => _confirmArchive(context, controller),
                       child: const Text('Archive'),
                     ),
+                    Button(
+                      key: const Key('teacher_group_delete_classroom'),
+                      onPressed: controller.busy
+                          ? null
+                          : () => _confirmPermanentlyDeleteClassroom(
+                              context,
+                              controller,
+                              group,
+                            ),
+                      child: const Text('Delete classroom'),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -481,6 +498,13 @@ class _GroupDetailBody extends StatelessWidget {
                 : null,
             onArchive: group.isActive && !classworkController.busy
                 ? (assignment) => _confirmArchiveAssignment(
+                    context,
+                    classworkController,
+                    assignment,
+                  )
+                : null,
+            onDelete: group.isActive && !classworkController.busy
+                ? (assignment) => _confirmPermanentlyDeleteAssignment(
                     context,
                     classworkController,
                     assignment,
@@ -1036,6 +1060,14 @@ Future<void> _showEditAssignmentDialog(
       assignment;
   if (!context.mounted) return;
   assignment = currentAssignment;
+  if (assignment.activityAssessment != null) {
+    await _showTeacherActivityAssignmentEditDialog(
+      context,
+      controller,
+      assignment,
+    );
+    return;
+  }
   final initialScore = assignment.maxScore?.toString() ?? '';
   final scoreController = TextEditingController(text: initialScore);
   var dueAt = assignment.dueAt;
@@ -1159,6 +1191,747 @@ Future<void> _showEditAssignmentDialog(
   );
 }
 
+Future<void> _showTeacherActivityAssignmentEditDialog(
+  BuildContext context,
+  TeacherClassworkController controller,
+  GroupAssignment assignment,
+) async {
+  final original = assignment.activityAssessment!;
+  final title = TextEditingController(text: assignment.displayTitle);
+  final instructions = TextEditingController(
+    text: assignment.displayInstructions ?? '',
+  );
+  final safety = TextEditingController(
+    text: assignment.displaySafetyGuidance ?? '',
+  );
+  final topic = TextEditingController(text: assignment.topic ?? '');
+  var dueAt = assignment.dueAt;
+  var hasDueDate = dueAt != null;
+  var readiness = original.readiness;
+  var template = original.rubric.template;
+  var maximumScore = original.rubric.maximumScore;
+  final customMaximum = TextEditingController(text: '$maximumScore');
+  final customCriteria = <_ActivityEditCriterionControllers>[
+    for (final criterion in original.rubric.criteria)
+      _ActivityEditCriterionControllers.fromCriterion(criterion),
+  ];
+  var nextCriterionId = customCriteria.length + 1;
+  var attempts = original.attemptPolicy;
+  var duration = original.recordingDurationSeconds;
+  var audienceType = assignment.audience.type;
+  final targets = <String>{...assignment.audience.targetTraineeIds};
+  var demonstrationVideo = original.demonstrationVideo;
+  var demoBusy = false;
+  String? validation;
+
+  final saved = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => ContentDialog(
+        title: Text('Edit ${assignment.displayTitle}'),
+        content: SizedBox(
+          width: 540,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Changes apply to future attempts. Existing recordings keep '
+                  'their original readiness and rubric snapshot.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                InfoLabel(
+                  label: 'Title',
+                  child: TextBox(
+                    key: const Key('teacher_activity_edit_title'),
+                    controller: title,
+                    maxLength: 160,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                InfoLabel(
+                  label: 'Instructions',
+                  child: TextBox(
+                    key: const Key('teacher_activity_edit_instructions'),
+                    controller: instructions,
+                    maxLength: 4000,
+                    minLines: 3,
+                    maxLines: 6,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                InfoLabel(
+                  label: 'Safety guidance (optional)',
+                  child: TextBox(
+                    key: const Key('teacher_activity_edit_safety'),
+                    controller: safety,
+                    maxLength: 1000,
+                    minLines: 2,
+                    maxLines: 4,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                InfoLabel(
+                  label: 'Topic (optional)',
+                  child: TextBox(
+                    key: const Key('teacher_activity_edit_topic'),
+                    controller: topic,
+                    maxLength: GroupAssignment.maxTopicLength,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Checkbox(
+                  key: const Key('teacher_activity_edit_due_date_toggle'),
+                  checked: hasDueDate,
+                  content: const Text('Set a due date'),
+                  onChanged: (value) => setDialogState(() {
+                    hasDueDate = value ?? false;
+                    dueAt ??= DateTime.now().add(const Duration(days: 7));
+                  }),
+                ),
+                if (hasDueDate)
+                  DatePicker(
+                    key: const Key('teacher_activity_edit_due_date'),
+                    selected: dueAt ?? DateTime.now(),
+                    onChanged: (value) => setDialogState(() => dueAt = value),
+                  ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Readiness',
+                  style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                _activityEditPicker<ActivityPropRequirement>(
+                  label: 'Prop',
+                  value: readiness.prop,
+                  values: ActivityPropRequirement.values,
+                  labelFor: (value) => value.displayLabel,
+                  onChanged: (value) => setDialogState(
+                    () => readiness = TeacherActivityReadinessSpec(
+                      prop: value!,
+                      hands: readiness.hands,
+                      body: readiness.body,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _activityEditPicker<ActivityHandRequirement>(
+                  label: 'Hands',
+                  value: readiness.hands,
+                  values: ActivityHandRequirement.values,
+                  labelFor: (value) => value.displayLabel,
+                  onChanged: (value) => setDialogState(
+                    () => readiness = TeacherActivityReadinessSpec(
+                      prop: readiness.prop,
+                      hands: value!,
+                      body: readiness.body,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _activityEditPicker<ActivityBodyRequirement>(
+                  label: 'Body',
+                  value: readiness.body,
+                  values: ActivityBodyRequirement.values,
+                  labelFor: (value) => value.displayLabel,
+                  onChanged: (value) => setDialogState(
+                    () => readiness = TeacherActivityReadinessSpec(
+                      prop: readiness.prop,
+                      hands: readiness.hands,
+                      body: value!,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                InfoLabel(
+                  label: 'Rubric template',
+                  child: ComboBox<TeacherActivityRubricTemplate>(
+                    key: const Key('teacher_activity_edit_rubric_template'),
+                    value: template,
+                    items: [
+                      for (final value in TeacherActivityRubricTemplate.values)
+                        ComboBoxItem(
+                          value: value,
+                          child: Text(value.displayLabel),
+                        ),
+                    ],
+                    onChanged: (value) => setDialogState(() {
+                      template = value!;
+                      if (template == TeacherActivityRubricTemplate.custom) {
+                        customMaximum.text = '$maximumScore';
+                      }
+                    }),
+                  ),
+                ),
+                if (template == TeacherActivityRubricTemplate.custom) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  InfoLabel(
+                    label: 'Custom maximum score',
+                    child: TextBox(
+                      key: const Key(
+                        'teacher_activity_edit_custom_maximum_score',
+                      ),
+                      controller: customMaximum,
+                      placeholder: '1–100',
+                      onChanged: (value) => setDialogState(
+                        () => maximumScore = int.tryParse(value.trim()) ?? 0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Use 3–5 complete criteria whose points total $maximumScore.',
+                    style: AppTheme.caption.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  for (
+                    var index = 0;
+                    index < customCriteria.length;
+                    index++
+                  ) ...[
+                    _ActivityEditCriterionEditor(
+                      index: index,
+                      controllers: customCriteria[index],
+                      canRemove: customCriteria.length > 3,
+                      onRemove: () => setDialogState(
+                        () => customCriteria.removeAt(index).dispose(),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                  ],
+                  Button(
+                    key: const Key('teacher_activity_edit_add_criterion'),
+                    onPressed: customCriteria.length >= 5
+                        ? null
+                        : () => setDialogState(
+                            () => customCriteria.add(
+                              _ActivityEditCriterionControllers.empty(
+                                nextCriterionId++,
+                              ),
+                            ),
+                          ),
+                    child: const Text('Add criterion'),
+                  ),
+                ] else ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  InfoLabel(
+                    label: 'Maximum score',
+                    child: Column(
+                      children: [
+                        ComboBox<String>(
+                          key: const Key('teacher_activity_edit_maximum_score'),
+                          value:
+                              TeacherActivityAssessmentContract
+                                  .supportedMaximumScores
+                                  .contains(maximumScore)
+                              ? '$maximumScore'
+                              : 'custom',
+                          items: const [
+                            ComboBoxItem(value: '30', child: Text('30 points')),
+                            ComboBoxItem(value: '50', child: Text('50 points')),
+                            ComboBoxItem(
+                              value: '100',
+                              child: Text('100 points'),
+                            ),
+                            ComboBoxItem(
+                              value: 'custom',
+                              child: Text('Custom maximum'),
+                            ),
+                          ],
+                          onChanged: (value) => setDialogState(() {
+                            if (value == 'custom') {
+                              maximumScore = 0;
+                              customMaximum.clear();
+                            } else if (value != null) {
+                              maximumScore = int.parse(value);
+                              customMaximum.text = value;
+                            }
+                          }),
+                        ),
+                        if (!TeacherActivityAssessmentContract
+                            .supportedMaximumScores
+                            .contains(maximumScore)) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          TextBox(
+                            key: const Key(
+                              'teacher_activity_edit_custom_builtin_maximum',
+                            ),
+                            controller: customMaximum,
+                            placeholder: '1–100',
+                            onChanged: (value) => setDialogState(
+                              () => maximumScore =
+                                  int.tryParse(value.trim()) ?? 0,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.sm),
+                InfoLabel(
+                  label: 'Attempt limit',
+                  child: ComboBox<String>(
+                    key: const Key('teacher_activity_edit_attempt_policy'),
+                    value: attempts.isUnlimited
+                        ? 'unlimited'
+                        : '${attempts.maximumAttempts}',
+                    items: const [
+                      ComboBoxItem(value: '1', child: Text('1 attempt')),
+                      ComboBoxItem(value: '2', child: Text('2 attempts')),
+                      ComboBoxItem(value: '3', child: Text('3 attempts')),
+                      ComboBoxItem(
+                        value: 'unlimited',
+                        child: Text('Unlimited'),
+                      ),
+                    ],
+                    onChanged: (value) => setDialogState(
+                      () => attempts = value == 'unlimited'
+                          ? const TeacherActivityAttemptPolicy.unlimited()
+                          : TeacherActivityAttemptPolicy.finite(
+                              int.parse(value!),
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                InfoLabel(
+                  label: 'Recording duration',
+                  child: ComboBox<int>(
+                    key: const Key('teacher_activity_edit_duration'),
+                    value: duration,
+                    items: [
+                      for (final seconds
+                          in TeacherActivityAssessmentContract
+                              .supportedRecordingDurations)
+                        ComboBoxItem(
+                          value: seconds,
+                          child: Text('$seconds seconds'),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => duration = value!),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  demonstrationVideo == null
+                      ? 'No demonstration video attached.'
+                      : 'Demonstration: ${demonstrationVideo!.durationMs ~/ 1000}s MP4',
+                  style: AppTheme.caption.copyWith(
+                    color: context.elixTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  children: [
+                    Button(
+                      onPressed: demoBusy
+                          ? null
+                          : () async {
+                              final repository =
+                                  _tryReadTeacherMovementRepository(context);
+                              if (repository == null) return;
+                              final selected = await ImagePicker().pickVideo(
+                                source: ImageSource.gallery,
+                              );
+                              if (selected == null) return;
+                              setDialogState(() => demoBusy = true);
+                              try {
+                                if (!selected.name.toLowerCase().endsWith(
+                                  '.mp4',
+                                )) {
+                                  throw const FormatException('Invalid type');
+                                }
+                                final file = File(selected.path);
+                                final stat = await file.stat();
+                                if (stat.type != FileSystemEntityType.file ||
+                                    stat.size < 1 ||
+                                    stat.size >
+                                        TeacherActivityAssessmentContract
+                                            .maximumVideoSizeBytes) {
+                                  throw const FormatException('Invalid size');
+                                }
+                                final player = WinVideoPlayerController.file(
+                                  file,
+                                );
+                                Duration videoDuration;
+                                try {
+                                  await player.initialize();
+                                  videoDuration = player.value.duration;
+                                } finally {
+                                  await player.dispose();
+                                }
+                                if (videoDuration.inMilliseconds < 1 ||
+                                    videoDuration.inMilliseconds > 60000) {
+                                  throw const FormatException(
+                                    'Invalid duration',
+                                  );
+                                }
+                                final uploaded = await repository
+                                    .uploadActivityDemonstration(
+                                      teacherId: controller.teacherId,
+                                      localFile: file,
+                                      duration: videoDuration,
+                                      source:
+                                          TeacherActivityDemoSource.uploaded,
+                                      assignmentId: assignment.id,
+                                    );
+                                setDialogState(
+                                  () => demonstrationVideo = uploaded,
+                                );
+                              } catch (_) {
+                                setDialogState(
+                                  () => validation =
+                                      'Choose a playable MP4 up to 60 seconds and 50 MiB.',
+                                );
+                              } finally {
+                                setDialogState(() => demoBusy = false);
+                              }
+                            },
+                      child: const Text('Upload MP4'),
+                    ),
+                    Button(
+                      onPressed: demoBusy
+                          ? null
+                          : () async {
+                              final repository =
+                                  _tryReadTeacherMovementRepository(context);
+                              if (repository == null) return;
+                              final recorded =
+                                  await showTeacherDemoRecordingDialog(
+                                    context,
+                                    upload:
+                                        ({
+                                          required localFile,
+                                          required duration,
+                                          required source,
+                                        }) => repository
+                                            .uploadActivityDemonstration(
+                                              teacherId: controller.teacherId,
+                                              localFile: localFile,
+                                              duration: duration,
+                                              source: source,
+                                              assignmentId: assignment.id,
+                                            ),
+                                  );
+                              if (recorded != null) {
+                                setDialogState(
+                                  () => demonstrationVideo = recorded,
+                                );
+                              }
+                            },
+                      child: const Text('Record with ELIXR'),
+                    ),
+                    if (demonstrationVideo != null)
+                      Button(
+                        onPressed: demoBusy
+                            ? null
+                            : () => setDialogState(
+                                () => demonstrationVideo = null,
+                              ),
+                        child: const Text('Remove demo'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                InfoLabel(
+                  label: 'Assign to',
+                  child: ComboBox<AssignmentAudienceType>(
+                    key: const Key('teacher_activity_edit_audience'),
+                    value: audienceType,
+                    items: const [
+                      ComboBoxItem(
+                        value: AssignmentAudienceType.entireClass,
+                        child: Text('Entire class'),
+                      ),
+                      ComboBoxItem(
+                        value: AssignmentAudienceType.selectedStudents,
+                        child: Text('Selected students'),
+                      ),
+                      ComboBoxItem(
+                        value: AssignmentAudienceType.individualStudent,
+                        child: Text('One student'),
+                      ),
+                    ],
+                    onChanged: (value) => setDialogState(() {
+                      audienceType = value!;
+                      if (audienceType ==
+                              AssignmentAudienceType.individualStudent &&
+                          targets.length > 1) {
+                        targets.removeWhere((id) => id != targets.first);
+                      }
+                    }),
+                  ),
+                ),
+                if (audienceType != AssignmentAudienceType.entireClass)
+                  for (final member in controller.approvedMemberships)
+                    Checkbox(
+                      checked: targets.contains(member.traineeId),
+                      content: Text(member.traineeDisplayName),
+                      onChanged: (checked) => setDialogState(() {
+                        if (checked == true) {
+                          if (audienceType ==
+                              AssignmentAudienceType.individualStudent) {
+                            targets.clear();
+                          }
+                          targets.add(member.traineeId);
+                        } else {
+                          targets.remove(member.traineeId);
+                        }
+                      }),
+                    ),
+                if (validation != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    validation!,
+                    key: const Key('teacher_activity_edit_validation'),
+                    style: AppTheme.caption.copyWith(color: AppColors.error),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('teacher_activity_save_changes'),
+            onPressed: () async {
+              if (title.text.trim().isEmpty ||
+                  instructions.text.trim().isEmpty) {
+                setDialogState(
+                  () => validation = 'Enter both a title and instructions.',
+                );
+                return;
+              }
+              if (audienceType != AssignmentAudienceType.entireClass &&
+                  targets.isEmpty) {
+                setDialogState(
+                  () => validation = 'Choose at least one approved student.',
+                );
+                return;
+              }
+              try {
+                final audience = switch (audienceType) {
+                  AssignmentAudienceType.entireClass =>
+                    const AssignmentAudience.entireClass(),
+                  AssignmentAudienceType.selectedStudents =>
+                    AssignmentAudience.selectedStudents(targets),
+                  AssignmentAudienceType.individualStudent =>
+                    AssignmentAudience.individualStudent(targets),
+                };
+                late final TeacherActivityRubric rubric;
+                if (template == TeacherActivityRubricTemplate.custom) {
+                  final resolvedCriteria = customCriteria
+                      .map((item) => item.toCriterion())
+                      .whereType<TeacherActivityRubricCriterion>()
+                      .toList(growable: false);
+                  if (resolvedCriteria.length != customCriteria.length) {
+                    throw StateError('incomplete rubric');
+                  }
+                  rubric = TeacherActivityRubric(
+                    template: TeacherActivityRubricTemplate.custom,
+                    maximumScore: maximumScore,
+                    criteria: resolvedCriteria,
+                  );
+                } else {
+                  rubric = TeacherActivityRubric.builtIn(
+                    template,
+                    maximumScore,
+                  );
+                }
+                final assessment = TeacherActivityAssessmentConfig(
+                  readiness: readiness,
+                  rubric: rubric,
+                  attemptPolicy: attempts,
+                  recordingDurationSeconds: duration,
+                  demonstrationVideo: demonstrationVideo,
+                );
+                if (!assessment.isValid) throw StateError('invalid assessment');
+                await controller.updateTeacherActivityAssignment(
+                  assignment: assignment,
+                  displayTitle: title.text,
+                  instructions: instructions.text,
+                  safetyGuidance: safety.text,
+                  topic: topic.text,
+                  dueAt: hasDueDate ? dueAt : null,
+                  audience: audience,
+                  activityAssessment: assessment,
+                );
+                if (context.mounted && controller.errorMessage == null) {
+                  Navigator.pop(dialogContext, true);
+                }
+              } catch (_) {
+                setDialogState(
+                  () => validation = 'Check the Teacher Activity settings.',
+                );
+              }
+            },
+            child: const Text('Save changes'),
+          ),
+        ],
+      ),
+    ),
+  );
+  title.dispose();
+  instructions.dispose();
+  safety.dispose();
+  topic.dispose();
+  customMaximum.dispose();
+  for (final criterion in customCriteria) {
+    criterion.dispose();
+  }
+  if (saved == true && context.mounted) {
+    // The assignment watcher supplies the updated configuration and revision.
+  }
+}
+
+class _ActivityEditCriterionControllers {
+  _ActivityEditCriterionControllers({
+    required this.id,
+    required String label,
+    required String description,
+    required int maximumPoints,
+  }) : label = TextEditingController(text: label),
+       description = TextEditingController(text: description),
+       maximumPoints = TextEditingController(text: '$maximumPoints');
+
+  factory _ActivityEditCriterionControllers.fromCriterion(
+    TeacherActivityRubricCriterion criterion,
+  ) => _ActivityEditCriterionControllers(
+    id: criterion.id,
+    label: criterion.label,
+    description: criterion.description,
+    maximumPoints: criterion.maximumPoints,
+  );
+
+  factory _ActivityEditCriterionControllers.empty(int ordinal) =>
+      _ActivityEditCriterionControllers(
+        id: 'custom_$ordinal',
+        label: '',
+        description: '',
+        maximumPoints: 1,
+      );
+
+  final String id;
+  final TextEditingController label;
+  final TextEditingController description;
+  final TextEditingController maximumPoints;
+
+  TeacherActivityRubricCriterion? toCriterion() {
+    final criterionLabel = label.text.trim();
+    final criterionDescription = description.text.trim();
+    final points = int.tryParse(maximumPoints.text.trim());
+    if (criterionLabel.isEmpty ||
+        criterionLabel.length > 80 ||
+        criterionDescription.isEmpty ||
+        criterionDescription.length > 500 ||
+        points == null ||
+        points < 1 ||
+        points > 100) {
+      return null;
+    }
+    return TeacherActivityRubricCriterion(
+      id: id,
+      label: criterionLabel,
+      description: criterionDescription,
+      maximumPoints: points,
+    );
+  }
+
+  void dispose() {
+    label.dispose();
+    description.dispose();
+    maximumPoints.dispose();
+  }
+}
+
+class _ActivityEditCriterionEditor extends StatelessWidget {
+  const _ActivityEditCriterionEditor({
+    required this.index,
+    required this.controllers,
+    required this.canRemove,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _ActivityEditCriterionControllers controllers;
+  final bool canRemove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(AppSpacing.sm),
+    decoration: BoxDecoration(
+      border: Border.all(color: context.elixBorder),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Criterion ${index + 1}')),
+            if (canRemove)
+              IconButton(
+                key: Key('teacher_activity_edit_remove_criterion_$index'),
+                icon: const Icon(FluentIcons.delete),
+                onPressed: onRemove,
+              ),
+          ],
+        ),
+        TextBox(
+          key: Key('teacher_activity_edit_criterion_label_$index'),
+          controller: controllers.label,
+          placeholder: 'Criterion label',
+          maxLength: 80,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: Key('teacher_activity_edit_criterion_description_$index'),
+          controller: controllers.description,
+          placeholder: 'What the Teacher will assess',
+          maxLength: 500,
+          minLines: 2,
+          maxLines: 3,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextBox(
+          key: Key('teacher_activity_edit_criterion_points_$index'),
+          controller: controllers.maximumPoints,
+          placeholder: 'Maximum points',
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _activityEditPicker<T>({
+  required String label,
+  required T value,
+  required List<T> values,
+  required String Function(T value) labelFor,
+  required ValueChanged<T?> onChanged,
+}) => InfoLabel(
+  label: label,
+  child: ComboBox<T>(
+    value: value,
+    items: [
+      for (final item in values)
+        ComboBoxItem(value: item, child: Text(labelFor(item))),
+    ],
+    onChanged: onChanged,
+  ),
+);
+
 Future<void> _confirmArchiveAssignment(
   BuildContext context,
   TeacherClassworkController controller,
@@ -1186,6 +1959,65 @@ Future<void> _confirmArchiveAssignment(
   );
   if (accepted == true) {
     await controller.archiveAssignment(assignment);
+  }
+}
+
+Future<void> _confirmPermanentlyDeleteAssignment(
+  BuildContext context,
+  TeacherClassworkController controller,
+  GroupAssignment assignment,
+) async {
+  final confirmation = TextEditingController();
+  var phraseMatches = false;
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => ContentDialog(
+        title: const Text('Permanently delete assignment?'),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This permanently removes “${assignment.displayTitle}”, its '
+                'recipient records, submissions, and uploaded media. This '
+                'cannot be undone.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Text('Type DELETE ASSIGNMENT to continue.'),
+              const SizedBox(height: AppSpacing.xs),
+              TextBox(
+                key: const Key('teacher_assignment_delete_confirmation'),
+                controller: confirmation,
+                autofocus: true,
+                onChanged: (value) => setDialogState(
+                  () => phraseMatches = value == 'DELETE ASSIGNMENT',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('teacher_assignment_confirm_delete'),
+            onPressed: phraseMatches
+                ? () => Navigator.pop(dialogContext, true)
+                : null,
+            child: const Text('Delete permanently'),
+          ),
+        ],
+      ),
+    ),
+  );
+  confirmation.dispose();
+  if (accepted == true) {
+    await controller.permanentlyDeleteAssignment(assignment);
   }
 }
 
@@ -1262,6 +2094,67 @@ Future<void> _confirmArchive(
   if (controller.selectedGroup == null &&
       controller.errorMessage == null &&
       context.mounted) {
+    context.go(AppRoutePaths.teacherGroups);
+  }
+}
+
+Future<void> _confirmPermanentlyDeleteClassroom(
+  BuildContext context,
+  TeacherGroupsController controller,
+  ElixrGroup group,
+) async {
+  final confirmation = TextEditingController();
+  var phraseMatches = false;
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => ContentDialog(
+        title: const Text('Permanently delete classroom?'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This permanently removes “${group.name}”, its class code, '
+                'memberships, assignments, submissions, and uploaded media. '
+                'This cannot be undone.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Text('Type DELETE CLASSROOM to continue.'),
+              const SizedBox(height: AppSpacing.xs),
+              TextBox(
+                key: const Key('teacher_group_delete_confirmation'),
+                controller: confirmation,
+                autofocus: true,
+                onChanged: (value) => setDialogState(
+                  () => phraseMatches = value == 'DELETE CLASSROOM',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('teacher_group_confirm_delete'),
+            onPressed: phraseMatches
+                ? () => Navigator.pop(dialogContext, true)
+                : null,
+            child: const Text('Delete permanently'),
+          ),
+        ],
+      ),
+    ),
+  );
+  confirmation.dispose();
+  if (accepted != true) return;
+  await controller.permanentlyDeleteClassroom(group);
+  if (controller.selectedGroup == null && context.mounted) {
     context.go(AppRoutePaths.teacherGroups);
   }
 }

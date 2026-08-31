@@ -1,26 +1,48 @@
 # Phase 5 — Movement management, assignments, and `assignment_attempts`
 
-## Current assignment contract (single-submission refactor)
+## Current assignment contract (Teacher Activity Assessment v2)
 
-Teacher-created recorded assignments now use the Phase 6/7-compatible
-single-submission contract described below. New work is stored in the
-deterministic document `review_sub_{assignmentId}_{traineeId}` and moves only
-through `in_progress → submitted → checked` (with `unsubmitting` during an
-explicit trainee withdrawal). A trainee cannot create a replacement attempt,
-practice a submitted/checked assignment, or use the old Attempt history UI.
+Product copy calls reusable Teacher-created templates **Teacher Activities**.
+The persisted `teacher_movements` identity remains intentionally unchanged.
+Each immutable Activity revision may carry `activity_assessment` schema 2:
+visibility-only prop/hand/body readiness, a resolved 3–5 criterion rubric,
+maximum score, finite 1–3 or Unlimited attempt policy, a 15/30/45/60-second
+recording duration, and optional private demonstration metadata. Missing v2
+data is parsed as the legacy Teacher-reviewed workflow; historical documents
+are not rewritten or reinterpreted.
 
-New Teacher-created assignments persist `max_score` (1–100),
-`grading_locked: false`, and date-only due dates at 11:59:59.999 PM
-Asia/Manila. The maximum is locked when the first review is checked. Existing
-assignments without `max_score` remain readable as `/100` until the reviewed
-migration utility is run.
+A published `group_assignments` document owns its effective configuration and
+`configuration_revision`. Teachers may edit v2 assignments through the
+authenticated server endpoint. Each reserved attempt stores both
+`assignment_configuration_revision` and `activity_assessment_snapshot`, so an
+assignment edit never changes an attempt already started. Audience projections
+are synchronized transactionally and removed trainees retain historical
+attempts but cannot begin another.
 
-Legacy `draft`, `approved`, `needs_retry`, verdict, and superseded records are
-parsed for compatibility only. They remain read-only in the new trainee flow;
-the teacher can select a legacy clip and manually save a new grade when the
-record is still available.
+V2 attempts are reserved by an authenticated Firestore transaction using the
+server-owned `assignment_attempt_states/{assignmentId}__{traineeId}` ledger.
+A reservation does not consume a finite attempt. Consumption occurs only
+after the Python recorder accepts `start_submission_record`. The ledger admits
+one active reservation, enforces deadline/audience/status/grade/finite-limit
+checks, and locks further attempts after the current submission is graded.
+Finite assignments retain every completed clip; the newest completed attempt
+is current. Unlimited assignments keep attempt metadata and delete the prior
+clip only after a replacement has been successfully submitted.
 
-**Status:** CLOSED — code, deployed Firestore configuration, and production live verification complete on 2026-08-20.
+Permanent Assignment deletion requires the exact phrase `DELETE ASSIGNMENT`;
+permanent Classroom deletion requires `DELETE CLASSROOM`. Both are
+authenticated Admin-SDK cascades with a `deleting` tombstone, retry-safe missing
+root behavior, Storage-prefix cleanup, and preservation of user accounts,
+Official ELIXR history/XP, unrelated conversations, and reusable Activities.
+Reusable Activity demonstrations live under
+`teacher_activity_demos/{teacherId}/{demoId}.mp4`. Assignment-only demo
+overrides use
+`teacher_activity_demos/{teacherId}/assignments/{assignmentId}/{demoId}.mp4`
+so the Assignment/Classroom server cascade can remove them without deleting a
+reusable Activity's immutable media.
+
+**Status:** Teacher Activity Assessment v2 implemented locally on 2026-08-31;
+deployment and physical-camera validation are separate release gates.
 
 Implementation history on `main`:
 

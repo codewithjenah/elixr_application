@@ -7,6 +7,7 @@ import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assessment_spec.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/teacher_movement_revision_spec.dart';
 import 'package:elixr_application/data/models/teacher_reviewed_movement_spec.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
@@ -25,6 +26,7 @@ import 'package:provider/provider.dart';
 class _TrackingMovements extends InMemoryTeacherMovementRepository {
   int createCalls = 0;
   int editCalls = 0;
+  TeacherActivityAssessmentConfig? lastAssessment;
 
   @override
   Future<TeacherMovement> createMovement({
@@ -33,14 +35,17 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) {
     createCalls += 1;
+    lastAssessment = assessment;
     return super.createMovement(
       teacherId: teacherId,
       title: title,
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
   }
 
@@ -52,8 +57,10 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) {
     editCalls += 1;
+    lastAssessment = assessment;
     return super.editMovement(
       teacherId: teacherId,
       movementId: movementId,
@@ -61,6 +68,7 @@ class _TrackingMovements extends InMemoryTeacherMovementRepository {
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
   }
 }
@@ -98,6 +106,7 @@ void main() {
     TeacherMovement? existing,
     TeacherMovementRevision? existingRevision,
     TeacherReviewedSaveCallback? onCreate,
+    TeacherActivitySaveCallback? onCreateActivity,
     Size size = const Size(1280, 900),
     FluentThemeData? theme,
     TextScaler? textScaler,
@@ -144,6 +153,7 @@ void main() {
                   requiredProp: requiredProp,
                   safetyGuidance: safetyGuidance,
                 ),
+          onCreateActivity: onCreateActivity,
         ),
       ),
     );
@@ -191,6 +201,19 @@ void main() {
     expect(find.bySemanticsLabel('Instructions'), findsOneWidget);
     expect(find.bySemanticsLabel('Required prop'), findsOneWidget);
     expect(find.bySemanticsLabel('Guidance for trainees'), findsOneWidget);
+    expect(find.bySemanticsLabel('Prop readiness'), findsOneWidget);
+    expect(find.bySemanticsLabel('Hand readiness'), findsOneWidget);
+    expect(find.bySemanticsLabel('Body readiness'), findsOneWidget);
+    expect(find.bySemanticsLabel('Rubric template'), findsOneWidget);
+    expect(find.bySemanticsLabel('Maximum score'), findsOneWidget);
+    expect(find.bySemanticsLabel('Default attempts'), findsOneWidget);
+    expect(find.bySemanticsLabel('Recording duration'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('builder-demo-media-placeholder')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('builder-demo-upload')), findsOneWidget);
+    expect(find.byKey(const ValueKey('builder-demo-record')), findsOneWidget);
     expect(find.text('Template scored'), findsNothing);
     expect(find.text('Live Test'), findsNothing);
     expect(find.text('Create'), findsOneWidget);
@@ -212,6 +235,74 @@ void main() {
       movements.revisions.values.single.assessmentMode,
       AssessmentMode.teacherReviewed,
     );
+  });
+
+  testWidgets('builder forwards a valid Teacher Activity assessment', (
+    tester,
+  ) async {
+    TeacherActivityAssessmentConfig? saved;
+    await pumpBuilder(
+      tester,
+      onCreateActivity:
+          ({
+            required title,
+            required instructions,
+            required requiredProp,
+            required assessment,
+            safetyGuidance,
+          }) async {
+            saved = assessment;
+          },
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Tin Balance',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-instructions')),
+      'Balance the tin upright.',
+    );
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!.rubric.maximumScore, 50);
+    expect(saved!.attemptPolicy.maximumAttempts, 3);
+    expect(saved!.recordingDurationSeconds, 30);
+  });
+
+  testWidgets('builder validates a custom maximum score before saving', (
+    tester,
+  ) async {
+    await pumpBuilder(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Tin Balance',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-instructions')),
+      'Balance the tin upright.',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('builder-max-score-preset')),
+    );
+    await tester.tap(find.byKey(const ValueKey('builder-max-score-preset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Custom maximum score').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-custom-max-score')),
+      '101',
+    );
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('builder-validation')), findsOneWidget);
+    expect(
+      find.text('Choose a valid maximum score from 1 to 100.'),
+      findsOneWidget,
+    );
+    expect(movements.createCalls, 0);
   });
 
   testWidgets('existing edit flow remains teacher reviewed', (tester) async {
@@ -446,17 +537,18 @@ void main() {
     );
   });
 
-  testWidgets('movement library exposes only its two curriculum sections', (
-    tester,
-  ) async {
-    await pumpScreen(tester);
+  testWidgets(
+    'Teacher Activities library exposes its two curriculum sections',
+    (tester) async {
+      await pumpScreen(tester);
 
-    expect(find.text('Official ELIXR'), findsOneWidget);
-    expect(find.text('My Movements'), findsOneWidget);
-    expect(find.text('Assignments'), findsNothing);
-    expect(find.text('Reviews'), findsNothing);
-    expect(find.byType(ToggleButton), findsNWidgets(2));
-  });
+      expect(find.text('Official ELIXR'), findsOneWidget);
+      expect(find.text('Teacher Activities'), findsAtLeastNWidgets(1));
+      expect(find.text('Assignments'), findsNothing);
+      expect(find.text('Reviews'), findsNothing);
+      expect(find.byType(ToggleButton), findsNWidgets(2));
+    },
+  );
 
   testWidgets(
     'movement list clips cards below the persistent curriculum tabs',
@@ -507,7 +599,7 @@ void main() {
     },
   );
 
-  testWidgets('My Movement Assign to class preserves movement context', (
+  testWidgets('Teacher Activity Assign to class preserves Activity context', (
     tester,
   ) async {
     final movement = await movements.createMovement(
@@ -525,7 +617,7 @@ void main() {
       ),
     );
     await pumpScreen(tester);
-    await tester.tap(find.text('My Movements'));
+    await tester.tap(find.text('Teacher Activities').last);
     await tester.pumpAndSettle();
 
     await tester.tap(
@@ -572,7 +664,7 @@ void main() {
     expect(tester.getTopLeft(title).dy, before.dy);
   });
 
-  testWidgets('My Movements labels persisted items as teacher reviewed', (
+  testWidgets('Teacher Activities label persisted items as teacher reviewed', (
     tester,
   ) async {
     await movements.createMovement(
@@ -590,12 +682,12 @@ void main() {
       ),
     );
     await pumpScreen(tester);
-    await tester.tap(find.text('My Movements'));
+    await tester.tap(find.text('Teacher Activities').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Tin Balance'), findsOneWidget);
     expect(
-      find.text('Teacher reviewed · No automatic ELIXR score'),
+      find.text('Teacher-reviewed Activity · No automatic ELIXR score'),
       findsOneWidget,
     );
     expect(

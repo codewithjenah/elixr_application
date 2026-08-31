@@ -27,8 +27,8 @@ EVIDENCE_MAX_BYTES = 256 * 1024
 # Phase 6 Teacher-reviewed assignment clips. Engineering defaults, not
 # experimentally validated camera/storage limits. Duration is enforced in the
 # local recorder; size is also bounded here and in Storage rules.
-MAX_SUBMISSION_DURATION_SECONDS = 20
-MAX_SUBMISSION_SIZE_BYTES = 15 * 1024 * 1024
+MAX_SUBMISSION_DURATION_SECONDS = 60
+MAX_SUBMISSION_SIZE_BYTES = 50 * 1024 * 1024
 SUBMISSION_CONTENT_TYPE = "video/mp4"
 SUBMISSION_TEMP_DIRNAME = "elixr_submissions"
 

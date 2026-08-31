@@ -135,18 +135,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  /// Orders by assessment result within a cohort.
-  ///
-  /// Rubric totals (0..12) are never compared against legacy percentages
-  /// (0..100), so Assessment V2 sessions form the leading cohort and legacy
-  /// sessions are ordered among themselves after them.
+  /// Orders mixed assessment scales by normalized percentage while preserving
+  /// each session's native persisted score.
   int _compareResult(Session a, Session b, {required bool descending}) {
-    final aRubric = a.isRubricAssessed;
-    final bRubric = b.isRubricAssessed;
-    if (aRubric != bRubric) return aRubric ? -1 : 1;
-
-    final aValue = aRubric ? a.rubricTotal! : (a.legacyScore ?? 0);
-    final bValue = bRubric ? b.rubricTotal! : (b.legacyScore ?? 0);
+    final aValue = a.isRubricAssessed
+        ? a.rubricTotal! / 12 * 100
+        : (a.legacyScore ?? 0).toDouble();
+    final bValue = b.isRubricAssessed
+        ? b.rubricTotal! / 12 * 100
+        : (b.legacyScore ?? 0).toDouble();
     final cmp = aValue.compareTo(bValue);
     return descending ? -cmp : cmp;
   }

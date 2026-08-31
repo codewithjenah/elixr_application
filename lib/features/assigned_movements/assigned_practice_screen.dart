@@ -139,7 +139,9 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
       if (assignment.isTeacherCreated && assignment.isOverdue) {
         setState(() {
           _loading = false;
-          _error = 'This assignment is past its due date.';
+          _error = assignment.activityAssessment == null
+              ? 'This assignment is past its due date.'
+              : 'This Teacher Activity is past its deadline.';
         });
         return;
       }
@@ -150,7 +152,8 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
           assignmentId: assignment.id,
         );
         if (!mounted) return;
-        if (current?.status == AssignmentAttemptStatus.submitted) {
+        if (current?.status == AssignmentAttemptStatus.submitted &&
+            assignment.activityAssessment == null) {
           setState(() {
             _loading = false;
             _error =
@@ -161,8 +164,9 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         if (current?.status == AssignmentAttemptStatus.checked) {
           setState(() {
             _loading = false;
-            _error =
-                'This submission has been checked. Open the assignment to view the grade and feedback.';
+            _error = assignment.activityAssessment == null
+                ? 'This submission has been checked. Open the assignment to view the grade and feedback.'
+                : 'This Teacher Activity has been reviewed. Open it to view the grade and feedback.';
           });
           return;
         }
@@ -173,6 +177,32 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                 'This submission is being withdrawn. Return to the assignment and retry if needed.';
           });
           return;
+        }
+        if (assignment.activityAssessment != null) {
+          if (current?.hasAttachedDraftClip == true) {
+            setState(() {
+              _loading = false;
+              _error =
+                  'Your Activity recording is waiting to be submitted. Open the Activity to retry sending it to your Teacher.';
+            });
+            return;
+          }
+          try {
+            await assignments.reserveTeacherActivityAttempt(
+              traineeId: traineeId,
+              assignment: assignment,
+              requestId:
+                  'activity-open-${DateTime.now().toUtc().microsecondsSinceEpoch}',
+            );
+          } catch (_) {
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              _error =
+                  'This Teacher Activity is not available for another recording.';
+            });
+            return;
+          }
         }
       }
       switch (dispatchAssignedPractice(assignment)) {

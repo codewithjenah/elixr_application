@@ -641,7 +641,9 @@ void main() {
     expect(find.byKey(const Key('teacher_assignment_class')), findsNothing);
   });
 
-  testWidgets('group composer can create a new My Movement', (tester) async {
+  testWidgets('group composer can create a new Teacher Activity', (
+    tester,
+  ) async {
     final assignments = InMemoryClassroomAssignmentRepository();
     final movements = InMemoryTeacherMovementRepository();
     addTearDown(assignments.dispose);
@@ -786,10 +788,6 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('teacher_assignment_source_mine')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('teacher_assignment_max_score')),
-      '75',
-    );
     await tester.ensureVisible(
       find.byKey(const Key('teacher_assignment_create')),
     );
@@ -800,6 +798,7 @@ void main() {
     final created = assignments.assignments.values.single;
     expect(created.groupId, group.id);
     expect(created.movementId, customMovement.id);
-    expect(created.maxScore, 75);
+    expect(created.maxScore, 50);
+    expect(created.activityAssessment, isNotNull);
   });
 }

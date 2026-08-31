@@ -249,6 +249,78 @@ class FirebaseAssignmentSubmissionRepository
   }
 
   @override
+  Future<AssignmentAttempt> submitTeacherActivityAttemptClip({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required AssignmentAttempt attempt,
+    required SubmissionRecordResult clip,
+  }) async {
+    ensureLocalClipWithinLimits(clip);
+    if (attempt.traineeId != traineeId ||
+        attempt.assignmentId != assignment.id ||
+        attempt.activityAssessmentSnapshot == null ||
+        attempt.status != AssignmentAttemptStatus.inProgress) {
+      throw const AssignmentSubmissionException(
+        'This Teacher Activity attempt is no longer available.',
+      );
+    }
+    final file = File(clip.localPath);
+    if (!file.existsSync() || file.lengthSync() != clip.sizeBytes) {
+      throw const AssignmentSubmissionException(
+        'The local submission clip is no longer available.',
+      );
+    }
+    final storagePath = assignmentSubmissionStoragePath(
+      teacherId: attempt.teacherId,
+      groupId: attempt.groupId,
+      assignmentId: attempt.assignmentId,
+      traineeId: attempt.traineeId,
+      attemptId: attempt.id,
+    );
+    final metadata = assignmentSubmissionCustomMetadata(
+      teacherId: attempt.teacherId,
+      groupId: attempt.groupId,
+      assignmentId: attempt.assignmentId,
+      traineeId: attempt.traineeId,
+      attemptId: attempt.id,
+      movementId: attempt.movementId,
+      revisionId: attempt.revisionId,
+    );
+    await _storage
+        .ref(storagePath)
+        .putFile(
+          file,
+          SettableMetadata(
+            contentType: AssignmentSubmissionLimits.contentType,
+            customMetadata: metadata,
+          ),
+        );
+    final submittedAt = DateTime.now().toUtc();
+    try {
+      final submitted = await _classroom.markTeacherReviewSubmitted(
+        traineeId: traineeId,
+        attempt: attempt,
+        videoStoragePath: storagePath,
+        videoContentType: clip.contentType,
+        videoSizeBytes: clip.sizeBytes,
+        videoDurationMs: clip.durationMs,
+        submittedAt: submittedAt,
+        videoExpiresAt: unreviewedVideoExpiresAt(submittedAt),
+      );
+      try {
+        await file.delete();
+      } on FileSystemException {
+        // Backend orphan cleanup remains the deterministic fallback.
+      }
+      return submitted;
+    } catch (_) {
+      // Keep the uploaded object and the same attempt identity. A retry is
+      // idempotent at the path and can complete the Firestore transition.
+      rethrow;
+    }
+  }
+
+  @override
   Future<void> deleteSubmissionObject(String storagePath) async {
     try {
       await _storage.ref(storagePath).delete();

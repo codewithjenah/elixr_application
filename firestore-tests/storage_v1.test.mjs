@@ -138,6 +138,73 @@ async function seedClassroom({
   });
 }
 
+async function seedTeacherActivityDemoAccess({membership = 'approved'} = {}) {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    await setDoc(doc(db, 'classroom_teacher_access', 'teacher_trainee'), {
+      teacher_id: 'teacher',
+      trainee_id: 'trainee',
+      group_id: GROUP_ID,
+      schema_version: 1,
+    });
+    await setDoc(doc(db, 'group_memberships', `${GROUP_ID}_trainee`), {
+      group_id: GROUP_ID,
+      teacher_id: 'teacher',
+      trainee_id: 'trainee',
+      status: membership,
+    });
+  });
+}
+
+describe('Teacher Activity demonstration storage', () => {
+  const demoPath = 'teacher_activity_demos/teacher/demo_1.mp4';
+  const demoMetadata = {
+    contentType: 'video/mp4',
+    customMetadata: {owner_id: 'teacher'},
+  };
+
+  test('teacher owns writes and an approved current trainee may read', async () => {
+    await seedTeacherActivityDemoAccess();
+    const teacherStorage = context('teacher').storage();
+    await assertSucceeds(
+      uploadBytes(ref(teacherStorage, demoPath), new Uint8Array([1, 2, 3]), demoMetadata),
+    );
+    await assertSucceeds(getBytes(ref(context('trainee').storage(), demoPath)));
+    await assertFails(getBytes(ref(context('otherTrainee').storage(), demoPath)));
+
+    const assignmentDemoPath =
+      `teacher_activity_demos/teacher/assignments/${ASG}/override_1.mp4`;
+    await assertSucceeds(
+      uploadBytes(
+        ref(teacherStorage, assignmentDemoPath),
+        new Uint8Array([1, 2, 3]),
+        demoMetadata,
+      ),
+    );
+    await assertSucceeds(
+      getBytes(ref(context('trainee').storage(), assignmentDemoPath)),
+    );
+  });
+
+  test('rejects foreign owners, non-MP4 content, and former trainees', async () => {
+    await seedTeacherActivityDemoAccess({membership: 'removed'});
+    const teacherStorage = context('teacher').storage();
+    await assertFails(
+      uploadBytes(ref(context('other').storage(), demoPath), new Uint8Array([1]), demoMetadata),
+    );
+    await assertFails(
+      uploadBytes(ref(teacherStorage, demoPath), new Uint8Array([1]), {
+        contentType: 'video/quicktime',
+        customMetadata: {owner_id: 'teacher'},
+      }),
+    );
+    await assertSucceeds(
+      uploadBytes(ref(teacherStorage, demoPath), new Uint8Array([1]), demoMetadata),
+    );
+    await assertFails(getBytes(ref(context('trainee').storage(), demoPath)));
+  });
+});
+
 async function seedClassroomEvidence({
   membership = 'approved',
   enabled = true,

@@ -17,6 +17,7 @@ import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/phase6_submission_diagnostics.dart';
 import '../models/teacher_movement.dart';
+import '../models/teacher_activity_assessment.dart';
 import 'classroom_assignment_repository.dart';
 
 class FirebaseClassroomAssignmentRepository
@@ -111,6 +112,10 @@ class FirebaseClassroomAssignmentRepository
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createTeacherCreatedAssignmentWithTopic(
@@ -120,6 +125,10 @@ class FirebaseClassroomAssignmentRepository
     movement: movement,
     revision: revision,
     maxScore: maxScore,
+    activityAssessment: activityAssessment,
+    displayTitle: displayTitle,
+    displayInstructions: displayInstructions,
+    displaySafetyGuidance: displaySafetyGuidance,
     dueAt: dueAt,
     audience: audience,
   );
@@ -132,6 +141,10 @@ class FirebaseClassroomAssignmentRepository
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
@@ -149,6 +162,10 @@ class FirebaseClassroomAssignmentRepository
       movement: movement,
       revision: revision,
       maxScore: maxScore,
+      activityAssessment: activityAssessment,
+      displayTitle: displayTitle,
+      displayInstructions: displayInstructions,
+      displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
       topic: topic,
       audience: audience,
@@ -250,6 +267,49 @@ class FirebaseClassroomAssignmentRepository
       gradingLocked: maxScore == null ? null : false,
       clearGradingLockedAt: maxScore != null,
     );
+  }
+
+  @override
+  Future<GroupAssignment> updateTeacherActivityAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required int expectedConfigurationRevision,
+    required String displayTitle,
+    required String instructions,
+    String? safetyGuidance,
+    String? topic,
+    DateTime? dueAt,
+    required AssignmentAudience audience,
+    required TeacherActivityAssessmentConfig activityAssessment,
+  }) async {
+    if (_auth.currentUser?.uid != teacherId || !activityAssessment.isValid) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final decoded =
+        await _postAuthorizedFunction('updateTeacherActivityAssignment', {
+          'assignment_id': assignmentId,
+          'expected_configuration_revision': expectedConfigurationRevision,
+          'display_title': displayTitle.trim(),
+          'display_instructions': instructions.trim(),
+          'display_safety_guidance': safetyGuidance?.trim(),
+          'topic': topic?.trim(),
+          'due_at': dueAt?.toUtc().toIso8601String(),
+          'audience_type': audience.type.wireValue,
+          'recipient_ids': audience.isEntireClass
+              ? const <String>[]
+              : audience.targetTraineeIds,
+          'activity_assessment': activityAssessment.toMap(),
+        });
+    final raw = decoded['assignment'];
+    if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);
+    final map = Map<String, dynamic>.from(raw);
+    final id = map.remove('id');
+    if (id is! String) throw const ClassroomException(ClassroomError.malformed);
+    final parsed = GroupAssignment.tryFromMap(map, id: id);
+    if (parsed == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    return parsed.copyWith(audience: audience);
   }
 
   @override
@@ -458,6 +518,93 @@ class FirebaseClassroomAssignmentRepository
     final snap = await _attempts.doc(attemptId).get();
     if (!snap.exists || snap.data() == null) return null;
     return AssignmentAttempt.tryFromMap(snap.data()!, id: snap.id);
+  }
+
+  @override
+  Future<AssignmentAttempt> reserveTeacherActivityAttempt({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required String requestId,
+  }) async {
+    if (_auth.currentUser?.uid != traineeId ||
+        assignment.activityAssessment == null) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final decoded = await _postAuthorizedFunction(
+      'reserveTeacherActivityAttempt',
+      {'assignment_id': assignment.id, 'request_id': requestId},
+    );
+    final raw = decoded['attempt'];
+    if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);
+    final map = Map<String, dynamic>.from(raw);
+    final id = map.remove('id');
+    if (id is! String) throw const ClassroomException(ClassroomError.malformed);
+    final attempt = AssignmentAttempt.tryFromMap(map, id: id);
+    if (attempt == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    return attempt;
+  }
+
+  @override
+  Future<void> consumeTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (_auth.currentUser?.uid != traineeId ||
+        attempt.activityAssessmentSnapshot == null) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _postAuthorizedFunction('consumeTeacherActivityAttempt', {
+      'assignment_id': attempt.assignmentId,
+      'attempt_id': attempt.id,
+    });
+  }
+
+  @override
+  Future<void> abandonTeacherActivityAttempt({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (_auth.currentUser?.uid != traineeId ||
+        attempt.traineeId != traineeId ||
+        attempt.activityAssessmentSnapshot == null) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _postAuthorizedFunction('abandonTeacherActivityAttempt', {
+      'assignment_id': attempt.assignmentId,
+      'attempt_id': attempt.id,
+    });
+  }
+
+  @override
+  Future<void> permanentlyDeleteAssignment({
+    required String teacherId,
+    required String assignmentId,
+    required String confirmation,
+  }) async {
+    if (_auth.currentUser?.uid != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _postAuthorizedFunction('permanentDeleteAssignment', {
+      'assignment_id': assignmentId,
+      'confirmation': confirmation,
+    }, timeout: const Duration(minutes: 9));
+  }
+
+  @override
+  Future<void> permanentlyDeleteClassroom({
+    required String teacherId,
+    required String groupId,
+    required String confirmation,
+  }) async {
+    if (_auth.currentUser?.uid != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    await _postAuthorizedFunction('permanentDeleteClassroom', {
+      'group_id': groupId,
+      'confirmation': confirmation,
+    }, timeout: const Duration(minutes: 9));
   }
 
   @override
@@ -958,6 +1105,35 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> saveTeacherActivityRubricReview({
+    required String teacherId,
+    required AssignmentAttempt attempt,
+    required Map<String, int> criterionScores,
+    String? feedback,
+  }) async {
+    if (_auth.currentUser?.uid != teacherId ||
+        attempt.activityAssessmentSnapshot == null) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final decoded =
+        await _postAuthorizedFunction('gradeTeacherActivityAttempt', {
+          'attempt_id': attempt.id,
+          'criterion_scores': criterionScores,
+          'feedback': feedback?.trim(),
+        });
+    final raw = decoded['attempt'];
+    if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);
+    final map = Map<String, dynamic>.from(raw);
+    final id = map.remove('id');
+    if (id is! String) throw const ClassroomException(ClassroomError.malformed);
+    final parsed = AssignmentAttempt.tryFromMap(map, id: id);
+    if (parsed == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    return parsed;
+  }
+
+  @override
   Future<GroupAssignment> updateTeacherAssignmentMaxScore({
     required String teacherId,
     required String assignmentId,
@@ -1199,6 +1375,54 @@ class FirebaseClassroomAssignmentRepository
           responseRecipients.cast<String>().map((value) => value.trim()),
         ),
       );
+    } on ClassroomException {
+      rethrow;
+    } on TimeoutException {
+      throw const ClassroomException(ClassroomError.invalidState);
+    } on SocketException {
+      throw const ClassroomException(ClassroomError.invalidState);
+    } on FormatException {
+      throw const ClassroomException(ClassroomError.malformed);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<Map<String, dynamic>> _postAuthorizedFunction(
+    String name,
+    Map<String, dynamic> payload, {
+    Duration? timeout,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw const ClassroomException(ClassroomError.forbidden);
+    final token = await user.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final effectiveTimeout = timeout ?? requestTimeout;
+    final client = _httpClientFactory();
+    try {
+      final request = await client
+          .postUrl(apiBaseUri.resolve(name))
+          .timeout(effectiveTimeout);
+      request.headers.set('X-Firebase-Authorization', 'Bearer $token');
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(payload));
+      final response = await request.close().timeout(effectiveTimeout);
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(effectiveTimeout);
+      final decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        throw const ClassroomException(ClassroomError.forbidden);
+      }
+      if (response.statusCode != HttpStatus.ok ||
+          decoded is! Map<String, dynamic>) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      return decoded;
     } on ClassroomException {
       rethrow;
     } on TimeoutException {

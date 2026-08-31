@@ -1,4 +1,5 @@
 import 'teacher_movement_revision_spec.dart';
+import 'teacher_activity_assessment.dart';
 import 'training_prop.dart';
 
 /// Bounded Phase 5 spec for Teacher-created, teacher-reviewed movements.
@@ -6,7 +7,8 @@ import 'training_prop.dart';
 /// This is not an AssessmentSpec evaluator and does not enable template
 /// scoring. Capability is always teacher-review only.
 class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
-  static const currentSchemaVersion = 1;
+  static const currentSchemaVersion = 2;
+  static const legacySchemaVersion = 1;
   static const teacherReviewOnly = 'teacher_review_only';
   static const titleMaxLength = 80;
   static const instructionsMaxLength = 2000;
@@ -17,6 +19,7 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
     required this.requiredProp,
     this.safetyGuidance,
     this.capability = teacherReviewOnly,
+    this.assessment,
   });
 
   @override
@@ -26,6 +29,7 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
   @override
   final String? safetyGuidance;
   final String capability;
+  final TeacherActivityAssessmentConfig? assessment;
 
   @override
   bool get isTeacherReviewOnly => capability == teacherReviewOnly;
@@ -35,6 +39,7 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
       'instructions': instructions,
       'required_prop': requiredProp.protocolValue,
       'capability': capability,
+      if (assessment != null) 'activity_assessment': assessment!.toMap(),
       if (safetyGuidance != null) 'safety_guidance': safetyGuidance,
     };
   }
@@ -52,6 +57,14 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
     final prop = TrainingProp.tryParseStrict(map['required_prop']);
     if (prop == null) return null;
 
+    TeacherActivityAssessmentConfig? assessment;
+    if (map.containsKey('activity_assessment')) {
+      assessment = TeacherActivityAssessmentConfig.tryFrom(
+        map['activity_assessment'],
+      );
+      if (assessment == null) return null;
+    }
+
     String? safety;
     if (map.containsKey('safety_guidance')) {
       safety = _readBounded(
@@ -66,8 +79,15 @@ class TeacherReviewedMovementSpec implements TeacherMovementRevisionSpec {
       requiredProp: prop,
       safetyGuidance: safety,
       capability: teacherReviewOnly,
+      assessment: assessment,
     );
   }
+
+  TeacherActivityAssessmentConfig get effectiveAssessment =>
+      assessment ??
+      TeacherActivityAssessmentConfig.newActivityDefaults(
+        legacyProp: requiredProp,
+      );
 
   static String? validateTitle(String? value) {
     final trimmed = value?.trim() ?? '';

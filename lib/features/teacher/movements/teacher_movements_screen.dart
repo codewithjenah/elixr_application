@@ -69,7 +69,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
     if (controller == null) {
       return const TeacherScaffoldPage(
         header: ElixEditorialPageHeader(
-          heading: 'Movements',
+          heading: 'Teacher Activities',
           eyebrow: 'TEACHER WORKSPACE',
         ),
         content: Center(child: ProgressRing()),
@@ -81,17 +81,17 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
       builder: (context, _) {
         return TeacherScaffoldPage(
           header: ElixEditorialPageHeader(
-            heading: 'Movements',
+            heading: 'Teacher Activities',
             eyebrow: 'TEACHER WORKSPACE',
             subtitle:
-                'Manage reusable Official ELIXR and teacher-created movements.',
+                'Manage reusable Official ELIXR activities and your Teacher Activities.',
             commandBar: controller.tab == TeacherMovementsTab.mine
                 ? CommandBar(
                     mainAxisAlignment: MainAxisAlignment.end,
                     primaryItems: [
                       CommandBarButton(
                         icon: const Icon(FluentIcons.add),
-                        label: const Text('Create movement'),
+                        label: const Text('Create Teacher Activity'),
                         onPressed: controller.busy
                             ? null
                             : () => _showCreateOrEditMovement(
@@ -154,7 +154,7 @@ class _TeacherMovementsScreenState extends State<TeacherMovementsScreen> {
   static String _tabLabel(TeacherMovementsTab tab) {
     return switch (tab) {
       TeacherMovementsTab.official => 'Official ELIXR',
-      TeacherMovementsTab.mine => 'My Movements',
+      TeacherMovementsTab.mine => 'Teacher Activities',
     };
   }
 }
@@ -276,7 +276,7 @@ class _MyMovementsList extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
         child: ElixStatusPanel(
           message:
-              'No Teacher-created movements yet. Create one to assign a teacher-reviewed exercise.',
+              'No Teacher Activities yet. Create one to assign a teacher-reviewed exercise.',
         ),
       );
     }
@@ -380,7 +380,7 @@ Future<void> _confirmDeleteMovement(
     builder: (context) => ContentDialog(
       title: const Text('Delete this movement?'),
       content: Text(
-        '${movement.title} and all of its revisions will be permanently removed. '
+        '${movement.title} and all of its Activity revisions will be permanently removed. '
         'This cannot be undone.',
       ),
       actions: [
@@ -413,10 +413,9 @@ Future<void> _showCreateOrEditMovement(
     );
   }
   if (!context.mounted) return;
-  await showDialog<void>(
-    context: context,
-    builder: (_) {
-      return TeacherMovementBuilderDialog(
+  await Navigator.of(context).push<void>(
+    PageRouteBuilder<void>(
+      pageBuilder: (_, _, _) => TeacherMovementBuilderDialog(
         existing: existing,
         existingRevision: revision,
         onCreateTeacherReviewed:
@@ -433,6 +432,29 @@ Future<void> _showCreateOrEditMovement(
                 safetyGuidance: safetyGuidance,
               );
             },
+        onCreateActivity:
+            ({
+              required title,
+              required instructions,
+              required requiredProp,
+              required assessment,
+              safetyGuidance,
+            }) {
+              return controller.createMovement(
+                title: title,
+                instructions: instructions,
+                requiredProp: requiredProp,
+                safetyGuidance: safetyGuidance,
+                assessment: assessment,
+              );
+            },
+        onUploadDemonstration:
+            ({required localFile, required duration, required source}) =>
+                controller.uploadActivityDemonstration(
+                  localFile: localFile,
+                  duration: duration,
+                  source: source,
+                ),
         onEditTeacherReviewed: existing == null
             ? null
             : ({
@@ -449,8 +471,26 @@ Future<void> _showCreateOrEditMovement(
                   safetyGuidance: safetyGuidance,
                 );
               },
-      );
-    },
+        onEditActivity: existing == null
+            ? null
+            : ({
+                required title,
+                required instructions,
+                required requiredProp,
+                required assessment,
+                safetyGuidance,
+              }) {
+                return controller.editMovement(
+                  movement: existing,
+                  title: title,
+                  instructions: instructions,
+                  requiredProp: requiredProp,
+                  safetyGuidance: safetyGuidance,
+                  assessment: assessment,
+                );
+              },
+      ),
+    ),
   );
 }
 

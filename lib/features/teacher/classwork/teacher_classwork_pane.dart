@@ -2,6 +2,7 @@ import 'package:elixr_core/utils/user_name.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
@@ -10,6 +11,7 @@ import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assignment_attempt.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/teacher_activity_assessment.dart';
 import '../../assigned_movements/assigned_movement_list.dart';
 import '../../assigned_movements/widgets/submission_detail_body.dart';
 import 'teacher_classwork_controller.dart';
@@ -22,6 +24,7 @@ class TeacherClassworkAssignmentList extends StatefulWidget {
     this.onCreate,
     this.onEdit,
     this.onArchive,
+    this.onDelete,
   });
 
   final TeacherClassworkController controller;
@@ -29,6 +32,7 @@ class TeacherClassworkAssignmentList extends StatefulWidget {
   final VoidCallback? onCreate;
   final ValueChanged<GroupAssignment>? onEdit;
   final ValueChanged<GroupAssignment>? onArchive;
+  final ValueChanged<GroupAssignment>? onDelete;
 
   @override
   State<TeacherClassworkAssignmentList> createState() =>
@@ -251,6 +255,13 @@ class _TeacherClassworkAssignmentListState
                             visibleTopics[topicIndex].$2[index],
                           )
                         : null,
+                    onDelete:
+                        controller.group?.isActive == true &&
+                            visibleTopics[topicIndex].$2[index].isActive
+                        ? () => widget.onDelete?.call(
+                            visibleTopics[topicIndex].$2[index],
+                          )
+                        : null,
                   ),
                 ],
               ],
@@ -293,6 +304,7 @@ class _AssignmentRow extends StatelessWidget {
     required this.onOpen,
     required this.onEdit,
     required this.onArchive,
+    required this.onDelete,
   });
 
   final GroupAssignment assignment;
@@ -302,6 +314,7 @@ class _AssignmentRow extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback? onEdit;
   final VoidCallback? onArchive;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -382,6 +395,12 @@ class _AssignmentRow extends StatelessWidget {
               key: Key('teacher_group_archive_assignment_${assignment.id}'),
               onPressed: onArchive,
               child: const Text('Archive'),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Button(
+              key: Key('teacher_group_delete_assignment_${assignment.id}'),
+              onPressed: onDelete,
+              child: const Text('Delete'),
             ),
             const SizedBox(width: AppSpacing.md),
           ],
@@ -1006,6 +1025,7 @@ class _TeacherSubmissionReviewDetailState
     extends State<TeacherSubmissionReviewDetail> {
   final _grade = TextEditingController();
   final _feedback = TextEditingController();
+  final Map<String, TextEditingController> _criterionGrades = {};
   String? _syncedAttemptKey;
 
   AssignmentAttempt? get attempt => widget.controller.latestVisibleAttemptFor(
@@ -1037,7 +1057,21 @@ class _TeacherSubmissionReviewDetailState
     _syncedAttemptKey = key;
     _grade.text = current?.gradeScore?.toString() ?? '';
     _feedback.text = current?.reviewFeedback ?? '';
+    final scores = current?.criterionScores ?? const <String, int>{};
+    for (final criterion
+        in current?.activityAssessmentSnapshot?.rubric.criteria ??
+            const <TeacherActivityRubricCriterion>[]) {
+      _criterionController(criterion.id).text =
+          scores[criterion.id]?.toString() ?? '';
+    }
   }
+
+  TextEditingController _criterionController(String id) =>
+      _criterionGrades.putIfAbsent(id, () {
+        final controller = TextEditingController();
+        controller.addListener(_onChanged);
+        return controller;
+      });
 
   @override
   void dispose() {
@@ -1045,6 +1079,11 @@ class _TeacherSubmissionReviewDetailState
       ..removeListener(_onChanged)
       ..dispose();
     _feedback.dispose();
+    for (final controller in _criterionGrades.values) {
+      controller
+        ..removeListener(_onChanged)
+        ..dispose();
+    }
     super.dispose();
   }
 
@@ -1063,6 +1102,7 @@ class _TeacherSubmissionReviewDetailState
         current.status != AssignmentAttemptStatus.unsubmitting &&
         current.status != AssignmentAttemptStatus.inProgress &&
         current.status != AssignmentAttemptStatus.draft;
+    final activityAssessment = current.activityAssessmentSnapshot;
     final maximum = current.gradeMaxScore ?? widget.assignment.maxScore ?? 100;
     final parsedGrade = int.tryParse(_grade.text.trim());
     final validGrade =
@@ -1077,6 +1117,7 @@ class _TeacherSubmissionReviewDetailState
       validGrade: validGrade,
       parsedGrade: parsedGrade,
       legacySubmitted: legacySubmitted,
+      activityAssessment: activityAssessment,
     );
     final submissionDetail = SubmissionDetailBody(
       key: ValueKey('${current.id}:${current.reviewRevision}'),
@@ -1111,7 +1152,15 @@ class _TeacherSubmissionReviewDetailState
     required bool validGrade,
     required int? parsedGrade,
     required bool legacySubmitted,
+    required TeacherActivityAssessmentConfig? activityAssessment,
   }) {
+    if (activityAssessment != null) {
+      return _buildTeacherActivityRubricControls(
+        current: current,
+        canGrade: canGrade,
+        assessment: activityAssessment,
+      );
+    }
     return Column(
       key: const Key('teacher_classwork_review_controls'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1195,6 +1244,104 @@ class _TeacherSubmissionReviewDetailState
                   ),
             child: const Text('Approve legacy review'),
           ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTeacherActivityRubricControls({
+    required AssignmentAttempt current,
+    required bool canGrade,
+    required TeacherActivityAssessmentConfig assessment,
+  }) {
+    final scores = <String, int>{};
+    var valid = true;
+    for (final criterion in assessment.rubric.criteria) {
+      final score = int.tryParse(
+        _criterionController(criterion.id).text.trim(),
+      );
+      if (score == null || score < 0 || score > criterion.maximumPoints) {
+        valid = false;
+      } else {
+        scores[criterion.id] = score;
+      }
+    }
+    final total = scores.values.fold<int>(0, (sum, score) => sum + score);
+    return Column(
+      key: const Key('teacher_classwork_activity_rubric_controls'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (canGrade) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Rubric (${assessment.rubric.maximumScore} points)',
+            style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final criterion in assessment.rubric.criteria) ...[
+            InfoLabel(
+              label: '${criterion.label} (0–${criterion.maximumPoints})',
+              child: TextBox(
+                key: Key('teacher_classwork_criterion_${criterion.id}'),
+                controller: _criterionController(criterion.id),
+                maxLength: 3,
+                keyboardType: TextInputType.number,
+                placeholder: criterion.description,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          Text(
+            valid
+                ? 'Total: $total / ${assessment.rubric.maximumScore}'
+                : 'Enter every criterion score within its allowed range.',
+            key: const Key('teacher_classwork_rubric_total'),
+            style: AppTheme.caption.copyWith(
+              color: valid ? context.elixTextSecondary : AppColors.error,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Feedback',
+            style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          TextBox(
+            key: const Key('teacher_classwork_feedback'),
+            controller: _feedback,
+            maxLength: 1000,
+            minLines: widget.desktopReview ? 5 : 3,
+            maxLines: widget.desktopReview ? 8 : 4,
+            placeholder: 'Feedback for the student',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          FilledButton(
+            key: const Key('teacher_classwork_save_rubric_review'),
+            onPressed: widget.controller.busy || !valid
+                ? null
+                : () => widget.controller.saveTeacherActivityRubricReview(
+                    attempt: current,
+                    assignment: widget.assignment,
+                    criterionScores: scores,
+                    feedback: _feedback.text,
+                  ),
+            child: Text(
+              current.isChecked ? 'Update checked result' : 'Mark as checked',
+            ),
+          ),
+          if (current.isChecked && !current.resultSentForCurrentRevision) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Button(
+              key: const Key('teacher_classwork_retry_result'),
+              onPressed: widget.controller.busy
+                  ? null
+                  : () => widget.controller.sendReviewResult(
+                      attempt: current,
+                      assignment: widget.assignment,
+                    ),
+              child: const Text('Retry notification'),
+            ),
+          ],
         ],
       ],
     );

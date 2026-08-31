@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/elix_panel_card.dart';
 import '../../core/widgets/elix_primary_button.dart';
 import '../../data/models/assignment_attempt.dart';
+import '../../data/models/assessment_score_display.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import 'assigned_movements_controller.dart';
@@ -784,7 +785,7 @@ String assignedMovementStatusLine(
     final total = attempt?.rubricTotal;
     final level = attempt?.performanceLevel?.label;
     return 'Historical · Automatic template assessment retired'
-        '${total == null ? '' : ' · Previous score $total/12'}'
+        '${total == null ? '' : ' · Previous score ${AssessmentScoreDisplay.official(total)}'}'
         '${level == null ? '' : ' · $level'}';
   }
   final dueText = assignedMovementDueLabel(assignment);
@@ -811,7 +812,8 @@ String? assignedMovementDetailLine(
     if (current?.isChecked == true &&
         current?.gradeScore != null &&
         current?.gradeMaxScore != null) {
-      final score = 'Score ${current!.gradeScore}/${current.gradeMaxScore}';
+      final score =
+          'Score ${AssessmentScoreDisplay.teacherActivity(earned: current!.gradeScore!, maximum: current.gradeMaxScore!)}';
       if (feedback != null && feedback.isNotEmpty) {
         return '$score · $feedback';
       }

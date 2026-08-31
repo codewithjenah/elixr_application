@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/models/assignment_attempt.dart';
 import '../../data/models/assignment_submission_limits.dart';
 import '../../data/models/group_assignment.dart';
+import '../../data/models/teacher_activity_assessment.dart';
 import '../../data/models/ws_protocol.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
@@ -94,6 +95,21 @@ class SubmissionRecordingController extends ChangeNotifier {
 
   bool get recordCommandInFlight => _recordCommandInFlight;
 
+  /// A configured assessment marks the new Teacher Activity flow. Legacy
+  /// teacher-created assignments retain their private-draft workflow.
+  bool get isTeacherActivity => assignment.activityAssessment != null;
+
+  /// A submitted Activity keeps the exact assessment configuration that
+  /// applied to that attempt. Before the attempt exists, use the published
+  /// assignment configuration to prepare the recording experience.
+  TeacherActivityAssessmentConfig? get activityAssessment =>
+      latestSubmission?.activityAssessmentSnapshot ??
+      assignment.activityAssessment;
+
+  int get recordingDurationSeconds => isTeacherActivity
+      ? assignment.activityAssessment!.recordingDurationSeconds
+      : AssignmentSubmissionLimits.maxDurationSeconds;
+
   bool get canRecord {
     final current = latestSubmission;
     return current == null ||
@@ -136,6 +152,39 @@ class SubmissionRecordingController extends ChangeNotifier {
     final attempts = await classroom
         .watchAttemptsForTrainee(traineeId: traineeId)
         .first;
+    if (isTeacherActivity) {
+      final activityAttempts =
+          [
+            for (final attempt in attempts)
+              if (attempt.assignmentId == assignment.id &&
+                  attempt.activityAssessmentSnapshot != null &&
+                  !attempt.isAbandonedTeacherReviewDraft)
+                attempt,
+          ]..sort((a, b) {
+            final aAt = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final bAt = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return bAt.compareTo(aAt);
+          });
+      final latest = activityAttempts.isEmpty ? null : activityAttempts.first;
+      if (_isStalePreSubmissionSnapshot(latest)) return;
+      latestSubmission = latest;
+      if (latest?.status == AssignmentAttemptStatus.submitted ||
+          latest?.status == AssignmentAttemptStatus.checked ||
+          latest?.status == AssignmentAttemptStatus.unsubmitting ||
+          latest?.status == AssignmentAttemptStatus.approved ||
+          latest?.status == AssignmentAttemptStatus.needsRetry) {
+        if (phase == SubmissionRecordingPhase.idle ||
+            phase == SubmissionRecordingPhase.failed) {
+          phase = SubmissionRecordingPhase.submitted;
+        }
+      } else if (latest?.hasAttachedDraftClip == true &&
+          (phase == SubmissionRecordingPhase.idle ||
+              phase == SubmissionRecordingPhase.failed)) {
+        phase = SubmissionRecordingPhase.attached;
+      }
+      notifyListeners();
+      return;
+    }
     AssignmentAttempt? canonical;
     AssignmentAttempt? legacy;
     for (final attempt in attempts) {
@@ -226,25 +275,62 @@ class SubmissionRecordingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> beginRecording() async {
+  Future<void> beginRecording() => _beginRecording(skipCountdown: false);
+
+  /// Starts an Activity recording after the camera readiness countdown has
+  /// already completed in [LivePracticeScreen]. Legacy submissions keep their
+  /// own consent/countdown flow through [beginRecording].
+  Future<void> beginActivityRecordingNow() =>
+      _beginRecording(skipCountdown: true);
+
+  Future<void> _beginRecording({required bool skipCountdown}) async {
     if (!_acquireRecordCommand()) return;
     errorMessage = null;
     try {
-      recordingCountdownSeconds = recordingCountdown.inSeconds;
-      phase = SubmissionRecordingPhase.countdown;
-      notifyListeners();
-      while (recordingCountdownSeconds > 0) {
-        await Future<void>.delayed(const Duration(seconds: 1));
-        if (_disposed) return;
-        recordingCountdownSeconds -= 1;
+      if (!skipCountdown) {
+        recordingCountdownSeconds = recordingCountdown.inSeconds;
+        phase = SubmissionRecordingPhase.countdown;
         notifyListeners();
+        while (recordingCountdownSeconds > 0) {
+          await Future<void>.delayed(const Duration(seconds: 1));
+          if (_disposed) return;
+          recordingCountdownSeconds -= 1;
+          notifyListeners();
+        }
       }
-      final ack = await websocket.sendStartSubmissionRecord();
+      final ack = isTeacherActivity
+          ? await websocket.sendStartSubmissionRecord(
+              durationSeconds: recordingDurationSeconds,
+            )
+          : await websocket.sendStartSubmissionRecord();
       if (_disposed) return;
       if (!ack.accepted) {
         phase = SubmissionRecordingPhase.failed;
         errorMessage = ack.message ?? ack.errorCode ?? 'Recording failed.';
         return;
+      }
+      if (isTeacherActivity) {
+        await refreshLatestSubmission();
+        final reserved = latestSubmission;
+        if (reserved?.activityAssessmentSnapshot == null) {
+          phase = SubmissionRecordingPhase.failed;
+          errorMessage =
+              'Your Teacher Activity could not reserve an attempt. Try again.';
+          await websocket.sendCancelSubmissionRecord();
+          return;
+        }
+        try {
+          await classroom.consumeTeacherActivityAttempt(
+            traineeId: traineeId,
+            attempt: reserved!,
+          );
+        } catch (_) {
+          phase = SubmissionRecordingPhase.failed;
+          errorMessage =
+              'Your Teacher Activity is no longer available for recording.';
+          await websocket.sendCancelSubmissionRecord();
+          return;
+        }
       }
       elapsedSeconds = 0;
       phase = SubmissionRecordingPhase.recording;
@@ -253,7 +339,7 @@ class SubmissionRecordingController extends ChangeNotifier {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         elapsedSeconds += 1;
         notifyListeners();
-        if (elapsedSeconds >= AssignmentSubmissionLimits.maxDurationSeconds) {
+        if (elapsedSeconds >= recordingDurationSeconds) {
           unawaited(stopRecording());
         }
       });
@@ -280,7 +366,11 @@ class SubmissionRecordingController extends ChangeNotifier {
         return;
       }
       clip = SubmissionRecordResult.fromAck(ack);
-      phase = SubmissionRecordingPhase.preview;
+      if (isTeacherActivity) {
+        await _saveActivityClip();
+      } else {
+        phase = SubmissionRecordingPhase.preview;
+      }
     } catch (_) {
       if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
@@ -337,6 +427,55 @@ class SubmissionRecordingController extends ChangeNotifier {
     }
   }
 
+  /// Uploads and turns in a v2 Teacher Activity as one trainee action. The
+  /// underlying repository operations remain separate for compatibility with
+  /// the legacy private-draft flow.
+  Future<void> _saveActivityClip() async {
+    final current = clip;
+    if (current == null) return;
+    phase = SubmissionRecordingPhase.submitting;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      await refreshLatestSubmission();
+      final reserved = latestSubmission;
+      if (reserved?.activityAssessmentSnapshot == null) {
+        throw StateError('No reserved Teacher Activity attempt is available.');
+      }
+      final submitted = await submissions.submitTeacherActivityAttemptClip(
+        traineeId: traineeId,
+        assignment: assignment,
+        attempt: reserved!,
+        clip: current,
+      );
+      latestSubmission = submitted;
+      phase = SubmissionRecordingPhase.submitted;
+      await abandonLocalClip();
+      if (_disposed) return;
+      clip = null;
+      await openSubmittedPlayback(attempt: submitted);
+    } catch (error) {
+      if (_disposed) return;
+      phase = SubmissionRecordingPhase.failed;
+      errorMessage = error.toString();
+    }
+  }
+
+  Future<void> retryActivitySubmission() async {
+    final current = latestSubmission;
+    if (!isTeacherActivity ||
+        current?.activityAssessmentSnapshot == null ||
+        clip == null) {
+      return;
+    }
+    if (!_acquireRecordCommand()) return;
+    try {
+      await _saveActivityClip();
+    } finally {
+      _releaseRecordCommand();
+    }
+  }
+
   /// Compatibility entry point for callers that still use the old name.
   Future<void> submitToTeacher() => saveDraft();
 
@@ -354,6 +493,36 @@ class SubmissionRecordingController extends ChangeNotifier {
         releasePlayback: releasePlayback,
       );
     }
+  }
+
+  Future<void> releaseActivityAttempt() async {
+    final attempt = latestSubmission;
+    if (!isTeacherActivity ||
+        attempt == null ||
+        attempt.activityAssessmentSnapshot == null ||
+        attempt.status != AssignmentAttemptStatus.inProgress) {
+      return;
+    }
+    try {
+      await classroom.abandonTeacherActivityAttempt(
+        traineeId: traineeId,
+        attempt: attempt,
+      );
+    } catch (_) {
+      // Server state remains authoritative and the same attempt may be retried.
+    }
+  }
+
+  Future<void> reserveActivityAttempt() async {
+    if (!isTeacherActivity) return;
+    final reserved = await classroom.reserveTeacherActivityAttempt(
+      traineeId: traineeId,
+      assignment: assignment,
+      requestId:
+          'activity-readiness-${DateTime.now().toUtc().microsecondsSinceEpoch}',
+    );
+    latestSubmission = reserved;
+    notifyListeners();
   }
 
   @override

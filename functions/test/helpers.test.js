@@ -13,11 +13,67 @@ const {
   isActiveChatProfile,
   isSearchRateLimited,
   listTraineeAssignmentsHandler,
+  validActivityAssessment,
+  permanentDeleteAssignmentHandler,
+  permanentDeleteClassroomHandler,
   normalizeSearchText,
   sanitizeDirectoryDocuments,
   sanitizedResult,
   validateSearchQuery,
 } = require('../index')._test;
+
+function activityAssessment({maximum = 50, attempts = 3, duration = 30} = {}) {
+  return {
+    schema_version: 2,
+    readiness: {prop: 'two_bottles', hands: 'two_hands', body: 'upper_body'},
+    rubric: {
+      template_id: 'standard_technique',
+      maximum_score: maximum,
+      criteria: [
+        {id: 'setup', label: 'Setup', description: 'Correct setup.', maximum_points: 10},
+        {id: 'technique', label: 'Technique', description: 'Safe technique.', maximum_points: 20},
+        {id: 'control', label: 'Control', description: 'Controlled finish.', maximum_points: maximum - 30},
+      ],
+    },
+    attempt_policy: attempts == null
+      ? {type: 'unlimited'}
+      : {type: 'finite', maximum_attempts: attempts},
+    recording_duration_seconds: duration,
+  };
+}
+
+test('Teacher Activity assessment contract validates readiness, rubric and limits', () => {
+  assert.equal(validActivityAssessment(activityAssessment(), 50), true);
+  assert.equal(validActivityAssessment(activityAssessment({attempts: null}), 50), true);
+  assert.equal(validActivityAssessment(activityAssessment({attempts: 4}), 50), false);
+  assert.equal(validActivityAssessment(activityAssessment({duration: 20}), 50), false);
+  const badReadiness = activityAssessment();
+  badReadiness.readiness.prop = 'glass';
+  assert.equal(validActivityAssessment(badReadiness, 50), false);
+});
+
+test('permanent deletion rejects wrong exact confirmation before database access', async () => {
+  let databaseAccessed = false;
+  const options = {
+    authenticate: async () => 'teacher',
+    databaseFactory: () => {
+      databaseAccessed = true;
+      throw new Error('must not access database');
+    },
+  };
+  const assignmentResponse = fakeResponse();
+  await permanentDeleteAssignmentHandler({
+    method: 'POST', body: {assignment_id: 'assignment-1', confirmation: 'delete assignment'},
+  }, assignmentResponse, options);
+  assert.equal(assignmentResponse.statusCode, 400);
+
+  const classroomResponse = fakeResponse();
+  await permanentDeleteClassroomHandler({
+    method: 'POST', body: {group_id: 'group-1', confirmation: 'DELETE CLASS'},
+  }, classroomResponse, options);
+  assert.equal(classroomResponse.statusCode, 400);
+  assert.equal(databaseAccessed, false);
+});
 const {
   executeMigrationWrites,
   legacyMessageData,

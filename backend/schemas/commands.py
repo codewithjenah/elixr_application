@@ -40,6 +40,15 @@ class _CommandBase(BaseModel):
         return value
 
 
+class TeacherActivityReadinessSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prop: Literal[
+        "none", "one_bottle", "one_shaker", "bottle_and_shaker", "two_bottles"
+    ]
+    hands: Literal["none", "one_hand", "two_hands"]
+    body: Literal["none", "upper_body"]
+
+
 class PrepareCommand(_CommandBase):
     action: Literal["prepare"]
     movement: Annotated[str, Field(min_length=1, max_length=MAX_MOVEMENT_LENGTH)]
@@ -49,6 +58,7 @@ class PrepareCommand(_CommandBase):
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
     allow_submission_recording: StrictBool = False
+    readiness_spec: Optional[TeacherActivityReadinessSpec] = None
 
     @field_validator("movement", "difficulty", mode="before")
     @classmethod
@@ -108,6 +118,7 @@ class StopCommand(_CommandBase):
 
 class StartSubmissionRecordCommand(_CommandBase):
     action: Literal["start_submission_record"]
+    duration_seconds: Literal[15, 30, 45, 60] = 30
 
 
 class StopSubmissionRecordCommand(_CommandBase):
@@ -129,6 +140,7 @@ class StartCommand(_CommandBase):
     camera_device_id: Optional[str] = None
     camera_index: Optional[StrictInt] = None
     allow_submission_recording: StrictBool = False
+    readiness_spec: Optional[TeacherActivityReadinessSpec] = None
 
     @field_validator("movement", "difficulty", mode="before")
     @classmethod

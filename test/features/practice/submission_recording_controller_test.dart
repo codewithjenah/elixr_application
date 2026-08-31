@@ -6,6 +6,7 @@ import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/in_memory_assignment_submission_repository.dart';
@@ -30,15 +31,71 @@ const _assignment = GroupAssignment(
   allowedProp: TrainingProp.bottle,
 );
 
+const _activityAssessment = TeacherActivityAssessmentConfig(
+  readiness: TeacherActivityReadinessSpec(
+    prop: ActivityPropRequirement.oneBottle,
+    hands: ActivityHandRequirement.twoHands,
+    body: ActivityBodyRequirement.upperBody,
+  ),
+  rubric: TeacherActivityRubric(
+    template: TeacherActivityRubricTemplate.beginnerFundamentals,
+    maximumScore: 30,
+    criteria: [
+      TeacherActivityRubricCriterion(
+        id: 'setup',
+        label: 'Setup',
+        description: 'Start prepared.',
+        maximumPoints: 10,
+      ),
+      TeacherActivityRubricCriterion(
+        id: 'control',
+        label: 'Control',
+        description: 'Keep the bottle controlled.',
+        maximumPoints: 10,
+      ),
+      TeacherActivityRubricCriterion(
+        id: 'finish',
+        label: 'Finish',
+        description: 'Finish safely.',
+        maximumPoints: 10,
+      ),
+    ],
+  ),
+  attemptPolicy: TeacherActivityAttemptPolicy.finite(2),
+  recordingDurationSeconds: 45,
+);
+
+const _activityAssignment = GroupAssignment(
+  id: 'activity-1',
+  teacherId: 'teacher-1',
+  groupId: 'g1',
+  movementId: 'tm1',
+  revisionId: 'rev1',
+  origin: MovementOrigin.teacherCreated,
+  assessmentMode: AssessmentMode.teacherReviewed,
+  status: GroupAssignmentStatus.active,
+  displayTitle: 'Bottle Control Activity',
+  teacherDisplayName: 'Grace Hopper',
+  groupName: 'BSHM 4A',
+  allowedProp: TrainingProp.bottle,
+  maxScore: 30,
+  activityAssessment: _activityAssessment,
+);
+
 class _GatedRecordSocket extends WebSocketService {
   int startCalls = 0;
   int stopCalls = 0;
+  int? startDurationSeconds;
   Completer<CommandAck> startAck = Completer<CommandAck>();
   Completer<CommandAck> stopAck = Completer<CommandAck>();
 
   @override
-  Future<CommandAck> sendStartSubmissionRecord({String? sessionId}) {
+  Future<CommandAck> sendStartSubmissionRecord({
+    String? sessionId,
+    int durationSeconds = 30,
+  }) {
     startCalls += 1;
+    startDurationSeconds = durationSeconds;
     return startAck.future;
   }
 
@@ -198,6 +255,70 @@ void main() {
     expect(socket.startCalls, 1);
     expect(controller.phase, SubmissionRecordingPhase.recording);
   });
+
+  test('Activity recording sends its configured duration', () async {
+    final socket = _GatedRecordSocket();
+    final controller = SubmissionRecordingController(
+      websocket: socket,
+      classroom: classroom,
+      submissions: submissions,
+      assignment: _activityAssignment,
+      traineeId: 'trainee-1',
+      recordingCountdown: Duration.zero,
+    );
+    addTearDown(controller.dispose);
+
+    final reserved = await classroom.reserveTeacherActivityAttempt(
+      traineeId: 'trainee-1',
+      assignment: _activityAssignment,
+      requestId: 'activity-test-reservation',
+    );
+    await controller.refreshLatestSubmission();
+
+    final starting = controller.beginRecording();
+    socket.startAck.complete(_acceptedStart());
+    await starting;
+
+    expect(controller.isTeacherActivity, isTrue);
+    expect(controller.recordingDurationSeconds, 45);
+    expect(socket.startDurationSeconds, 45);
+    expect(controller.errorMessage, isNull);
+    expect(classroom.consumedTeacherActivityAttemptIds, contains(reserved.id));
+  });
+
+  test(
+    'Activity recording submits the reserved attempt automatically',
+    () async {
+      final socket = _GatedRecordSocket();
+      final controller = SubmissionRecordingController(
+        websocket: socket,
+        classroom: classroom,
+        submissions: submissions,
+        assignment: _activityAssignment,
+        traineeId: 'trainee-1',
+        recordingCountdown: Duration.zero,
+      );
+      addTearDown(controller.dispose);
+      classroom.assignments[_activityAssignment.id] = _activityAssignment;
+      final reserved = await classroom.reserveTeacherActivityAttempt(
+        traineeId: 'trainee-1',
+        assignment: _activityAssignment,
+        requestId: 'activity-submit-reservation',
+      );
+      await controller.refreshLatestSubmission();
+
+      final starting = controller.beginRecording();
+      socket.startAck.complete(_acceptedStart());
+      await starting;
+      final stopping = controller.stopRecording();
+      socket.stopAck.complete(_acceptedStop());
+      await stopping;
+
+      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(controller.latestSubmission?.id, reserved.id);
+      expect(controller.latestSubmission?.isReviewFacingSubmission, isTrue);
+    },
+  );
 
   test('two Stop taps issue one stop_submission_record', () async {
     final socket = _GatedRecordSocket();

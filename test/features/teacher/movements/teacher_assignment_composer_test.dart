@@ -6,6 +6,7 @@ import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
@@ -25,6 +26,10 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
   Completer<void>? createGate;
   Object? teacherCreatedError;
   AssignmentAudience? lastAudience;
+  TeacherActivityAssessmentConfig? lastActivityAssessment;
+  String? lastDisplayTitle;
+  String? lastDisplayInstructions;
+  String? lastDisplaySafetyGuidance;
 
   @override
   Future<GroupAssignment> createOfficialAssignment({
@@ -59,11 +64,19 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     required TeacherMovement movement,
     required TeacherMovementRevision revision,
     int maxScore = 100,
+    TeacherActivityAssessmentConfig? activityAssessment,
+    String? displayTitle,
+    String? displayInstructions,
+    String? displaySafetyGuidance,
     DateTime? dueAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     teacherCreatedCalls++;
     lastAudience = audience;
+    lastActivityAssessment = activityAssessment;
+    lastDisplayTitle = displayTitle;
+    lastDisplayInstructions = displayInstructions;
+    lastDisplaySafetyGuidance = displaySafetyGuidance;
     final error = teacherCreatedError;
     if (error != null) throw error;
     return super.createTeacherCreatedAssignment(
@@ -73,6 +86,10 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       movement: movement,
       revision: revision,
       maxScore: maxScore,
+      activityAssessment: activityAssessment,
+      displayTitle: displayTitle,
+      displayInstructions: displayInstructions,
+      displaySafetyGuidance: displaySafetyGuidance,
       dueAt: dueAt,
       audience: audience,
     );
@@ -89,6 +106,7 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
     required String instructions,
     required TrainingProp requiredProp,
     String? safetyGuidance,
+    TeacherActivityAssessmentConfig? assessment,
   }) async {
     final movement = await super.createMovement(
       teacherId: teacherId,
@@ -96,6 +114,7 @@ class _RevisionReadFailureMovements extends InMemoryTeacherMovementRepository {
       instructions: instructions,
       requiredProp: requiredProp,
       safetyGuidance: safetyGuidance,
+      assessment: assessment,
     );
     failRevisionReads = true;
     return movement;
@@ -391,6 +410,130 @@ void main() {
   });
 
   testWidgets(
+    'Teacher Activity defaults prefill and assignment overrides publish a v2 snapshot',
+    (tester) async {
+      final defaults = TeacherActivityAssessmentConfig(
+        readiness: TeacherActivityReadinessSpec(
+          prop: ActivityPropRequirement.oneShaker,
+          hands: ActivityHandRequirement.twoHands,
+          body: ActivityBodyRequirement.upperBody,
+        ),
+        rubric: TeacherActivityRubric.builtIn(
+          TeacherActivityRubricTemplate.controlConsistency,
+          50,
+        ),
+        attemptPolicy: TeacherActivityAttemptPolicy.finite(2),
+        recordingDurationSeconds: 45,
+      );
+      final activity = await movements.createMovement(
+        teacherId: 'teacher-1',
+        title: 'Shaker control',
+        instructions: 'Keep the shaker controlled.',
+        safetyGuidance: 'Leave clear space around you.',
+        requiredProp: TrainingProp.shaker,
+        assessment: defaults,
+      );
+      await pumpComposer(
+        tester,
+        creationService: service(),
+        teacherCreatedMovement: activity,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shaker control'), findsWidgets);
+      expect(
+        tester
+            .widget<ComboBox<ActivityPropRequirement>>(
+              find.byKey(const Key('teacher_assignment_readiness_prop')),
+            )
+            .value,
+        ActivityPropRequirement.oneShaker,
+      );
+      expect(
+        tester
+            .widget<ComboBox<String>>(
+              find.byKey(const Key('teacher_assignment_attempt_policy')),
+            )
+            .value,
+        '2',
+      );
+      expect(find.text('Control & Consistency'), findsWidgets);
+
+      await tester.enterText(
+        find.byKey(const Key('teacher_assignment_title')),
+        'Shaker control — Group A',
+      );
+      final duration = tester.widget<ComboBox<int>>(
+        find.byKey(const Key('teacher_assignment_recording_duration')),
+      );
+      duration.onChanged!(60);
+      await tester.pump();
+      final publish = find.byKey(const Key('teacher_assignment_create'));
+      await tester.ensureVisible(publish);
+      await tester.tap(publish);
+      await tester.pumpAndSettle();
+
+      expect(assignments.teacherCreatedCalls, 1);
+      expect(assignments.lastDisplayTitle, 'Shaker control — Group A');
+      expect(assignments.lastActivityAssessment?.recordingDurationSeconds, 60);
+      expect(
+        assignments.lastActivityAssessment?.readiness.hands,
+        ActivityHandRequirement.twoHands,
+      );
+    },
+  );
+
+  testWidgets('custom rubric requires exact points before publishing', (
+    tester,
+  ) async {
+    final activity = await createTeacherMovement();
+    await pumpComposer(
+      tester,
+      creationService: service(),
+      teacherCreatedMovement: activity,
+    );
+    await tester.pumpAndSettle();
+
+    final template = tester.widget<ComboBox<TeacherActivityRubricTemplate>>(
+      find.byKey(const Key('teacher_assignment_rubric_template')),
+    );
+    template.onChanged!(TeacherActivityRubricTemplate.custom);
+    await tester.pump();
+    expect(
+      find.byKey(const Key('teacher_assignment_custom_criterion_0')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ElixPrimaryButton>(
+            find.byKey(const Key('teacher_assignment_create')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    for (var index = 1; index <= 3; index++) {
+      await tester.enterText(
+        find.byKey(Key('teacher_assignment_criterion_${index}_description')),
+        'Teacher-visible criterion $index.',
+      );
+      await tester.enterText(
+        find.byKey(Key('teacher_assignment_criterion_${index}_points')),
+        index == 3 ? '10' : '20',
+      );
+    }
+    await tester.pump();
+    expect(
+      tester
+          .widget<ElixPrimaryButton>(
+            find.byKey(const Key('teacher_assignment_create')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets(
     'targeted audience selection is visible, counted, and forwarded',
     (tester) async {
       await pumpComposer(
@@ -576,7 +719,7 @@ void main() {
       find.byKey(Key('teacher_assignment_custom_${customMovement.id}')),
       findsOneWidget,
     );
-    expect(find.text('My Movements'), findsOneWidget);
+    expect(find.text('Teacher Activities'), findsOneWidget);
   });
 
   testWidgets('movement management stays out of Assignment Studio', (
@@ -599,7 +742,7 @@ void main() {
     expect(find.text('Edit'), findsNothing);
   });
 
-  testWidgets('My Movement can create and select a new movement', (
+  testWidgets('Teacher Activity can create and select a new activity', (
     tester,
   ) async {
     await pumpComposer(tester, creationService: service());
@@ -644,7 +787,7 @@ void main() {
     );
   });
 
-  testWidgets('empty My Movement state has no blank assignment controls', (
+  testWidgets('empty Teacher Activity state has no blank assignment controls', (
     tester,
   ) async {
     await pumpComposer(tester, creationService: service());
