@@ -809,14 +809,16 @@ class _ApprovedClassesGrid extends StatelessWidget {
                           controller.groupNamesById[membership.groupId]?.name ??
                           'Class',
                       teacherName: teacherName,
-                  sectionLabel:
-                      controller.groupNamesById[membership.groupId]?.isActive ==
-                          false
-                      ? 'Archived'
-                      : null,
-                  workItems: classCardWorkItemsFromAssignments(
-                    controller.assignmentsFor(membership.groupId),
-                  ),
+                      sectionLabel:
+                          controller
+                                  .groupNamesById[membership.groupId]
+                                  ?.isActive ==
+                              false
+                          ? 'Archived'
+                          : null,
+                      workItems: classCardWorkItemsFromAssignments(
+                        controller.assignmentsFor(membership.groupId),
+                      ),
                       ownerInitials: userInitials(teacherName),
                       ownerPhotoUrl: controller.teacherProfilePictureUrlFor(
                         membership.teacherId,
@@ -825,23 +827,23 @@ class _ApprovedClassesGrid extends StatelessWidget {
                       menuItems: openClass == null
                           ? null
                           : (_) => [
-                          MenuFlyoutItem(
-                            text: const Text('Open class'),
-                            onPressed: () => openClass(membership.groupId),
-                          ),
-                          MenuFlyoutItem(
-                            key: Key(
-                              'teacher_access_leave_group_${membership.id}',
-                            ),
-                            text: const Text('Leave class'),
-                            onPressed: controller.busy
-                                ? null
-                                : () => _confirmLeaveClass(
-                                    context,
-                                    controller,
-                                    membership,
-                                  ),
-                          ),
+                              MenuFlyoutItem(
+                                text: const Text('Open class'),
+                                onPressed: () => openClass(membership.groupId),
+                              ),
+                              MenuFlyoutItem(
+                                key: Key(
+                                  'teacher_access_leave_group_${membership.id}',
+                                ),
+                                text: const Text('Leave class'),
+                                onPressed: controller.busy
+                                    ? null
+                                    : () => _confirmLeaveClass(
+                                        context,
+                                        controller,
+                                        membership,
+                                      ),
+                              ),
                             ],
                     ),
                   );

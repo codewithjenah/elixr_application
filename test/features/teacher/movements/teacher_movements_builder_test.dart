@@ -458,15 +458,16 @@ void main() {
     expect(find.byType(ToggleButton), findsNWidgets(2));
   });
 
-  testWidgets('movement list clips cards below the persistent curriculum tabs', (
-    tester,
-  ) async {
-    await pumpScreen(tester);
+  testWidgets(
+    'movement list clips cards below the persistent curriculum tabs',
+    (tester) async {
+      await pumpScreen(tester);
 
-    final list = tester.widget<ListView>(find.byType(ListView).first);
+      final list = tester.widget<ListView>(find.byType(ListView).first);
 
-    expect(list.clipBehavior, Clip.hardEdge);
-  });
+      expect(list.clipBehavior, Clip.hardEdge);
+    },
+  );
 
   testWidgets(
     'Official movement Assign to class opens the shared studio and filters classes',
