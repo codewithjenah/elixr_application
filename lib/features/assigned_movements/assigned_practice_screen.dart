@@ -61,6 +61,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
   bool _loading = true;
   String? _error;
   Widget? _child;
+  GroupAssignment? _assignment;
 
   @override
   void initState() {
@@ -99,6 +100,7 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
         });
         return;
       }
+      _assignment = assignment;
       if (assignment.isRetiredTemplate) {
         setState(() {
           _loading = false;
@@ -300,9 +302,19 @@ class _AssignedPracticeScreenState extends State<AssignedPracticeScreen> {
                       ),
                       const SizedBox(height: AppSpacing.md),
                       Button(
-                        onPressed: () =>
-                            context.go(AppRoutePaths.assignedMovements),
-                        child: const Text('Back to Assigned Movements'),
+                        onPressed: () {
+                          final assignment = _assignment;
+                          context.go(
+                            assignment == null
+                                ? AppRoutePaths.teacherAccess
+                                : AppRoutePaths.assignmentDetail(assignment.id),
+                          );
+                        },
+                        child: Text(
+                          _assignment == null
+                              ? 'Back to Classroom'
+                              : 'Back to assignment',
+                        ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       Button(

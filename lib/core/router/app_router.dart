@@ -246,23 +246,20 @@ class AppRouter {
             ),
             GoRoute(
               path: AppRoutePaths.assignedMovements,
-              pageBuilder: (context, state) => fadeTransitionPage(
-                key: state.pageKey,
-                child: const AssignedMovementsScreen(),
-              ),
-              routes: [
-                GoRoute(
-                  path: ':assignmentId',
-                  pageBuilder: (context, state) {
-                    final assignmentId =
-                        state.pathParameters['assignmentId'] ?? '';
-                    return fadeTransitionPage(
-                      key: state.pageKey,
-                      child: AssignmentDetailScreen(assignmentId: assignmentId),
-                    );
-                  },
-                ),
-              ],
+              redirect: (context, state) => AppRoutePaths.teacherAccess,
+            ),
+            // Assignment details remain directly addressable, but are not
+            // nested under the retired all-classrooms assignment index. This
+            // keeps Back navigation anchored to the Classroom that opened it.
+            GoRoute(
+              path: '${AppRoutePaths.assignedMovements}/:assignmentId',
+              pageBuilder: (context, state) {
+                final assignmentId = state.pathParameters['assignmentId'] ?? '';
+                return fadeTransitionPage(
+                  key: state.pageKey,
+                  child: AssignmentDetailScreen(assignmentId: assignmentId),
+                );
+              },
             ),
             GoRoute(
               path: AppRoutePaths.learn,

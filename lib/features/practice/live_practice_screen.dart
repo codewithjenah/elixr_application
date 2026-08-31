@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -54,6 +53,8 @@ class LivePracticeScreen extends StatefulWidget {
   /// Test injection. Production constructs [WebSocketService] in [createState].
   @visibleForTesting
   final WebSocketService? websocketService;
+
+  static const cameraAspectRatio = 4 / 3;
 
   @override
   State<LivePracticeScreen> createState() => LivePracticeScreenState();
@@ -822,7 +823,16 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: camera),
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: AspectRatio(
+                                aspectRatio:
+                                    LivePracticeScreen.cameraAspectRatio,
+                                child: camera,
+                              ),
+                            ),
+                          ),
                           const SizedBox(width: AppSpacing.lg),
                           SizedBox(width: _panelWidth, child: panel),
                         ],
@@ -832,16 +842,15 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                 );
               }
 
-              final cameraHeight = math.max(
-                280.0,
-                constraints.maxHeight * 0.42,
-              );
               return SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     header,
-                    SizedBox(height: cameraHeight, child: camera),
+                    AspectRatio(
+                      aspectRatio: LivePracticeScreen.cameraAspectRatio,
+                      child: camera,
+                    ),
                     const SizedBox(height: AppSpacing.md),
                     SizedBox(height: 320, child: panel),
                   ],

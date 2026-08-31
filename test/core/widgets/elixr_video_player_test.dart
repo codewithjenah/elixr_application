@@ -112,6 +112,10 @@ void main() {
     expect(find.byKey(const Key('elixr_video_progress')), findsOneWidget);
     expect(find.byKey(const Key('elixr_video_play_pause')), findsOneWidget);
     expect(find.byKey(const Key('elixr_video_fullscreen')), findsOneWidget);
+    final inlineMirror = tester.widget<Transform>(
+      find.byKey(const Key('elixr_video_inline_mirror')),
+    );
+    expect(inlineMirror.transform.storage[0], -1);
 
     await tester.tap(find.byKey(const Key('elixr_video_play_pause')));
     await tester.pump();
@@ -132,6 +136,10 @@ void main() {
       find.byKey(const Key('elixr_video_close_fullscreen')),
       findsOneWidget,
     );
+    final fullscreenMirror = tester.widget<Transform>(
+      find.byKey(const Key('elixr_video_fullscreen_mirror')),
+    );
+    expect(fullscreenMirror.transform.storage[0], -1);
 
     await tester.tap(find.byKey(const Key('elixr_video_exit_fullscreen')));
     await tester.pumpAndSettle();

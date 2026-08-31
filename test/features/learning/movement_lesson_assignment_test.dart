@@ -44,7 +44,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Back to Assigned Movements'), findsOneWidget);
+    expect(find.text('Back to assignment'), findsOneWidget);
     expect(find.text('Back to tutorials'), findsNothing);
     expect(find.text('Start guided practice'), findsOneWidget);
   });

@@ -557,7 +557,7 @@ class _CameraFeedSurface extends StatelessWidget {
               flipX: mirrored,
               child: Image.memory(
                 bytes,
-                fit: BoxFit.fill,
+                fit: BoxFit.contain,
                 gaplessPlayback: true,
               ),
             );
@@ -602,7 +602,7 @@ class _MirroredCameraFeed extends StatelessWidget {
           flipX: mirrored,
           child: Image.memory(
             frameBytes,
-            fit: BoxFit.fill,
+            fit: BoxFit.contain,
             gaplessPlayback: true,
           ),
         ),

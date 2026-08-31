@@ -139,6 +139,12 @@ String? _redirectAuthenticatedTrainee({
 
   if (isAuthRoute) return AppRoutePaths.dashboard;
 
+  // Classroom is the single entry point for trainee assignments. Keep the
+  // legacy path only as a redirect for old links and navigation history.
+  if (location == AppRoutePaths.assignedMovements) {
+    return AppRoutePaths.teacherAccess;
+  }
+
   if (location == AppRoutePaths.practice && state.tutorialInitialized) {
     final movement = state.practiceMovement;
     if (!state.hasCompletedLesson(movement)) {

@@ -320,7 +320,7 @@ void main() {
       resolveAppRedirect(
         _state(user: _trainee(), location: AppRoutePaths.assignedMovements),
       ),
-      isNull,
+      AppRoutePaths.teacherAccess,
     );
   });
 

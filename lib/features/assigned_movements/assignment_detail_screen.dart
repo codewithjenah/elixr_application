@@ -72,7 +72,12 @@ class _AssignmentDetailScreenState extends State<AssignmentDetailScreen> {
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go(AppRoutePaths.assignedMovements);
+      final groupId = _controller?.assignment?.groupId.trim();
+      context.go(
+        groupId == null || groupId.isEmpty
+            ? AppRoutePaths.teacherAccess
+            : AppRoutePaths.teacherAccessClassWork(groupId),
+      );
     }
   }
 

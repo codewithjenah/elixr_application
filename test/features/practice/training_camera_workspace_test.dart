@@ -356,7 +356,7 @@ void main() {
       expect(imageBox.size.height, closeTo(workspaceBox.size.height, 1));
     });
 
-    testWidgets('live frame uses BoxFit.fill inside the workspace', (
+    testWidgets('live frame preserves its aspect ratio inside the workspace', (
       tester,
     ) async {
       await _pumpWorkspace(
@@ -368,7 +368,7 @@ void main() {
       );
 
       final image = tester.widget<Image>(find.byType(Image));
-      expect(image.fit, BoxFit.fill);
+      expect(image.fit, BoxFit.contain);
       expect(find.byKey(_frameTransformKey), findsOneWidget);
     });
   });

@@ -318,6 +318,10 @@ void main() {
     expect(find.text('Playground'), findsOneWidget);
     expect(find.text('Start Playground'), findsOneWidget);
     expect(find.text('Free Practice'), findsNothing);
+    final cameraBox = tester.renderObject<RenderBox>(
+      find.byKey(const ValueKey('practice-camera-workspace')),
+    );
+    expect(cameraBox.size.aspectRatio, closeTo(4 / 3, 0.01));
 
     screenKey.currentState!.debugStartSession();
     screenKey.currentState!.debugStartSession();

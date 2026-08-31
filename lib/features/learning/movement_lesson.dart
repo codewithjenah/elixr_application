@@ -409,7 +409,9 @@ class _Actions extends StatelessWidget {
         height: 52,
         child: Button(
           onPressed: () => context.go(
-            assigned ? AppRoutePaths.assignedMovements : AppRoutePaths.learn,
+            assigned
+                ? AppRoutePaths.assignmentDetail(assignmentId!.trim())
+                : AppRoutePaths.learn,
           ),
           child: FittedBox(
             fit: BoxFit.scaleDown,
@@ -418,9 +420,7 @@ class _Actions extends StatelessWidget {
               children: [
                 const Icon(FluentIcons.back, size: 16),
                 const SizedBox(width: AppSpacing.sm),
-                Text(
-                  assigned ? 'Back to Assigned Movements' : 'Back to tutorials',
-                ),
+                Text(assigned ? 'Back to assignment' : 'Back to tutorials'),
               ],
             ),
           ),

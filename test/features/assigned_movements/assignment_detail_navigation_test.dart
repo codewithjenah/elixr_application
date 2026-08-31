@@ -12,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 void main() {
-  testWidgets('assignment detail back uses the assigned-movements fallback', (
+  testWidgets('assignment detail back uses the classroom work fallback', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1100, 800);
@@ -52,17 +52,16 @@ void main() {
       initialLocation: AppRoutePaths.assignmentDetail('asg-a'),
       routes: [
         GoRoute(
-          path: AppRoutePaths.assignedMovements,
-          builder: (context, state) => const Text('assigned movements home'),
-          routes: [
-            GoRoute(
-              path: ':assignmentId',
-              builder: (context, state) => AssignmentDetailScreen(
-                assignmentId: state.pathParameters['assignmentId']!,
-                controller: controller,
-              ),
-            ),
-          ],
+          path: '${AppRoutePaths.assignedMovements}/:assignmentId',
+          builder: (context, state) => AssignmentDetailScreen(
+            assignmentId: state.pathParameters['assignmentId']!,
+            controller: controller,
+          ),
+        ),
+        GoRoute(
+          path: '${AppRoutePaths.teacherAccess}/:groupId/work',
+          builder: (context, state) =>
+              Text('classroom work:${state.pathParameters['groupId']}'),
         ),
       ],
     );
@@ -76,6 +75,6 @@ void main() {
     await tester.tap(find.byKey(const Key('assignment_detail_back')));
     await tester.pumpAndSettle();
 
-    expect(find.text('assigned movements home'), findsOneWidget);
+    expect(find.text('classroom work:group-1'), findsOneWidget);
   });
 }

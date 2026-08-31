@@ -34,11 +34,17 @@ class ElixrVideoPlayer extends StatefulWidget {
     super.key,
     required this.source,
     this.autoPlay = false,
+    this.mirrored = true,
     this.session,
   });
 
   final Uri source;
   final bool autoPlay;
+
+  /// Submission clips are captured from the raw camera frame, while the live
+  /// training feed is shown like a mirror. Keep review playback consistent
+  /// with the trainee's live view by default.
+  final bool mirrored;
   final ElixrPlaybackSession? session;
 
   @override
@@ -118,6 +124,7 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
         barrierColor: Colors.black,
         builder: (dialogContext) => _FullscreenElixrVideoPlayer(
           controller: controller,
+          mirrored: widget.mirrored,
           onClose: () => Navigator.of(dialogContext).pop(),
         ),
       ),
@@ -153,7 +160,13 @@ class _ElixrVideoPlayerState extends State<ElixrVideoPlayer> {
         Expanded(
           child: ColoredBox(
             color: const Color(0xFF000000),
-            child: Center(child: WinVideoPlayer(controller)),
+            child: Center(
+              child: Transform.flip(
+                key: const Key('elixr_video_inline_mirror'),
+                flipX: widget.mirrored,
+                child: WinVideoPlayer(controller),
+              ),
+            ),
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -315,10 +328,12 @@ class _ElixrVideoControlsState extends State<_ElixrVideoControls> {
 class _FullscreenElixrVideoPlayer extends StatelessWidget {
   const _FullscreenElixrVideoPlayer({
     required this.controller,
+    required this.mirrored,
     required this.onClose,
   });
 
   final WinVideoPlayerController controller;
+  final bool mirrored;
   final VoidCallback onClose;
 
   @override
@@ -330,7 +345,13 @@ class _FullscreenElixrVideoPlayer extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Center(child: WinVideoPlayer(controller)),
+              Center(
+                child: Transform.flip(
+                  key: const Key('elixr_video_fullscreen_mirror'),
+                  flipX: mirrored,
+                  child: WinVideoPlayer(controller),
+                ),
+              ),
               Positioned(
                 top: AppSpacing.sm,
                 right: AppSpacing.sm,
