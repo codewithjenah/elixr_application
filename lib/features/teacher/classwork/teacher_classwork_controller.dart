@@ -455,8 +455,8 @@ class TeacherClassworkController extends ChangeNotifier {
     required GroupAssignment assignment,
     required int gradeScore,
     String? feedback,
-  }) {
-    return _runWrite(() async {
+  }) async {
+    await _runWrite(() async {
       final updated = await assignmentRepository.saveTeacherReview(
         teacherId: teacherId,
         attempt: attempt,
@@ -467,6 +467,14 @@ class TeacherClassworkController extends ChangeNotifier {
       );
       _replaceAttempt(updated);
     });
+    final checked = latestVisibleAttemptFor(
+      assignmentId: assignment.id,
+      traineeId: attempt.traineeId,
+    );
+    if (checked?.isChecked == true &&
+        checked!.resultSentForCurrentRevision == false) {
+      await sendReviewResult(attempt: checked, assignment: assignment);
+    }
   }
 
   Future<void> reviewLegacy({
@@ -538,6 +546,7 @@ class TeacherClassworkController extends ChangeNotifier {
     GroupAssignment assignment, {
     required DateTime? dueAt,
     int? maxScore,
+    String? topic,
   }) {
     return _runWrite(
       () => assignmentRepository.updateAssignmentSettings(
@@ -545,6 +554,7 @@ class TeacherClassworkController extends ChangeNotifier {
         assignmentId: assignment.id,
         dueAt: dueAt,
         maxScore: maxScore,
+        topic: topic ?? assignment.topic,
       ),
     );
   }

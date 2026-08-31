@@ -2470,7 +2470,7 @@ service cloud.firestore {
     }
 
     function groupAllowedKeys() {
-      return groupKeys().concat(['invite_code']);
+      return groupKeys().concat(['invite_code', 'section', 'schedule']);
     }
 
     function isVerifiedTeacher() {
@@ -2487,7 +2487,11 @@ service cloud.firestore {
         && isParticipantId(data.teacher_id)
         && isDisplayName(data.name)
         && data.status == 'active'
-        && data.schema_version == 1
+        && data.schema_version == 2
+        && (!data.keys().hasAny(['section'])
+          || isBoundedText(data.section, 80))
+        && (!data.keys().hasAny(['schedule'])
+          || isBoundedText(data.schedule, 120))
         && data.created_at == request.time
         && data.updated_at == request.time;
     }
@@ -2500,7 +2504,13 @@ service cloud.firestore {
         && request.resource.data.name == resource.data.name
         && request.resource.data.teacher_id == resource.data.teacher_id
         && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.schema_version == resource.data.schema_version
+        && (
+          request.resource.data.schema_version == resource.data.schema_version
+          || (
+            resource.data.schema_version == 1
+            && request.resource.data.schema_version == 2
+          )
+        )
         && request.resource.data.updated_at == request.time
         && isNormalizedCoachCode(newCode)
         && inviteAfter != null
@@ -2519,25 +2529,45 @@ service cloud.firestore {
         && request.resource.data.keys().hasAll(groupKeys())
         && request.resource.data.teacher_id == resource.data.teacher_id
         && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.schema_version == resource.data.schema_version
+        && (
+          request.resource.data.schema_version == resource.data.schema_version
+          || (
+            resource.data.schema_version == 1
+            && request.resource.data.schema_version == 2
+          )
+        )
         && isGroupStatus(request.resource.data.status)
         && isDisplayName(request.resource.data.name)
+        && (!request.resource.data.keys().hasAny(['section'])
+          || isBoundedText(request.resource.data.section, 80))
+        && (!request.resource.data.keys().hasAny(['schedule'])
+          || isBoundedText(request.resource.data.schedule, 120))
         && request.resource.data.updated_at == request.time
         && (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'name', 'updated_at'
+            'name', 'section', 'schedule', 'schema_version', 'updated_at'
           ])
           || (
             resource.data.status == 'active'
             && request.resource.data.status == 'archived'
             && request.resource.data.name == resource.data.name
             && request.resource.data.invite_code == resource.data.get('invite_code', '')
+            && request.resource.data.get('section', '')
+              == resource.data.get('section', '')
+            && request.resource.data.get('schedule', '')
+              == resource.data.get('schedule', '')
+            && request.resource.data.schema_version == resource.data.schema_version
           )
           || (
             resource.data.status == 'archived'
             && request.resource.data.status == 'archived'
             && request.resource.data.name == resource.data.name
             && request.resource.data.invite_code == resource.data.get('invite_code', '')
+            && request.resource.data.get('section', '')
+              == resource.data.get('section', '')
+            && request.resource.data.get('schedule', '')
+              == resource.data.get('schedule', '')
+            && request.resource.data.schema_version == resource.data.schema_version
           )
           || validGroupInvitePointerUpdate(groupId)
         );
@@ -2789,7 +2819,6 @@ service cloud.firestore {
       let membershipRef = groupMembershipPath(groupId, request.auth.uid);
       return isSignedIn()
         && exists(groupPath(groupId))
-        && get(groupPath(groupId)).data.status == 'active'
         && exists(membershipRef)
         && get(membershipRef).data.group_id == groupId
         && get(membershipRef).data.trainee_id == request.auth.uid
@@ -3131,7 +3160,7 @@ service cloud.firestore {
       return groupAssignmentRequiredKeys().concat([
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
-        'grading_locked', 'grading_locked_at', 'audience_type',
+        'grading_locked', 'grading_locked_at', 'audience_type', 'topic',
       ]);
     }
     function isLegacyEntireClassAssignment(data) {
@@ -3295,6 +3324,7 @@ service cloud.firestore {
           !data.keys().hasAny(['due_at'])
           || data.due_at is timestamp
         )
+        && (!data.keys().hasAny(['topic']) || isBoundedText(data.topic, 80))
         && (
           validOfficialAssignmentCreate(data)
           || validTeacherCreatedAssignmentCreate(data)
@@ -3333,6 +3363,8 @@ service cloud.firestore {
           !request.resource.data.keys().hasAny(['due_at'])
           || request.resource.data.due_at is timestamp
         )
+        && (!request.resource.data.keys().hasAny(['topic'])
+          || isBoundedText(request.resource.data.topic, 80))
         && (
           resource.data.origin != 'official_elixr'
           || (
@@ -3366,7 +3398,7 @@ service cloud.firestore {
         )
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
-            'grading_locked', 'grading_locked_at']);
+            'grading_locked', 'grading_locked_at', 'topic']);
     }
 
     match /group_assignments/{assignmentId} {
@@ -3459,11 +3491,32 @@ service cloud.firestore {
     function teacherReviewSubmissionAnchorKeys() {
       return assignmentAttemptIdentityKeys().concat(['deletion_failed']);
     }
+    // A successful unsubmit returns the canonical attempt to this anchor with
+    // `deletion_failed: false`. Treat it as empty work so the trainee can
+    // attach a new private recording, then remove the recovery marker.
+    function isCanonicalTeacherReviewSubmissionEmptyAnchor(data) {
+      return data.keys().hasOnly(assignmentAttemptIdentityKeys())
+        || (
+          data.keys().hasOnly(teacherReviewSubmissionAnchorKeys())
+          && data.deletion_failed == false
+        );
+    }
     function teacherReviewSubmissionSubmittedKeys() {
       return assignmentAttemptIdentityKeys().concat([
         'video_storage_path', 'video_content_type', 'video_size_bytes',
         'video_duration_ms', 'submitted_at', 'video_expires_at',
         'supersedes_attempt_id'
+      ]);
+    }
+    function teacherReviewSubmissionAttachedDraftKeys() {
+      return assignmentAttemptIdentityKeys().concat([
+        'video_storage_path', 'video_content_type', 'video_size_bytes',
+        'video_duration_ms', 'draft_saved_at'
+      ]);
+    }
+    function teacherReviewSubmissionDraftRemovalKeys() {
+      return teacherReviewSubmissionAttachedDraftKeys().concat([
+        'draft_cleanup_started_at'
       ]);
     }
     function teacherReviewSubmissionReviewedKeys() {
@@ -3671,6 +3724,16 @@ service cloud.firestore {
         && request.resource.data.get('submitted_at', '__elixr_absent__')
           == resource.data.get('submitted_at', '__elixr_absent__');
     }
+    function assignmentAttemptClipMetadataUnchanged() {
+      return request.resource.data.get('video_storage_path', '__elixr_absent__')
+          == resource.data.get('video_storage_path', '__elixr_absent__')
+        && request.resource.data.get('video_content_type', '__elixr_absent__')
+          == resource.data.get('video_content_type', '__elixr_absent__')
+        && request.resource.data.get('video_size_bytes', '__elixr_absent__')
+          == resource.data.get('video_size_bytes', '__elixr_absent__')
+        && request.resource.data.get('video_duration_ms', '__elixr_absent__')
+          == resource.data.get('video_duration_ms', '__elixr_absent__');
+    }
     function assignmentAttemptReviewUnchanged() {
       return request.resource.data.status == resource.data.status
         && request.resource.data.get('review_verdict', '__elixr_absent__')
@@ -3707,10 +3770,52 @@ service cloud.firestore {
         && after.keys().hasAll(assignmentAttemptIdentityKeys())
         && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys())
         && validSubmittedVideoMetadata(after, attemptId)
+        && (!resource.data.keys().hasAny(['draft_saved_at'])
+          || assignmentAttemptClipMetadataUnchanged())
         && after.submitted_at == request.time
         && isUnreviewedVideoExpiry(after.video_expires_at)
         && !after.keys().hasAny(['review_verdict', 'review_feedback',
           'reviewed_at']);
+    }
+    function validCanonicalTeacherReviewSubmissionAttachDraft(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'in_progress'
+        && isCanonicalTeacherReviewSubmissionEmptyAnchor(resource.data)
+        && assignmentSubmissionIsOpen(resource.data)
+        && assignmentAttemptIdentityUnchanged()
+        && after.status == 'in_progress'
+        && after.keys().hasOnly(teacherReviewSubmissionAttachedDraftKeys())
+        && validSubmittedVideoMetadata(after, attemptId)
+        && after.draft_saved_at == request.time;
+    }
+    function validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'in_progress'
+        && resource.data.keys().hasOnly(teacherReviewSubmissionAttachedDraftKeys())
+        && assignmentAttemptIdentityUnchanged()
+        && after.status == 'in_progress'
+        && after.keys().hasOnly(teacherReviewSubmissionDraftRemovalKeys())
+        && after.draft_cleanup_started_at == request.time;
+    }
+    function validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId) {
+      let after = request.resource.data;
+      return resource.data.trainee_id == request.auth.uid
+        && resource.data.attempt_kind == 'teacher_review_submission'
+        && attemptId == 'review_sub_' + resource.data.assignment_id + '_'
+          + resource.data.trainee_id
+        && resource.data.status == 'in_progress'
+        && resource.data.keys().hasOnly(teacherReviewSubmissionDraftRemovalKeys())
+        && assignmentAttemptIdentityUnchanged()
+        && after.status == 'in_progress'
+        && after.keys().hasOnly(assignmentAttemptIdentityKeys());
     }
     function validCanonicalTeacherReviewSubmissionPromote(attemptId) {
       let after = request.resource.data;
@@ -3726,7 +3831,8 @@ service cloud.firestore {
         && !after.keys().hasAny([
           'source_session_id', 'submitted_at', 'video_expires_at',
           'video_storage_path', 'video_content_type', 'video_size_bytes',
-          'video_duration_ms', 'review_verdict', 'review_feedback',
+          'video_duration_ms', 'draft_saved_at', 'draft_cleanup_started_at',
+          'review_verdict', 'review_feedback',
           'reviewed_at', 'grade_score', 'grade_max_score', 'checked_at',
           'review_updated_at', 'review_revision', 'result_sent_revision',
           'result_sent_at', 'result_message_id', 'deletion_failed',
@@ -4048,6 +4154,9 @@ service cloud.firestore {
         && (
           validTeacherDraftAttemptUpdate()
           || validTeacherReviewSubmissionTraineeSubmit(attemptId)
+          || validCanonicalTeacherReviewSubmissionAttachDraft(attemptId)
+          || validCanonicalTeacherReviewSubmissionBeginDraftRemoval(attemptId)
+          || validCanonicalTeacherReviewSubmissionCompleteDraftRemoval(attemptId)
           || validCanonicalTeacherReviewSubmissionPromote(attemptId)
           || validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId)
           || validCanonicalTeacherReviewSubmissionCompleteUnsubmit(attemptId)

@@ -68,6 +68,26 @@ class InMemoryClassroomAssignmentRepository
     DateTime? dueAt,
     String? displayInstructions,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
+  }) => createOfficialAssignmentWithTopic(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    group: group,
+    officialMovementName: officialMovementName,
+    dueAt: dueAt,
+    displayInstructions: displayInstructions,
+    audience: audience,
+  );
+
+  @override
+  Future<GroupAssignment> createOfficialAssignmentWithTopic({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required String officialMovementName,
+    DateTime? dueAt,
+    String? displayInstructions,
+    String? topic,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
     if (!audience.isEntireClass) {
@@ -86,6 +106,7 @@ class InMemoryClassroomAssignmentRepository
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
+      topic: topic,
       audience: audience,
       createdAt: created,
       updatedAt: created,
@@ -115,6 +136,28 @@ class InMemoryClassroomAssignmentRepository
     int maxScore = 100,
     DateTime? dueAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
+  }) => createTeacherCreatedAssignmentWithTopic(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    group: group,
+    movement: movement,
+    revision: revision,
+    maxScore: maxScore,
+    dueAt: dueAt,
+    audience: audience,
+  );
+
+  @override
+  Future<GroupAssignment> createTeacherCreatedAssignmentWithTopic({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required TeacherMovement movement,
+    required TeacherMovementRevision revision,
+    int maxScore = 100,
+    DateTime? dueAt,
+    String? topic,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
     if (!audience.isEntireClass) {
@@ -134,6 +177,7 @@ class InMemoryClassroomAssignmentRepository
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      topic: topic,
       audience: audience,
       createdAt: created,
       updatedAt: created,
@@ -180,6 +224,7 @@ class InMemoryClassroomAssignmentRepository
       displayTitle: existing.displayTitle,
       teacherDisplayName: existing.teacherDisplayName,
       groupName: existing.groupName,
+      topic: existing.topic,
       officialMovementName: existing.officialMovementName,
       displayInstructions: existing.displayInstructions,
       displaySafetyGuidance: existing.displaySafetyGuidance,
@@ -202,6 +247,7 @@ class InMemoryClassroomAssignmentRepository
     required String assignmentId,
     DateTime? dueAt,
     int? maxScore,
+    String? topic,
   }) async {
     if (maxScore != null) ensureTeacherAssignmentMaxScore(maxScore);
     final existing = assignments[assignmentId];
@@ -228,6 +274,8 @@ class InMemoryClassroomAssignmentRepository
       dueAt: dueAt,
       clearDueAt: dueAt == null,
       maxScore: maxScore,
+      topic: topic,
+      clearTopic: topic == null || topic.trim().isEmpty,
       gradingLocked: maxScore == null ? null : false,
       clearGradingLockedAt: maxScore != null,
     );
@@ -603,6 +651,117 @@ class InMemoryClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> saveTeacherReviewDraftClip({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required String videoStoragePath,
+    required String videoContentType,
+    required int videoSizeBytes,
+    required int videoDurationMs,
+    required DateTime savedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null ||
+        existing.traineeId != traineeId ||
+        !existing.isCanonicalTeacherReviewSubmission ||
+        existing.status != AssignmentAttemptStatus.inProgress ||
+        existing.hasAttachedDraftClip) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    ensureLocalTeacherReviewDraftVideo(
+      attempt: existing,
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+    );
+    final saved = existing.copyWith(
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+      draftSavedAt: savedAt,
+    );
+    attempts[existing.id] = saved;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return saved;
+  }
+
+  @override
+  Future<AssignmentAttempt> turnInTeacherReviewSubmission({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required DateTime submittedAt,
+    required DateTime videoExpiresAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    final assignment = existing == null
+        ? null
+        : assignments[existing.assignmentId];
+    if (existing == null ||
+        existing.traineeId != traineeId ||
+        !existing.hasAttachedDraftClip) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment, now: now)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    final submitted = existing.copyWith(
+      status: AssignmentAttemptStatus.submitted,
+      submittedAt: submittedAt,
+      videoExpiresAt: videoExpiresAt,
+      clearDraftSavedAt: true,
+    );
+    attempts[existing.id] = submitted;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return submitted;
+  }
+
+  @override
+  Future<AssignmentAttempt> beginTeacherReviewDraftClipRemoval({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? startedAt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null ||
+        existing.traineeId != traineeId ||
+        !existing.hasAttachedDraftClip) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final pending = existing.copyWith(draftCleanupStartedAt: startedAt ?? now);
+    attempts[existing.id] = pending;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return pending;
+  }
+
+  @override
+  Future<AssignmentAttempt> completeTeacherReviewDraftClipRemoval({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    final existing = attempts[attempt.id];
+    if (existing == null ||
+        existing.traineeId != traineeId ||
+        !existing.isDraftClipRemovalPending) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final cleared = existing.copyWith(clearVideoMetadata: true);
+    attempts[existing.id] = cleared;
+    _emitAssignmentAttempts(existing.teacherId, existing.assignmentId);
+    _emitTraineeAttempts(existing.traineeId);
+    _emitTeacherAttempts(existing.teacherId);
+    return cleared;
+  }
+
+  @override
   Future<AssignmentAttempt> beginTeacherReviewUnsubmit({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -762,6 +921,7 @@ class InMemoryClassroomAssignmentRepository
       assignmentId: assignmentId,
       dueAt: existing.dueAt,
       maxScore: maxScore,
+      topic: existing.topic,
     );
   }
 

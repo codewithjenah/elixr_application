@@ -164,7 +164,9 @@ class _SubmissionDetailBodyState extends State<SubmissionDetailBody> {
 
   bool _shouldOfferPlaybackFor(AssignmentAttempt candidate) {
     if (!_isTeacherReviewedAttemptFor(candidate)) return false;
-    if (candidate.isUnsubmitting) return false;
+    if (candidate.isUnsubmitting || candidate.isDraftClipRemovalPending) {
+      return false;
+    }
     if (!candidate.hasPlayableVideo) return false;
     if (candidate.videoExpired) return false;
     return true;
@@ -560,7 +562,7 @@ class _TeacherReviewedSection extends StatelessWidget {
           ),
         if (attempt.videoDurationMs != null)
           Text(
-            'Clip ${formatSubmissionDurationMs(attempt.videoDurationMs!)}',
+            'Recording duration ${formatSubmissionDurationMs(attempt.videoDurationMs!)}',
             style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
           ),
         if (reviewed) ...[

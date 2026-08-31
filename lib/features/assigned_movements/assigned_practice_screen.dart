@@ -430,7 +430,9 @@ class _OfficialAssignedPracticeState extends State<_OfficialAssignedPractice> {
               supportedProps: widget.supportedProps,
               onPropChanged: (value) => setState(() => _prop = value),
               onStart: () => setState(() => _started = true),
-              onBack: () => context.go(AppRoutePaths.assignedMovements),
+              onBack: () => context.go(
+                AppRoutePaths.assignmentDetail(widget.assignment.id),
+              ),
             ),
           ),
         ),

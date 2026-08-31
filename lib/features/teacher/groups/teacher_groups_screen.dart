@@ -31,6 +31,7 @@ class TeacherGroupsScreen extends StatefulWidget {
 class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
   TeacherGroupsController? _owned;
   late final bool _ownsController;
+  bool _showArchived = false;
 
   TeacherGroupsController? get _controller => widget.controller ?? _owned;
 
@@ -103,7 +104,13 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
           ),
           content: controller.loading
               ? const Center(child: ProgressRing())
-              : _GroupsGrid(controller: controller),
+              : _GroupsGrid(
+                  controller: controller,
+                  showArchived: _showArchived,
+                  onArchivedChanged: (value) {
+                    setState(() => _showArchived = value);
+                  },
+                ),
         );
       },
     );
@@ -111,12 +118,22 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
 }
 
 class _GroupsGrid extends StatelessWidget {
-  const _GroupsGrid({required this.controller});
+  const _GroupsGrid({
+    required this.controller,
+    required this.showArchived,
+    required this.onArchivedChanged,
+  });
 
   final TeacherGroupsController controller;
+  final bool showArchived;
+  final ValueChanged<bool> onArchivedChanged;
 
   @override
   Widget build(BuildContext context) {
+    final visibleGroups = [
+      for (final group in controller.groups)
+        if (group.isActive != showArchived) group,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -142,16 +159,32 @@ class _GroupsGrid extends StatelessWidget {
         else ...[
           Row(
             children: [
-              Text(
-                'Your classrooms',
-                style: AppTheme.headingMedium.copyWith(
-                  fontSize: 16,
-                  color: context.elixTextPrimary,
+              Expanded(
+                child: Text(
+                  showArchived ? 'Archived classrooms' : 'Your classrooms',
+                  style: AppTheme.headingMedium.copyWith(
+                    fontSize: 16,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 180,
+                child: ComboBox<bool>(
+                  key: const Key('teacher_groups_status_filter'),
+                  value: showArchived,
+                  items: const [
+                    ComboBoxItem(value: false, child: Text('Active')),
+                    ComboBoxItem(value: true, child: Text('Archived')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) onArchivedChanged(value);
+                  },
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Text(
-                '${controller.groups.length}',
+                '${visibleGroups.length}',
                 style: AppTheme.caption.copyWith(
                   fontWeight: FontWeight.w600,
                   color: context.elixTextSecondary,
@@ -160,73 +193,91 @@ class _GroupsGrid extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final columns = width >= _groupsWideBreakpoint
-                  ? 3
-                  : width >= _groupsCompactBreakpoint
-                  ? 2
-                  : 1;
-              final gap = AppSpacing.md;
-              final cardWidth = columns == 1
-                  ? width
-                  : (width - gap * (columns - 1)) / columns;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (final group in controller.groups)
-                    SizedBox(
-                      width: cardWidth,
-                      child: TraineeClassCard(
-                        groupId: group.id,
-                        className: group.name,
-                        teacherName: controller.teacherDisplayName,
-                        sectionLabel: group.isActive ? 'Active' : 'Archived',
-                        workItems: classCardWorkItemsFromAssignments(
-                          controller.assignmentsFor(group.id),
-                        ),
-                        ownerInitials: userInitials(
-                          controller.teacherDisplayName,
-                        ),
-                        ownerPhotoUrl: context
-                            .read<AuthService>()
-                            .currentUser
-                            ?.profilePictureUrl,
-                        cardKey: Key('teacher_group_card_${group.id}'),
-                        onOpen: () {
-                          context.go(AppRoutePaths.teacherGroup(group.id));
-                        },
-                        menuItems: (_) => [
-                          MenuFlyoutItem(
-                            text: const Text('Rename'),
-                            onPressed: controller.busy
-                                ? null
-                                : () => _showRenameGroupDialog(
-                                    context,
-                                    controller,
-                                    group,
-                                  ),
+          if (visibleGroups.isEmpty)
+            ElixStatusPanel(
+              key: const Key('teacher_groups_status_empty'),
+              message: showArchived
+                  ? 'No archived classrooms.'
+                  : 'No active classrooms. Create a classroom to get started.',
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final columns = width >= _groupsWideBreakpoint
+                    ? 3
+                    : width >= _groupsCompactBreakpoint
+                    ? 2
+                    : 1;
+                final gap = AppSpacing.md;
+                final cardWidth = columns == 1
+                    ? width
+                    : (width - gap * (columns - 1)) / columns;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (final group in visibleGroups)
+                      SizedBox(
+                        width: cardWidth,
+                        child: TraineeClassCard(
+                          groupId: group.id,
+                          className: group.name,
+                          teacherName: controller.teacherDisplayName,
+                          sectionLabel: () {
+                            final classMetadata =
+                                [group.section, group.schedule]
+                                    .whereType<String>()
+                                    .where((value) => value.isNotEmpty)
+                                    .join(' · ');
+                            if (!group.isActive) return 'Archived';
+                            return classMetadata.isEmpty
+                                ? 'Active'
+                                : classMetadata;
+                          }(),
+                          workItems: classCardWorkItemsFromAssignments(
+                            controller.assignmentsFor(group.id),
                           ),
-                          if (group.isActive)
+                          ownerInitials: userInitials(
+                            controller.teacherDisplayName,
+                          ),
+                          ownerPhotoUrl: context
+                              .read<AuthService>()
+                              .currentUser
+                              ?.profilePictureUrl,
+                          cardKey: Key('teacher_group_card_${group.id}'),
+                          onOpen: () {
+                            context.go(AppRoutePaths.teacherGroup(group.id));
+                          },
+                          menuItems: (_) => [
                             MenuFlyoutItem(
-                              text: const Text('Archive'),
+                              text: const Text('Rename'),
                               onPressed: controller.busy
                                   ? null
-                                  : () => _confirmArchiveGroup(
+                                  : () => _showRenameGroupDialog(
                                       context,
                                       controller,
                                       group,
                                     ),
                             ),
-                        ],
+                            if (group.isActive)
+                              MenuFlyoutItem(
+                                text: const Text('Archive'),
+                                onPressed: controller.busy
+                                    ? null
+                                    : () => _confirmArchiveGroup(
+                                        context,
+                                        controller,
+                                        group,
+                                      ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
+                  ],
+                );
+              },
+            ),
         ],
       ],
     );
@@ -238,6 +289,8 @@ Future<void> _showCreateGroupDialog(
   TeacherGroupsController controller,
 ) async {
   final nameController = TextEditingController();
+  final sectionController = TextEditingController();
+  final scheduleController = TextEditingController();
   final accepted = await showDialog<bool>(
     context: context,
     builder: (context) => ContentDialog(
@@ -249,9 +302,20 @@ Future<void> _showCreateGroupDialog(
           const Text('Enter a class name, such as BSHM 4A.'),
           const SizedBox(height: AppSpacing.sm),
           TextBox(
+            key: const Key('teacher_groups_create_name'),
             controller: nameController,
             placeholder: 'BSHM 4A',
             autofocus: true,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextBox(
+            controller: sectionController,
+            placeholder: 'Section (optional)',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextBox(
+            controller: scheduleController,
+            placeholder: 'Schedule (optional, e.g. MWF 2:30–4:00 PM)',
           ),
         ],
       ),
@@ -268,12 +332,18 @@ Future<void> _showCreateGroupDialog(
     ),
   );
   if (accepted == true) {
-    final group = await controller.createGroup(nameController.text);
+    final group = await controller.createGroup(
+      nameController.text,
+      section: sectionController.text,
+      schedule: scheduleController.text,
+    );
     if (group != null && context.mounted) {
       context.go(AppRoutePaths.teacherGroup(group.id));
     }
   }
   nameController.dispose();
+  sectionController.dispose();
+  scheduleController.dispose();
 }
 
 Future<void> _showRenameGroupDialog(

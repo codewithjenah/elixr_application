@@ -400,6 +400,21 @@ class _ControllableGroupRepository implements GroupRepository {
   );
 
   @override
+  Future<ElixrGroup> createGroupWithDetails({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => inner.createGroupWithDetails(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    name: name,
+    section: section,
+    schedule: schedule,
+  );
+
+  @override
   Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId}) {
     if (_failGroupsOnListen) {
       return Stream<List<ElixrGroup>>.error(Exception('groups-boom'));
@@ -422,6 +437,21 @@ class _ControllableGroupRepository implements GroupRepository {
     required String teacherId,
     required String name,
   }) => inner.renameGroup(groupId: groupId, teacherId: teacherId, name: name);
+
+  @override
+  Future<void> updateGroupDetails({
+    required String groupId,
+    required String teacherId,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => inner.updateGroupDetails(
+    groupId: groupId,
+    teacherId: teacherId,
+    name: name,
+    section: section,
+    schedule: schedule,
+  );
 
   @override
   Future<void> archiveGroup({

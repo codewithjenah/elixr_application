@@ -98,6 +98,8 @@ class AssignmentAttempt {
     this.videoContentType,
     this.videoSizeBytes,
     this.videoDurationMs,
+    this.draftSavedAt,
+    this.draftCleanupStartedAt,
     this.submittedAt,
     this.videoExpiresAt,
     this.videoDeletedAt,
@@ -140,6 +142,11 @@ class AssignmentAttempt {
   final String? videoContentType;
   final int? videoSizeBytes;
   final int? videoDurationMs;
+
+  /// Present only while a canonical in-progress submission has a private,
+  /// uploaded recording waiting for the trainee to turn it in.
+  final DateTime? draftSavedAt;
+  final DateTime? draftCleanupStartedAt;
   final DateTime? submittedAt;
   final DateTime? videoExpiresAt;
   final DateTime? videoDeletedAt;
@@ -219,6 +226,18 @@ class AssignmentAttempt {
       videoStoragePath!.isNotEmpty &&
       videoDeletedAt == null;
 
+  bool get hasAttachedDraftClip =>
+      isCanonicalTeacherReviewSubmission &&
+      status == AssignmentAttemptStatus.inProgress &&
+      draftSavedAt != null &&
+      draftCleanupStartedAt == null &&
+      hasPlayableVideo;
+
+  bool get isDraftClipRemovalPending =>
+      isCanonicalTeacherReviewSubmission &&
+      status == AssignmentAttemptStatus.inProgress &&
+      draftCleanupStartedAt != null;
+
   bool get videoExpired {
     final expires = videoExpiresAt;
     if (expires == null || !hasPlayableVideo) return videoDeletedAt != null;
@@ -272,6 +291,8 @@ class AssignmentAttempt {
     String? videoContentType,
     int? videoSizeBytes,
     int? videoDurationMs,
+    DateTime? draftSavedAt,
+    DateTime? draftCleanupStartedAt,
     DateTime? submittedAt,
     DateTime? videoExpiresAt,
     DateTime? videoDeletedAt,
@@ -292,6 +313,8 @@ class AssignmentAttempt {
     DateTime? abandonedAt,
     bool clearVideoStoragePath = false,
     bool clearVideoMetadata = false,
+    bool clearDraftSavedAt = false,
+    bool clearDraftCleanupStartedAt = false,
     bool clearVideoDeletedAt = false,
     bool clearReviewFeedback = false,
     bool clearReview = false,
@@ -331,6 +354,12 @@ class AssignmentAttempt {
       videoDurationMs: clearVideoMetadata
           ? null
           : (videoDurationMs ?? this.videoDurationMs),
+      draftSavedAt: clearVideoMetadata || clearDraftSavedAt
+          ? null
+          : (draftSavedAt ?? this.draftSavedAt),
+      draftCleanupStartedAt: clearVideoMetadata || clearDraftCleanupStartedAt
+          ? null
+          : (draftCleanupStartedAt ?? this.draftCleanupStartedAt),
       submittedAt: clearVideoMetadata
           ? null
           : (submittedAt ?? this.submittedAt),
@@ -437,6 +466,12 @@ class AssignmentAttempt {
     );
     final supersedesAttemptId = _readId(map['supersedes_attempt_id']);
     final submittedAt = TeacherRosterInvite.readDateTime(map['submitted_at']);
+    final draftSavedAt = TeacherRosterInvite.readDateTime(
+      map['draft_saved_at'],
+    );
+    final draftCleanupStartedAt = TeacherRosterInvite.readDateTime(
+      map['draft_cleanup_started_at'],
+    );
     final videoExpiresAt = TeacherRosterInvite.readDateTime(
       map['video_expires_at'],
     );
@@ -502,6 +537,8 @@ class AssignmentAttempt {
     }
     for (final entry in <String, DateTime?>{
       'submitted_at': submittedAt,
+      'draft_saved_at': draftSavedAt,
+      'draft_cleanup_started_at': draftCleanupStartedAt,
       'video_expires_at': videoExpiresAt,
       'video_deleted_at': videoDeletedAt,
       'reviewed_at': reviewedAt,
@@ -578,6 +615,8 @@ class AssignmentAttempt {
         videoContentType: videoContentType,
         videoSizeBytes: videoSizeBytes,
         videoDurationMs: videoDurationMs,
+        draftSavedAt: draftSavedAt,
+        draftCleanupStartedAt: draftCleanupStartedAt,
         submittedAt: submittedAt,
         videoExpiresAt: videoExpiresAt,
         videoDeletedAt: videoDeletedAt,
@@ -660,6 +699,8 @@ class AssignmentAttempt {
       videoContentType: videoContentType,
       videoSizeBytes: videoSizeBytes,
       videoDurationMs: videoDurationMs,
+      draftSavedAt: draftSavedAt,
+      draftCleanupStartedAt: draftCleanupStartedAt,
       submittedAt: submittedAt,
       videoExpiresAt: videoExpiresAt,
       videoDeletedAt: videoDeletedAt,
@@ -690,6 +731,8 @@ class AssignmentAttempt {
     required String? videoContentType,
     required int? videoSizeBytes,
     required int? videoDurationMs,
+    required DateTime? draftSavedAt,
+    required DateTime? draftCleanupStartedAt,
     required DateTime? submittedAt,
     required DateTime? videoExpiresAt,
     required DateTime? videoDeletedAt,
@@ -733,6 +776,30 @@ class AssignmentAttempt {
               !deletionFailed &&
               deletionFailedAt == null;
         }
+        final hasDraftClip =
+            videoStoragePath != null ||
+            videoContentType != null ||
+            videoSizeBytes != null ||
+            videoDurationMs != null ||
+            draftSavedAt != null;
+        if (hasDraftClip) {
+          return status == AssignmentAttemptStatus.inProgress &&
+              draftSavedAt != null &&
+              submittedAt == null &&
+              videoExpiresAt == null &&
+              videoDeletedAt == null &&
+              !deletionFailed &&
+              deletionFailedAt == null &&
+              reviewVerdict == null &&
+              reviewFeedback == null &&
+              reviewedAt == null &&
+              _validDraftVideoMetadata(
+                videoStoragePath: videoStoragePath,
+                videoContentType: videoContentType,
+                videoSizeBytes: videoSizeBytes,
+                videoDurationMs: videoDurationMs,
+              );
+        }
         return reviewVerdict == null &&
             reviewFeedback == null &&
             reviewedAt == null &&
@@ -740,6 +807,8 @@ class AssignmentAttempt {
             videoContentType == null &&
             videoSizeBytes == null &&
             videoDurationMs == null &&
+            draftSavedAt == null &&
+            draftCleanupStartedAt == null &&
             submittedAt == null &&
             videoExpiresAt == null &&
             videoDeletedAt == null &&
@@ -952,6 +1021,23 @@ class AssignmentAttempt {
       return !hasPath;
     }
     return hasPath;
+  }
+
+  static bool _validDraftVideoMetadata({
+    required String? videoStoragePath,
+    required String? videoContentType,
+    required int? videoSizeBytes,
+    required int? videoDurationMs,
+  }) {
+    return videoStoragePath != null &&
+        videoStoragePath.isNotEmpty &&
+        videoContentType == AssignmentSubmissionLimits.contentType &&
+        videoSizeBytes != null &&
+        videoSizeBytes > 0 &&
+        videoSizeBytes <= AssignmentSubmissionLimits.maxSizeBytes &&
+        videoDurationMs != null &&
+        videoDurationMs > 0 &&
+        videoDurationMs <= AssignmentSubmissionLimits.maxDurationMs;
   }
 
   static String? _readId(Object? value) {

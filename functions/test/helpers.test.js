@@ -274,6 +274,7 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
         recipient_ids: recipientIds,
         origin: 'official_elixr',
         official_movement_name: 'Hand Stall',
+        topic: '  Bottle control  ',
       },
       get: () => '',
     },
@@ -292,6 +293,7 @@ test('assignment creation accepts an uncapped targeted subset atomically', async
   assert.ok(assignmentWrite);
   assert.equal('target_trainee_ids' in assignmentWrite.data, false);
   assert.equal(assignmentWrite.data.audience_type, 'selected_students');
+  assert.equal(assignmentWrite.data.topic, 'Bottle control');
   assert.equal(
     database.writes.filter((write) =>
       write.path.includes('/assignment_recipients/')).length,

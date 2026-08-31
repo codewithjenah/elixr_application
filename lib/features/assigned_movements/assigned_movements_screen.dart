@@ -13,9 +13,10 @@ import 'assigned_movement_list.dart';
 import 'assigned_movements_controller.dart';
 
 class AssignedMovementsScreen extends StatefulWidget {
-  const AssignedMovementsScreen({super.key, this.controller});
+  const AssignedMovementsScreen({super.key, this.controller, this.groupId});
 
   final AssignedMovementsController? controller;
+  final String? groupId;
 
   @override
   State<AssignedMovementsScreen> createState() =>
@@ -44,6 +45,7 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
       groupRepository: context.read<GroupRepository>(),
       assignmentRepository: context.read<ClassroomAssignmentRepository>(),
       submissionRepository: context.read<AssignmentSubmissionRepository>(),
+      filterGroupId: widget.groupId,
     )..start();
   }
 
@@ -67,7 +69,7 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
           content: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(
                   AppSpacing.lg,
                   AppSpacing.pageTopInset,
@@ -75,9 +77,12 @@ class _AssignedMovementsScreenState extends State<AssignedMovementsScreen> {
                   0,
                 ),
                 child: ElixEditorialHeader(
-                  heading: 'Assigned Movements',
-                  subtitle:
-                      'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.',
+                  heading: widget.groupId == null
+                      ? 'Assigned Movements'
+                      : 'Your work',
+                  subtitle: widget.groupId == null
+                      ? 'Classroom work from your approved groups, split into Official ELIXR and Teacher-created. Public profile privacy does not hide these assignments.'
+                      : 'Assignments for this classroom. Select an item to continue or review your work.',
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),

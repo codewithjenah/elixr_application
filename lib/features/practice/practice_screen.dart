@@ -954,10 +954,11 @@ class _PracticeScreenState extends State<PracticeScreen>
     return 'Follow the on-screen guidance for this movement.';
   }
 
-  bool get _isAssignedPractice => widget.assignmentContext != null;
-
   String _practiceExitLocation({required bool catalog}) {
-    if (_isAssignedPractice) return AppRoutePaths.assignedMovements;
+    final assignment = widget.assignmentContext;
+    if (assignment != null) {
+      return AppRoutePaths.assignmentDetail(assignment.assignmentId);
+    }
     return catalog ? AppRoutePaths.movements : AppRoutePaths.dashboard;
   }
 

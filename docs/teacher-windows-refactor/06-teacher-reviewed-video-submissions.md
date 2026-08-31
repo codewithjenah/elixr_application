@@ -4,7 +4,7 @@
 
 New Teacher-created assignments have exactly one reusable
 `teacher_review_submission` per trainee: `review_sub_{assignmentId}_{traineeId}`.
-Its lifecycle is `in_progress → submitted → checked`; `unsubmitting` is a
+Its lifecycle is `in_progress` (empty or private attached recording) `→ submitted → checked`; `unsubmitting` is a
 temporary cleanup state. Unsubmit is trainee-confirmed, claimed in Firestore
 before Storage deletion, and reusable after successful deletion. A failed
 delete leaves `unsubmitting` plus retry metadata so the clip is never silently
@@ -22,6 +22,16 @@ and increments the revision.
 earned/max`, and an optional `Feedback:` line. The attempt stores the sent
 revision, timestamp, and message ID. A retry therefore returns the same result
 message instead of creating a duplicate.
+
+## Turn in workflow
+
+After a Trainee chooses **Use this recording**, the MP4 is private attached
+work on the canonical in-progress attempt (`draft_saved_at`). **Turn in** is
+the separate confirmation that transitions the work to `submitted`; only then
+can the assigning Teacher open the clip or see it in the review queue. A
+durable `draft_cleanup_started_at` claim protects draft removal. Recording
+duration is clip length, not automatic confirmation of the exact movement
+execution moment.
 
 The former `approved`, `needs_retry`, `review_verdict`, and
 `supersedes_attempt_id` schema is retained only for historical parsing. New

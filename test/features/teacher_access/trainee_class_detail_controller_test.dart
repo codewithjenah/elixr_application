@@ -125,7 +125,24 @@ void main() {
     await pumpEventQueue();
 
     expect(profiles.watchedUserIds, contains('trainee-1'));
+    expect(profiles.watchedUserIds, contains('teacher-1'));
     expect(controller.profilePictureUrlFor('trainee-1'), isNull);
+
+    profiles.emitProfile(
+      'teacher-1',
+      const PublicProfile(
+        userId: 'teacher-1',
+        displayName: 'Grace Hopper',
+        visibility: ProfileVisibility.public,
+        profilePictureUrl: 'https://example.test/grace.png',
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(
+      controller.profilePictureUrlFor('teacher-1'),
+      'https://example.test/grace.png',
+    );
 
     profiles.emitProfile(
       'trainee-1',

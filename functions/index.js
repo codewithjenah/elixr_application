@@ -470,6 +470,10 @@ async function createClassroomAssignmentHandler(request, response, {
   if (body.due_at != null && Number.isNaN(dueAt.getTime())) {
     return response.status(400).json({error: 'invalid_due_at'});
   }
+  const topic = body.topic == null ? null : boundedText(body.topic, 80, {required: false});
+  if (body.topic != null && !topic) {
+    return response.status(400).json({error: 'invalid_topic'});
+  }
   try {
     const firestore = databaseFactory();
     const result = await firestore.runTransaction(async (transaction) => {
@@ -501,6 +505,7 @@ async function createClassroomAssignmentHandler(request, response, {
         status: 'active', teacher_display_name: teacherDisplayName, group_name: groupName,
         created_at: now, updated_at: now,
         ...(dueAt ? {due_at: dueAt} : {}),
+        ...(topic ? {topic} : {}),
       };
       let assignment;
       if (body.origin === 'official_elixr') {
@@ -555,7 +560,7 @@ async function createClassroomAssignmentHandler(request, response, {
     });
     return response.status(200).json({assignment: {id: result.id, ...assignmentJsonValue(result.assignment)}, recipient_ids: recipientIds});
   } catch (error) {
-    if (['forbidden', 'invalid_recipient', 'invalid_movement', 'invalid_payload', 'invalid_instructions', 'invalid_identity'].includes(error.code)) {
+    if (['forbidden', 'invalid_recipient', 'invalid_movement', 'invalid_payload', 'invalid_instructions', 'invalid_identity', 'invalid_topic'].includes(error.code)) {
       return response.status(error.code === 'forbidden' ? 403 : 400).json({error: error.code});
     }
     return response.status(503).json({error: 'unavailable'});

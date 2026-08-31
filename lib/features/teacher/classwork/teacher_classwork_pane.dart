@@ -14,7 +14,7 @@ import '../../assigned_movements/assigned_movement_list.dart';
 import '../../assigned_movements/widgets/submission_detail_body.dart';
 import 'teacher_classwork_controller.dart';
 
-class TeacherClassworkAssignmentList extends StatelessWidget {
+class TeacherClassworkAssignmentList extends StatefulWidget {
   const TeacherClassworkAssignmentList({
     super.key,
     required this.controller,
@@ -31,7 +31,18 @@ class TeacherClassworkAssignmentList extends StatelessWidget {
   final ValueChanged<GroupAssignment>? onArchive;
 
   @override
+  State<TeacherClassworkAssignmentList> createState() =>
+      _TeacherClassworkAssignmentListState();
+}
+
+class _TeacherClassworkAssignmentListState
+    extends State<TeacherClassworkAssignmentList> {
+  String _selectedTopic = 'All topics';
+  final Set<String> _collapsedTopics = {};
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     if (controller.loading) return const Center(child: ProgressRing());
     if (controller.unauthorized) {
       return ElixStatusPanel(
@@ -40,6 +51,18 @@ class TeacherClassworkAssignmentList extends StatelessWidget {
         message: controller.errorMessage ?? 'This class is not available.',
       );
     }
+    final topics = _assignmentsByTopic(controller.assignments);
+    final topicNames = [for (final topic in topics) topic.$1];
+    if (_selectedTopic != 'All topics' &&
+        !topicNames.contains(_selectedTopic)) {
+      _selectedTopic = 'All topics';
+    }
+    final visibleTopics = _selectedTopic == 'All topics'
+        ? topics
+        : [
+            for (final topic in topics)
+              if (topic.$1 == _selectedTopic) topic,
+          ];
     return ElixPanelCard(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
@@ -70,7 +93,7 @@ class TeacherClassworkAssignmentList extends StatelessWidget {
                 icon: FluentIcons.add,
                 expanded: false,
                 dense: true,
-                onPressed: onCreate,
+                onPressed: widget.onCreate,
               ),
             ],
           ),
@@ -110,41 +133,155 @@ class TeacherClassworkAssignmentList extends StatelessWidget {
                 ],
               ],
             )
-          else
+          else ...[
+            Wrap(
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: 210,
+                  child: ComboBox<String>(
+                    key: const Key('teacher_classwork_topic_filter'),
+                    value: _selectedTopic,
+                    items: [
+                      const ComboBoxItem(
+                        value: 'All topics',
+                        child: Text('All topics'),
+                      ),
+                      for (final name in topicNames)
+                        ComboBoxItem(value: name, child: Text(name)),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedTopic = value);
+                      }
+                    },
+                  ),
+                ),
+                Button(
+                  key: const Key('teacher_classwork_collapse_all'),
+                  onPressed: () {
+                    setState(() {
+                      if (_collapsedTopics.length == topicNames.length) {
+                        _collapsedTopics.clear();
+                      } else {
+                        _collapsedTopics
+                          ..clear()
+                          ..addAll(topicNames);
+                      }
+                    });
+                  },
+                  child: Text(
+                    _collapsedTopics.length == topicNames.length
+                        ? 'Expand all'
+                        : 'Collapse all',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
             for (
-              var index = 0;
-              index < controller.assignments.length;
-              index++
+              var topicIndex = 0;
+              topicIndex < visibleTopics.length;
+              topicIndex++
             ) ...[
-              if (index > 0) const SizedBox(height: AppSpacing.sm),
-              _AssignmentRow(
-                assignment: controller.assignments[index],
-                audienceLabel: controller.audienceLabel(
-                  controller.assignments[index],
+              if (topicIndex > 0) const SizedBox(height: AppSpacing.lg),
+              Button(
+                key: Key(
+                  'teacher_classwork_topic_${visibleTopics[topicIndex].$1}',
                 ),
-                counts: controller.rosterCountsFor(
-                  controller.assignments[index].id,
+                onPressed: () {
+                  setState(() {
+                    final topic = visibleTopics[topicIndex].$1;
+                    if (!_collapsedTopics.add(topic)) {
+                      _collapsedTopics.remove(topic);
+                    }
+                  });
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _collapsedTopics.contains(visibleTopics[topicIndex].$1)
+                          ? FluentIcons.chevron_right
+                          : FluentIcons.chevron_down,
+                      size: 12,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      visibleTopics[topicIndex].$1,
+                      style: AppTheme.headingMedium.copyWith(fontSize: 16),
+                    ),
+                  ],
                 ),
-                statusUnavailable: controller.hasAttemptLoadError(
-                  controller.assignments[index].id,
-                ),
-                onOpen: () => onOpen(controller.assignments[index]),
-                onEdit:
-                    controller.group?.isActive == true &&
-                        controller.assignments[index].isActive
-                    ? () => onEdit?.call(controller.assignments[index])
-                    : null,
-                onArchive:
-                    controller.group?.isActive == true &&
-                        controller.assignments[index].isActive
-                    ? () => onArchive?.call(controller.assignments[index])
-                    : null,
               ),
+              if (!_collapsedTopics.contains(visibleTopics[topicIndex].$1)) ...[
+                const SizedBox(height: AppSpacing.sm),
+                for (
+                  var index = 0;
+                  index < visibleTopics[topicIndex].$2.length;
+                  index++
+                ) ...[
+                  if (index > 0) const SizedBox(height: AppSpacing.sm),
+                  _AssignmentRow(
+                    assignment: visibleTopics[topicIndex].$2[index],
+                    audienceLabel: controller.audienceLabel(
+                      visibleTopics[topicIndex].$2[index],
+                    ),
+                    counts: controller.rosterCountsFor(
+                      visibleTopics[topicIndex].$2[index].id,
+                    ),
+                    statusUnavailable: controller.hasAttemptLoadError(
+                      visibleTopics[topicIndex].$2[index].id,
+                    ),
+                    onOpen: () =>
+                        widget.onOpen(visibleTopics[topicIndex].$2[index]),
+                    onEdit:
+                        controller.group?.isActive == true &&
+                            visibleTopics[topicIndex].$2[index].isActive
+                        ? () => widget.onEdit?.call(
+                            visibleTopics[topicIndex].$2[index],
+                          )
+                        : null,
+                    onArchive:
+                        controller.group?.isActive == true &&
+                            visibleTopics[topicIndex].$2[index].isActive
+                        ? () => widget.onArchive?.call(
+                            visibleTopics[topicIndex].$2[index],
+                          )
+                        : null,
+                  ),
+                ],
+              ],
             ],
+          ],
         ],
       ),
     );
   }
+}
+
+List<(String, List<GroupAssignment>)> _assignmentsByTopic(
+  List<GroupAssignment> assignments,
+) {
+  final byTopic = <String, List<GroupAssignment>>{};
+  for (final assignment in assignments) {
+    final topic = assignment.topic?.trim();
+    byTopic
+        .putIfAbsent(
+          topic == null || topic.isEmpty ? 'No topic' : topic,
+          () => [],
+        )
+        .add(assignment);
+  }
+  final names = byTopic.keys.toList()
+    ..sort((a, b) {
+      if (a == 'No topic') return -1;
+      if (b == 'No topic') return 1;
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
+  return [for (final name in names) (name, byTopic[name]!)];
 }
 
 class _AssignmentRow extends StatelessWidget {
@@ -1027,25 +1164,21 @@ class _TeacherSubmissionReviewDetailState
                         feedback: _feedback.text,
                       ),
                 child: Text(
-                  current.isChecked ? 'Update review' : 'Save review',
+                  current.isChecked
+                      ? 'Update checked result'
+                      : 'Mark as checked',
                 ),
               ),
-              if (current.isChecked)
+              if (current.isChecked && !current.resultSentForCurrentRevision)
                 Button(
-                  key: const Key('teacher_classwork_send_result'),
-                  onPressed:
-                      widget.controller.busy ||
-                          current.resultSentForCurrentRevision
+                  key: const Key('teacher_classwork_retry_result'),
+                  onPressed: widget.controller.busy
                       ? null
                       : () => widget.controller.sendReviewResult(
                           attempt: current,
                           assignment: widget.assignment,
                         ),
-                  child: Text(
-                    current.resultSentForCurrentRevision
-                        ? 'Result sent'
-                        : 'Send to student',
-                  ),
+                  child: const Text('Retry notification'),
                 ),
             ],
           ),

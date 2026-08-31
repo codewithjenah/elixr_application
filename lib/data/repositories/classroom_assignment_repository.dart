@@ -49,7 +49,48 @@ abstract class ClassroomAssignmentRepository {
     required String assignmentId,
     DateTime? dueAt,
     int? maxScore,
+    String? topic,
   });
+
+  Future<GroupAssignment> createOfficialAssignmentWithTopic({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required String officialMovementName,
+    DateTime? dueAt,
+    String? displayInstructions,
+    String? topic,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
+  }) => createOfficialAssignment(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    group: group,
+    officialMovementName: officialMovementName,
+    dueAt: dueAt,
+    displayInstructions: displayInstructions,
+    audience: audience,
+  );
+
+  Future<GroupAssignment> createTeacherCreatedAssignmentWithTopic({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required TeacherMovement movement,
+    required TeacherMovementRevision revision,
+    int maxScore = 100,
+    DateTime? dueAt,
+    String? topic,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
+  }) => createTeacherCreatedAssignment(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    group: group,
+    movement: movement,
+    revision: revision,
+    maxScore: maxScore,
+    dueAt: dueAt,
+    audience: audience,
+  );
 
   Future<GroupAssignment?> getAssignment({required String assignmentId});
 
@@ -124,6 +165,37 @@ abstract class ClassroomAssignmentRepository {
     required int videoDurationMs,
     required DateTime submittedAt,
     required DateTime videoExpiresAt,
+  });
+
+  /// Stores an uploaded clip as private trainee work. Teachers cannot see this
+  /// state; the trainee must call [turnInTeacherReviewSubmission] explicitly.
+  Future<AssignmentAttempt> saveTeacherReviewDraftClip({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required String videoStoragePath,
+    required String videoContentType,
+    required int videoSizeBytes,
+    required int videoDurationMs,
+    required DateTime savedAt,
+  });
+
+  /// Makes an already-uploaded draft visible to the assigning teacher.
+  Future<AssignmentAttempt> turnInTeacherReviewSubmission({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required DateTime submittedAt,
+    required DateTime videoExpiresAt,
+  });
+
+  Future<AssignmentAttempt> beginTeacherReviewDraftClipRemoval({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? startedAt,
+  });
+
+  Future<AssignmentAttempt> completeTeacherReviewDraftClipRemoval({
+    required String traineeId,
+    required AssignmentAttempt attempt,
   });
 
   /// Atomically claims an unchecked submission for withdrawal. A failed
@@ -230,6 +302,7 @@ Map<String, dynamic> officialAssignmentPayload({
   required String officialMovementName,
   required String displayInstructions,
   DateTime? dueAt,
+  String? topic,
   AssignmentAudience audience = const AssignmentAudience.entireClass(),
   required Object createdAt,
   required Object updatedAt,
@@ -259,6 +332,7 @@ Map<String, dynamic> officialAssignmentPayload({
     if (displayInstructions.trim().isNotEmpty)
       'display_instructions': displayInstructions.trim(),
     'due_at': ?dueAt,
+    if (_normalizeTopic(topic) != null) 'topic': _normalizeTopic(topic),
   };
 }
 
@@ -270,6 +344,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required TeacherMovementRevision revision,
   int maxScore = 100,
   DateTime? dueAt,
+  String? topic,
   AssignmentAudience audience = const AssignmentAudience.entireClass(),
   required Object createdAt,
   required Object updatedAt,
@@ -322,9 +397,22 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'created_at': createdAt,
     'updated_at': updatedAt,
     'due_at': ?dueAt,
+    if (_normalizeTopic(topic) != null) 'topic': _normalizeTopic(topic),
   };
 
   return payload;
+}
+
+String? _normalizeTopic(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  if (trimmed.length > GroupAssignment.maxTopicLength) {
+    throw const ClassroomException(
+      ClassroomError.invalidState,
+      'Topic must be 80 characters or fewer.',
+    );
+  }
+  return trimmed;
 }
 
 void ensureTeacherAssignmentMaxScore(int maxScore) {
@@ -376,6 +464,30 @@ void ensureTeacherReviewSubmissionVideo({
       ClassroomError.malformed,
       'Submission clip metadata is invalid.',
     );
+  }
+}
+
+void ensureLocalTeacherReviewDraftVideo({
+  required AssignmentAttempt attempt,
+  required String videoStoragePath,
+  required String videoContentType,
+  required int videoSizeBytes,
+  required int videoDurationMs,
+}) {
+  final expectedPath = assignmentSubmissionStoragePath(
+    teacherId: attempt.teacherId,
+    groupId: attempt.groupId,
+    assignmentId: attempt.assignmentId,
+    traineeId: attempt.traineeId,
+    attemptId: attempt.id,
+  );
+  if (videoStoragePath != expectedPath ||
+      videoContentType != AssignmentSubmissionLimits.contentType ||
+      videoSizeBytes <= 0 ||
+      videoSizeBytes > AssignmentSubmissionLimits.maxSizeBytes ||
+      videoDurationMs <= 0 ||
+      videoDurationMs > AssignmentSubmissionLimits.maxDurationMs) {
+    throw const ClassroomException(ClassroomError.invalidState);
   }
 }
 

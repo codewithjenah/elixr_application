@@ -135,7 +135,7 @@ void main() {
 
     expect(find.text('BSIT-4A'), findsOneWidget);
     expect(find.text('BSHM 4B'), findsOneWidget);
-    expect(find.text('Active'), findsNWidgets(2));
+    expect(find.text('Active'), findsNWidgets(3));
     expect(find.text('Grace Hopper'), findsNWidgets(2));
     expect(find.text('Students and join code'), findsNothing);
     expect(find.text('Open classwork'), findsNothing);
@@ -171,7 +171,10 @@ void main() {
 
     await tester.tap(find.byKey(const Key('teacher_groups_create')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextBox), 'BSIT-4A');
+    await tester.enterText(
+      find.byKey(const Key('teacher_groups_create_name')),
+      'BSIT-4A',
+    );
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
 

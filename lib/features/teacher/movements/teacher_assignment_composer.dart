@@ -61,6 +61,7 @@ class TeacherAssignmentCreationService {
     TeacherMovement? teacherCreatedMovement,
     int maxScore = 100,
     DateTime? dueAt,
+    String? topic,
   }) async {
     final hasOfficial = officialMovement != null;
     final hasTeacherCreated = teacherCreatedMovement != null;
@@ -92,13 +93,26 @@ class TeacherAssignmentCreationService {
 
     final official = officialMovement;
     if (official != null) {
-      return assignmentRepository.createOfficialAssignment(
+      final normalizedTopic = topic?.trim();
+      if (normalizedTopic == null || normalizedTopic.isEmpty) {
+        return assignmentRepository.createOfficialAssignment(
+          teacherId: teacherId,
+          teacherDisplayName: teacherDisplayName,
+          group: group,
+          officialMovementName: official.name,
+          dueAt: dueAt,
+          displayInstructions: official.description,
+          audience: audience,
+        );
+      }
+      return assignmentRepository.createOfficialAssignmentWithTopic(
         teacherId: teacherId,
         teacherDisplayName: teacherDisplayName,
         group: group,
         officialMovementName: official.name,
         dueAt: dueAt,
         displayInstructions: official.description,
+        topic: normalizedTopic,
         audience: audience,
       );
     }
@@ -130,7 +144,20 @@ class TeacherAssignmentCreationService {
     if (revision == null) {
       throw const ClassroomException(ClassroomError.notFound);
     }
-    return assignmentRepository.createTeacherCreatedAssignment(
+    final normalizedTopic = topic?.trim();
+    if (normalizedTopic == null || normalizedTopic.isEmpty) {
+      return assignmentRepository.createTeacherCreatedAssignment(
+        teacherId: teacherId,
+        teacherDisplayName: teacherDisplayName,
+        group: group,
+        movement: custom,
+        revision: revision,
+        maxScore: maxScore,
+        dueAt: dueAt,
+        audience: audience,
+      );
+    }
+    return assignmentRepository.createTeacherCreatedAssignmentWithTopic(
       teacherId: teacherId,
       teacherDisplayName: teacherDisplayName,
       group: group,
@@ -138,6 +165,7 @@ class TeacherAssignmentCreationService {
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      topic: normalizedTopic,
       audience: audience,
     );
   }
@@ -287,6 +315,7 @@ extension on AssignmentAudienceType {
 class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   late final bool _classroomScoped;
   late final TextEditingController _maxScoreController;
+  late final TextEditingController _topicController;
   late final TextEditingController _rosterSearchController;
   late ElixrGroup? _selectedGroup;
   late Movement? _selectedOfficialMovement;
@@ -375,6 +404,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     super.initState();
     _classroomScoped = !_hasMovementOverride;
     _maxScoreController = TextEditingController(text: '100');
+    _topicController = TextEditingController();
     _rosterSearchController = TextEditingController();
     _selectedGroup = widget.lockedGroup ?? _firstActiveGroup();
     _selectedOfficialMovement = widget.officialMovement;
@@ -559,6 +589,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     unawaited(_movementSubscription?.cancel());
     unawaited(_rosterSubscription?.cancel());
     _maxScoreController.dispose();
+    _topicController.dispose();
     _rosterSearchController.dispose();
     super.dispose();
   }
@@ -806,6 +837,25 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             ),
         ],
         if (!_isTeacherCreated || _hasValidTeacherMovement) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.tag,
+            eyebrow: 'ORGANIZATION',
+            title: 'Add a topic',
+            description: 'Optional. Topics organize Classwork for this class.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _ComposerField(
+            label: 'Topic',
+            hint: 'For example: Bottle Basics',
+            child: TextBox(
+              key: const Key('teacher_assignment_topic'),
+              controller: _topicController,
+              maxLength: GroupAssignment.maxTopicLength,
+              enabled: !_submitting,
+              onChanged: (_) => setState(() => _validationError = null),
+            ),
+          ),
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
             icon: FluentIcons.calendar,
@@ -1407,6 +1457,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
             : null,
         maxScore: int.tryParse(_maxScoreController.text.trim()) ?? 100,
         dueAt: _dueAt,
+        topic: _topicController.text,
       );
       if (pageContext.mounted) Navigator.pop(pageContext, true);
     } on ClassroomException catch (error) {

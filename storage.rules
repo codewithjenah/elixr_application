@@ -263,7 +263,14 @@ service firebase.storage {
             request.auth.uid == traineeId
             && (
               isCanonicalSubmissionAttempt(attemptId, attempt)
-                ? attempt.status == 'unsubmitting'
+                ? (
+                    attempt.status == 'unsubmitting'
+                    || (
+                      attempt.status == 'in_progress'
+                      && attempt.keys().hasAny(['draft_cleanup_started_at'])
+                      && attempt.draft_cleanup_started_at is timestamp
+                    )
+                  )
                 : true
             )
           )

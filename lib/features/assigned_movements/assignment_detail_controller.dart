@@ -5,6 +5,7 @@ import 'package:elixr_core/repositories/group_repository.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/models/assignment_attempt.dart';
+import '../../data/models/classroom_exceptions.dart';
 import '../../data/models/assignment_submission_limits.dart';
 import '../../data/models/group_assignment.dart';
 import '../../data/repositories/assignment_submission_repository.dart';
@@ -33,6 +34,10 @@ class AssignmentDetailController extends ChangeNotifier {
   bool authorized = false;
   bool unsubmitBusy = false;
   String? unsubmitErrorMessage;
+  bool turnInBusy = false;
+  String? turnInErrorMessage;
+  bool draftRemovalBusy = false;
+  String? draftRemovalErrorMessage;
 
   StreamSubscription<List<GroupMembership>>? _membershipsSub;
   StreamSubscription<List<AssignmentAttempt>>? _attemptsSub;
@@ -59,9 +64,14 @@ class AssignmentDetailController extends ChangeNotifier {
     }
     // Once the deterministic new-flow record exists, legacy random attempts
     // must not leak back into the trainee workflow.  A draft/in-progress
-    // canonical record means there is currently no submitted clip to show.
+    // canonical record means there is currently no submitted clip to show,
+    // except for a durable private attachment waiting for Turn in.
     if (canonical != null) {
-      return canonical.isReviewFacingSubmission ? canonical : null;
+      return canonical.isReviewFacingSubmission ||
+              canonical.hasAttachedDraftClip ||
+              canonical.isDraftClipRemovalPending
+          ? canonical
+          : null;
     }
     for (final attempt in attempts) {
       if (attempt.isReviewFacingSubmission) return attempt;
@@ -138,6 +148,76 @@ class AssignmentDetailController extends ChangeNotifier {
       unsubmitBusy = false;
       unsubmitErrorMessage =
           'The clip could not be removed. Try again to finish withdrawing it.';
+      _notify();
+      return false;
+    }
+  }
+
+  Future<bool> turnIn() async {
+    final current = currentSubmission;
+    final currentAssignment = assignment;
+    if (current == null ||
+        currentAssignment == null ||
+        !current.hasAttachedDraftClip) {
+      return false;
+    }
+    if (!isTeacherAssignmentSubmissionOpen(assignment: currentAssignment)) {
+      turnInErrorMessage = 'This assignment is past its due date.';
+      _notify();
+      return false;
+    }
+    final clock = DateTime.now().toUtc();
+    turnInBusy = true;
+    turnInErrorMessage = null;
+    _notify();
+    try {
+      await assignmentRepository.turnInTeacherReviewSubmission(
+        traineeId: traineeId,
+        attempt: current,
+        submittedAt: clock,
+        videoExpiresAt: unreviewedVideoExpiresAt(clock),
+      );
+      turnInBusy = false;
+      _notify();
+      return true;
+    } catch (_) {
+      turnInBusy = false;
+      turnInErrorMessage = 'Could not turn in this recording. Try again.';
+      _notify();
+      return false;
+    }
+  }
+
+  Future<bool> removeAttachedDraft() async {
+    final repo = submissionRepository;
+    final current = currentSubmission;
+    if (repo == null || current == null) return false;
+    draftRemovalBusy = true;
+    draftRemovalErrorMessage = null;
+    _notify();
+    try {
+      final pending = current.isDraftClipRemovalPending
+          ? current
+          : await assignmentRepository.beginTeacherReviewDraftClipRemoval(
+              traineeId: traineeId,
+              attempt: current,
+            );
+      final path = pending.videoStoragePath;
+      if (path == null || path.isEmpty) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      await repo.deleteSubmissionObject(path);
+      await assignmentRepository.completeTeacherReviewDraftClipRemoval(
+        traineeId: traineeId,
+        attempt: pending,
+      );
+      draftRemovalBusy = false;
+      _notify();
+      return true;
+    } catch (_) {
+      draftRemovalBusy = false;
+      draftRemovalErrorMessage =
+          'The recording could not be removed. Retry before recording again.';
       _notify();
       return false;
     }

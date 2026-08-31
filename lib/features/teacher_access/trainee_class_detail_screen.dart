@@ -30,11 +30,13 @@ class TraineeClassDetailScreen extends StatefulWidget {
     required this.groupId,
     this.controller,
     this.announcementsController,
+    this.initialTab,
   });
 
   final String groupId;
   final TraineeClassDetailController? controller;
   final ClassroomAnnouncementsController? announcementsController;
+  final String? initialTab;
 
   @override
   State<TraineeClassDetailScreen> createState() =>
@@ -75,14 +77,18 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
       } on ProviderNotFoundException {
         submissionRepository = null;
       }
-      _owned = TraineeClassDetailController(
-        groupId: widget.groupId,
-        traineeId: traineeId,
-        groupRepository: context.read<GroupRepository>(),
-        assignmentRepository: context.read<ClassroomAssignmentRepository>(),
-        submissionRepository: submissionRepository,
-        publicProfileRepository: publicProfileRepository,
-      )..start();
+      _owned =
+          TraineeClassDetailController(
+              groupId: widget.groupId,
+              traineeId: traineeId,
+              groupRepository: context.read<GroupRepository>(),
+              assignmentRepository: context
+                  .read<ClassroomAssignmentRepository>(),
+              submissionRepository: submissionRepository,
+              publicProfileRepository: publicProfileRepository,
+            )
+            ..setTab(_traineeTabFromQuery(widget.initialTab))
+            ..start();
     }
     final traineeId = injected?.traineeId ?? _owned?.traineeId;
     if (traineeId == null || _announcementsController != null) return;
@@ -130,6 +136,14 @@ class _TraineeClassDetailScreenState extends State<TraineeClassDetailScreen> {
   }
 }
 
+TraineeClassDetailTab _traineeTabFromQuery(String? value) {
+  return switch (value?.trim().toLowerCase()) {
+    'classwork' => TraineeClassDetailTab.classwork,
+    'people' => TraineeClassDetailTab.people,
+    _ => TraineeClassDetailTab.announcements,
+  };
+}
+
 class _ClassDetailBody extends StatelessWidget {
   const _ClassDetailBody({required this.controller, this.announcements});
 
@@ -150,7 +164,7 @@ class _ClassDetailBody extends StatelessWidget {
             variant: ElixEditorialHeaderVariant.compact,
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: ElixBackButton(
               key: const Key('teacher_access_class_back'),
               label: 'Classes',
@@ -160,15 +174,15 @@ class _ClassDetailBody extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-            child: _buildPageContent(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: _buildPageContent(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPageContent() {
+  Widget _buildPageContent(BuildContext context) {
     if (controller.loading) {
       return const Center(child: ProgressRing());
     }
@@ -187,22 +201,35 @@ class _ClassDetailBody extends StatelessWidget {
       return ElixStatusPanel(message: controller.errorMessage!, isError: true);
     }
 
+    final showStreamContext =
+        controller.tab == TraineeClassDetailTab.announcements;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TraineeClassHeroBanner(
-          groupId: controller.groupId,
-          title: controller.className,
-          subtitle: controller.teacherDisplayName,
-        ),
-        const SizedBox(height: AppSpacing.lg),
+        if (showStreamContext) ...[
+          TraineeClassHeroBanner(
+            groupId: controller.groupId,
+            title: controller.className,
+            subtitle:
+                [
+                      controller.teacherDisplayName,
+                      controller.group?.section,
+                      controller.group?.schedule,
+                    ]
+                    .whereType<String>()
+                    .where((value) => value.isNotEmpty)
+                    .join(' · '),
+            height: 128,
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
           children: [
             _ClassDetailTab(
               key: const Key('teacher_access_class_tab_announcements'),
-              label: 'Announcements',
+              label: 'Stream',
               icon: FluentIcons.megaphone,
               selected: controller.tab == TraineeClassDetailTab.announcements,
               onPressed: () =>
@@ -225,7 +252,7 @@ class _ClassDetailBody extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.md),
         if (controller.errorMessage != null) ...[
           ElixStatusPanel(message: controller.errorMessage!, isError: true),
           const SizedBox(height: AppSpacing.md),
@@ -241,8 +268,19 @@ class _ClassDetailBody extends StatelessWidget {
               : ClassroomAnnouncementsPane(
                   controller: announcements!,
                   teacherDisplayName: controller.teacherDisplayName,
+                  teacherProfilePictureUrl: controller.profilePictureUrlFor(
+                    controller.membership?.teacherId ?? '',
+                  ),
                   canManage: false,
                   groupIsActive: controller.group?.isActive == true,
+                  assignments:
+                      controller.assignments?.items
+                          .map((item) => item.assignment)
+                          .toList(growable: false) ??
+                      const [],
+                  onOpenAssignment: (assignment) => context.push(
+                    AppRoutePaths.assignmentDetail(assignment.id),
+                  ),
                 )
         else
           _PeoplePane(controller: controller),
@@ -284,9 +322,22 @@ class _ClassworkPane extends StatelessWidget {
         ),
       );
     }
-    return AssignedMovementContent(
-      items: assignments.items,
-      showGroupName: false,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: Button(
+            key: const Key('teacher_access_class_view_your_work'),
+            onPressed: () => context.go(
+              AppRoutePaths.teacherAccessClassWork(controller.groupId),
+            ),
+            child: const Text('View your work'),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        ClassroomTopicContent(items: assignments.items, showGroupName: false),
+      ],
     );
   }
 }
@@ -313,6 +364,9 @@ class _PeoplePane extends StatelessWidget {
               'teacher_access_class_teacher_avatar_${controller.groupId}',
             ),
             initials: userInitials(controller.teacherDisplayName),
+            networkImageUrl: controller.profilePictureUrlFor(
+              controller.membership?.teacherId ?? '',
+            ),
             name: controller.teacherDisplayName,
           ),
           const SizedBox(height: AppSpacing.xl),
@@ -476,7 +530,7 @@ class _ClassDetailTab extends StatelessWidget {
         return AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: selected
                 ? (highContrast ? AppColors.primary : null)

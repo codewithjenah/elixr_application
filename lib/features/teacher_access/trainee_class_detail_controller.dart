@@ -203,7 +203,11 @@ class TraineeClassDetailController extends ChangeNotifier {
   }
 
   void _syncProfileWatches() {
-    final ids = {for (final member in classmates) member.traineeId};
+    final teacherId = membership?.teacherId;
+    final ids = {
+      for (final member in classmates) member.traineeId,
+      if (teacherId != null && teacherId.isNotEmpty) teacherId,
+    };
     final repository = publicProfileRepository;
     if (repository == null) {
       _cancelProfileWatches();

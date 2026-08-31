@@ -228,16 +228,22 @@ class TeacherGroupsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<ElixrGroup?> createGroup(String name) async {
+  Future<ElixrGroup?> createGroup(
+    String name, {
+    String? section,
+    String? schedule,
+  }) async {
     ElixrGroup? created;
     await _runTeacherAction(
       operation: 'createGroup',
       failureMessage: 'Could not create that group.',
       action: () async {
-        created = await repository.createGroup(
+        created = await repository.createGroupWithDetails(
           teacherId: teacherId,
           teacherDisplayName: teacherDisplayName,
           name: name,
+          section: section,
+          schedule: schedule,
         );
         actionMessage = 'Created ${created!.name}.';
       },
@@ -250,15 +256,37 @@ class TeacherGroupsController extends ChangeNotifier {
       operation: 'renameGroup',
       failureMessage: 'Could not rename that group.',
       action: () async {
-        await repository.renameGroup(
+        await repository.updateGroupDetails(
           groupId: group.id,
           teacherId: teacherId,
           name: name,
+          section: group.section,
+          schedule: group.schedule,
         );
         actionMessage = 'Renamed group.';
       },
     );
   }
+
+  Future<void> updateGroupDetails(
+    ElixrGroup group, {
+    required String name,
+    String? section,
+    String? schedule,
+  }) => _runTeacherAction(
+    operation: 'updateGroupDetails',
+    failureMessage: 'Could not update that classroom.',
+    action: () async {
+      await repository.updateGroupDetails(
+        groupId: group.id,
+        teacherId: teacherId,
+        name: name,
+        section: section,
+        schedule: schedule,
+      );
+      actionMessage = 'Updated classroom details.';
+    },
+  );
 
   Future<void> renameSelectedGroup(String name) {
     final group = selectedGroup;

@@ -14,9 +14,11 @@ import '../../services/websocket_service.dart';
 enum SubmissionRecordingPhase {
   idle,
   consent,
+  countdown,
   recording,
   preview,
   submitting,
+  attached,
   submitted,
   failed,
 }
@@ -64,6 +66,9 @@ class SubmissionRecordingController extends ChangeNotifier {
     required this.submissions,
     required this.assignment,
     required this.traineeId,
+    this.onRecordingModeStarted,
+    this.onRecordingModeEnded,
+    this.recordingCountdown = const Duration(seconds: 3),
   });
 
   final WebSocketService websocket;
@@ -71,14 +76,19 @@ class SubmissionRecordingController extends ChangeNotifier {
   final AssignmentSubmissionRepository submissions;
   final GroupAssignment assignment;
   final String traineeId;
+  final VoidCallback? onRecordingModeStarted;
+  final VoidCallback? onRecordingModeEnded;
+  final Duration recordingCountdown;
 
   SubmissionRecordingPhase phase = SubmissionRecordingPhase.idle;
   SubmissionRecordResult? clip;
   String? errorMessage;
   int elapsedSeconds = 0;
+  int recordingCountdownSeconds = 0;
   AssignmentAttempt? latestSubmission;
   Timer? _timer;
   bool _recordCommandInFlight = false;
+  bool _recordingModeActive = false;
   bool _disposed = false;
   SubmissionPlaybackFile? _submittedPlayback;
 
@@ -108,6 +118,18 @@ class SubmissionRecordingController extends ChangeNotifier {
   void _releaseRecordCommand() {
     _recordCommandInFlight = false;
     if (!_disposed) notifyListeners();
+  }
+
+  void _startRecordingMode() {
+    if (_recordingModeActive) return;
+    _recordingModeActive = true;
+    onRecordingModeStarted?.call();
+  }
+
+  void _endRecordingMode() {
+    if (!_recordingModeActive) return;
+    _recordingModeActive = false;
+    onRecordingModeEnded?.call();
   }
 
   Future<void> refreshLatestSubmission() async {
@@ -141,6 +163,10 @@ class SubmissionRecordingController extends ChangeNotifier {
           phase == SubmissionRecordingPhase.failed) {
         phase = SubmissionRecordingPhase.submitted;
       }
+    } else if (latest?.hasAttachedDraftClip == true &&
+        (phase == SubmissionRecordingPhase.idle ||
+            phase == SubmissionRecordingPhase.failed)) {
+      phase = SubmissionRecordingPhase.attached;
     }
     notifyListeners();
   }
@@ -204,6 +230,15 @@ class SubmissionRecordingController extends ChangeNotifier {
     if (!_acquireRecordCommand()) return;
     errorMessage = null;
     try {
+      recordingCountdownSeconds = recordingCountdown.inSeconds;
+      phase = SubmissionRecordingPhase.countdown;
+      notifyListeners();
+      while (recordingCountdownSeconds > 0) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (_disposed) return;
+        recordingCountdownSeconds -= 1;
+        notifyListeners();
+      }
       final ack = await websocket.sendStartSubmissionRecord();
       if (_disposed) return;
       if (!ack.accepted) {
@@ -213,6 +248,7 @@ class SubmissionRecordingController extends ChangeNotifier {
       }
       elapsedSeconds = 0;
       phase = SubmissionRecordingPhase.recording;
+      _startRecordingMode();
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         elapsedSeconds += 1;
@@ -250,6 +286,7 @@ class SubmissionRecordingController extends ChangeNotifier {
       phase = SubmissionRecordingPhase.failed;
       errorMessage = 'Could not stop recording.';
     } finally {
+      _endRecordingMode();
       _releaseRecordCommand();
     }
   }
@@ -263,12 +300,15 @@ class SubmissionRecordingController extends ChangeNotifier {
       elapsedSeconds = 0;
       errorMessage = null;
       phase = SubmissionRecordingPhase.idle;
+      _endRecordingMode();
     } finally {
       _releaseRecordCommand();
     }
   }
 
-  Future<void> submitToTeacher() async {
+  /// Uploads the selected clip as private attached work. Turning it in is a
+  /// separate confirmation on the assignment detail screen.
+  Future<void> saveDraft() async {
     final current = clip;
     if (current == null) return;
     if (!_acquireRecordCommand()) return;
@@ -276,18 +316,18 @@ class SubmissionRecordingController extends ChangeNotifier {
     errorMessage = null;
     try {
       await refreshLatestSubmission();
-      final submitted = await submissions.submitCanonicalLocalClip(
+      final attached = await submissions.saveCanonicalLocalClipDraft(
         traineeId: traineeId,
         assignment: assignment,
         clip: current,
       );
-      latestSubmission = submitted;
-      phase = SubmissionRecordingPhase.submitted;
+      latestSubmission = attached;
+      phase = SubmissionRecordingPhase.attached;
       notifyListeners();
       await abandonLocalClip();
       if (_disposed) return;
       clip = null;
-      await openSubmittedPlayback(attempt: submitted);
+      await openSubmittedPlayback(attempt: attached);
     } catch (error) {
       if (_disposed) return;
       phase = SubmissionRecordingPhase.failed;
@@ -296,6 +336,9 @@ class SubmissionRecordingController extends ChangeNotifier {
       _releaseRecordCommand();
     }
   }
+
+  /// Compatibility entry point for callers that still use the old name.
+  Future<void> submitToTeacher() => saveDraft();
 
   Future<void> abandonLocalClip({
     Future<void> Function()? releasePlayback,
@@ -317,6 +360,7 @@ class SubmissionRecordingController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _timer?.cancel();
+    _endRecordingMode();
     unawaited(releaseSubmittedPlayback());
     unawaited(abandonLocalClip());
     super.dispose();

@@ -95,6 +95,10 @@ abstract final class AppRoutePaths {
     return '$teacherAccess/${Uri.encodeComponent(groupId)}';
   }
 
+  static String teacherAccessClassWork(String groupId) {
+    return '${teacherAccessClass(groupId)}/work';
+  }
+
   static String groupIdFromTeacherAccessClass(String location) {
     final prefix = '$teacherAccess/';
     if (!location.startsWith(prefix)) return '';

@@ -154,6 +154,8 @@ class AssignmentAudience {
 /// Trainees read this document (including the display snapshot) instead of
 /// private Teacher movement/revision collections.
 class GroupAssignment {
+  static const maxTopicLength = 80;
+
   const GroupAssignment({
     required this.id,
     required this.teacherId,
@@ -166,6 +168,7 @@ class GroupAssignment {
     required this.displayTitle,
     required this.teacherDisplayName,
     required this.groupName,
+    this.topic,
     this.officialMovementName,
     this.displayInstructions,
     this.displaySafetyGuidance,
@@ -191,6 +194,7 @@ class GroupAssignment {
   final String displayTitle;
   final String teacherDisplayName;
   final String groupName;
+  final String? topic;
   final String? officialMovementName;
   final String? displayInstructions;
   final String? displaySafetyGuidance;
@@ -231,6 +235,8 @@ class GroupAssignment {
     bool? gradingLocked,
     DateTime? gradingLockedAt,
     DateTime? dueAt,
+    String? topic,
+    bool clearTopic = false,
     bool clearGradingLockedAt = false,
     bool clearDueAt = false,
     AssignmentAudience? audience,
@@ -247,6 +253,7 @@ class GroupAssignment {
       displayTitle: displayTitle,
       teacherDisplayName: teacherDisplayName,
       groupName: groupName,
+      topic: clearTopic ? null : topic ?? this.topic,
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
@@ -400,6 +407,11 @@ class GroupAssignment {
       displayTitle: displayTitle,
       teacherDisplayName: teacherDisplayName,
       groupName: groupName,
+      topic: _readBounded(
+        map['topic'],
+        maxLength: maxTopicLength,
+        allowEmpty: true,
+      ),
       officialMovementName: officialName,
       displayInstructions: _readBounded(
         map['display_instructions'],

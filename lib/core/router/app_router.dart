@@ -209,9 +209,24 @@ class AppRouter {
                     final groupId = state.pathParameters['groupId'] ?? '';
                     return fadeTransitionPage(
                       key: state.pageKey,
-                      child: TraineeClassDetailScreen(groupId: groupId),
+                      child: TraineeClassDetailScreen(
+                        groupId: groupId,
+                        initialTab: state.uri.queryParameters['tab'],
+                      ),
                     );
                   },
+                  routes: [
+                    GoRoute(
+                      path: 'work',
+                      pageBuilder: (context, state) {
+                        final groupId = state.pathParameters['groupId'] ?? '';
+                        return fadeTransitionPage(
+                          key: state.pageKey,
+                          child: AssignedMovementsScreen(groupId: groupId),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -389,7 +404,10 @@ class AppRouter {
                     final groupId = state.pathParameters['groupId'] ?? '';
                     return fadeTransitionPage(
                       key: state.pageKey,
-                      child: TeacherGroupDetailScreen(groupId: groupId),
+                      child: TeacherGroupDetailScreen(
+                        groupId: groupId,
+                        initialTab: state.uri.queryParameters['tab'],
+                      ),
                     );
                   },
                 ),

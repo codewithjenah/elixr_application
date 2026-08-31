@@ -47,6 +47,24 @@ class _SpyGroupRepository implements GroupRepository {
   }
 
   @override
+  Future<ElixrGroup> createGroupWithDetails({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => _record(
+    'createGroup',
+    () => inner.createGroupWithDetails(
+      teacherId: teacherId,
+      teacherDisplayName: teacherDisplayName,
+      name: name,
+      section: section,
+      schedule: schedule,
+    ),
+  );
+
+  @override
   Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId}) {
     return inner.watchTeacherGroups(teacherId: teacherId);
   }
@@ -68,6 +86,24 @@ class _SpyGroupRepository implements GroupRepository {
           inner.renameGroup(groupId: groupId, teacherId: teacherId, name: name),
     );
   }
+
+  @override
+  Future<void> updateGroupDetails({
+    required String groupId,
+    required String teacherId,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => _record(
+    'updateGroupDetails',
+    () => inner.updateGroupDetails(
+      groupId: groupId,
+      teacherId: teacherId,
+      name: name,
+      section: section,
+      schedule: schedule,
+    ),
+  );
 
   @override
   Future<void> archiveGroup({
@@ -319,9 +355,15 @@ void main() {
     await controller.start();
     expect(controller.groups, isEmpty);
 
-    final group = await controller.createGroup('BSHM 4A');
+    final group = await controller.createGroup(
+      'BSHM 4A',
+      section: 'BSHM 4A',
+      schedule: 'MWF 2:30–4:00 PM',
+    );
     expect(controller.groups, hasLength(1));
     expect(group?.name, 'BSHM 4A');
+    expect(group?.section, 'BSHM 4A');
+    expect(group?.schedule, 'MWF 2:30–4:00 PM');
     expect(controller.selectedGroup, isNull);
     expect(controller.activeInvite, isNull);
     expect(repository.privilegedCalls, contains('createGroup'));

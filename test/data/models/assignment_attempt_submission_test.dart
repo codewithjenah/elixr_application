@@ -184,6 +184,26 @@ void main() {
     },
   );
 
+  test('canonical in-progress work can hold one private attached clip', () {
+    final attempt = AssignmentAttempt.tryFromMap(
+      _draft(
+        status: 'in_progress',
+        extra: {
+          'video_storage_path':
+              'assignment_submissions/teacher-1/g1/asg1/trainee-1/review_sub_asg1_trainee-1.mp4',
+          'video_content_type': 'video/mp4',
+          'video_size_bytes': 2048,
+          'video_duration_ms': 4000,
+          'draft_saved_at': DateTime.utc(2026, 8, 31),
+        },
+      ),
+      id: 'review_sub_asg1_trainee-1',
+    );
+    expect(attempt, isNotNull);
+    expect(attempt!.hasAttachedDraftClip, isTrue);
+    expect(AssignmentAttemptSemantics.isTurnedIn(attempt), isFalse);
+  });
+
   test(
     'submitted review requires bounded mp4 metadata and no review fields',
     () {

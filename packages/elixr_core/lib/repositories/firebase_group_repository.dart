@@ -38,6 +38,19 @@ class FirebaseGroupRepository implements GroupRepository {
     required String teacherId,
     required String teacherDisplayName,
     required String name,
+  }) => createGroupWithDetails(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    name: name,
+  );
+
+  @override
+  Future<ElixrGroup> createGroupWithDetails({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+    String? section,
+    String? schedule,
   }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) {
@@ -47,9 +60,19 @@ class FirebaseGroupRepository implements GroupRepository {
       );
     }
     final ref = _groups.doc();
+    final normalizedSection = _normalizeOptional(
+      section,
+      ElixrGroup.maxSectionLength,
+    );
+    final normalizedSchedule = _normalizeOptional(
+      schedule,
+      ElixrGroup.maxScheduleLength,
+    );
     await ref.set({
       'teacher_id': teacherId,
       'name': trimmed,
+      if (normalizedSection != null) 'section': normalizedSection,
+      if (normalizedSchedule != null) 'schedule': normalizedSchedule,
       'status': ElixrGroupStatus.active.name,
       'schema_version': ElixrGroup.currentSchemaVersion,
       'created_at': FieldValue.serverTimestamp(),
@@ -116,10 +139,62 @@ class FirebaseGroupRepository implements GroupRepository {
         'Group name is required.',
       );
     }
+    final group = await getGroup(groupId: groupId);
+    await updateGroupDetails(
+      groupId: groupId,
+      teacherId: teacherId,
+      name: trimmed,
+      section: group?.section,
+      schedule: group?.schedule,
+    );
+  }
+
+  @override
+  Future<void> updateGroupDetails({
+    required String groupId,
+    required String teacherId,
+    required String name,
+    String? section,
+    String? schedule,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const GroupException(
+        GroupError.forbidden,
+        'Group name is required.',
+      );
+    }
+    final normalizedSection = _normalizeOptional(
+      section,
+      ElixrGroup.maxSectionLength,
+    );
+    final normalizedSchedule = _normalizeOptional(
+      schedule,
+      ElixrGroup.maxScheduleLength,
+    );
+    final group = await getGroup(groupId: groupId);
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
     await _groups.doc(groupId).update({
       'name': trimmed,
+      'section': normalizedSection ?? FieldValue.delete(),
+      'schedule': normalizedSchedule ?? FieldValue.delete(),
+      'schema_version': ElixrGroup.currentSchemaVersion,
       'updated_at': FieldValue.serverTimestamp(),
     });
+  }
+
+  static String? _normalizeOptional(String? value, int maxLength) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    if (trimmed.length > maxLength) {
+      throw const GroupException(
+        GroupError.forbidden,
+        'Class detail is too long.',
+      );
+    }
+    return trimmed;
   }
 
   @override

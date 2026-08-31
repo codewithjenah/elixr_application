@@ -16,13 +16,17 @@ enum ElixrGroupStatus {
 
 /// Teacher-owned group at `groups/{groupId}`.
 class ElixrGroup {
-  static const currentSchemaVersion = 1;
+  static const currentSchemaVersion = 2;
+  static const maxSectionLength = 80;
+  static const maxScheduleLength = 120;
 
   const ElixrGroup({
     required this.id,
     required this.teacherId,
     required this.name,
     required this.status,
+    this.section,
+    this.schedule,
     this.inviteCode,
     this.createdAt,
     this.updatedAt,
@@ -33,6 +37,8 @@ class ElixrGroup {
   final String teacherId;
   final String name;
   final ElixrGroupStatus status;
+  final String? section;
+  final String? schedule;
   final String? inviteCode;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -42,6 +48,10 @@ class ElixrGroup {
 
   ElixrGroup copyWith({
     String? name,
+    String? section,
+    String? schedule,
+    bool clearSection = false,
+    bool clearSchedule = false,
     ElixrGroupStatus? status,
     String? inviteCode,
     bool clearInviteCode = false,
@@ -51,6 +61,8 @@ class ElixrGroup {
     teacherId: teacherId,
     name: name ?? this.name,
     status: status ?? this.status,
+    section: clearSection ? null : section ?? this.section,
+    schedule: clearSchedule ? null : schedule ?? this.schedule,
     inviteCode: clearInviteCode ? null : inviteCode ?? this.inviteCode,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -73,6 +85,11 @@ class ElixrGroup {
       teacherId: teacherId,
       name: name,
       status: status,
+      section: _readOptionalText(map['section'], maxLength: maxSectionLength),
+      schedule: _readOptionalText(
+        map['schedule'],
+        maxLength: maxScheduleLength,
+      ),
       inviteCode: _readString(map['invite_code']),
       createdAt: TeacherRosterInvite.readDateTime(map['created_at']),
       updatedAt: TeacherRosterInvite.readDateTime(map['updated_at']),
@@ -83,6 +100,14 @@ class ElixrGroup {
   static String? _readString(dynamic value) {
     if (value is String && value.trim().isNotEmpty) return value.trim();
     return null;
+  }
+
+  static String? _readOptionalText(dynamic value, {required int maxLength}) {
+    if (value == null) return null;
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || trimmed.length > maxLength) return null;
+    return trimmed;
   }
 
   static int? _readInt(dynamic value) {

@@ -171,6 +171,8 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
       submissions: context.read<AssignmentSubmissionRepository>(),
       assignment: assignment.assignment,
       traineeId: traineeId,
+      onRecordingModeStarted: _run.pauseElapsed,
+      onRecordingModeEnded: _run.resumeElapsed,
     )..addListener(_onRecordingChanged);
     unawaited(_recording!.refreshLatestSubmission());
   }
@@ -639,7 +641,9 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
     router.go(
       widget.teacherCreatedAssignment == null
           ? AppRoutePaths.dashboard
-          : AppRoutePaths.assignedMovements,
+          : AppRoutePaths.assignmentDetail(
+              widget.teacherCreatedAssignment!.assignment.id,
+            ),
     );
   }
 
@@ -752,7 +756,11 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
               final panel = TrainingSessionPanel(
                 phase: _panelPhase(),
                 metrics: LivePracticeElapsedMetric(
-                  elapsedDisplay: _formatDuration(_run.elapsedSeconds),
+                  elapsedDisplay: _formatDuration(
+                    _recording?.phase == SubmissionRecordingPhase.recording
+                        ? _recording!.elapsedSeconds
+                        : _run.elapsedSeconds,
+                  ),
                 ),
                 statusContent: TrainingStatusRow(
                   detection: resolveDetectionStatus(

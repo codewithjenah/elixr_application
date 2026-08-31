@@ -199,6 +199,53 @@ class AssignedMovementContent extends StatelessWidget {
   }
 }
 
+/// Classwork presentation grouped by the optional teacher-selected topic.
+/// Legacy assignments without a topic remain visible under "No topic".
+class ClassroomTopicContent extends StatelessWidget {
+  const ClassroomTopicContent({
+    super.key,
+    required this.items,
+    this.showGroupName = false,
+  });
+
+  final List<AssignedMovementItem> items;
+  final bool showGroupName;
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = <String, List<AssignedMovementItem>>{};
+    for (final item in items) {
+      final topic = item.assignment.topic?.trim();
+      groups
+          .putIfAbsent(
+            topic == null || topic.isEmpty ? 'No topic' : topic,
+            () => [],
+          )
+          .add(item);
+    }
+    final names = groups.keys.toList()
+      ..sort((a, b) {
+        if (a == 'No topic') return -1;
+        if (b == 'No topic') return 1;
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      });
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < names.length; index++) ...[
+          if (index > 0) const SizedBox(height: AppSpacing.xl),
+          Text(names[index], style: AppTheme.headingMedium),
+          const SizedBox(height: AppSpacing.md),
+          AssignedMovementContent(
+            items: groups[names[index]]!,
+            showGroupName: showGroupName,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _OriginSectionHeader extends StatelessWidget {
   const _OriginSectionHeader({
     required this.sectionKey,
@@ -591,8 +638,8 @@ String assignedMovementActionLabel(
   if (assignment.isTeacherCreated &&
       attempt.isCanonicalTeacherReviewSubmission) {
     return switch (attempt.status) {
-      AssignmentAttemptStatus.draft ||
-      AssignmentAttemptStatus.inProgress => 'Continue practice',
+      AssignmentAttemptStatus.draft || AssignmentAttemptStatus.inProgress =>
+        attempt.hasAttachedDraftClip ? 'Ready to turn in' : 'Continue practice',
       AssignmentAttemptStatus.submitted => 'Awaiting check',
       AssignmentAttemptStatus.unsubmitting => 'Withdrawing',
       AssignmentAttemptStatus.checked => 'Checked',
@@ -626,6 +673,10 @@ bool canStartAssignedMovement(
   if (!assignment.isTeacherCreated) return true;
   if (!isTeacherAssignmentSubmissionOpen(assignment: assignment)) return false;
   final current = submission ?? attempt;
+  if (current?.hasAttachedDraftClip == true ||
+      current?.isDraftClipRemovalPending == true) {
+    return false;
+  }
   return current == null ||
       current.status == AssignmentAttemptStatus.draft ||
       current.status == AssignmentAttemptStatus.inProgress;
@@ -683,8 +734,8 @@ String assignedMovementStatusLabel(
       return 'Not submitted';
     }
     return switch (current.status) {
-      AssignmentAttemptStatus.draft ||
-      AssignmentAttemptStatus.inProgress => 'Not submitted',
+      AssignmentAttemptStatus.draft || AssignmentAttemptStatus.inProgress =>
+        current.hasAttachedDraftClip ? 'Ready to turn in' : 'Not submitted',
       AssignmentAttemptStatus.submitted =>
         current.isCanonicalTeacherReviewSubmission
             ? 'Awaiting check'

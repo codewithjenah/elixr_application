@@ -167,9 +167,14 @@ void main() {
     await pumpDetail(tester, controller: controller, groupId: group.id);
 
     expect(find.text('BSIT-4A'), findsWidgets);
+    await tester.tap(find.byKey(const Key('teacher_group_tab_announcements')));
+    await tester.pumpAndSettle();
     expect(find.text('Active'), findsWidgets);
     expect(find.byKey(const Key('teacher_group_invite_code')), findsOneWidget);
     expect(find.text(invite.displayCode), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('teacher_group_tab_assignments')));
+    await tester.pumpAndSettle();
 
     expect(
       find.byKey(const Key('teacher_group_assignments_section')),

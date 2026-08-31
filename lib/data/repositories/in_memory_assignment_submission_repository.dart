@@ -100,6 +100,34 @@ class InMemoryAssignmentSubmissionRepository
   }
 
   @override
+  Future<AssignmentAttempt> saveCanonicalLocalClipDraft({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
+  }) {
+    return saveCanonicalLocalClipDraftWithCleanup(
+      traineeId: traineeId,
+      assignment: assignment,
+      clip: clip,
+      classroom: _classroom,
+      now: now,
+      uploadObject: ({required draft, required storagePath}) async {
+        if (uploadException != null) {
+          final error = uploadException!;
+          uploadException = null;
+          throw error;
+        }
+        if (failNextUpload) {
+          failNextUpload = false;
+          throw const AssignmentSubmissionException('storage upload failed');
+        }
+      },
+      deleteObject: deleteSubmissionObject,
+      isObjectNotFound: _isMissing,
+    );
+  }
+
+  @override
   Future<void> deleteSubmissionObject(String storagePath) async {
     if (failNextDelete) {
       failNextDelete = false;

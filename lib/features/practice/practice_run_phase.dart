@@ -48,6 +48,7 @@ class PracticeRunController extends ChangeNotifier {
 
   PracticeRunPhase _phase = PracticeRunPhase.idle;
   int _elapsedSeconds = 0;
+  bool _elapsedPaused = false;
   String? _errorMessage;
   bool _firstPreviewReceived = false;
   Timer? _elapsedTimer;
@@ -66,6 +67,7 @@ class PracticeRunController extends ChangeNotifier {
 
   PracticeRunPhase get phase => _phase;
   int get elapsedSeconds => _elapsedSeconds;
+  bool get elapsedPaused => _elapsedPaused;
   String? get errorMessage => _errorMessage;
 
   /// Incremented on each [beginPreparing]. Snapshot to detect stale messages.
@@ -122,6 +124,7 @@ class PracticeRunController extends ChangeNotifier {
     _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.preparingCamera;
     _elapsedSeconds = 0;
+    _elapsedPaused = false;
     _errorMessage = null;
     _firstPreviewReceived = false;
     _readiness = PracticeReadinessState.empty;
@@ -388,6 +391,7 @@ class PracticeRunController extends ChangeNotifier {
     _cancelPrepTimeout();
     _phase = PracticeRunPhase.active;
     _elapsedSeconds = 0;
+    _elapsedPaused = false;
     _startElapsedTimer();
     notifyListeners();
   }
@@ -400,6 +404,20 @@ class PracticeRunController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void pauseElapsed() {
+    if (_phase != PracticeRunPhase.active || _elapsedPaused) return;
+    _elapsedPaused = true;
+    _stopElapsedTimer();
+    notifyListeners();
+  }
+
+  void resumeElapsed() {
+    if (_phase != PracticeRunPhase.active || !_elapsedPaused) return;
+    _elapsedPaused = false;
+    _startElapsedTimer();
+    notifyListeners();
+  }
+
   /// Cancel prepare/readiness/countdown/error back to idle. Elapsed resets to zero.
   void cancelToIdle() {
     _stopElapsedTimer();
@@ -408,6 +426,7 @@ class PracticeRunController extends ChangeNotifier {
     _cancelAutoStartBeat(clearDue: true);
     _phase = PracticeRunPhase.idle;
     _elapsedSeconds = 0;
+    _elapsedPaused = false;
     _errorMessage = null;
     _firstPreviewReceived = false;
     _readiness = PracticeReadinessState.empty;
@@ -429,7 +448,7 @@ class PracticeRunController extends ChangeNotifier {
   void _startElapsedTimer() {
     _elapsedTimer?.cancel();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_phase != PracticeRunPhase.active) return;
+      if (_phase != PracticeRunPhase.active || _elapsedPaused) return;
       _elapsedSeconds++;
       notifyListeners();
     });

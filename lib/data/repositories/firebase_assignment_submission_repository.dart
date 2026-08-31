@@ -185,6 +185,70 @@ class FirebaseAssignmentSubmissionRepository
   }
 
   @override
+  Future<AssignmentAttempt> saveCanonicalLocalClipDraft({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
+  }) async {
+    ensureLocalClipWithinLimits(clip);
+    final file = File(clip.localPath);
+    if (!file.existsSync() || file.lengthSync() != clip.sizeBytes) {
+      throw const AssignmentSubmissionException(
+        'The local submission clip is no longer available.',
+      );
+    }
+    final size = file.lengthSync();
+    return saveCanonicalLocalClipDraftWithCleanup(
+      traineeId: traineeId,
+      assignment: assignment,
+      clip: clip,
+      classroom: _classroom,
+      now: DateTime.now().toUtc(),
+      uploadObject: ({required draft, required storagePath}) async {
+        final metadata = assignmentSubmissionCustomMetadata(
+          teacherId: draft.teacherId,
+          groupId: draft.groupId,
+          assignmentId: draft.assignmentId,
+          traineeId: draft.traineeId,
+          attemptId: draft.id,
+          movementId: draft.movementId,
+          revisionId: draft.revisionId,
+        );
+        await runPhase6StorageUpload(
+          log: _diagnosticLog,
+          upload: () async {
+            await _emitDebugStorageUploadIntent(
+              draft: draft,
+              storagePath: storagePath,
+              fileSizeBytes: size,
+              customMetadata: metadata,
+            );
+            final snapshot = await _storage
+                .ref(storagePath)
+                .putFile(
+                  file,
+                  SettableMetadata(
+                    contentType: AssignmentSubmissionLimits.contentType,
+                    customMetadata: metadata,
+                  ),
+                );
+            return snapshot.totalBytes;
+          },
+        );
+      },
+      deleteObject: deleteSubmissionObject,
+      isObjectNotFound: _isObjectNotFound,
+      deleteLocalFile: () async {
+        try {
+          await file.delete();
+        } on FileSystemException {
+          // Backend cancel also removes this temporary file.
+        }
+      },
+    );
+  }
+
+  @override
   Future<void> deleteSubmissionObject(String storagePath) async {
     try {
       await _storage.ref(storagePath).delete();

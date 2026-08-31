@@ -42,12 +42,13 @@ void main() {
   });
 
   test('official assignment uses canonical identity mapping', () async {
-    final assignment = await assignments.createOfficialAssignment(
+    final assignment = await assignments.createOfficialAssignmentWithTopic(
       teacherId: 'teacher-1',
       teacherDisplayName: 'Grace Hopper',
       group: _group(),
       officialMovementName: 'Hand Stall',
       dueAt: DateTime.utc(2026, 8, 21, 12),
+      topic: '  Bottle control  ',
     );
     final identity = officialElixrIdentityForName('Hand Stall')!;
     expect(assignment.origin, MovementOrigin.officialElixr);
@@ -56,6 +57,7 @@ void main() {
     expect(assignment.revisionId, identity.revisionId);
     expect(assignment.groupName, 'BSHM 4A');
     expect(assignment.dueAt, DateTime.utc(2026, 8, 21, 12));
+    expect(assignment.topic, 'Bottle control');
   });
 
   test(

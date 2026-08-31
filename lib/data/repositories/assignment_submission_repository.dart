@@ -33,6 +33,14 @@ abstract class AssignmentSubmissionRepository {
     required SubmissionRecordResult clip,
   });
 
+  /// Uploads a clip as private attached work. It does not make the attempt
+  /// visible in the teacher review queue.
+  Future<AssignmentAttempt> saveCanonicalLocalClipDraft({
+    required String traineeId,
+    required GroupAssignment assignment,
+    required SubmissionRecordResult clip,
+  });
+
   Future<void> deleteSubmissionObject(String storagePath);
 
   Future<SubmissionPlaybackFile?> openLocalPlayback(AssignmentAttempt attempt);
@@ -412,6 +420,77 @@ Future<AssignmentAttempt> submitCanonicalLocalClipWithCleanup({
     throw const ClassroomException(
       ClassroomError.uploadFailed,
       'The submission clip could not be uploaded. Try again.',
+    );
+  }
+}
+
+Future<AssignmentAttempt> saveCanonicalLocalClipDraftWithCleanup({
+  required String traineeId,
+  required GroupAssignment assignment,
+  required SubmissionRecordResult clip,
+  required ClassroomAssignmentRepository classroom,
+  required Future<void> Function({
+    required AssignmentAttempt draft,
+    required String storagePath,
+  })
+  uploadObject,
+  required Future<void> Function(String path) deleteObject,
+  required bool Function(Object error) isObjectNotFound,
+  required DateTime now,
+  Future<void> Function()? deleteLocalFile,
+}) async {
+  ensureLocalClipWithinLimits(clip);
+  final draft = await classroom.getOrCreateTeacherReviewSubmission(
+    traineeId: traineeId,
+    assignment: assignment,
+  );
+  if (draft.status != AssignmentAttemptStatus.inProgress ||
+      draft.hasAttachedDraftClip) {
+    throw const ClassroomException(
+      ClassroomError.invalidState,
+      'A recording is already attached. Turn it in or remove it first.',
+    );
+  }
+  final path = assignmentSubmissionStoragePath(
+    teacherId: draft.teacherId,
+    groupId: draft.groupId,
+    assignmentId: draft.assignmentId,
+    traineeId: draft.traineeId,
+    attemptId: draft.id,
+  );
+  try {
+    await uploadObject(draft: draft, storagePath: path);
+    final saved = await classroom.saveTeacherReviewDraftClip(
+      traineeId: traineeId,
+      attempt: draft,
+      videoStoragePath: path,
+      videoContentType: AssignmentSubmissionLimits.contentType,
+      videoSizeBytes: clip.sizeBytes,
+      videoDurationMs: clip.durationMs,
+      savedAt: now,
+    );
+    try {
+      await deleteLocalFile?.call();
+    } catch (_) {
+      // The durable cloud draft is safe; the backend temp cleanup remains a
+      // best-effort Windows cleanup path.
+    }
+    return saved;
+  } catch (error) {
+    try {
+      await deleteObject(path);
+    } catch (deleteError) {
+      if (!isObjectNotFound(deleteError)) {
+        // Storage's lifecycle policy is a final backstop. Do not claim the
+        // draft was saved if its metadata write failed.
+      }
+    }
+    if (error is ClassroomException || error is AssignmentSubmissionException) {
+      rethrow;
+    }
+    throw const ClassroomException(
+      ClassroomError.uploadFailed,
+      'The recording could not be attached. Try again.',
     );
   }
 }

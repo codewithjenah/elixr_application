@@ -343,6 +343,15 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
   }) => throw UnimplementedError();
 
   @override
+  Future<ElixrGroup> createGroupWithDetails({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => throw UnimplementedError();
+
+  @override
   Future<ElixrGroup?> getGroup({required String groupId}) =>
       inner.getGroup(groupId: groupId);
 
@@ -352,6 +361,21 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
     required String teacherId,
     required String name,
   }) => inner.renameGroup(groupId: groupId, teacherId: teacherId, name: name);
+
+  @override
+  Future<void> updateGroupDetails({
+    required String groupId,
+    required String teacherId,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => inner.updateGroupDetails(
+    groupId: groupId,
+    teacherId: teacherId,
+    name: name,
+    section: section,
+    schedule: schedule,
+  );
 
   @override
   Future<void> archiveGroup({

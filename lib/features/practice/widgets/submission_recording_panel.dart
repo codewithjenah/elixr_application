@@ -55,7 +55,10 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
   }
 
   Future<void> _ensureSubmittedClip() async {
-    if (controller.phase != SubmissionRecordingPhase.submitted) return;
+    if (controller.phase != SubmissionRecordingPhase.submitted &&
+        controller.phase != SubmissionRecordingPhase.attached) {
+      return;
+    }
     if (controller.submittedPlayback != null) return;
     if (_loadingSubmittedClip) return;
     final attempt = controller.latestSubmission;
@@ -142,6 +145,16 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
             child: const Text('Cancel'),
           ),
         ];
+      case SubmissionRecordingPhase.countdown:
+        return [
+          Text(
+            'Get ready — recording starts in '
+            '${controller.recordingCountdownSeconds}…',
+            style: AppTheme.body,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const ProgressRing(),
+        ];
       case SubmissionRecordingPhase.recording:
         final remaining =
             AssignmentSubmissionLimits.maxDurationSeconds -
@@ -173,7 +186,7 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           const SizedBox(height: AppSpacing.sm),
           FilledButton(
             onPressed: busy ? null : () => _confirmSubmit(context),
-            child: const Text('Submit to Teacher'),
+            child: const Text('Use this recording'),
           ),
           const SizedBox(height: AppSpacing.xs),
           Button(
@@ -189,7 +202,23 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
         return const [
           Center(child: ProgressRing()),
           SizedBox(height: AppSpacing.sm),
-          Text('Uploading submission…'),
+          Text('Saving recording…'),
+        ];
+      case SubmissionRecordingPhase.attached:
+        return [
+          Text(
+            'Recording attached. Turn it in from the assignment page when you are ready.',
+            style: AppTheme.body,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(height: 180, child: _submittedVideo()),
+          const SizedBox(height: AppSpacing.sm),
+          Button(
+            onPressed: () => context.go(
+              AppRoutePaths.assignmentDetail(controller.assignment.id),
+            ),
+            child: const Text('Open assignment'),
+          ),
         ];
       case SubmissionRecordingPhase.submitted:
         return [
@@ -226,10 +255,10 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => ContentDialog(
-        title: const Text('Submit this clip?'),
+        title: const Text('Use this recording?'),
         content: const Text(
-          'The assigning Teacher will be able to play this assignment clip. '
-          'It is not public and does not award XP.',
+          'This saves a private recording to Your work. It will not be sent '
+          'to your Teacher until you choose Turn in on the assignment page.',
         ),
         actions: [
           Button(
@@ -240,14 +269,14 @@ class _SubmissionRecordingPanelState extends State<SubmissionRecordingPanel> {
           FilledButton(
             onPressed: () =>
                 Navigator.of(context, rootNavigator: true).pop(true),
-            child: const Text('Submit to Teacher'),
+            child: const Text('Use recording'),
           ),
         ],
       ),
     );
     if (confirmed == true) {
       await _previewPlayback.release();
-      await controller.submitToTeacher();
+      await controller.saveDraft();
     }
   }
 

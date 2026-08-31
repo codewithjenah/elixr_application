@@ -327,6 +327,76 @@ class _YourWork extends StatelessWidget {
             openLocalPlayback: controller.openLocalPlayback,
             releaseLocalPlayback: controller.releaseLocalPlayback,
           ),
+        if (assignment.isTeacherCreated &&
+            current?.hasAttachedDraftClip == true) ...[
+          const SizedBox(height: AppSpacing.md),
+          if (controller.turnInErrorMessage != null)
+            InfoBar(
+              title: const Text('Could not turn in recording'),
+              content: Text(controller.turnInErrorMessage!),
+              severity: InfoBarSeverity.error,
+              onClose: () {},
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Recording attached. Your Teacher cannot see it until you turn it in.',
+            style: AppTheme.bodySecondary.copyWith(
+              color: context.elixTextSecondary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              children: [
+                FilledButton(
+                  onPressed: controller.turnInBusy
+                      ? null
+                      : () => _confirmTurnIn(
+                          context,
+                          controller,
+                          assignment,
+                          current!,
+                        ),
+                  child: controller.turnInBusy
+                      ? const ProgressRing()
+                      : const Text('Turn in'),
+                ),
+                Button(
+                  onPressed: controller.draftRemovalBusy
+                      ? null
+                      : () => controller.removeAttachedDraft(),
+                  child: Text(
+                    controller.draftRemovalBusy
+                        ? 'Removing…'
+                        : 'Remove recording',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (assignment.isTeacherCreated &&
+            current?.isDraftClipRemovalPending == true) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            controller.draftRemovalErrorMessage ??
+                'Removing the attached recording…',
+            style: AppTheme.bodySecondary.copyWith(
+              color: controller.draftRemovalErrorMessage == null
+                  ? context.elixTextSecondary
+                  : AppColors.error,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Button(
+            onPressed: controller.draftRemovalBusy
+                ? null
+                : controller.removeAttachedDraft,
+            child: const Text('Retry removal'),
+          ),
+        ],
         if (!assignment.isTeacherCreated && controller.attempts.length > 1) ...[
           const SizedBox(height: AppSpacing.lg),
           Text('Attempt history', style: AppTheme.headingMedium),
@@ -448,6 +518,38 @@ Future<void> _confirmUnsubmit(
     ),
   );
   if (confirmed == true) await controller.unsubmit();
+}
+
+Future<void> _confirmTurnIn(
+  BuildContext context,
+  AssignmentDetailController controller,
+  GroupAssignment assignment,
+  AssignmentAttempt attempt,
+) async {
+  final duration = attempt.videoDurationMs == null
+      ? 'Recording attached'
+      : 'Recording duration ${formatSubmissionDurationMs(attempt.videoDurationMs!)}';
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Turn in your work?'),
+      content: Text(
+        '${assignment.displayTitle}\n$duration\n\n'
+        'This recording will be submitted to ${assignment.teacherDisplayName} for checking.',
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Turn in'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) await controller.turnIn();
 }
 
 class _AttemptHistoryRow extends StatelessWidget {

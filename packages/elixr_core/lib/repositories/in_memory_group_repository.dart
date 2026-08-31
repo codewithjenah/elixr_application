@@ -134,6 +134,19 @@ class InMemoryGroupRepository implements GroupRepository {
     required String teacherId,
     required String teacherDisplayName,
     required String name,
+  }) => createGroupWithDetails(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    name: name,
+  );
+
+  @override
+  Future<ElixrGroup> createGroupWithDetails({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+    String? section,
+    String? schedule,
   }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) {
@@ -149,6 +162,8 @@ class InMemoryGroupRepository implements GroupRepository {
       teacherId: teacherId,
       name: trimmed,
       status: ElixrGroupStatus.active,
+      section: _normalizeOptional(section, ElixrGroup.maxSectionLength),
+      schedule: _normalizeOptional(schedule, ElixrGroup.maxScheduleLength),
       createdAt: timestamp,
       updatedAt: timestamp,
     );
@@ -192,8 +207,55 @@ class InMemoryGroupRepository implements GroupRepository {
         'Group name is required.',
       );
     }
-    groups[groupId] = group.copyWith(name: trimmed, updatedAt: now);
+    await updateGroupDetails(
+      groupId: groupId,
+      teacherId: teacherId,
+      name: trimmed,
+      section: group.section,
+      schedule: group.schedule,
+    );
+  }
+
+  @override
+  Future<void> updateGroupDetails({
+    required String groupId,
+    required String teacherId,
+    required String name,
+    String? section,
+    String? schedule,
+  }) async {
+    final group = groups[groupId];
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const GroupException(
+        GroupError.forbidden,
+        'Group name is required.',
+      );
+    }
+    groups[groupId] = group.copyWith(
+      name: trimmed,
+      section: _normalizeOptional(section, ElixrGroup.maxSectionLength),
+      schedule: _normalizeOptional(schedule, ElixrGroup.maxScheduleLength),
+      clearSection: section == null || section.trim().isEmpty,
+      clearSchedule: schedule == null || schedule.trim().isEmpty,
+      updatedAt: now,
+    );
     _emitGroups();
+  }
+
+  static String? _normalizeOptional(String? value, int maxLength) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    if (trimmed.length > maxLength) {
+      throw const GroupException(
+        GroupError.forbidden,
+        'Class detail is too long.',
+      );
+    }
+    return trimmed;
   }
 
   @override

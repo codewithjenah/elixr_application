@@ -61,6 +61,26 @@ class FirebaseClassroomAssignmentRepository
     DateTime? dueAt,
     String? displayInstructions,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
+  }) => createOfficialAssignmentWithTopic(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    group: group,
+    officialMovementName: officialMovementName,
+    dueAt: dueAt,
+    displayInstructions: displayInstructions,
+    audience: audience,
+  );
+
+  @override
+  Future<GroupAssignment> createOfficialAssignmentWithTopic({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required String officialMovementName,
+    DateTime? dueAt,
+    String? displayInstructions,
+    String? topic,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
     await _ensureAudienceTargetsAreApprovedMembers(
@@ -75,6 +95,7 @@ class FirebaseClassroomAssignmentRepository
       officialMovementName: officialMovementName,
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
+      topic: topic,
       audience: audience,
       createdAt: DateTime.now().toUtc(),
       updatedAt: DateTime.now().toUtc(),
@@ -92,6 +113,28 @@ class FirebaseClassroomAssignmentRepository
     int maxScore = 100,
     DateTime? dueAt,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
+  }) => createTeacherCreatedAssignmentWithTopic(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    group: group,
+    movement: movement,
+    revision: revision,
+    maxScore: maxScore,
+    dueAt: dueAt,
+    audience: audience,
+  );
+
+  @override
+  Future<GroupAssignment> createTeacherCreatedAssignmentWithTopic({
+    required String teacherId,
+    required String teacherDisplayName,
+    required ElixrGroup group,
+    required TeacherMovement movement,
+    required TeacherMovementRevision revision,
+    int maxScore = 100,
+    DateTime? dueAt,
+    String? topic,
+    AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
     await _ensureAudienceTargetsAreApprovedMembers(
@@ -107,6 +150,7 @@ class FirebaseClassroomAssignmentRepository
       revision: revision,
       maxScore: maxScore,
       dueAt: dueAt,
+      topic: topic,
       audience: audience,
       createdAt: DateTime.now().toUtc(),
       updatedAt: DateTime.now().toUtc(),
@@ -155,6 +199,7 @@ class FirebaseClassroomAssignmentRepository
     required String assignmentId,
     DateTime? dueAt,
     int? maxScore,
+    String? topic,
   }) async {
     if (maxScore != null) ensureTeacherAssignmentMaxScore(maxScore);
     final current = await getAssignment(assignmentId: assignmentId);
@@ -185,6 +230,9 @@ class FirebaseClassroomAssignmentRepository
 
     final update = <String, Object>{
       'due_at': dueAt ?? FieldValue.delete(),
+      'topic': topic?.trim().isNotEmpty == true
+          ? topic!.trim()
+          : FieldValue.delete(),
       'updated_at': FieldValue.serverTimestamp(),
     };
     if (maxScore != null) {
@@ -197,6 +245,8 @@ class FirebaseClassroomAssignmentRepository
       dueAt: dueAt,
       clearDueAt: dueAt == null,
       maxScore: maxScore,
+      topic: topic,
+      clearTopic: topic == null || topic.trim().isEmpty,
       gradingLocked: maxScore == null ? null : false,
       clearGradingLockedAt: maxScore != null,
     );
@@ -608,6 +658,119 @@ class FirebaseClassroomAssignmentRepository
   }
 
   @override
+  Future<AssignmentAttempt> saveTeacherReviewDraftClip({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required String videoStoragePath,
+    required String videoContentType,
+    required int videoSizeBytes,
+    required int videoDurationMs,
+    required DateTime savedAt,
+  }) async {
+    if (attempt.traineeId != traineeId ||
+        !attempt.isCanonicalTeacherReviewSubmission ||
+        attempt.status != AssignmentAttemptStatus.inProgress ||
+        attempt.hasAttachedDraftClip) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    ensureLocalTeacherReviewDraftVideo(
+      attempt: attempt,
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+    );
+    try {
+      await _attempts.doc(attempt.id).update({
+        'video_storage_path': videoStoragePath,
+        'video_content_type': videoContentType,
+        'video_size_bytes': videoSizeBytes,
+        'video_duration_ms': videoDurationMs,
+        'draft_saved_at': FieldValue.serverTimestamp(),
+        'deletion_failed': FieldValue.delete(),
+      });
+    } on FirebaseException catch (error) {
+      emitPhase6SubmissionDiagnostic(
+        stage: Phase6SubmissionStage.firestoreSubmit,
+        error: error,
+      );
+      rethrow;
+    }
+    return attempt.copyWith(
+      videoStoragePath: videoStoragePath,
+      videoContentType: videoContentType,
+      videoSizeBytes: videoSizeBytes,
+      videoDurationMs: videoDurationMs,
+      draftSavedAt: savedAt,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> turnInTeacherReviewSubmission({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    required DateTime submittedAt,
+    required DateTime videoExpiresAt,
+  }) async {
+    if (attempt.traineeId != traineeId || !attempt.hasAttachedDraftClip) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    final assignment = await getAssignment(assignmentId: attempt.assignmentId);
+    if (assignment == null ||
+        !isTeacherAssignmentSubmissionOpen(assignment: assignment)) {
+      throw const ClassroomException(ClassroomError.deadlinePassed);
+    }
+    await _attempts.doc(attempt.id).update({
+      'status': AssignmentAttemptStatus.submitted.wireValue,
+      'submitted_at': FieldValue.serverTimestamp(),
+      'video_expires_at': Timestamp.fromDate(videoExpiresAt.toUtc()),
+      'draft_saved_at': FieldValue.delete(),
+    });
+    return attempt.copyWith(
+      status: AssignmentAttemptStatus.submitted,
+      submittedAt: submittedAt,
+      videoExpiresAt: videoExpiresAt,
+      clearDraftSavedAt: true,
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> beginTeacherReviewDraftClipRemoval({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+    DateTime? startedAt,
+  }) async {
+    if (attempt.traineeId != traineeId || !attempt.hasAttachedDraftClip) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _attempts.doc(attempt.id).update({
+      'draft_cleanup_started_at': FieldValue.serverTimestamp(),
+    });
+    return attempt.copyWith(
+      draftCleanupStartedAt: startedAt ?? DateTime.now().toUtc(),
+    );
+  }
+
+  @override
+  Future<AssignmentAttempt> completeTeacherReviewDraftClipRemoval({
+    required String traineeId,
+    required AssignmentAttempt attempt,
+  }) async {
+    if (attempt.traineeId != traineeId || !attempt.isDraftClipRemovalPending) {
+      throw const ClassroomException(ClassroomError.invalidState);
+    }
+    await _attempts.doc(attempt.id).update({
+      'video_storage_path': FieldValue.delete(),
+      'video_content_type': FieldValue.delete(),
+      'video_size_bytes': FieldValue.delete(),
+      'video_duration_ms': FieldValue.delete(),
+      'draft_saved_at': FieldValue.delete(),
+      'draft_cleanup_started_at': FieldValue.delete(),
+    });
+    return attempt.copyWith(clearVideoMetadata: true);
+  }
+
+  @override
   Future<AssignmentAttempt> beginTeacherReviewUnsubmit({
     required String traineeId,
     required AssignmentAttempt attempt,
@@ -809,6 +972,7 @@ class FirebaseClassroomAssignmentRepository
       assignmentId: assignmentId,
       dueAt: current.dueAt,
       maxScore: maxScore,
+      topic: current.topic,
     );
   }
 

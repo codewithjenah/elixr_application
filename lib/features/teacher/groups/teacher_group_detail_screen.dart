@@ -44,6 +44,7 @@ class TeacherGroupDetailScreen extends StatefulWidget {
     this.movementRepository,
     this.initialAssignmentId,
     this.initialTraineeId,
+    this.initialTab,
   });
 
   final String groupId;
@@ -53,6 +54,7 @@ class TeacherGroupDetailScreen extends StatefulWidget {
   final TeacherMovementRepository? movementRepository;
   final String? initialAssignmentId;
   final String? initialTraineeId;
+  final String? initialTab;
 
   @override
   State<TeacherGroupDetailScreen> createState() =>
@@ -119,13 +121,16 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
       publicProfileRepository = null;
     }
     if (_ownsController && _owned == null) {
-      _owned = TeacherGroupsController(
-        repository: context.read<GroupRepository>(),
-        teacherId: userId,
-        teacherDisplayName: user.fullName,
-        ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
-        publicProfileRepository: publicProfileRepository,
-      )..startForGroup(widget.groupId);
+      _owned =
+          TeacherGroupsController(
+              repository: context.read<GroupRepository>(),
+              teacherId: userId,
+              teacherDisplayName: user.fullName,
+              ensureTeacherAuthorization: auth.ensureTeacherAuthorizationFresh,
+              publicProfileRepository: publicProfileRepository,
+            )
+            ..setTab(_teacherTabFromQuery(widget.initialTab))
+            ..startForGroup(widget.groupId);
     }
     if (_ownsClassworkController && _ownedClasswork == null) {
       final assignments = context.read<ClassroomAssignmentRepository>();
@@ -247,7 +252,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               backButton,
-              const SizedBox(height: AppSpacing.md),
+              const SizedBox(height: AppSpacing.sm),
               if (assignment == null)
                 _GroupDetailBody(
                   controller: controller,
@@ -291,6 +296,14 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
   }
 }
 
+TeacherGroupDetailTab _teacherTabFromQuery(String? value) {
+  return switch (value?.trim().toLowerCase()) {
+    'classwork' => TeacherGroupDetailTab.classwork,
+    'people' => TeacherGroupDetailTab.students,
+    _ => TeacherGroupDetailTab.announcements,
+  };
+}
+
 class _GroupDetailBody extends StatelessWidget {
   const _GroupDetailBody({
     required this.controller,
@@ -330,18 +343,30 @@ class _GroupDetailBody extends StatelessWidget {
 
     final group = controller.selectedGroup!;
     final invite = controller.activeInvite;
+    final showStreamContext =
+        controller.tab == TeacherGroupDetailTab.announcements;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TraineeClassHeroBanner(
-          groupId: group.id,
-          title: group.name,
-          subtitle: group.isActive ? 'Active' : 'Archived',
-          subtitleIcon: group.isActive
-              ? FluentIcons.completed
-              : FluentIcons.archive,
-        ),
-        const SizedBox(height: AppSpacing.lg),
+        if (showStreamContext) ...[
+          TraineeClassHeroBanner(
+            groupId: group.id,
+            title: group.name,
+            subtitle: () {
+              final classMetadata = [group.section, group.schedule]
+                  .whereType<String>()
+                  .where((value) => value.isNotEmpty)
+                  .join(' · ');
+              if (!group.isActive) return 'Archived';
+              return classMetadata.isEmpty ? 'Active' : classMetadata;
+            }(),
+            height: 128,
+            subtitleIcon: group.isActive
+                ? FluentIcons.completed
+                : FluentIcons.archive,
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
         if (controller.errorMessage != null) ...[
           ElixStatusPanel(message: controller.errorMessage!, isError: true),
           const SizedBox(height: AppSpacing.md),
@@ -350,86 +375,87 @@ class _GroupDetailBody extends StatelessWidget {
           ElixStatusPanel(message: controller.actionMessage!),
           const SizedBox(height: AppSpacing.md),
         ],
-        ElixPanelCard(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  Button(
-                    onPressed: controller.busy
-                        ? null
-                        : () => _showRenameDialog(context, controller, group),
-                    child: const Text('Rename'),
-                  ),
-                  Button(
-                    onPressed: controller.busy || !group.isActive
-                        ? null
-                        : () => _confirmArchive(context, controller),
-                    child: const Text('Archive'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Join code for this class',
-                style: AppTheme.headingMedium.copyWith(
-                  fontSize: 16,
-                  color: context.elixTextPrimary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (invite == null)
-                Text(
-                  'No join code yet.',
-                  style: AppTheme.bodySecondary.copyWith(
-                    color: context.elixTextSecondary,
-                  ),
-                )
-              else ...[
-                SelectableText(
-                  invite.displayCode,
-                  key: const Key('teacher_group_invite_code'),
-                  style: AppTheme.headingMedium.copyWith(
-                    color: context.elixTextPrimary,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
+        if (showStreamContext)
+          ElixPanelCard(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Wrap(
                   spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
                   children: [
-                    Button(
-                      key: const Key('teacher_group_copy_code'),
-                      onPressed: () async {
-                        await Clipboard.setData(
-                          ClipboardData(text: invite.displayCode),
-                        );
-                      },
-                      child: const Text('Copy code'),
-                    ),
                     Button(
                       onPressed: controller.busy
                           ? null
-                          : () => _confirmRotateInvite(context, controller),
-                      child: const Text('Make a new code'),
+                          : () => _showRenameDialog(context, controller, group),
+                      child: const Text('Rename'),
+                    ),
+                    Button(
+                      onPressed: controller.busy || !group.isActive
+                          ? null
+                          : () => _confirmArchive(context, controller),
+                      child: const Text('Archive'),
                     ),
                   ],
                 ),
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'Join code for this class',
+                  style: AppTheme.headingMedium.copyWith(
+                    fontSize: 16,
+                    color: context.elixTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                if (invite == null)
+                  Text(
+                    'No join code yet.',
+                    style: AppTheme.bodySecondary.copyWith(
+                      color: context.elixTextSecondary,
+                    ),
+                  )
+                else ...[
+                  SelectableText(
+                    invite.displayCode,
+                    key: const Key('teacher_group_invite_code'),
+                    style: AppTheme.headingMedium.copyWith(
+                      color: context.elixTextPrimary,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    children: [
+                      Button(
+                        key: const Key('teacher_group_copy_code'),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: invite.displayCode),
+                          );
+                        },
+                        child: const Text('Copy code'),
+                      ),
+                      Button(
+                        onPressed: controller.busy
+                            ? null
+                            : () => _confirmRotateInvite(context, controller),
+                        child: const Text('Make a new code'),
+                      ),
+                    ],
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
+        if (showStreamContext) const SizedBox(height: AppSpacing.md),
         _GroupDetailTabBar(
           key: const Key('teacher_group_detail_tabs'),
           selectedTab: controller.tab,
           onChanged: controller.setTab,
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.md),
         if (controller.tab == TeacherGroupDetailTab.classwork)
           TeacherClassworkAssignmentList(
             key: const Key('teacher_group_assignments_section'),
@@ -470,8 +496,18 @@ class _GroupDetailBody extends StatelessWidget {
               : ClassroomAnnouncementsPane(
                   controller: announcementsController!,
                   teacherDisplayName: controller.teacherDisplayName,
+                  teacherProfilePictureUrl: _tryRead<AuthService>(
+                    context,
+                  )?.currentUser?.profilePictureUrl,
                   canManage: true,
                   groupIsActive: group.isActive,
+                  assignments: classworkController.assignments,
+                  onOpenAssignment: (assignment) => context.go(
+                    AppRoutePaths.teacherGroupClasswork(
+                      group.id,
+                      assignment.id,
+                    ),
+                  ),
                 )
         else
           _StudentsSection(controller: controller),
@@ -498,7 +534,7 @@ class _GroupDetailTabBar extends StatelessWidget {
       children: [
         _GroupDetailTab(
           key: const Key('teacher_group_tab_announcements'),
-          label: 'Announcements',
+          label: 'Stream',
           icon: FluentIcons.megaphone,
           selected: selectedTab == TeacherGroupDetailTab.announcements,
           onPressed: () => onChanged(TeacherGroupDetailTab.announcements),
@@ -512,7 +548,7 @@ class _GroupDetailTabBar extends StatelessWidget {
         ),
         _GroupDetailTab(
           key: const Key('teacher_group_tab_students'),
-          label: 'Students',
+          label: 'People',
           icon: FluentIcons.people,
           selected: selectedTab == TeacherGroupDetailTab.students,
           onPressed: () => onChanged(TeacherGroupDetailTab.students),
@@ -552,7 +588,7 @@ class _GroupDetailTab extends StatelessWidget {
           return AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             curve: Curves.easeOut,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
               color: selected
                   ? (highContrast ? AppColors.primary : null)
@@ -993,6 +1029,13 @@ Future<void> _showEditAssignmentDialog(
   TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
+  final currentAssignment =
+      await controller.assignmentRepository.getAssignment(
+        assignmentId: assignment.id,
+      ) ??
+      assignment;
+  if (!context.mounted) return;
+  assignment = currentAssignment;
   final initialScore = assignment.maxScore?.toString() ?? '';
   final scoreController = TextEditingController(text: initialScore);
   var dueAt = assignment.dueAt;
@@ -1163,7 +1206,15 @@ Future<void> _showRenameDialog(
     context: context,
     builder: (context) => ContentDialog(
       title: const Text('Rename classroom'),
-      content: TextBox(controller: nameController, autofocus: true),
+      content: SizedBox(
+        width: 420,
+        height: 44,
+        child: TextBox(
+          controller: nameController,
+          autofocus: true,
+          maxLines: 1,
+        ),
+      ),
       actions: [
         Button(
           child: const Text('Cancel'),

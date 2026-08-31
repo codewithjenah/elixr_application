@@ -86,7 +86,7 @@ class _RecordingSubmissionRepository
   AssignmentAttempt? playbackAttempt;
 
   @override
-  Future<AssignmentAttempt> submitCanonicalLocalClip({
+  Future<AssignmentAttempt> saveCanonicalLocalClipDraft({
     required String traineeId,
     required GroupAssignment assignment,
     required SubmissionRecordResult clip,
@@ -180,6 +180,7 @@ void main() {
       submissions: submissions,
       assignment: _assignment,
       traineeId: 'trainee-1',
+      recordingCountdown: Duration.zero,
     );
     addTearDown(controller.dispose);
     return controller;
@@ -312,11 +313,11 @@ void main() {
       await controller.refreshLatestSubmission();
       expect(controller.latestSubmission, same(stale));
 
-      await controller.submitToTeacher();
+      await controller.saveDraft();
 
       expect(controller.latestSubmission, same(submitted));
       expect(controller.latestSubmission!.hasPlayableVideo, isTrue);
-      expect(controller.phase, SubmissionRecordingPhase.submitted);
+      expect(controller.phase, SubmissionRecordingPhase.attached);
       expect(submissions.playbackAttempt, same(submitted));
     },
   );
@@ -343,7 +344,7 @@ void main() {
       controller.clip = SubmissionRecordResult.fromAck(_acceptedStop());
       controller.phase = SubmissionRecordingPhase.preview;
 
-      await controller.submitToTeacher();
+      await controller.saveDraft();
 
       expect(controller.phase, SubmissionRecordingPhase.failed);
       expect(controller.latestSubmission, same(stale));

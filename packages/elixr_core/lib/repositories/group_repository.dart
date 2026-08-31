@@ -18,6 +18,18 @@ abstract class GroupRepository {
     required String name,
   });
 
+  Future<ElixrGroup> createGroupWithDetails({
+    required String teacherId,
+    required String teacherDisplayName,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => createGroup(
+    teacherId: teacherId,
+    teacherDisplayName: teacherDisplayName,
+    name: name,
+  );
+
   Stream<List<ElixrGroup>> watchTeacherGroups({required String teacherId});
 
   Future<ElixrGroup?> getGroup({required String groupId});
@@ -27,6 +39,14 @@ abstract class GroupRepository {
     required String teacherId,
     required String name,
   });
+
+  Future<void> updateGroupDetails({
+    required String groupId,
+    required String teacherId,
+    required String name,
+    String? section,
+    String? schedule,
+  }) => renameGroup(groupId: groupId, teacherId: teacherId, name: name);
 
   Future<void> archiveGroup({
     required String groupId,
