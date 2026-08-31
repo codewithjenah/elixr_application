@@ -301,85 +301,151 @@ class _PeoplePane extends StatelessWidget {
     if (controller.classmatesLoading) {
       return const Center(child: ProgressRing());
     }
-    if (controller.classmates.isEmpty) {
-      return const Align(
-        alignment: Alignment.topCenter,
-        child: ElixStatusPanel(
-          key: Key('teacher_access_class_classmates_empty'),
-          icon: FluentIcons.people,
-          title: 'No classmates yet',
-          message: 'No students in this class yet.',
-        ),
-      );
-    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 860),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _RosterSectionHeader(title: 'Teachers'),
+          _RosterRow(
+            key: const Key('teacher_access_class_teacher_row'),
+            avatarKey: Key(
+              'teacher_access_class_teacher_avatar_${controller.groupId}',
+            ),
+            initials: userInitials(controller.teacherDisplayName),
+            name: controller.teacherDisplayName,
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _RosterSectionHeader(
+            title: 'Classmates',
+            trailing:
+                '${controller.classmates.length} '
+                '${controller.classmates.length == 1 ? 'classmate' : 'classmates'}',
+          ),
+          if (controller.classmates.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+              child: ElixStatusPanel(
+                key: Key('teacher_access_class_classmates_empty'),
+                icon: FluentIcons.people,
+                title: 'No classmates yet',
+                message: 'No students in this class yet.',
+              ),
+            )
+          else
+            for (final member in controller.classmates)
+              _RosterRow(
+                key: Key(
+                  'teacher_access_classmate_row_'
+                  '${controller.groupId}_${member.traineeId}',
+                ),
+                avatarKey: Key(
+                  'teacher_access_classmate_avatar_'
+                  '${controller.groupId}_${member.traineeId}',
+                ),
+                initials: userInitials(member.traineeDisplayName),
+                networkImageUrl: controller.profilePictureUrlFor(
+                  member.traineeId,
+                ),
+                name: member.traineeId == controller.traineeId
+                    ? '${member.traineeDisplayName} (you)'
+                    : member.traineeDisplayName,
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RosterSectionHeader extends StatelessWidget {
+  const _RosterSectionHeader({required this.title, this.trailing});
+
+  final String title;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (var index = 0; index < controller.classmates.length; index++) ...[
-          if (index > 0) const SizedBox(height: AppSpacing.sm),
-          Builder(
-            builder: (context) {
-              final member = controller.classmates[index];
-              final isYou = member.traineeId == controller.traineeId;
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: context.elixCardSurface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isYou
-                        ? AppColors.primary.withValues(
-                            alpha: context.isHighContrast ? 1 : 0.35,
-                          )
-                        : context.elixBorder.withValues(alpha: 0.7),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              style: AppTheme.headingMedium.copyWith(
+                color: context.elixTextPrimary,
+              ),
+            ),
+            if (trailing != null)
+              Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.sm),
+                child: Text(
+                  trailing!,
+                  style: AppTheme.body.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                child: Row(
-                  children: [
-                    ProfileAvatarWidget(
-                      key: Key(
-                        'teacher_access_classmate_avatar_'
-                        '${controller.groupId}_${member.traineeId}',
-                      ),
-                      radius: 18,
-                      showBorder: false,
-                      initials: userInitials(member.traineeDisplayName),
-                      networkImageUrl: controller.profilePictureUrlFor(
-                        member.traineeId,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isYou
-                                ? '${member.traineeDisplayName} (you)'
-                                : member.traineeDisplayName,
-                            style: AppTheme.body.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: context.elixTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isYou ? 'You are in this class' : 'In this class',
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Divider(
+          style: DividerThemeData(
+            decoration: BoxDecoration(color: context.elixBorder),
+            horizontalMargin: EdgeInsets.zero,
+            verticalMargin: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RosterRow extends StatelessWidget {
+  const _RosterRow({
+    super.key,
+    required this.avatarKey,
+    required this.initials,
+    required this.name,
+    this.networkImageUrl,
+  });
+
+  final Key avatarKey;
+  final String initials;
+  final String name;
+  final String? networkImageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: context.elixBorder)),
+      ),
+      child: Row(
+        children: [
+          ProfileAvatarWidget(
+            key: avatarKey,
+            radius: 18,
+            showBorder: false,
+            initials: initials,
+            networkImageUrl: networkImageUrl,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              name,
+              style: AppTheme.body.copyWith(
+                color: context.elixTextPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
-      ],
+      ),
     );
   }
 }

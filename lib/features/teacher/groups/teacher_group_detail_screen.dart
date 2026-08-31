@@ -615,59 +615,208 @@ class _StudentsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 860),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _TeacherRosterHeader(title: 'Teachers'),
+          _TeacherRosterRow(
+            avatarKey: Key(
+              'teacher_group_teacher_avatar_${controller.selectedGroup!.id}',
+            ),
+            initials: userInitials(controller.teacherDisplayName),
+            name: controller.teacherDisplayName,
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          _TeacherRosterHeader(
+            key: const Key('teacher_group_members_section'),
+            title: 'Students',
+            trailing:
+                '${controller.approvedMemberships.length} '
+                '${controller.approvedMemberships.length == 1 ? 'student' : 'students'}',
+          ),
+          if (controller.approvedMemberships.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+              child: Text('No students in this class yet.'),
+            )
+          else
+            for (final membership in controller.approvedMemberships)
+              _TeacherRosterRow(
+                key: Key('teacher_group_member_open_${membership.id}'),
+                avatarKey: Key('teacher_group_member_avatar_${membership.id}'),
+                initials: userInitials(membership.traineeDisplayName),
+                networkImageUrl: controller.profilePictureUrlFor(
+                  membership.traineeId,
+                ),
+                name: membership.traineeDisplayName,
+                onPressed: () => context.go(
+                  AppRoutePaths.teacherStudentDetail(
+                    membership.traineeId,
+                    groupId: controller.selectedGroup!.id,
+                  ),
+                ),
+                trailing: Button(
+                  key: Key('teacher_group_remove_${membership.id}'),
+                  onPressed: controller.busy
+                      ? null
+                      : () => _confirmRemoveMember(
+                          context,
+                          controller,
+                          membership,
+                        ),
+                  child: const Text('Remove from class'),
+                ),
+              ),
+          const SizedBox(height: AppSpacing.xl),
+          _MembershipSection(
+            key: const Key('teacher_group_pending_section'),
+            title: 'Waiting to join',
+            emptyMessage: 'No one is waiting to join this class.',
+            memberships: controller.pendingMemberships,
+            profilePictureUrlFor: controller.profilePictureUrlFor,
+            builder: (membership) => Wrap(
+              spacing: AppSpacing.sm,
+              children: [
+                ElixPrimaryButton(
+                  key: Key('teacher_group_approve_${membership.id}'),
+                  label: 'Approve',
+                  expanded: false,
+                  isLoading: controller.busy,
+                  onPressed: controller.busy
+                      ? null
+                      : () => controller.approveMembership(membership),
+                ),
+                Button(
+                  key: Key('teacher_group_reject_${membership.id}'),
+                  onPressed: controller.busy
+                      ? null
+                      : () => controller.rejectMembership(membership),
+                  child: const Text('Reject'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TeacherRosterHeader extends StatelessWidget {
+  const _TeacherRosterHeader({super.key, required this.title, this.trailing});
+
+  final String title;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _MembershipSection(
-          key: const Key('teacher_group_pending_section'),
-          title: 'Waiting to join',
-          emptyMessage: 'No one is waiting to join this class.',
-          memberships: controller.pendingMemberships,
-          profilePictureUrlFor: controller.profilePictureUrlFor,
-          builder: (membership) => Wrap(
-            spacing: AppSpacing.sm,
-            children: [
-              ElixPrimaryButton(
-                key: Key('teacher_group_approve_${membership.id}'),
-                label: 'Approve',
-                expanded: false,
-                isLoading: controller.busy,
-                onPressed: controller.busy
-                    ? null
-                    : () => controller.approveMembership(membership),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              style: AppTheme.headingMedium.copyWith(
+                color: context.elixTextPrimary,
               ),
-              Button(
-                key: Key('teacher_group_reject_${membership.id}'),
-                onPressed: controller.busy
-                    ? null
-                    : () => controller.rejectMembership(membership),
-                child: const Text('Reject'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _MembershipSection(
-          key: const Key('teacher_group_members_section'),
-          title: 'Students in this class',
-          emptyMessage: 'No students in this class yet.',
-          memberships: controller.approvedMemberships,
-          profilePictureUrlFor: controller.profilePictureUrlFor,
-          onOpenIdentity: (membership) => context.go(
-            AppRoutePaths.teacherStudentDetail(
-              membership.traineeId,
-              groupId: controller.selectedGroup!.id,
             ),
-          ),
-          builder: (membership) => Button(
-            key: Key('teacher_group_remove_${membership.id}'),
-            onPressed: controller.busy
-                ? null
-                : () => _confirmRemoveMember(context, controller, membership),
-            child: const Text('Remove from class'),
+            if (trailing != null)
+              Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.sm),
+                child: Text(
+                  trailing!,
+                  style: AppTheme.body.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Divider(
+          style: DividerThemeData(
+            decoration: BoxDecoration(color: context.elixBorder),
+            horizontalMargin: EdgeInsets.zero,
+            verticalMargin: EdgeInsets.zero,
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TeacherRosterRow extends StatelessWidget {
+  const _TeacherRosterRow({
+    super.key,
+    required this.avatarKey,
+    required this.initials,
+    required this.name,
+    this.networkImageUrl,
+    this.onPressed,
+    this.trailing,
+  });
+
+  final Key avatarKey;
+  final String initials;
+  final String name;
+  final String? networkImageUrl;
+  final VoidCallback? onPressed;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final nameLabel = Text(
+      name,
+      style: AppTheme.body.copyWith(
+        color: context.elixTextPrimary,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      child: Row(
+        children: [
+          ProfileAvatarWidget(
+            key: avatarKey,
+            radius: 18,
+            showBorder: false,
+            initials: initials,
+            networkImageUrl: networkImageUrl,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: onPressed == null
+                ? nameLabel
+                : HoverButton(
+                    cursor: SystemMouseCursors.click,
+                    onPressed: onPressed,
+                    builder: (context, states) => AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 120),
+                      style: AppTheme.body.copyWith(
+                        color: states.isHovered
+                            ? AppColors.primary
+                            : context.elixTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      child: Text(name),
+                    ),
+                  ),
+          ),
+          trailing ?? const SizedBox.shrink(),
+        ],
+      ),
+    );
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: context.elixBorder)),
+      ),
+      child: row,
     );
   }
 }
@@ -680,7 +829,6 @@ class _MembershipSection extends StatelessWidget {
     required this.memberships,
     required this.profilePictureUrlFor,
     required this.builder,
-    this.onOpenIdentity,
   });
 
   final String title;
@@ -688,7 +836,6 @@ class _MembershipSection extends StatelessWidget {
   final List<GroupMembership> memberships;
   final String? Function(String traineeId) profilePictureUrlFor;
   final Widget Function(GroupMembership membership) builder;
-  final ValueChanged<GroupMembership>? onOpenIdentity;
 
   @override
   Widget build(BuildContext context) {
@@ -718,68 +865,46 @@ class _MembershipSection extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
-                    child: Semantics(
-                      button: onOpenIdentity != null,
-                      label: onOpenIdentity == null
-                          ? membership.traineeDisplayName
-                          : 'Open ${membership.traineeDisplayName}',
-                      child: HoverButton(
-                        key: Key('teacher_group_member_open_${membership.id}'),
-                        cursor: onOpenIdentity == null
-                            ? MouseCursor.defer
-                            : SystemMouseCursors.click,
-                        onPressed: onOpenIdentity == null
-                            ? null
-                            : () => onOpenIdentity!(membership),
-                        builder: (context, states) => Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: AppSpacing.xs,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Row(
+                        children: [
+                          ProfileAvatarWidget(
+                            key: Key(
+                              'teacher_group_member_avatar_${membership.id}',
+                            ),
+                            radius: 18,
+                            showBorder: false,
+                            initials: userInitials(
+                              membership.traineeDisplayName,
+                            ),
+                            networkImageUrl: profilePictureUrlFor(
+                              membership.traineeId,
+                            ),
                           ),
-                          child: Row(
-                            children: [
-                              ProfileAvatarWidget(
-                                key: Key(
-                                  'teacher_group_member_avatar_${membership.id}',
-                                ),
-                                radius: 18,
-                                showBorder: false,
-                                initials: userInitials(
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
                                   membership.traineeDisplayName,
+                                  style: AppTheme.body.copyWith(
+                                    color: context.elixTextPrimary,
+                                  ),
                                 ),
-                                networkImageUrl: profilePictureUrlFor(
-                                  membership.traineeId,
+                                Text(
+                                  'Wants to join',
+                                  style: AppTheme.caption.copyWith(
+                                    color: context.elixTextSecondary,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: AppSpacing.md),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      membership.traineeDisplayName,
-                                      style: AppTheme.body.copyWith(
-                                        color: context.elixTextPrimary,
-                                        fontWeight: onOpenIdentity == null
-                                            ? FontWeight.normal
-                                            : FontWeight.w600,
-                                      ),
-                                    ),
-                                    Text(
-                                      membership.isPending
-                                          ? 'Wants to join'
-                                          : 'Open student details',
-                                      style: AppTheme.caption.copyWith(
-                                        color: context.elixTextSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (onOpenIdentity != null)
-                                const Icon(FluentIcons.chevron_right, size: 12),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
                   ),

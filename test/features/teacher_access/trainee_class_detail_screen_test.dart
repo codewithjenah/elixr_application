@@ -279,6 +279,13 @@ void main() {
 
     expect(find.text('Ada Lovelace (you)'), findsOneWidget);
     expect(find.text('Alan Turing'), findsOneWidget);
+    expect(find.text('Teachers'), findsOneWidget);
+    expect(find.text('Classmates'), findsOneWidget);
+    expect(find.text('2 classmates'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_access_class_teacher_row')),
+      findsOneWidget,
+    );
     expect(find.text('BSHM 4B'), findsNothing);
     expect(
       find.byKey(Key('teacher_access_classmate_avatar_${groupA.id}_trainee-2')),
@@ -318,6 +325,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(controller.tab, TraineeClassDetailTab.people);
     expect(find.text('Ada Lovelace (you)'), findsOneWidget);
+    expect(find.text('Classmates'), findsOneWidget);
   });
 
   testWidgets('unauthorized membership shows an error panel', (tester) async {

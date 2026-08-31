@@ -189,6 +189,16 @@ void main() {
 
     expect(find.text('Alan Turing'), findsOneWidget);
     expect(find.text('Ada Lovelace'), findsOneWidget);
+    expect(find.text('Teachers'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_group_members_section')),
+      findsOneWidget,
+    );
+    expect(find.text('1 student'), findsOneWidget);
+    expect(
+      find.byKey(Key('teacher_group_teacher_avatar_${group.id}')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(Key('teacher_group_approve_${pending.id}')),
       findsOneWidget,
@@ -230,7 +240,10 @@ void main() {
       findsNothing,
     );
     expect(find.text('Waiting to join'), findsOneWidget);
-    expect(find.text('Students in this class'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_group_members_section')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('approved student identity opens class-aware student detail', (
