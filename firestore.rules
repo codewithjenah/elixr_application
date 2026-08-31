@@ -2803,6 +2803,9 @@ service cloud.firestore {
     function assignmentPath(assignmentId) {
       return /databases/$(database)/documents/group_assignments/$(assignmentId);
     }
+    function assignmentRecipientPath(assignmentId, traineeId) {
+      return /databases/$(database)/documents/group_assignments/$(assignmentId)/assignment_recipients/$(traineeId);
+    }
     function assignmentAttemptPath(attemptId) {
       return /databases/$(database)/documents/assignment_attempts/$(attemptId);
     }
@@ -2868,7 +2871,7 @@ service cloud.firestore {
         && assignment.group_id == ctx.group_id
         && assignment.movement_id == ctx.movement_id
         && assignment.revision_id == ctx.revision_id
-        && assignmentAllowsTrainee(assignment, request.auth.uid)
+        && assignmentAllowsTrainee(assignment, ctx.assignment_id, request.auth.uid)
         && assignment.official_movement_name == data.movement_name
         && membership.group_id == ctx.group_id
         && membership.trainee_id == request.auth.uid
@@ -3044,81 +3047,85 @@ service cloud.firestore {
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
         'grading_locked', 'grading_locked_at', 'audience_type',
-        'target_trainee_ids',
       ]);
-    }
-    function hasAssignmentAudienceFields(data) {
-      return data.keys().hasAll(['audience_type', 'target_trainee_ids']);
     }
     function isLegacyEntireClassAssignment(data) {
       return !data.keys().hasAny(['audience_type', 'target_trainee_ids']);
     }
-    function validAssignmentTarget(data, index) {
-      let traineeId = data.target_trainee_ids[index];
-      let membership = get(
-        groupMembershipPath(data.group_id, traineeId)
-      ).data;
-      return isClassroomDocId(traineeId)
-        && membership.group_id == data.group_id
-        && membership.teacher_id == data.teacher_id
-        && membership.trainee_id == traineeId
-        && membership.status == 'approved';
-    }
-    function validAssignmentTargetId(data, index) {
-      return isClassroomDocId(data.target_trainee_ids[index]);
-    }
-    function validAssignmentTargetIds(data) {
-      let size = data.target_trainee_ids.size();
-      return (size < 1 || validAssignmentTargetId(data, 0))
-        && (size < 2 || validAssignmentTargetId(data, 1))
-        && (size < 3 || validAssignmentTargetId(data, 2))
-        && (size < 4 || validAssignmentTargetId(data, 3))
-        && (size < 5 || validAssignmentTargetId(data, 4));
-    }
-    function validAssignmentTargets(data) {
-      let size = data.target_trainee_ids.size();
-      return (size < 1 || validAssignmentTarget(data, 0))
-        && (size < 2 || validAssignmentTarget(data, 1))
-        && (size < 3 || validAssignmentTarget(data, 2))
-        && (size < 4 || validAssignmentTarget(data, 3))
-        && (size < 5 || validAssignmentTarget(data, 4));
-    }
     function validAssignmentAudienceShape(data) {
-      return hasAssignmentAudienceFields(data)
-        && data.audience_type in [
-          'entire_class', 'selected_students', 'individual_student'
-        ]
-        && data.target_trainee_ids is list
-        && data.target_trainee_ids.size() <= 5
-        && data.target_trainee_ids.toSet().size()
-          == data.target_trainee_ids.size()
-        && validAssignmentTargetIds(data)
-        && (
-          data.audience_type == 'entire_class'
-            ? data.target_trainee_ids.size() == 0
-            : data.audience_type == 'individual_student'
-              ? data.target_trainee_ids.size() == 1
-                && isClassroomDocId(data.target_trainee_ids[0])
-              : data.target_trainee_ids.size() >= 1
-        );
+      return data.keys().hasAll(['audience_type'])
+        && !data.keys().hasAny(['target_trainee_ids'])
+        && data.audience_type in ['entire_class', 'selected_students', 'individual_student'];
     }
     function validAssignmentAudienceCreate(data) {
+      // Targeted projections are created atomically by the Admin Function.
+      // Direct client creation remains only for compatibility whole-class work.
       return validAssignmentAudienceShape(data)
-        && validAssignmentTargets(data);
+        && data.audience_type == 'entire_class';
     }
-    function assignmentAllowsTrainee(data, traineeId) {
+    function validAssignmentRecipient(data, assignmentId, traineeId) {
+      return data.keys().hasAll([
+          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+          'audience_type', 'schema_version', 'created_at'
+        ])
+        && data.keys().hasOnly([
+          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+          'audience_type', 'schema_version', 'created_at'
+        ])
+        && data.assignment_id == assignmentId
+        && data.trainee_id == traineeId
+        && isClassroomDocId(assignmentId)
+        && isClassroomDocId(data.group_id)
+        && isClassroomDocId(data.teacher_id)
+        && isClassroomDocId(traineeId)
+        && data.audience_type in ['selected_students', 'individual_student']
+        && data.schema_version == 1
+        && data.created_at is timestamp;
+    }
+    function assignmentRecipientMatches(data, assignmentId, traineeId) {
+      // Recipient rows are server-owned (the client create/update rules below
+      // are closed). Keep this authorization hot path to immutable identity
+      // fields so an atomic session + pointer write stays under the Rules
+      // expression budget; direct recipient reads still use the full shape
+      // validator above.
+      let recipient = get(assignmentRecipientPath(assignmentId, traineeId)).data;
+      return recipient.keys().hasAll([
+          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+          'audience_type', 'schema_version', 'created_at'
+        ])
+        && recipient.keys().hasOnly([
+          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
+          'audience_type', 'schema_version', 'created_at'
+        ])
+        && isClassroomDocId(assignmentId)
+        && isClassroomDocId(traineeId)
+        && isClassroomDocId(recipient.group_id)
+        && isClassroomDocId(recipient.teacher_id)
+        && recipient.assignment_id == assignmentId
+        && recipient.trainee_id == traineeId
+        && recipient.group_id == data.group_id
+        && recipient.teacher_id == data.teacher_id
+        && recipient.audience_type == data.audience_type
+        && recipient.audience_type in ['selected_students', 'individual_student']
+        && recipient.schema_version == 1
+        && recipient.created_at is timestamp;
+    }
+    function assignmentAllowsTrainee(data, assignmentId, traineeId) {
       return isLegacyEntireClassAssignment(data)
         || (
           validAssignmentAudienceShape(data)
           && (
             data.audience_type == 'entire_class'
-            || traineeId in data.target_trainee_ids
+            || (
+              exists(assignmentRecipientPath(assignmentId, traineeId))
+              && assignmentRecipientMatches(data, assignmentId, traineeId)
+            )
           )
         );
     }
-    function traineeCanAccessAssignment(data, traineeId) {
+    function traineeCanAccessAssignment(data, assignmentId, traineeId) {
       let membership = get(groupMembershipPath(data.group_id, traineeId)).data;
-      return assignmentAllowsTrainee(data, traineeId)
+      return assignmentAllowsTrainee(data, assignmentId, traineeId)
         && hasApprovedTraineeMembership(data.group_id, traineeId)
         && membership.teacher_id == data.teacher_id;
     }
@@ -3234,8 +3241,7 @@ service cloud.firestore {
           == resource.data.get('display_safety_guidance', '__elixr_absent__')
         && request.resource.data.get('audience_type', '__elixr_absent__')
           == resource.data.get('audience_type', '__elixr_absent__')
-        && request.resource.data.get('target_trainee_ids', [])
-          == resource.data.get('target_trainee_ids', [])
+        && !request.resource.data.keys().hasAny(['target_trainee_ids'])
         && request.resource.data.status in ['active', 'archived']
         && request.resource.data.updated_at == request.time
         && (
@@ -3282,7 +3288,7 @@ service cloud.firestore {
       allow get: if isSignedIn()
         && (
           resource.data.teacher_id == request.auth.uid
-          || traineeCanAccessAssignment(resource.data, request.auth.uid)
+          || traineeCanAccessAssignment(resource.data, assignmentId, request.auth.uid)
         );
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
       allow create: if validGroupAssignmentCreate(request.resource.data);
@@ -3294,6 +3300,58 @@ service cloud.firestore {
             && isVerifiedTeacher())
           || !exists(userPath(request.auth.uid))
         );
+
+      match /assignment_recipients/{traineeId} {
+        // A Teacher query is constrained by teacher_id and does not perform a
+        // parent get per row. The client revalidates every row before use.
+        allow get: if isSignedIn()
+          && resource.data.teacher_id == request.auth.uid
+          && validAssignmentRecipient(resource.data, assignmentId, traineeId);
+        // Collection-group queries must be provable from their query
+        // constraint alone. The teacher query is constrained by teacher_id;
+        // the client validates the immutable row shape and parent identity.
+        allow list: if isSignedIn()
+          && resource.data.teacher_id == request.auth.uid;
+        // A Trainee can direct-read only their own relationship; querying or
+        // enumerating projections is denied so classmates' UIDs stay private.
+        allow get: if isSignedIn()
+          && traineeId == request.auth.uid
+          && validAssignmentRecipient(resource.data, assignmentId, traineeId)
+          && exists(assignmentPath(assignmentId))
+          && traineeCanAccessAssignment(
+            get(assignmentPath(assignmentId)).data, assignmentId, traineeId
+          );
+        // After users/{uid} is removed, account erasure may query/delete just
+        // this caller's recipient rows without parent-document access calls.
+        allow list: if isSignedIn()
+          && !exists(userPath(request.auth.uid))
+          && resource.data.trainee_id == request.auth.uid;
+        allow list: if isSignedIn()
+          && !exists(userPath(request.auth.uid))
+          && resource.data.teacher_id == request.auth.uid;
+        allow delete: if isSignedIn()
+          && !exists(userPath(request.auth.uid))
+          && (
+            (traineeId == request.auth.uid && resource.data.trainee_id == request.auth.uid)
+            || resource.data.teacher_id == request.auth.uid
+          );
+        allow create, update: if false;
+      }
+    }
+
+    // Collection-group queries need a recursive match because their parent
+    // path is not fixed at query planning time. Keep the query predicates
+    // narrow; direct reads remain governed by the deterministic nested match
+    // above.
+    match /{anyPath=**}/assignment_recipients/{traineeId} {
+      allow list: if isSignedIn()
+        && resource.data.teacher_id == request.auth.uid;
+      allow list: if isSignedIn()
+        && !exists(userPath(request.auth.uid))
+        && resource.data.trainee_id == request.auth.uid;
+      allow list: if isSignedIn()
+        && !exists(userPath(request.auth.uid))
+        && resource.data.teacher_id == request.auth.uid;
     }
 
     function assignmentAttemptIdentityKeys() {
@@ -3373,13 +3431,13 @@ service cloud.firestore {
         && assignment.revision_id == data.revision_id
         && assignment.origin == data.origin
         && assignment.assessment_mode == data.assessment_mode
-        && assignmentAllowsTrainee(assignment, data.trainee_id)
+        && assignmentAllowsTrainee(assignment, data.assignment_id, data.trainee_id)
         && assignment.status == 'active';
     }
     function assignmentSubmissionIsOpen(data) {
       let assignment = get(assignmentPath(data.assignment_id)).data;
       return assignment.status == 'active'
-        && traineeCanAccessAssignment(assignment, data.trainee_id)
+        && traineeCanAccessAssignment(assignment, data.assignment_id, data.trainee_id)
         && (
           !assignment.keys().hasAny(['due_at'])
           || request.time <= assignment.due_at

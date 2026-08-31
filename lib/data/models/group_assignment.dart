@@ -21,9 +21,9 @@ enum GroupAssignmentStatus {
 
 /// Persistent audience for a classroom assignment.
 ///
-/// The wire values are part of the assignment document contract. New writes
-/// always include both `audience_type` and `target_trainee_ids`; documents
-/// from before this contract are interpreted as [entireClass].
+/// New canonical writes include only `audience_type`. Target identities live
+/// in the private `assignment_recipients` projection; pre-audience documents
+/// remain classroom-wide for compatibility.
 enum AssignmentAudienceType {
   entireClass('entire_class'),
   selectedStudents('selected_students'),
@@ -42,11 +42,6 @@ enum AssignmentAudienceType {
 }
 
 class AssignmentAudience {
-  // Firestore validates each target membership on create. Teacher-created
-  // assignments also read the user, group, movement, and revision, leaving
-  // room for at most five target reads under the 10-document rule limit.
-  static const maxTargetTrainees = 5;
-
   const AssignmentAudience.entireClass()
     : type = AssignmentAudienceType.entireClass,
       targetTraineeIds = const [];
@@ -57,15 +52,21 @@ class AssignmentAudience {
   AssignmentAudience.individualStudent(Iterable<String> targetTraineeIds)
     : this._(AssignmentAudienceType.individualStudent, targetTraineeIds);
 
-  AssignmentAudience._(this.type, Iterable<String> targetTraineeIds)
-    : targetTraineeIds = List.unmodifiable(
-        targetTraineeIds.map(_requireTraineeId),
-      ) {
+  AssignmentAudience._(
+    this.type,
+    Iterable<String> targetTraineeIds, {
+    bool allowUnresolved = false,
+  }) : targetTraineeIds = List.unmodifiable(
+         targetTraineeIds.map(_requireTraineeId),
+       ) {
     final targets = this.targetTraineeIds;
     if (targets.toSet().length != targets.length ||
-        targets.length > maxTargetTrainees ||
-        (type == AssignmentAudienceType.selectedStudents && targets.isEmpty) ||
+        ((type == AssignmentAudienceType.selectedStudents ||
+                type == AssignmentAudienceType.individualStudent) &&
+            targets.isEmpty &&
+            !allowUnresolved) ||
         (type == AssignmentAudienceType.individualStudent &&
+            targets.isNotEmpty &&
             targets.length != 1)) {
       throw ArgumentError.value(
         targetTraineeIds,
@@ -78,47 +79,57 @@ class AssignmentAudience {
   final AssignmentAudienceType type;
   final List<String> targetTraineeIds;
 
+  /// Targeted canonical documents are intentionally unresolved until the
+  /// authorized caller hydrates recipient IDs from the private projection.
+  bool get isResolved => isEntireClass || targetTraineeIds.isNotEmpty;
+
   bool get isEntireClass => type == AssignmentAudienceType.entireClass;
 
   bool isAvailableToTrainee(String traineeId) =>
-      isEntireClass || targetTraineeIds.contains(traineeId.trim());
+      isEntireClass ||
+      (isResolved && targetTraineeIds.contains(traineeId.trim()));
 
-  Map<String, dynamic> toMap() => {
-    'audience_type': type.wireValue,
-    'target_trainee_ids': targetTraineeIds,
-  };
+  Map<String, dynamic> toMap() => {'audience_type': type.wireValue};
 
   static AssignmentAudience? tryFromMap(Map<String, dynamic> map) {
     final hasType = map.containsKey('audience_type');
-    final hasTargets = map.containsKey('target_trainee_ids');
-    if (!hasType && !hasTargets) return const AssignmentAudience.entireClass();
-    if (!hasType || !hasTargets) return null;
+    // Embedded target lists were an undeployed, capped design. Do not revive
+    // them or leak them from a canonical assignment document.
+    if (map.containsKey('target_trainee_ids')) return null;
+    if (!hasType) return const AssignmentAudience.entireClass();
     final type = AssignmentAudienceType.tryParse(
       map['audience_type'] is String ? map['audience_type'] as String : null,
     );
-    final rawTargets = map['target_trainee_ids'];
-    if (type == null || rawTargets is! List) return null;
-    final targets = <String>[];
-    for (final value in rawTargets) {
-      if (value is! String) return null;
-      final normalized = _tryTraineeId(value);
-      if (normalized == null) return null;
-      targets.add(normalized);
-    }
+    if (type == null) return null;
     try {
       return switch (type) {
-        AssignmentAudienceType.entireClass when targets.isEmpty =>
+        AssignmentAudienceType.entireClass =>
           const AssignmentAudience.entireClass(),
-        AssignmentAudienceType.selectedStudents =>
-          AssignmentAudience.selectedStudents(targets),
-        AssignmentAudienceType.individualStudent =>
-          AssignmentAudience.individualStudent(targets),
-        _ => null,
+        AssignmentAudienceType.selectedStudents => AssignmentAudience._(
+          AssignmentAudienceType.selectedStudents,
+          const [],
+          allowUnresolved: true,
+        ),
+        AssignmentAudienceType.individualStudent => AssignmentAudience._(
+          AssignmentAudienceType.individualStudent,
+          const [],
+          allowUnresolved: true,
+        ),
       };
     } on ArgumentError {
       return null;
     }
   }
+
+  AssignmentAudience withRecipientIds(Iterable<String> recipientIds) =>
+      switch (type) {
+        AssignmentAudienceType.entireClass =>
+          const AssignmentAudience.entireClass(),
+        AssignmentAudienceType.selectedStudents =>
+          AssignmentAudience.selectedStudents(recipientIds),
+        AssignmentAudienceType.individualStudent =>
+          AssignmentAudience.individualStudent(recipientIds),
+      };
 
   static String _requireTraineeId(String value) {
     final normalized = _tryTraineeId(value);

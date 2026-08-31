@@ -540,6 +540,39 @@ void main() {
     expect(snapshot.averageScore, isNull);
   });
 
+  test('completion counts only the private targeted recipient set', () {
+    final snapshot = _calculate(
+      window: _customWindow(),
+      groups: [_group()],
+      memberships: [
+        _membership(groupId: 'group-1', traineeId: 'a', name: 'Ada'),
+        _membership(groupId: 'group-1', traineeId: 'b', name: 'Bea'),
+        _membership(groupId: 'group-1', traineeId: 'c', name: 'Cleo'),
+      ],
+      assignments: [
+        _assignment(
+          id: 'targeted',
+          dueAt: DateTime.utc(2026, 8, 12, 17),
+        ).copyWith(
+          audience: AssignmentAudience.selectedStudents(const ['a', 'b']),
+        ),
+      ],
+      attempts: [
+        _attempt(
+          id: 'targeted-a',
+          assignmentId: 'targeted',
+          traineeId: 'a',
+          kind: AssignmentAttemptKind.teacherReviewSubmission,
+          status: AssignmentAttemptStatus.checked,
+        ),
+      ],
+    );
+
+    expect(snapshot.expectedSubmissionCount, 2);
+    expect(snapshot.turnedInSubmissionCount, 1);
+    expect(snapshot.completionRate, closeTo(0.5, 0.0001));
+  });
+
   test(
     'finds most-practiced and hardest movements with deterministic ties',
     () {

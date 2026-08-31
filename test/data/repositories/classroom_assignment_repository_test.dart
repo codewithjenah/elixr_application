@@ -73,11 +73,26 @@ void main() {
           status: GroupMembershipStatus.approved,
         ),
       );
+      for (var index = 0; index < 12; index++) {
+        final traineeId = 'trainee-$index';
+        groups.seedMembership(
+          GroupMembership(
+            id: GroupMembership.documentId(groupId: 'g1', traineeId: traineeId),
+            groupId: 'g1',
+            teacherId: 'teacher-1',
+            traineeId: traineeId,
+            traineeDisplayName: 'Trainee $index',
+            teacherDisplayName: 'Grace Hopper',
+            status: GroupMembershipStatus.approved,
+          ),
+        );
+      }
       assignments.dispose();
+      var targetedId = 0;
       assignments = InMemoryClassroomAssignmentRepository(
         groupRepository: groups,
         now: () => DateTime.utc(2026, 8, 20),
-        generateId: () => 'targeted',
+        generateId: () => 'targeted-${++targetedId}',
       );
 
       final assignment = await assignments.createOfficialAssignment(
@@ -92,6 +107,16 @@ void main() {
         assignment.audience.type,
         AssignmentAudienceType.individualStudent,
       );
+      final broad = await assignments.createOfficialAssignment(
+        teacherId: 'teacher-1',
+        teacherDisplayName: 'Grace Hopper',
+        group: _group(),
+        officialMovementName: 'Hand Stall',
+        audience: AssignmentAudience.selectedStudents([
+          for (var index = 0; index < 12; index++) 'trainee-$index',
+        ]),
+      );
+      expect(broad.audience.targetTraineeIds, hasLength(12));
       expect(
         await assignments.fetchAssignmentsForTrainee(traineeId: 'trainee-a'),
         [assignment],

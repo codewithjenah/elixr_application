@@ -9,6 +9,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -136,12 +137,7 @@ function officialAssignmentDoc(
     teacher_display_name: 'Grace Hopper',
     group_name: 'BSHM 4A',
     official_movement_name: name,
-    ...(legacy
-      ? {}
-      : {
-          audience_type: audienceType,
-          target_trainee_ids: targetTraineeIds,
-        }),
+    ...(legacy ? {} : { audience_type: audienceType }),
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   };
@@ -243,6 +239,18 @@ async function seedClassroom({ secondAssignment = true } = {}) {
   });
 }
 
+function assignmentRecipientDoc(assignmentId, traineeId, audienceType) {
+  return {
+    assignment_id: assignmentId,
+    group_id: GROUP_ID,
+    teacher_id: 'teacher',
+    trainee_id: traineeId,
+    audience_type: audienceType,
+    schema_version: 1,
+    created_at: Timestamp.now(),
+  };
+}
+
 async function seedApprovedOtherTrainee() {
   await seedBypassingRules(async (admin) => {
     await setDoc(doc(admin, 'group_memberships', `${GROUP_ID}_otherTrainee`), {
@@ -272,11 +280,21 @@ describe('Phase 5 official assignment session+pointer contract', () => {
         }),
       );
       await setDoc(
+        doc(admin, 'group_assignments', 'asgTargetTrainee',
+          'assignment_recipients', 'trainee'),
+        assignmentRecipientDoc('asgTargetTrainee', 'trainee', 'individual_student'),
+      );
+      await setDoc(
         doc(admin, 'group_assignments', 'asgTargetOther'),
         officialAssignmentDoc(ASG_A, {
           audienceType: 'individual_student',
           targetTraineeIds: ['otherTrainee'],
         }),
+      );
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgTargetOther',
+          'assignment_recipients', 'otherTrainee'),
+        assignmentRecipientDoc('asgTargetOther', 'otherTrainee', 'individual_student'),
       );
       await setDoc(
         doc(admin, 'group_assignments', 'asgLegacy'),
@@ -301,6 +319,26 @@ describe('Phase 5 official assignment session+pointer contract', () => {
     await assertSucceeds(
       getDoc(doc(context('teacher').firestore(), 'group_assignments', 'asgTargetOther')),
     );
+    await assertSucceeds(
+      getDoc(doc(traineeDb, 'group_assignments', 'asgTargetTrainee',
+        'assignment_recipients', 'trainee')),
+    );
+    await assertFails(
+      getDoc(doc(traineeDb, 'group_assignments', 'asgTargetOther',
+        'assignment_recipients', 'otherTrainee')),
+    );
+    await assertFails(
+      getDocs(query(
+        collectionGroup(traineeDb, 'assignment_recipients'),
+        where('trainee_id', '==', 'trainee'),
+      )),
+    );
+    await assertSucceeds(
+      getDocs(query(
+        collectionGroup(context('teacher').firestore(), 'assignment_recipients'),
+        where('teacher_id', '==', 'teacher'),
+      )),
+    );
     await assertFails(
       getDocs(query(
         collection(traineeDb, 'group_assignments'),
@@ -318,6 +356,11 @@ describe('Phase 5 official assignment session+pointer contract', () => {
           audienceType: 'individual_student',
           targetTraineeIds: ['otherTrainee'],
         }),
+      );
+      await setDoc(
+        doc(admin, 'group_assignments', ASG_A,
+          'assignment_recipients', 'otherTrainee'),
+        assignmentRecipientDoc(ASG_A, 'otherTrainee', 'individual_student'),
       );
     });
     const db = context('trainee').firestore();
@@ -339,6 +382,35 @@ describe('Phase 5 official assignment session+pointer contract', () => {
     await assertSucceeds(
       setDoc(doc(db, 'sessions', 'ordinary1'), v2Session()),
     );
+  });
+
+  test('targeted trainee can create the assigned official session and pointer', async () => {
+    await seedClassroom({secondAssignment: false});
+    await seedBypassingRules(async (admin) => {
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgTargetTrainee'),
+        officialAssignmentDoc(ASG_A, {
+          audienceType: 'individual_student',
+        }),
+      );
+      await setDoc(
+        doc(admin, 'group_assignments', 'asgTargetTrainee',
+          'assignment_recipients', 'trainee'),
+        assignmentRecipientDoc('asgTargetTrainee', 'trainee', 'individual_student'),
+      );
+    });
+    const db = context('trainee').firestore();
+    const sessionId = 'sessA';
+    const batch = writeBatch(db);
+    batch.set(
+      doc(db, 'sessions', sessionId),
+      v2Session({context: assignmentContext('asgTargetTrainee')}),
+    );
+    batch.set(
+      doc(db, 'assignment_attempts', `official_ptr_${sessionId}`),
+      officialPointer({sessionId, assignmentId: 'asgTargetTrainee'}),
+    );
+    await assertSucceeds(batch.commit());
   });
 
   test('valid atomic assigned official session + pointer succeeds', async () => {
@@ -623,7 +695,6 @@ describe('Phase 5 teacher movements and attempts', () => {
         display_instructions: 'Hold the tin upright.',
         allowed_prop: 'bottle',
         audience_type: 'entire_class',
-        target_trainee_ids: [],
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       }),
@@ -836,7 +907,6 @@ function teacherCreatedAssignmentDoc({
       : { display_safety_guidance: displaySafetyGuidance }),
     allowed_prop: allowedProp,
     audience_type: audienceType,
-    target_trainee_ids: targetTraineeIds,
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   };
@@ -908,7 +978,8 @@ describe('Phase 5 integrity: Teacher movement edits require new revisions', () =
       },
     );
 
-    await assertSucceeds(create('asgSelected', {
+    await assertSucceeds(create('asgEntire', {audienceType: 'entire_class'}));
+    await assertFails(create('asgSelected', {
       audienceType: 'selected_students',
       targetTraineeIds: ['trainee', 'otherTrainee'],
     }));
@@ -1384,7 +1455,6 @@ describe('Phase 5 integrity: template_scored writes remain closed', () => {
         display_instructions: 'Hold the tin upright.',
         allowed_prop: 'bottle',
         audience_type: 'entire_class',
-        target_trainee_ids: [],
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       }),

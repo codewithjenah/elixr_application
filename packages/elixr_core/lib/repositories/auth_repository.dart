@@ -550,6 +550,30 @@ Future<void> purgePhase5ClassroomOwnedDataForAccountErasure({
   await commitDeletes(refs.values.toList());
 }
 
+/// Recipient projections are private authorization data. They are removed
+/// after the profile document is gone because their rules intentionally allow
+/// only this narrow self-erasure path at that point.
+@visibleForTesting
+Future<void> purgeAssignmentRecipientsForAccountErasure({
+  required FirebaseFirestore firestore,
+  required Future<void> Function(List<DocumentReference>) commitDeletes,
+  required String uid,
+}) async {
+  final refs = <String, DocumentReference>{};
+  final asTrainee = await firestore
+      .collectionGroup(FirestoreCollections.assignmentRecipients)
+      .where('trainee_id', isEqualTo: uid)
+      .get();
+  final asTeacher = await firestore
+      .collectionGroup(FirestoreCollections.assignmentRecipients)
+      .where('teacher_id', isEqualTo: uid)
+      .get();
+  for (final doc in [...asTrainee.docs, ...asTeacher.docs]) {
+    refs[doc.reference.path] = doc.reference;
+  }
+  await commitDeletes(refs.values.toList());
+}
+
 /// Canonical assignment-submission object path from frozen attempt identity.
 ///
 /// Used during account erasure when `video_storage_path` was never written
@@ -2181,6 +2205,14 @@ class AuthRepository
       return _commitDeletes([
         _firestore.collection(FirestoreCollections.users).doc(uid),
       ]);
+    });
+
+    await _runPurgeStage('assignment recipient projection purge', () {
+      return purgeAssignmentRecipientsForAccountErasure(
+        firestore: _firestore,
+        commitDeletes: _commitDeletes,
+        uid: uid,
+      );
     });
 
     // Rules permit this cleanup only after the caller's own user document has

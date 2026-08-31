@@ -185,13 +185,26 @@ async function seedClassroom({
       allowed_prop: 'bottle',
       ...(audienceType == null
         ? {}
-        : {
-            audience_type: audienceType,
-            target_trainee_ids: targetTraineeIds,
-          }),
+        : { audience_type: audienceType }),
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
     });
+    if (audienceType && audienceType !== 'entire_class') {
+      for (const traineeId of targetTraineeIds) {
+        await setDoc(
+          doc(admin, 'group_assignments', ASG, 'assignment_recipients', traineeId),
+          {
+            assignment_id: ASG,
+            group_id: GROUP_ID,
+            teacher_id: 'teacher',
+            trainee_id: traineeId,
+            audience_type: audienceType,
+            schema_version: 1,
+            created_at: Timestamp.now(),
+          },
+        );
+      }
+    }
   });
 }
 
@@ -275,6 +288,28 @@ describe('Phase 6 teacher_review_submission', () => {
         doc(context('trainee').firestore(), 'assignment_attempts', CANONICAL_ATTEMPT),
         canonicalInProgressDoc(),
       ),
+    );
+  });
+
+  test('targeted trainee can create and submit a teacher-reviewed assignment', async () => {
+    await seedClassroom({
+      audienceType: 'individual_student',
+      targetTraineeIds: ['trainee'],
+    });
+    const db = context('trainee').firestore();
+    await assertSucceeds(
+      setDoc(doc(db, 'assignment_attempts', ATTEMPT), draftDoc()),
+    );
+    await assertSucceeds(
+      updateDoc(doc(db, 'assignment_attempts', ATTEMPT), {
+        status: 'submitted',
+        video_storage_path: PATH,
+        video_content_type: 'video/mp4',
+        video_size_bytes: 2048,
+        video_duration_ms: 4000,
+        submitted_at: serverTimestamp(),
+        video_expires_at: expiryUnreviewed(),
+      }),
     );
   });
 

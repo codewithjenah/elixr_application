@@ -90,9 +90,16 @@ class InMemoryClassroomAssignmentRepository
       createdAt: created,
       updatedAt: created,
     );
-    final assignment =
-        GroupAssignment.tryFromMap(payload, id: id) ??
-        (throw const ClassroomException(ClassroomError.malformed));
+    final parsed = GroupAssignment.tryFromMap(payload, id: id);
+    if (parsed == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final assignment = parsed.copyWith(
+      // In-memory storage models the private recipient projection by keeping
+      // the authorized IDs alongside the canonical value. Firestore uses the
+      // nested projection instead and hydrates it at read time.
+      audience: parsed.audience.withRecipientIds(audience.targetTraineeIds),
+    );
     assignments[id] = assignment;
     _emitTeacher(teacherId);
     return assignment;
@@ -131,9 +138,13 @@ class InMemoryClassroomAssignmentRepository
       createdAt: created,
       updatedAt: created,
     );
-    final assignment =
-        GroupAssignment.tryFromMap(payload, id: id) ??
-        (throw const ClassroomException(ClassroomError.malformed));
+    final parsed = GroupAssignment.tryFromMap(payload, id: id);
+    if (parsed == null) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    final assignment = parsed.copyWith(
+      audience: parsed.audience.withRecipientIds(audience.targetTraineeIds),
+    );
     assignments[id] = assignment;
     _emitTeacher(teacherId);
     return assignment;

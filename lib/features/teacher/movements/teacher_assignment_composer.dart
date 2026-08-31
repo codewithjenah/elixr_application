@@ -347,9 +347,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   bool get _hasValidAudience => switch (_audienceType) {
     AssignmentAudienceType.entireClass => _targetTraineeIds.isEmpty,
-    AssignmentAudienceType.selectedStudents =>
-      _targetTraineeIds.isNotEmpty &&
-          _targetTraineeIds.length <= AssignmentAudience.maxTargetTrainees,
+    AssignmentAudienceType.selectedStudents => _targetTraineeIds.isNotEmpty,
     AssignmentAudienceType.individualStudent => _targetTraineeIds.length == 1,
   };
 
@@ -1205,17 +1203,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                   },
                 ),
         ),
-        if (_audienceType == AssignmentAudienceType.selectedStudents &&
-            _targetTraineeIds.length >= AssignmentAudience.maxTargetTrainees)
-          Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.xs),
-            child: Text(
-              'You can select up to ${AssignmentAudience.maxTargetTrainees} trainees per targeted assignment.',
-              style: AppTheme.caption.copyWith(
-                color: context.elixTextSecondary,
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -1227,8 +1214,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         _targetTraineeIds = {traineeId};
       } else if (_targetTraineeIds.contains(traineeId)) {
         _targetTraineeIds = {..._targetTraineeIds}..remove(traineeId);
-      } else if (_targetTraineeIds.length <
-          AssignmentAudience.maxTargetTrainees) {
+      } else {
         _targetTraineeIds = {..._targetTraineeIds, traineeId};
       }
       _validationError = null;

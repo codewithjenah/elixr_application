@@ -5,6 +5,7 @@ const {
   archivedConversationId,
   assignmentAudienceAllows,
   assignmentJsonValue,
+  createClassroomAssignmentHandler,
   authenticatedUid,
   buildArchivedConversationData,
   buildSearchPrefixes,
@@ -48,7 +49,7 @@ function fakeResponse() {
   };
 }
 
-function fakeAssignmentDatabase({memberships, assignments}) {
+function fakeAssignmentDatabase({memberships, assignments, recipients = []}) {
   const assignmentQueries = [];
   const docs = (values) => values.map((value) => ({
     id: value.id,
@@ -58,6 +59,16 @@ function fakeAssignmentDatabase({memberships, assignments}) {
     assignmentQueries,
     collection(name) {
       return {
+        doc(id) {
+          const item = assignments.find((assignment) => assignment.id === id);
+          return {
+            get: async () => ({
+              exists: Boolean(item),
+              id,
+              data: () => item?.data,
+            }),
+          };
+        },
         where(field, operator, value) {
           assert.equal(field, name === 'group_memberships'
             ? 'trainee_id'
@@ -85,7 +96,88 @@ function fakeAssignmentDatabase({memberships, assignments}) {
         },
       };
     },
+    collectionGroup(name) {
+      assert.equal(name, 'assignment_recipients');
+      return {
+        where(field, operator, value) {
+          assert.equal(field, 'trainee_id');
+          assert.equal(operator, '==');
+          return {
+            get: async () => ({docs: recipients.filter(
+              (item) => item.data.trainee_id === value,
+            ).map((item) => ({
+              id: item.traineeId,
+              data: () => item.data,
+              ref: {
+                path: `group_assignments/${item.assignmentId}/assignment_recipients/${item.traineeId}`,
+                parent: {
+                  id: 'assignment_recipients',
+                  parent: {id: item.assignmentId},
+                },
+              },
+            }))}),
+          };
+        },
+      };
+    },
   };
+}
+
+function fakeCreationDatabase({recipientIds}) {
+  const writes = [];
+  const values = new Map([
+    ['users/teacher', {
+      full_name: 'Grace Hopper', role: 'Teacher', lifecycle_state: 'active',
+    }],
+    ['groups/g1', {teacher_id: 'teacher', name: 'BSHM 4A', status: 'active'}],
+    ...recipientIds.map((id) => [
+      `group_memberships/g1_${id}`,
+      {
+        group_id: 'g1', teacher_id: 'teacher', trainee_id: id,
+        status: 'approved',
+      },
+    ]),
+  ]);
+  const makeRef = (path, id) => ({
+    path,
+    id,
+    parent: {id: path.split('/').at(-2)},
+    collection(name) {
+      return {
+        doc(childId) {
+          return makeRef(`${path}/${name}/${childId}`, childId);
+        },
+      };
+    },
+  });
+  const database = {
+    collection(name) {
+      return {
+        doc(id) {
+          const resolved = id || 'assignment-created';
+          return makeRef(`${name}/${resolved}`, resolved);
+        },
+      };
+    },
+    async runTransaction(callback) {
+      const transaction = {
+        async get(ref) {
+          const data = values.get(ref.path);
+          return {
+            exists: Boolean(data),
+            get: (field) => data?.[field],
+            data: () => data,
+          };
+        },
+        create(ref, data) {
+          writes.push({path: ref.path, data});
+        },
+      };
+      return callback(transaction);
+    },
+    writes,
+  };
+  return database;
 }
 
 test('normalizes diacritics and whitespace for private directory search', () => {
@@ -155,42 +247,62 @@ test('missing bearer authentication is rejected before token verification', asyn
   assert.equal(await authenticatedUid({get: () => ''}), null);
 });
 
-test('assignment audience filtering preserves legacy and isolates targets', () => {
+test('assignment audience filtering preserves legacy and recipient privacy', () => {
   assert.equal(assignmentAudienceAllows({}, 'trainee-a'), true);
   assert.equal(assignmentAudienceAllows({
     audience_type: 'entire_class',
-    target_trainee_ids: [],
   }, 'trainee-a'), true);
   assert.equal(assignmentAudienceAllows({
-    audience_type: 'selected_students',
-    target_trainee_ids: ['trainee-a', 'trainee-b'],
-  }, 'trainee-a'), true);
+    audience_type: 'selected_students', group_id: 'g1', teacher_id: 'teacher-a',
+  }, 'trainee-a', {
+    assignment_id: 'assignment-1', group_id: 'g1', teacher_id: 'teacher-a',
+    trainee_id: 'trainee-a', audience_type: 'selected_students', schema_version: 1,
+    created_at: {toDate: () => new Date('2026-08-31T00:00:00.000Z')},
+  }, 'assignment-1'), true);
   assert.equal(assignmentAudienceAllows({
-    audience_type: 'selected_students',
-    target_trainee_ids: ['trainee-b'],
+    audience_type: 'selected_students', group_id: 'g1', teacher_id: 'teacher-a',
   }, 'trainee-a'), false);
   assert.equal(assignmentAudienceAllows({
-    audience_type: 'individual_student',
-    target_trainee_ids: ['trainee-a', 'trainee-b'],
+    audience_type: 'selected_students', target_trainee_ids: ['trainee-a'],
   }, 'trainee-a'), false);
-  assert.equal(assignmentAudienceAllows({
-    audience_type: 'entire_class',
-  }, 'trainee-a'), false);
-  assert.equal(assignmentAudienceAllows({
-    audience_type: 'selected_students',
-    target_trainee_ids: ['trainee-a', 'trainee-a'],
-  }, 'trainee-a'), false);
-  assert.equal(assignmentAudienceAllows({
-    audience_type: 'selected_students',
-    target_trainee_ids: [
-      'trainee-a', 'trainee-b', 'trainee-c',
-      'trainee-d', 'trainee-e', 'trainee-f',
-    ],
-  }, 'trainee-a'), false);
-  assert.equal(assignmentAudienceAllows({
-    audience_type: 'individual_student',
-    target_trainee_ids: ['not a valid id'],
-  }, 'not a valid id'), false);
+});
+
+test('assignment creation accepts an uncapped targeted subset atomically', async () => {
+  const recipientIds = Array.from({length: 12}, (_, index) => `trainee-${index}`);
+  const database = fakeCreationDatabase({recipientIds});
+  const response = fakeResponse();
+  await createClassroomAssignmentHandler(
+    {
+      method: 'POST',
+      body: {
+        group_id: 'g1',
+        audience_type: 'selected_students',
+        recipient_ids: recipientIds,
+        origin: 'official_elixr',
+        official_movement_name: 'Hand Stall',
+      },
+      get: () => '',
+    },
+    response,
+    {
+      verifyToken: async () => ({uid: 'teacher', email_verified: true}),
+      databaseFactory: () => database,
+    },
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body.recipient_ids, recipientIds);
+  assert.equal(database.writes.length, recipientIds.length + 1);
+  const assignmentWrite = database.writes.find((write) =>
+    write.path === 'group_assignments/assignment-created');
+  assert.ok(assignmentWrite);
+  assert.equal('target_trainee_ids' in assignmentWrite.data, false);
+  assert.equal(assignmentWrite.data.audience_type, 'selected_students');
+  assert.equal(
+    database.writes.filter((write) =>
+      write.path.includes('/assignment_recipients/')).length,
+    recipientIds.length,
+  );
 });
 
 test('assignment JSON timestamps are converted recursively', () => {
@@ -238,7 +350,6 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
           group_id: 'g1',
           teacher_id: 'teacher-a',
           audience_type: 'selected_students',
-          target_trainee_ids: ['trainee-a', 'trainee-b'],
         },
       },
       {
@@ -247,7 +358,6 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
           group_id: 'g1',
           teacher_id: 'teacher-a',
           audience_type: 'individual_student',
-          target_trainee_ids: ['trainee-b'],
         },
       },
       {
@@ -260,9 +370,15 @@ test('trainee assignment handler authenticates, scopes, and filters', async () =
           group_id: 'g1',
           teacher_id: 'teacher-a',
           audience_type: 'selected_students',
-          target_trainee_ids: ['trainee-a', 'trainee-a'],
         },
       },
+    ],
+    recipients: [
+      {assignmentId: 'selected', traineeId: 'trainee-a', data: {
+        assignment_id: 'selected', group_id: 'g1', teacher_id: 'teacher-a',
+        trainee_id: 'trainee-a', audience_type: 'selected_students', schema_version: 1,
+        created_at: timestamp,
+      }},
     ],
   });
   const response = fakeResponse();
@@ -325,7 +441,6 @@ test('trainee assignment handler chunks classroom queries at thirty', async () =
       group_id: membership.data.group_id,
       teacher_id: 'teacher-a',
       audience_type: 'entire_class',
-      target_trainee_ids: [],
     },
   }));
   const database = fakeAssignmentDatabase({memberships, assignments});

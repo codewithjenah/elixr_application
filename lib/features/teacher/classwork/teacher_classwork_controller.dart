@@ -392,10 +392,16 @@ class TeacherClassworkController extends ChangeNotifier {
         return 'Entire class';
       case AssignmentAudienceType.selectedStudents:
         final count = assignment.audience.targetTraineeIds.length;
-        return count == 1 ? '1 student' : '$count students';
+        return count == 0
+            ? 'Selected students (unavailable)'
+            : count == 1
+            ? '1 student'
+            : '$count students';
       case AssignmentAudienceType.individualStudent:
-        final target = assignment.audience.targetTraineeIds.single;
-        return 'Individual: ${traineeName(target)}';
+        final targets = assignment.audience.targetTraineeIds;
+        return targets.length == 1
+            ? 'Individual: ${traineeName(targets.single)}'
+            : 'Individual student (unavailable)';
     }
   }
 

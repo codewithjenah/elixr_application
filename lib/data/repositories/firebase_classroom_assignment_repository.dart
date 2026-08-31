@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:elixr_core/database/firestore_collections.dart';
 import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
+import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import '../models/assessment_mode.dart';
 import '../models/assignment_attempt.dart';
@@ -75,17 +76,10 @@ class FirebaseClassroomAssignmentRepository
       displayInstructions: displayInstructions ?? '',
       dueAt: dueAt,
       audience: audience,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: DateTime.now().toUtc(),
+      updatedAt: DateTime.now().toUtc(),
     );
-    final ref = _assignments.doc();
-    await ref.set(payload);
-    final parsed = Map<String, dynamic>.from(payload)
-      ..['created_at'] = DateTime.now().toUtc()
-      ..['updated_at'] = DateTime.now().toUtc();
-    if (dueAt != null) parsed['due_at'] = dueAt;
-    return GroupAssignment.tryFromMap(parsed, id: ref.id) ??
-        (throw const ClassroomException(ClassroomError.malformed));
+    return _createThroughFunction(payload: payload, audience: audience);
   }
 
   @override
@@ -105,7 +99,7 @@ class FirebaseClassroomAssignmentRepository
       group: group,
       audience: audience,
     );
-    var persistedPayload = teacherCreatedAssignmentPayload(
+    final persistedPayload = teacherCreatedAssignmentPayload(
       teacherId: teacherId,
       teacherDisplayName: teacherDisplayName,
       group: group,
@@ -114,40 +108,13 @@ class FirebaseClassroomAssignmentRepository
       maxScore: maxScore,
       dueAt: dueAt,
       audience: audience,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: DateTime.now().toUtc(),
+      updatedAt: DateTime.now().toUtc(),
     );
-    final ref = _assignments.doc();
-    try {
-      await ref.set(persistedPayload);
-    } on FirebaseException catch (error) {
-      // Older deployments predate the optional grading fields. A default
-      // score is already the compatibility value exposed by GroupAssignment,
-      // so retry only that safe default without the newer fields. Non-default
-      // scores still fail loudly until the matching rules are deployed.
-      if (!_isFirestorePermissionDenied(error) || maxScore != 100) rethrow;
-      persistedPayload = teacherCreatedAssignmentPayload(
-        teacherId: teacherId,
-        teacherDisplayName: teacherDisplayName,
-        group: group,
-        movement: movement,
-        revision: revision,
-        maxScore: maxScore,
-        dueAt: dueAt,
-        audience: audience,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        includeGradingFields: false,
-      );
-      await ref.set(persistedPayload);
-    }
-    return GroupAssignment.tryFromMap({
-          ...persistedPayload,
-          'created_at': DateTime.now().toUtc(),
-          'updated_at': DateTime.now().toUtc(),
-          'due_at': ?dueAt,
-        }, id: ref.id) ??
-        (throw const ClassroomException(ClassroomError.malformed));
+    return _createThroughFunction(
+      payload: persistedPayload,
+      audience: audience,
+    );
   }
 
   @override
@@ -239,7 +206,27 @@ class FirebaseClassroomAssignmentRepository
   Future<GroupAssignment?> getAssignment({required String assignmentId}) async {
     final snap = await _assignments.doc(assignmentId).get();
     if (!snap.exists || snap.data() == null) return null;
-    return GroupAssignment.tryFromMap(snap.data()!, id: snap.id);
+    final assignment = GroupAssignment.tryFromMap(snap.data()!, id: snap.id);
+    if (assignment == null || assignment.audience.isEntireClass) {
+      return assignment;
+    }
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return null;
+    if (uid == assignment.teacherId) {
+      return _hydrateTeacherAssignments([
+        assignment,
+      ], uid).then((items) => items.isEmpty ? null : items.single);
+    }
+    final recipient = await _assignments
+        .doc(assignmentId)
+        .collection(FirestoreCollections.assignmentRecipients)
+        .doc(uid)
+        .get();
+    return _validRecipient(recipient.data(), assignment, uid)
+        ? assignment.copyWith(
+            audience: assignment.audience.withRecipientIds([uid]),
+          )
+        : null;
   }
 
   @override
@@ -262,13 +249,14 @@ class FirebaseClassroomAssignmentRepository
     return _assignments
         .where('teacher_id', isEqualTo: teacherId)
         .snapshots()
-        .map((snapshot) {
+        .asyncMap((snapshot) async {
           final items = snapshot.docs
               .map((doc) => GroupAssignment.tryFromMap(doc.data(), id: doc.id))
               .whereType<GroupAssignment>()
               .toList();
-          _sortAssignments(items);
-          return items;
+          final hydrated = await _hydrateTeacherAssignments(items, teacherId);
+          _sortAssignments(hydrated);
+          return hydrated;
         });
   }
 
@@ -339,9 +327,14 @@ class FirebaseClassroomAssignmentRepository
         }
         final assignment = GroupAssignment.tryFromMap(map, id: id.trim());
         if (assignment != null &&
-            assignment.isAvailableToTrainee(traineeId) &&
             (groupId == null || assignment.groupId == groupId)) {
-          items.add(assignment);
+          // The Function has already authorized this authenticated recipient;
+          // it deliberately does not serialize any recipient UID list.
+          items.add(
+            assignment.copyWith(
+              audience: assignment.audience.withRecipientIds([traineeId]),
+            ),
+          );
         }
       }
       _sortAssignments(items);
@@ -951,6 +944,176 @@ class FirebaseClassroomAssignmentRepository
           ?GroupMembership.tryFromMap(doc.data(), id: doc.id),
       ],
     );
+  }
+
+  /// Targeted canonical and recipient rows are one server-side transaction.
+  /// The Function derives the teacher from the verified token; local fields
+  /// are retained only as a defensive preflight and are never trusted there.
+  Future<GroupAssignment> _createThroughFunction({
+    required Map<String, dynamic> payload,
+    required AssignmentAudience audience,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null || user.uid != payload['teacher_id']) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final token = await user.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    final requestPayload =
+        <String, dynamic>{
+            ...payload,
+            'recipient_ids': audience.isEntireClass
+                ? const <String>[]
+                : audience.targetTraineeIds,
+          }
+          ..remove('teacher_id')
+          ..remove('teacher_display_name')
+          ..remove('group_name')
+          ..remove('created_at')
+          ..remove('updated_at');
+    final dueAt = requestPayload['due_at'];
+    if (dueAt is DateTime) {
+      requestPayload['due_at'] = dueAt.toUtc().toIso8601String();
+    }
+    final client = _httpClientFactory();
+    try {
+      final request = await client
+          .postUrl(apiBaseUri.resolve('createClassroomAssignment'))
+          .timeout(requestTimeout);
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(requestPayload));
+      final response = await request.close().timeout(requestTimeout);
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        throw const ClassroomException(ClassroomError.forbidden);
+      }
+      if (response.statusCode != HttpStatus.ok) {
+        throw const ClassroomException(ClassroomError.invalidState);
+      }
+      final decoded = jsonDecode(body);
+      final map = decoded is Map<String, dynamic>
+          ? decoded['assignment']
+          : null;
+      if (map is! Map) throw const ClassroomException(ClassroomError.malformed);
+      final assignmentMap = Map<String, dynamic>.from(map);
+      final id = assignmentMap.remove('id');
+      if (id is! String || id.trim().isEmpty) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      final parsed = GroupAssignment.tryFromMap(assignmentMap, id: id.trim());
+      if (parsed == null) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      final responseRecipients = decoded is Map
+          ? decoded['recipient_ids']
+          : null;
+      if (responseRecipients is! List ||
+          responseRecipients.length != audience.targetTraineeIds.length ||
+          responseRecipients.whereType<String>().toSet().length !=
+              responseRecipients.length ||
+          !responseRecipients.every(
+            (value) =>
+                value is String &&
+                audience.targetTraineeIds.contains(value.trim()),
+          ) ||
+          parsed.audience.type != audience.type) {
+        throw const ClassroomException(ClassroomError.malformed);
+      }
+      return parsed.copyWith(
+        audience: parsed.audience.withRecipientIds(
+          responseRecipients.cast<String>().map((value) => value.trim()),
+        ),
+      );
+    } on ClassroomException {
+      rethrow;
+    } on TimeoutException {
+      throw const ClassroomException(ClassroomError.invalidState);
+    } on SocketException {
+      throw const ClassroomException(ClassroomError.invalidState);
+    } on FormatException {
+      throw const ClassroomException(ClassroomError.malformed);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<List<GroupAssignment>> _hydrateTeacherAssignments(
+    List<GroupAssignment> assignments,
+    String teacherId,
+  ) async {
+    final byId = {
+      for (final assignment in assignments) assignment.id: assignment,
+    };
+    final recipientsByAssignment = <String, Set<String>>{};
+    final snapshot = await _firestore
+        .collectionGroup(FirestoreCollections.assignmentRecipients)
+        .where('teacher_id', isEqualTo: teacherId)
+        .get();
+    for (final doc in snapshot.docs) {
+      final path = doc.reference.path.split('/');
+      if (path.length != 4 ||
+          path[0] != FirestoreCollections.groupAssignments ||
+          path[2] != FirestoreCollections.assignmentRecipients ||
+          path[3] != doc.id) {
+        continue;
+      }
+      final id = doc.reference.parent.parent?.id;
+      if (id == null) continue;
+      final assignment = byId[id];
+      final data = doc.data();
+      if (assignment != null &&
+          _validRecipient(data, assignment, doc.id) &&
+          doc.id == data['trainee_id']) {
+        recipientsByAssignment.putIfAbsent(id, () => <String>{}).add(doc.id);
+      }
+    }
+    return [
+      for (final assignment in assignments)
+        if (assignment.audience.isEntireClass)
+          assignment
+        else if (recipientsByAssignment.containsKey(assignment.id) &&
+            (assignment.audience.type !=
+                    AssignmentAudienceType.individualStudent ||
+                recipientsByAssignment[assignment.id]!.length == 1))
+          assignment.copyWith(
+            audience: assignment.audience.withRecipientIds(
+              recipientsByAssignment[assignment.id]!,
+            ),
+          ),
+    ];
+  }
+
+  static bool _validRecipient(
+    Map<String, dynamic>? data,
+    GroupAssignment assignment,
+    String traineeId,
+  ) {
+    if (data == null || assignment.audience.isEntireClass) return false;
+    const keys = {
+      'assignment_id',
+      'group_id',
+      'teacher_id',
+      'trainee_id',
+      'audience_type',
+      'schema_version',
+      'created_at',
+    };
+    return data.length == keys.length &&
+        data.keys.toSet().containsAll(keys) &&
+        data['assignment_id'] == assignment.id &&
+        data['group_id'] == assignment.groupId &&
+        data['teacher_id'] == assignment.teacherId &&
+        data['trainee_id'] == traineeId &&
+        data['audience_type'] == assignment.audience.type.wireValue &&
+        data['schema_version'] == 1 &&
+        TeacherRosterInvite.readDateTime(data['created_at']) != null;
   }
 
   static void _sortAssignments(List<GroupAssignment> items) {

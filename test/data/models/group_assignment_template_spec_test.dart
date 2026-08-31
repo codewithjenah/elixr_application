@@ -52,29 +52,44 @@ void main() {
     },
   );
 
-  test('selected and individual assignment audiences parse and filter', () {
-    final selected = GroupAssignment.tryFromMap({
-      ..._base(),
-      'audience_type': 'selected_students',
-      'target_trainee_ids': ['trainee-a', 'trainee-b'],
-    }, id: 'selected');
-    final individual = GroupAssignment.tryFromMap({
-      ..._base(),
-      'audience_type': 'individual_student',
-      'target_trainee_ids': ['trainee-a'],
-    }, id: 'individual');
+  test(
+    'canonical targeted audiences are unresolved until recipients hydrate',
+    () {
+      final selected = GroupAssignment.tryFromMap({
+        ..._base(),
+        'audience_type': 'selected_students',
+      }, id: 'selected');
+      final individual = GroupAssignment.tryFromMap({
+        ..._base(),
+        'audience_type': 'individual_student',
+      }, id: 'individual');
 
-    expect(selected?.audience.type, AssignmentAudienceType.selectedStudents);
-    expect(selected?.isAvailableToTrainee('trainee-b'), isTrue);
-    expect(selected?.isAvailableToTrainee('trainee-c'), isFalse);
-    expect(individual?.audience.type, AssignmentAudienceType.individualStudent);
-    expect(individual?.isAvailableToTrainee('trainee-a'), isTrue);
-    expect(individual?.isAvailableToTrainee('trainee-b'), isFalse);
+      expect(selected?.audience.type, AssignmentAudienceType.selectedStudents);
+      expect(selected?.isAvailableToTrainee('trainee-b'), isFalse);
+      expect(selected?.isAvailableToTrainee('trainee-c'), isFalse);
+      expect(
+        individual?.audience.type,
+        AssignmentAudienceType.individualStudent,
+      );
+      expect(individual?.isAvailableToTrainee('trainee-a'), isFalse);
+      expect(individual?.isAvailableToTrainee('trainee-b'), isFalse);
+    },
+  );
+
+  test('selected audience supports a realistic uncapped recipient subset', () {
+    final ids = [for (var index = 0; index < 24; index++) 'trainee-$index'];
+    final audience = AssignmentAudience.selectedStudents(ids);
+    expect(audience.targetTraineeIds, ids);
+    expect(audience.toMap(), {'audience_type': 'selected_students'});
+    expect(audience.isAvailableToTrainee('trainee-23'), isTrue);
+    expect(
+      AssignmentAudience.individualStudent(const ['trainee-a']).isResolved,
+      isTrue,
+    );
   });
 
   test('malformed audience combinations fail closed', () {
     final malformed = [
-      {'audience_type': 'entire_class'},
       {'target_trainee_ids': <String>[]},
       {
         'audience_type': 'entire_class',
@@ -88,13 +103,6 @@ void main() {
       {
         'audience_type': 'selected_students',
         'target_trainee_ids': ['trainee-a', 'trainee-a'],
-      },
-      {
-        'audience_type': 'selected_students',
-        'target_trainee_ids': [
-          for (var i = 0; i <= AssignmentAudience.maxTargetTrainees; i++)
-            'trainee-$i',
-        ],
       },
     ];
 

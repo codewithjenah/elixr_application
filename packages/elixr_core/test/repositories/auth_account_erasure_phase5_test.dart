@@ -139,4 +139,79 @@ void main() {
       );
     },
   );
+
+  test(
+    'account erasure removes private assignment recipient projections',
+    () async {
+      final assignment = firestore
+          .collection(FirestoreCollections.groupAssignments)
+          .doc('asg1');
+      Future<void> seedRecipient(
+        String docId,
+        String teacherId,
+        String traineeId,
+      ) {
+        return assignment
+            .collection(FirestoreCollections.assignmentRecipients)
+            .doc(docId)
+            .set({
+              'assignment_id': 'asg1',
+              'group_id': 'g1',
+              'teacher_id': teacherId,
+              'trainee_id': traineeId,
+              'audience_type': 'selected_students',
+              'schema_version': 1,
+              'created_at': Timestamp.now(),
+            });
+      }
+
+      await seedRecipient('trainee-1', 'teacher-2', 'trainee-1');
+      await seedRecipient('trainee-2', 'teacher-1', 'trainee-2');
+      await seedRecipient('trainee-3', 'teacher-2', 'trainee-3');
+
+      await purgeAssignmentRecipientsForAccountErasure(
+        firestore: firestore,
+        uid: 'trainee-1',
+        commitDeletes: (refs) => _commitDeletes(firestore, refs),
+      );
+      expect(
+        (await assignment
+                .collection(FirestoreCollections.assignmentRecipients)
+                .doc('trainee-1')
+                .get())
+            .exists,
+        isFalse,
+      );
+      expect(
+        (await assignment
+                .collection(FirestoreCollections.assignmentRecipients)
+                .doc('trainee-2')
+                .get())
+            .exists,
+        isTrue,
+      );
+
+      await purgeAssignmentRecipientsForAccountErasure(
+        firestore: firestore,
+        uid: 'teacher-1',
+        commitDeletes: (refs) => _commitDeletes(firestore, refs),
+      );
+      expect(
+        (await assignment
+                .collection(FirestoreCollections.assignmentRecipients)
+                .doc('trainee-2')
+                .get())
+            .exists,
+        isFalse,
+      );
+      expect(
+        (await assignment
+                .collection(FirestoreCollections.assignmentRecipients)
+                .doc('trainee-3')
+                .get())
+            .exists,
+        isTrue,
+      );
+    },
+  );
 }

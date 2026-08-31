@@ -339,35 +339,46 @@ Collections (IDs in `packages/elixr_core/lib/database/firestore_collections.dart
 
 ### Targeted assignment audience contract
 
-Current source extends the single canonical `group_assignments` document with
+The single canonical `group_assignments` document persists only
 `audience_type` (`entire_class`, `selected_students`, or
-`individual_student`) and `target_trainee_ids`. New entire-class writes use an
-empty target list, selected-student writes require one to five unique approved
-members of the assignment classroom, and individual writes require exactly one.
-Both fields are immutable with the assignment snapshot. Documents that predate
-both fields remain compatible and are interpreted as entire-class assignments;
-partially present or malformed audience data fails closed.
+`individual_student`). Target identities are private rows at
+`group_assignments/{assignmentId}/assignment_recipients/{traineeId}` with the
+canonical assignment, group, Teacher, trainee, audience, and schema identity.
+Selected audiences support any non-empty unique approved subset; individual
+audiences have exactly one recipient. Canonical documents never contain a
+target UID list. Documents predating the audience field remain entire-class;
+embedded or partial obsolete target shapes fail closed.
 
-Target membership is re-read before publishing and validated again by
-Firestore rules. Trainee direct reads, official session/pointer creation, and
-Teacher-reviewed attempt creation/submit transitions require both current
-approved classroom membership and audience inclusion. Teacher ownership access
-is unchanged. A removed target loses new read/start/submit access without
-invalidating access for other still-approved targets.
+Target membership is re-read before publishing and validated authoritatively
+by the creation Function. Trainee direct reads, official session/pointer
+creation, and Teacher-reviewed attempt creation/submit transitions require both
+current approved classroom membership and audience inclusion. Teacher
+ownership access is unchanged. A removed target loses new read/start/submit
+access without invalidating access for other still-approved targets.
 
+Creation and trainee discovery use authenticated HTTPS Functions. Creation
+derives the Teacher from the verified token, validates every deterministic
+membership row, snapshots official/current Teacher movement data server-side,
+and writes the canonical document and all recipient rows in one transaction.
 Trainee discovery uses the authenticated `listTraineeAssignments` HTTPS
 Function. The Function derives the caller identity from the Firebase bearer
 token, resolves only that caller's approved memberships, and filters legacy,
 entire-class, and explicit targets server-side. The client no longer issues a
 broad classroom assignment query, because Firestore rules cannot safely treat a
-broad query as a per-document filter. This design needs no new composite index;
-the Admin SDK queries use the existing single-field indexes and bounded chunks.
+broad query as a per-document filter. Targeted discovery is driven only by the
+caller's recipient rows and never serializes recipient identities. Teacher
+views hydrate their own recipient projections and revalidate them against the
+canonical assignment. The existing bounded `group_id` assignment queries and
+the collection-group single-field recipient indexes are sufficient; legacy
+records remain covered by the group sweep.
 The client defaults to the deployed `elixr-app-2026` Function URL; local or
 alternate environments can set `ELIXR_ASSIGNMENTS_API_BASE_URL` with a Dart
 compile-time define.
-The explicit target cap is five so rule-time membership validation remains
-within Firestore's 10-document access limit for both Official ELIXR and
-Teacher-created assignment writes.
+There is no fixed recipient cap. Direct client assignment creation remains
+available only for clean whole-class compatibility records; targeted writes are
+Admin-Function owned. Recipient rows are retained while an assignment is
+archived, revoked by membership removal, and deleted in bounded batches when
+the canonical assignment is deleted.
 
 `sessions` gained optional `assignment_context: { assignment_id, group_id, teacher_id, movement_id, revision_id }` — present only for official assigned guided sessions; immutable after create.
 
