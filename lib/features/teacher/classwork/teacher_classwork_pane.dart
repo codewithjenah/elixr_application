@@ -149,6 +149,7 @@ class _TeacherClassworkAssignmentListState
                   child: ComboBox<String>(
                     key: const Key('teacher_classwork_topic_filter'),
                     value: _selectedTopic,
+                    isExpanded: true,
                     items: [
                       const ComboBoxItem(
                         value: 'All topics',

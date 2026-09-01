@@ -335,11 +335,36 @@ class InMemoryClassroomAssignmentRepository
     required TrainingProp requiredProp,
   }) async {
     final existing = assignments[assignmentId];
-    if (existing == null ||
-        existing.teacherId != teacherId ||
-        existing.configurationRevision != expectedConfigurationRevision ||
-        !activityAssessment.isValid) {
-      throw const ClassroomException(ClassroomError.invalidState);
+    if (existing == null) {
+      throw const ClassroomException(ClassroomError.notFound);
+    }
+    if (existing.teacherId != teacherId) {
+      throw const ClassroomException(ClassroomError.forbidden);
+    }
+    if (!existing.isTeacherCreated ||
+        existing.assessmentMode != AssessmentMode.teacherReviewed ||
+        !existing.isActive ||
+        existing.configurationRevision != expectedConfigurationRevision) {
+      throw const ClassroomException(ClassroomError.conflict);
+    }
+    if (!activityAssessment.isValid) {
+      throw const ClassroomException(ClassroomError.malformed);
+    }
+    if (!audience.isEntireClass) {
+      final groups = _groupRepository;
+      final group = await groups?.getGroup(groupId: existing.groupId);
+      if (groups == null || group == null) {
+        throw const ClassroomException(ClassroomError.invalidRecipient);
+      }
+      try {
+        await _ensureAudienceTargetsAreApprovedMembers(
+          teacherId: teacherId,
+          group: group,
+          audience: audience,
+        );
+      } on ClassroomException {
+        throw const ClassroomException(ClassroomError.invalidRecipient);
+      }
     }
     final consumedByTrainee = <String, int>{};
     for (final attempt in attempts.values) {
@@ -355,7 +380,7 @@ class InMemoryClassroomAssignmentRepository
     final maximum = attemptPolicy.maximumAttempts;
     if (maximum != null &&
         consumedByTrainee.values.any((count) => count > maximum)) {
-      throw const ClassroomException(ClassroomError.invalidState);
+      throw const ClassroomException(ClassroomError.attemptLimitConflict);
     }
     final updated = GroupAssignment(
       id: existing.id,

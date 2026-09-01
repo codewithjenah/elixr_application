@@ -1427,14 +1427,20 @@ class FirebaseClassroomAssignmentRepository
           .bind(response)
           .join()
           .timeout(effectiveTimeout);
-      final decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
-      if (response.statusCode == HttpStatus.unauthorized ||
-          response.statusCode == HttpStatus.forbidden) {
-        throw const ClassroomException(ClassroomError.forbidden);
+      Object? decoded;
+      try {
+        decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
+      } on FormatException {
+        if (response.statusCode == HttpStatus.ok) rethrow;
       }
-      if (response.statusCode != HttpStatus.ok ||
-          decoded is! Map<String, dynamic>) {
-        throw const ClassroomException(ClassroomError.invalidState);
+      if (response.statusCode != HttpStatus.ok) {
+        throw classroomFunctionFailure(
+          statusCode: response.statusCode,
+          responseBody: decoded,
+        );
+      }
+      if (decoded is! Map<String, dynamic>) {
+        throw const ClassroomException(ClassroomError.malformed);
       }
       return decoded;
     } on ClassroomException {
@@ -1536,4 +1542,35 @@ class FirebaseClassroomAssignmentRepository
       return bAt.compareTo(aAt);
     });
   }
+}
+
+ClassroomException classroomFunctionFailure({
+  required int statusCode,
+  required Object? responseBody,
+}) {
+  final serverCode = responseBody is Map && responseBody['error'] is String
+      ? responseBody['error'] as String
+      : null;
+  final error = switch (serverCode) {
+    'unauthenticated' || 'forbidden' => ClassroomError.forbidden,
+    'not_found' => ClassroomError.notFound,
+    'conflict' => ClassroomError.conflict,
+    'attempt_limit_conflict' => ClassroomError.attemptLimitConflict,
+    'invalid_recipient' => ClassroomError.invalidRecipient,
+    'invalid_payload' ||
+    'invalid_due_at' ||
+    'invalid_audience' ||
+    'invalid_topic' ||
+    'method_not_allowed' => ClassroomError.malformed,
+    _
+        when statusCode == HttpStatus.unauthorized ||
+            statusCode == HttpStatus.forbidden =>
+      ClassroomError.forbidden,
+    _ => ClassroomError.invalidState,
+  };
+  return ClassroomException.fromFunction(
+    error,
+    httpStatus: statusCode,
+    serverCode: serverCode,
+  );
 }

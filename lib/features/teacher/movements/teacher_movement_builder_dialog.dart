@@ -56,6 +56,7 @@ typedef TeacherAssignmentActivitySaveCallback =
       required AssignmentAudience audience,
       DateTime? dueAt,
       String? safetyGuidance,
+      String? topic,
     });
 
 /// Builder for the only writable Teacher-created assessment mode.
@@ -96,6 +97,7 @@ class _TeacherMovementBuilderDialogState
   late final TextEditingController _title;
   late final TextEditingController _instructions;
   late final TextEditingController _safety;
+  late final TextEditingController _topic;
   late final TextEditingController _customMaximumScore;
   late final List<_CustomCriterionControllers> _customCriteria;
   var _nextCustomCriterionId = 1;
@@ -168,6 +170,7 @@ class _TeacherMovementBuilderDialogState
     _title = TextEditingController(text: _draft.title);
     _instructions = TextEditingController(text: _draft.instructions);
     _safety = TextEditingController(text: _draft.safetyGuidance);
+    _topic = TextEditingController(text: assignment?.topic ?? '');
     _customMaximumScore = TextEditingController(
       text: _draft.usesCustomMaximumScore ? '${_draft.maximumScore}' : '',
     );
@@ -196,6 +199,7 @@ class _TeacherMovementBuilderDialogState
     _title.dispose();
     _instructions.dispose();
     _safety.dispose();
+    _topic.dispose();
     _customMaximumScore.dispose();
     for (final criterion in _customCriteria) {
       criterion.dispose();
@@ -372,15 +376,20 @@ class _TeacherMovementBuilderDialogState
       _draft.safetyGuidance,
     );
     final assessment = _buildAssessment();
+    final topic = _topic.text.trim();
     if (titleError != null ||
         instructionsError != null ||
         safetyError != null ||
-        assessment == null) {
+        assessment == null ||
+        topic.length > GroupAssignment.maxTopicLength) {
       setState(() {
         _validationMessage =
             titleError ??
             instructionsError ??
             safetyError ??
+            (topic.length > GroupAssignment.maxTopicLength
+                ? 'Keep the topic to ${GroupAssignment.maxTopicLength} characters or fewer.'
+                : null) ??
             (!_draft.hasValidMaximumScore
                 ? 'Choose a valid maximum score from 1 to 100.'
                 : 'Use 3–5 complete rubric criteria whose points total the maximum score.');
@@ -414,6 +423,7 @@ class _TeacherMovementBuilderDialogState
           attemptPolicy: _attemptPolicy,
           audience: audience,
           dueAt: _hasDueDate ? _dueAt : null,
+          topic: topic.isEmpty ? null : topic,
         );
       } else if (_isEditing) {
         if (widget.onEditActivity != null) {
@@ -538,6 +548,21 @@ class _TeacherMovementBuilderDialogState
                             placeholder: 'Activity title',
                           ),
                         ),
+                        if (_isAssignmentEditor) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          _BuilderField(
+                            label: 'Topic',
+                            helperText:
+                                'Optional label for organizing classwork.',
+                            child: TextBox(
+                              key: const ValueKey('builder-topic'),
+                              controller: _topic,
+                              enabled: fieldsEnabled,
+                              maxLength: GroupAssignment.maxTopicLength,
+                              placeholder: 'Example: Bottle control',
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: AppSpacing.sm),
                         _BuilderField(
                           label: 'Instructions',

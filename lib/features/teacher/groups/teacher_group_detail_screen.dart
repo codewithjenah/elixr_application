@@ -1096,7 +1096,8 @@ Future<void> _showEditAssignmentDialog(
   var hasDueDate = dueAt != null;
   String? validationMessage;
 
-  final settings = await showDialog<_AssignmentSettings>(
+  var saving = false;
+  await showDialog<void>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setDialogState) => ContentDialog(
@@ -1118,19 +1119,23 @@ Future<void> _showEditAssignmentDialog(
                 key: const Key('teacher_assignment_edit_due_date_toggle'),
                 checked: hasDueDate,
                 content: const Text('Set a due date'),
-                onChanged: (value) {
-                  setDialogState(() {
-                    hasDueDate = value ?? false;
-                    dueAt ??= DateTime.now().add(const Duration(days: 7));
-                  });
-                },
+                onChanged: saving
+                    ? null
+                    : (value) {
+                        setDialogState(() {
+                          hasDueDate = value ?? false;
+                          dueAt ??= DateTime.now().add(const Duration(days: 7));
+                        });
+                      },
               ),
               if (hasDueDate) ...[
                 const SizedBox(height: AppSpacing.sm),
                 DatePicker(
                   key: const Key('teacher_assignment_edit_due_date'),
                   selected: dueAt ?? DateTime.now(),
-                  onChanged: (value) => setDialogState(() => dueAt = value),
+                  onChanged: saving
+                      ? null
+                      : (value) => setDialogState(() => dueAt = value),
                 ),
               ],
               if (assignment.isTeacherCreated) ...[
@@ -1172,45 +1177,55 @@ Future<void> _showEditAssignmentDialog(
         ),
         actions: [
           Button(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: saving ? null : () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           FilledButton(
             key: const Key('teacher_assignment_save_changes'),
-            onPressed: () {
-              final maxScore =
-                  assignment.isTeacherCreated && !assignment.gradingLocked
-                  ? int.tryParse(scoreController.text.trim())
-                  : null;
-              if (assignment.isTeacherCreated &&
-                  !assignment.gradingLocked &&
-                  (maxScore == null || maxScore < 1 || maxScore > 100)) {
-                setDialogState(() {
-                  validationMessage = 'Enter a maximum score from 1 to 100.';
-                });
-                return;
-              }
-              Navigator.pop(
-                dialogContext,
-                _AssignmentSettings(
-                  dueAt: hasDueDate ? dueAt : null,
-                  maxScore: maxScore,
-                ),
-              );
-            },
-            child: const Text('Save changes'),
+            onPressed: saving
+                ? null
+                : () async {
+                    final maxScore =
+                        assignment.isTeacherCreated && !assignment.gradingLocked
+                        ? int.tryParse(scoreController.text.trim())
+                        : null;
+                    if (assignment.isTeacherCreated &&
+                        !assignment.gradingLocked &&
+                        (maxScore == null || maxScore < 1 || maxScore > 100)) {
+                      setDialogState(() {
+                        validationMessage =
+                            'Enter a maximum score from 1 to 100.';
+                      });
+                      return;
+                    }
+                    setDialogState(() {
+                      saving = true;
+                      validationMessage = null;
+                    });
+                    final saved = await controller.updateAssignmentSettings(
+                      assignment,
+                      dueAt: hasDueDate ? dueAt : null,
+                      maxScore: maxScore,
+                    );
+                    if (!dialogContext.mounted) return;
+                    if (!saved) {
+                      setDialogState(() {
+                        saving = false;
+                        validationMessage =
+                            controller.errorMessage ??
+                            'This assignment could not be saved.';
+                      });
+                      return;
+                    }
+                    Navigator.pop(dialogContext);
+                  },
+            child: Text(saving ? 'Saving...' : 'Save changes'),
           ),
         ],
       ),
     ),
   );
   scoreController.dispose();
-  if (settings == null) return;
-  await controller.updateAssignmentSettings(
-    assignment,
-    dueAt: settings.dueAt,
-    maxScore: settings.maxScore,
-  );
 }
 
 Future<void> _showTeacherActivityAssignmentEditor(
@@ -1243,22 +1258,25 @@ Future<void> _showTeacherActivityAssignmentEditor(
               required audience,
               dueAt,
               safetyGuidance,
+              topic,
             }) async {
-              await controller.updateTeacherActivityAssignment(
+              final saved = await controller.updateTeacherActivityAssignment(
                 assignment: assignment,
                 displayTitle: title,
                 instructions: instructions,
                 safetyGuidance: safetyGuidance,
-                topic: assignment.topic,
+                topic: topic,
                 dueAt: dueAt,
                 audience: audience,
                 activityAssessment: assessment,
                 attemptPolicy: attemptPolicy,
                 requiredProp: requiredProp,
               );
-              final errorMessage = controller.errorMessage;
-              if (errorMessage != null) {
-                throw StateError(errorMessage);
+              if (!saved) {
+                throw StateError(
+                  controller.errorMessage ??
+                      'This Classroom Activity could not be saved.',
+                );
               }
             },
         onUploadDemonstration: movementRepository == null
@@ -1830,7 +1848,7 @@ Future<void> showTeacherActivityAssignmentEditDialogLegacy(
                   demonstrationVideo: demonstrationVideo,
                 );
                 if (!assessment.isValid) throw StateError('invalid assessment');
-                await controller.updateTeacherActivityAssignment(
+                final saved = await controller.updateTeacherActivityAssignment(
                   assignment: assignment,
                   displayTitle: title.text,
                   instructions: instructions.text,
@@ -1842,7 +1860,7 @@ Future<void> showTeacherActivityAssignmentEditDialogLegacy(
                   attemptPolicy: attempts,
                   requiredProp: requiredProp,
                 );
-                if (context.mounted && controller.errorMessage == null) {
+                if (context.mounted && saved) {
                   Navigator.pop(dialogContext, true);
                 }
               } catch (_) {
@@ -2114,13 +2132,6 @@ Future<void> _confirmPermanentlyDeleteAssignment(
   if (accepted == true) {
     await controller.permanentlyDeleteAssignment(assignment);
   }
-}
-
-class _AssignmentSettings {
-  const _AssignmentSettings({required this.dueAt, required this.maxScore});
-
-  final DateTime? dueAt;
-  final int? maxScore;
 }
 
 Future<void> _showRenameDialog(

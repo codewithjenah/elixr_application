@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:elixr_application/data/models/assessment_mode.dart';
@@ -19,6 +20,33 @@ class _FailingAttemptStreamRepository
   }) {
     return Stream<List<AssignmentAttempt>>.error(
       StateError('attempt stream unavailable'),
+    );
+  }
+}
+
+class _BlockingAssignmentUpdateRepository
+    extends InMemoryClassroomAssignmentRepository {
+  final started = Completer<void>();
+  final release = Completer<void>();
+  var updateCalls = 0;
+
+  @override
+  Future<GroupAssignment> updateAssignmentSettings({
+    required String teacherId,
+    required String assignmentId,
+    DateTime? dueAt,
+    int? maxScore,
+    String? topic,
+  }) async {
+    updateCalls++;
+    if (!started.isCompleted) started.complete();
+    await release.future;
+    return super.updateAssignmentSettings(
+      teacherId: teacherId,
+      assignmentId: assignmentId,
+      dueAt: dueAt,
+      maxScore: maxScore,
+      topic: topic,
     );
   }
 }
@@ -298,4 +326,39 @@ void main() {
       'Some classwork status could not be loaded. Try again.',
     );
   });
+
+  test(
+    'assignment edits report not saved while another write is busy',
+    () async {
+      assignments.dispose();
+      final blockingAssignments = _BlockingAssignmentUpdateRepository();
+      assignments = blockingAssignments;
+      assignments.seedAssignment(assignment);
+      final controller = create();
+      addTearDown(controller.dispose);
+      await controller.start();
+      await Future<void>.delayed(Duration.zero);
+
+      final firstSave = controller.updateAssignmentSettings(
+        assignment,
+        dueAt: DateTime.utc(2026, 9, 15),
+      );
+      await blockingAssignments.started.future;
+
+      final secondSaved = await controller.updateAssignmentSettings(
+        assignment,
+        dueAt: DateTime.utc(2026, 9, 16),
+      );
+      expect(secondSaved, isFalse);
+      expect(blockingAssignments.updateCalls, 1);
+      expect(
+        controller.errorMessage,
+        'Another classwork action is still saving. Wait and try again.',
+      );
+
+      blockingAssignments.release.complete();
+      expect(await firstSave, isTrue);
+      expect(controller.errorMessage, isNull);
+    },
+  );
 }

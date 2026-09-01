@@ -1280,11 +1280,10 @@ service cloud.firestore {
             'first_name', 'middle_name', 'last_name', 'full_name'
           ]) || validStructuredName(request.resource.data))
         && (!affected.hasAny([
-            'session_evidence_policy_version', 'session_evidence_decision_at'
+            'session_evidence_enabled', 'session_evidence_policy_version',
+            'session_evidence_decision_at'
           ]) || (
-            affected.hasAll([
-              'session_evidence_policy_version', 'session_evidence_decision_at'
-            ])
+            request.resource.data.session_evidence_enabled is bool
             && request.resource.data.session_evidence_policy_version == 'v1'
             && request.resource.data.session_evidence_decision_at == request.time
           ));

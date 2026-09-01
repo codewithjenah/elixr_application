@@ -135,11 +135,20 @@ void main() {
 
     expect(evidence.downloads, isEmpty);
     expect(find.textContaining('66.7%'), findsOneWidget);
-    expect(find.text('Assessment V2'), findsNothing);
+    expect(find.textContaining('Assessment V2'), findsNothing);
     await tester.tap(find.byKey(const Key('teacher_history_row_session-1')));
     await tester.pumpAndSettle();
     expect(evidence.downloads, ['trainee:session-1']);
-    expect(find.textContaining('Assessment V2'), findsOneWidget);
+    expect(find.text('Overall performance'), findsOneWidget);
+    expect(find.text('Competent'), findsWidgets);
+    expect(find.text('Score: 8 out of 12'), findsOneWidget);
+    expect(find.text('Skill breakdown'), findsOneWidget);
+    expect(find.text('Technique: 2/3'), findsOneWidget);
+    expect(find.text('Stability & control: 2/3'), findsOneWidget);
+    expect(find.text('Completion: 2/3'), findsOneWidget);
+    expect(find.text('Prop positioning: 2/3'), findsOneWidget);
+    expect(find.textContaining('Assessment V2'), findsNothing);
+    expect(find.textContaining('Rubric total'), findsNothing);
     expect(find.text('Saved image is unavailable.'), findsOneWidget);
 
     evidence.responses[session.sessionId] = Uint8List.fromList(_tinyPng);
@@ -170,6 +179,30 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('older scores use normal teacher-facing wording', (tester) async {
+    progress.inner.sessions['trainee'] = const [
+      PublicProfileSession(
+        sessionId: 'older-session',
+        userId: 'trainee',
+        movementName: 'Hand Stall',
+        difficulty: 'Easy',
+        legacyScore: 82,
+        durationSeconds: 45,
+        propType: TrainingProp.bottle,
+      ),
+    ];
+    await pumpScreen(tester);
+
+    expect(find.text('82%'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const Key('teacher_history_row_older-session')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Score: 82%'), findsOneWidget);
+    expect(find.textContaining('Assessment V1'), findsNothing);
+    expect(find.textContaining('legacy'), findsNothing);
+  });
 }
 
 const _tinyPng = <int>[

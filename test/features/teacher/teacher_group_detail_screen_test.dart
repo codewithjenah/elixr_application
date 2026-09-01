@@ -4,6 +4,7 @@ import 'package:elixr_application/core/widgets/elix_editorial_header.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/core/widgets/movement_image.dart';
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
@@ -465,7 +466,51 @@ void main() {
     );
   });
 
-  testWidgets('legacy teacher assignment opens the full Activity editor', (
+  testWidgets('official assignment editor stays open when saving fails', (
+    tester,
+  ) async {
+    final assignments = _FailingAssignmentUpdateRepository();
+    addTearDown(assignments.dispose);
+    final group = await repository.createGroup(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    final assignment = await assignments.createOfficialAssignment(
+      teacherId: 'teacher-1',
+      teacherDisplayName: 'Grace Hopper',
+      group: group,
+      officialMovementName: 'Normal Grip',
+    );
+    final controller = await controllerFor(
+      'teacher-1',
+      assignmentRepository: assignments,
+    );
+    addTearDown(controller.dispose);
+    await controller.startForGroup(group.id);
+
+    await pumpDetail(tester, controller: controller, groupId: group.id);
+    final edit = find.byKey(
+      Key('teacher_group_edit_assignment_${assignment.id}'),
+    );
+    await tester.ensureVisible(edit);
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('teacher_assignment_save_changes')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit Normal Grip'), findsOneWidget);
+    expect(
+      find.byKey(const Key('teacher_assignment_edit_validation')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('teacher_assignment_save_changes')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Teacher Activity edits persist and can be edited again', (
     tester,
   ) async {
     final assignments = InMemoryClassroomAssignmentRepository();
@@ -512,12 +557,40 @@ void main() {
       find.byKey(const ValueKey('builder-instructions')),
       'Keep the bottle in view and submit a recording.',
     );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-topic')),
+      'Bottle control',
+    );
     await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
     await tester.pumpAndSettle();
     final updated = await assignments.getAssignment(assignmentId: assignmentId);
     expect(updated?.activityAssessment, isNotNull);
     expect(updated?.maxScore, 100);
     expect(updated?.allowedProp, TrainingProp.bottle);
+    expect(updated?.topic, 'Bottle control');
+    expect(updated?.configurationRevision, 2);
+
+    await tester.ensureVisible(editAssignment);
+    await tester.tap(editAssignment);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextBox>(find.byKey(const ValueKey('builder-topic')))
+          .controller
+          ?.text,
+      'Bottle control',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('builder-title')),
+      'Advanced Tin',
+    );
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
+    await tester.pumpAndSettle();
+    final editedAgain = await assignments.getAssignment(
+      assignmentId: assignmentId,
+    );
+    expect(editedAgain?.displayTitle, 'Advanced Tin');
+    expect(editedAgain?.configurationRevision, 3);
   });
 
   testWidgets(
@@ -809,4 +882,18 @@ void main() {
     expect(created.maxScore, 50);
     expect(created.activityAssessment, isNotNull);
   });
+}
+
+class _FailingAssignmentUpdateRepository
+    extends InMemoryClassroomAssignmentRepository {
+  @override
+  Future<GroupAssignment> updateAssignmentSettings({
+    required String teacherId,
+    required String assignmentId,
+    DateTime? dueAt,
+    int? maxScore,
+    String? topic,
+  }) {
+    throw const ClassroomException(ClassroomError.conflict);
+  }
 }

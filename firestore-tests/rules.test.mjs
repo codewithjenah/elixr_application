@@ -3863,7 +3863,7 @@ describe('users role constraints', () => {
     );
   });
 
-  test('owner can update the session image setting with its server audit fields', async () => {
+  test('owner can repeatedly update the session image setting with server audit fields', async () => {
     await seedBypassingRules(async (adminDb) => {
       await setDoc(doc(adminDb, 'users', 'alice'), userProfile(ROLE_TRAINEE));
     });
@@ -3872,6 +3872,50 @@ describe('users role constraints', () => {
     await assertSucceeds(
       updateDoc(doc(alice, 'users', 'alice'), {
         session_evidence_enabled: false,
+        session_evidence_policy_version: 'v1',
+        session_evidence_decision_at: serverTimestamp(),
+      }),
+    );
+
+    await assertSucceeds(
+      updateDoc(doc(alice, 'users', 'alice'), {
+        session_evidence_enabled: true,
+        session_evidence_policy_version: 'v1',
+        session_evidence_decision_at: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(alice, 'users', 'alice'), {
+        session_evidence_enabled: false,
+        session_evidence_policy_version: 'v1',
+        session_evidence_decision_at: serverTimestamp(),
+      }),
+    );
+
+    await assertFails(
+      updateDoc(doc(alice, 'users', 'alice'), {
+        session_evidence_enabled: true,
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(alice, 'users', 'alice'), {
+        session_evidence_enabled: true,
+        session_evidence_policy_version: 'v0',
+        session_evidence_decision_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(alice, 'users', 'alice'), {
+        session_evidence_enabled: true,
+        session_evidence_policy_version: 'v1',
+        session_evidence_decision_at: Timestamp.now(),
+      }),
+    );
+
+    const bob = bobDb();
+    await assertFails(
+      updateDoc(doc(bob, 'users', 'alice'), {
+        session_evidence_enabled: true,
         session_evidence_policy_version: 'v1',
         session_evidence_decision_at: serverTimestamp(),
       }),

@@ -1,10 +1,12 @@
 import 'package:elixr_application/data/models/assessment_mode.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/assignment_submission_limits.dart';
 import 'package:elixr_application/data/models/classroom_exceptions.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
 import 'package:elixr_application/data/models/movement_origin.dart';
+import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
 import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/repositories/in_memory_classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/in_memory_teacher_movement_repository.dart';
@@ -19,6 +21,19 @@ ElixrGroup _group({
   String teacherId = 'teacher-1',
   ElixrGroupStatus status = ElixrGroupStatus.active,
 }) => ElixrGroup(id: id, teacherId: teacherId, name: 'BSHM 4A', status: status);
+
+TeacherActivityAssessmentConfig _activityAssessment({int maximumScore = 50}) =>
+    TeacherActivityAssessmentConfig(
+      readiness: const TeacherActivityReadinessSpec(
+        hands: ActivityHandRequirement.twoHands,
+        body: ActivityBodyRequirement.upperBody,
+      ),
+      rubric: TeacherActivityRubric.builtIn(
+        TeacherActivityRubricTemplate.standardTechnique,
+        maximumScore,
+      ),
+      recordingDurationSeconds: 45,
+    );
 
 void main() {
   late InMemoryClassroomAssignmentRepository assignments;
@@ -240,6 +255,126 @@ void main() {
     expect(assignment.revisionId, isNot(edited.currentRevisionId));
     expect(assignment.revisionId, firstRevision.id);
   });
+
+  test(
+    'Teacher Activity edits round-trip, increment revision, and reject stale writes',
+    () async {
+      final groups = InMemoryGroupRepository();
+      groups.seedGroup(_group());
+      groups.seedMembership(
+        const GroupMembership(
+          id: 'g1_trainee-a',
+          groupId: 'g1',
+          teacherId: 'teacher-1',
+          traineeId: 'trainee-a',
+          traineeDisplayName: 'Trainee A',
+          teacherDisplayName: 'Grace Hopper',
+          status: GroupMembershipStatus.approved,
+        ),
+      );
+      assignments.dispose();
+      assignments = InMemoryClassroomAssignmentRepository(
+        groupRepository: groups,
+        now: () => DateTime.utc(2026, 8, 20),
+      );
+      final original = GroupAssignment(
+        id: 'activity-edit',
+        teacherId: 'teacher-1',
+        groupId: 'g1',
+        movementId: 'movement-fixed',
+        revisionId: 'revision-fixed',
+        origin: MovementOrigin.teacherCreated,
+        assessmentMode: AssessmentMode.teacherReviewed,
+        status: GroupAssignmentStatus.active,
+        displayTitle: 'Original Activity',
+        teacherDisplayName: 'Grace Hopper',
+        groupName: 'BSHM 4A',
+        maxScore: 50,
+        activityAssessment: _activityAssessment(),
+      );
+      assignments.seedAssignment(original);
+
+      final first = await assignments.updateTeacherActivityAssignment(
+        teacherId: 'teacher-1',
+        assignmentId: original.id,
+        expectedConfigurationRevision: 1,
+        displayTitle: 'Edited Activity',
+        instructions: 'Record the complete movement.',
+        safetyGuidance: 'Keep the floor dry.',
+        topic: 'Bottle control',
+        dueAt: DateTime.utc(2026, 9, 15),
+        audience: AssignmentAudience.individualStudent(['trainee-a']),
+        activityAssessment: _activityAssessment(),
+        attemptPolicy: const AssignmentAttemptPolicy.finite(2),
+        requiredProp: TrainingProp.bottleAndShaker,
+      );
+
+      expect(first.configurationRevision, 2);
+      expect(first.displayTitle, 'Edited Activity');
+      expect(first.displayInstructions, 'Record the complete movement.');
+      expect(first.displaySafetyGuidance, 'Keep the floor dry.');
+      expect(first.topic, 'Bottle control');
+      expect(first.dueAt, DateTime.utc(2026, 9, 15));
+      expect(first.audience.targetTraineeIds, ['trainee-a']);
+      expect(first.activityAssessment?.recordingDurationSeconds, 45);
+      expect(
+        first.activityAssessment?.readiness.hands,
+        ActivityHandRequirement.twoHands,
+      );
+      expect(
+        first.activityAssessment?.readiness.body,
+        ActivityBodyRequirement.upperBody,
+      );
+      expect(first.activityAssessment?.rubric.maximumScore, 50);
+      expect(first.attemptPolicy.maximumAttempts, 2);
+      expect(first.allowedProp, TrainingProp.bottleAndShaker);
+      expect(first.movementId, original.movementId);
+      expect(first.revisionId, original.revisionId);
+
+      final second = await assignments.updateTeacherActivityAssignment(
+        teacherId: 'teacher-1',
+        assignmentId: original.id,
+        expectedConfigurationRevision: first.configurationRevision,
+        displayTitle: 'Edited Again',
+        instructions: 'Submit one clean recording.',
+        audience: const AssignmentAudience.entireClass(),
+        activityAssessment: _activityAssessment(maximumScore: 30),
+        attemptPolicy: const AssignmentAttemptPolicy.unlimited(),
+        requiredProp: TrainingProp.shaker,
+      );
+      expect(second.configurationRevision, 3);
+      expect(second.displayTitle, 'Edited Again');
+      expect(second.activityAssessment?.rubric.maximumScore, 30);
+
+      await expectLater(
+        assignments.updateTeacherActivityAssignment(
+          teacherId: 'teacher-1',
+          assignmentId: original.id,
+          expectedConfigurationRevision: 1,
+          displayTitle: 'Stale overwrite',
+          instructions: 'Must not persist.',
+          audience: const AssignmentAudience.entireClass(),
+          activityAssessment: _activityAssessment(),
+          attemptPolicy: const AssignmentAttemptPolicy.unlimited(),
+          requiredProp: TrainingProp.bottle,
+        ),
+        throwsA(
+          isA<ClassroomException>().having(
+            (error) => error.code,
+            'code',
+            ClassroomError.conflict,
+          ),
+        ),
+      );
+      expect(
+        (await assignments.getAssignment(
+          assignmentId: original.id,
+        ))?.displayTitle,
+        'Edited Again',
+      );
+      groups.dispose();
+    },
+  );
 
   test('archived Teacher movement cannot be newly assigned', () async {
     final movement = await movements.createMovement(

@@ -13,6 +13,7 @@ const {
   isActiveChatProfile,
   isSearchRateLimited,
   listTraineeAssignmentsHandler,
+  updateTeacherActivityAssignmentHandler,
   validActivityAssessment,
   permanentDeleteAssignmentHandler,
   permanentDeleteClassroomHandler,
@@ -229,6 +230,187 @@ function fakeCreationDatabase({recipientIds}) {
   };
   return database;
 }
+
+function updateAssessment({maximum = 50} = {}) {
+  const value = activityAssessment({maximum});
+  value.schema_version = 3;
+  value.readiness = {hands: value.readiness.hands, body: value.readiness.body};
+  delete value.attempt_policy;
+  return value;
+}
+
+function fakeActivityUpdateDatabase({consumedCounts = []} = {}) {
+  const writes = [];
+  let assignment = {
+    teacher_id: 'teacher',
+    group_id: 'g1',
+    movement_id: 'movement-fixed',
+    revision_id: 'revision-fixed',
+    origin: 'teacher_created',
+    assessment_mode: 'teacher_reviewed',
+    status: 'active',
+    display_title: 'Original Activity',
+    display_instructions: 'Original instructions.',
+    teacher_display_name: 'Grace Hopper',
+    group_name: 'BSHM 4A',
+    audience_type: 'entire_class',
+    allowed_prop: 'bottle',
+    max_score: 50,
+    attempt_policy: {type: 'finite', maximum_attempts: 3},
+    activity_assessment: updateAssessment(),
+    configuration_revision: 1,
+  };
+  const assignmentRef = {
+    id: 'assignment-1',
+    path: 'group_assignments/assignment-1',
+    collection(name) {
+      assert.equal(name, 'assignment_recipients');
+      return {
+        async get() { return {docs: []}; },
+        doc(id) { return {id, path: `${assignmentRef.path}/${name}/${id}`}; },
+      };
+    },
+  };
+  const database = {
+    collection(name) {
+      if (name === 'group_assignments') {
+        return {doc(id) { assert.equal(id, assignmentRef.id); return assignmentRef; }};
+      }
+      if (name === 'assignment_attempt_states') {
+        return {
+          where(field, operator, value) {
+            assert.deepEqual([field, operator, value], ['assignment_id', '==', assignmentRef.id]);
+            return {kind: 'attempt_states'};
+          },
+        };
+      }
+      if (name === 'group_memberships') {
+        return {doc(id) { return {id, kind: 'membership'}; }};
+      }
+      throw new Error(`Unexpected collection ${name}`);
+    },
+    async runTransaction(callback) {
+      return callback({
+        async get(target) {
+          if (target === assignmentRef) {
+            return {exists: true, data: () => assignment};
+          }
+          if (target.kind === 'attempt_states') {
+            return {docs: consumedCounts.map((count) => ({get: () => count}))};
+          }
+          if (target.kind === 'membership') return {exists: false};
+          throw new Error('Unexpected transaction read');
+        },
+        update(ref, data) {
+          assert.equal(ref, assignmentRef);
+          assignment = {...assignment, ...data};
+          writes.push({type: 'update', data});
+        },
+        set(ref, data) { writes.push({type: 'set', ref, data}); },
+        delete(ref) { writes.push({type: 'delete', ref}); },
+      });
+    },
+    get assignment() { return assignment; },
+    writes,
+  };
+  return database;
+}
+
+function activityUpdateBody(overrides = {}) {
+  return {
+    assignment_id: 'assignment-1',
+    expected_configuration_revision: 1,
+    display_title: 'Edited Activity',
+    display_instructions: 'Record the complete movement.',
+    display_safety_guidance: 'Keep the floor dry.',
+    topic: 'Bottle control',
+    due_at: '2026-09-15T00:00:00.000Z',
+    audience_type: 'entire_class',
+    recipient_ids: [],
+    activity_assessment: updateAssessment(),
+    attempt_policy: {type: 'finite', maximum_attempts: 2},
+    allowed_prop: 'bottle_and_shaker',
+    ...overrides,
+  };
+}
+
+test('Teacher Activity assignment updates round-trip twice and reject stale edits', async () => {
+  const database = fakeActivityUpdateDatabase();
+  const options = {
+    authenticate: async () => 'teacher',
+    databaseFactory: () => database,
+  };
+  const firstResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody()},
+    firstResponse,
+    options,
+  );
+  assert.equal(firstResponse.statusCode, 200);
+  assert.equal(firstResponse.body.assignment.configuration_revision, 2);
+  assert.equal(firstResponse.body.assignment.display_title, 'Edited Activity');
+  assert.equal(firstResponse.body.assignment.display_safety_guidance, 'Keep the floor dry.');
+  assert.equal(firstResponse.body.assignment.topic, 'Bottle control');
+  assert.equal(firstResponse.body.assignment.allowed_prop, 'bottle_and_shaker');
+  assert.equal(firstResponse.body.assignment.movement_id, 'movement-fixed');
+  assert.equal(firstResponse.body.assignment.revision_id, 'revision-fixed');
+
+  const secondResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody({
+      expected_configuration_revision: 2,
+      display_title: 'Edited Again',
+      activity_assessment: updateAssessment({maximum: 100}),
+    })},
+    secondResponse,
+    options,
+  );
+  assert.equal(secondResponse.statusCode, 200);
+  assert.equal(secondResponse.body.assignment.configuration_revision, 3);
+  assert.equal(secondResponse.body.assignment.display_title, 'Edited Again');
+  assert.equal(secondResponse.body.assignment.max_score, 100);
+
+  const staleResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody()},
+    staleResponse,
+    options,
+  );
+  assert.equal(staleResponse.statusCode, 409);
+  assert.deepEqual(staleResponse.body, {error: 'conflict'});
+  assert.equal(database.assignment.display_title, 'Edited Again');
+});
+
+test('Teacher Activity assignment update returns actionable validation conflicts', async () => {
+  const attemptDatabase = fakeActivityUpdateDatabase({consumedCounts: [3]});
+  const attemptResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody()},
+    attemptResponse,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => attemptDatabase,
+    },
+  );
+  assert.equal(attemptResponse.statusCode, 409);
+  assert.deepEqual(attemptResponse.body, {error: 'attempt_limit_conflict'});
+
+  const recipientDatabase = fakeActivityUpdateDatabase();
+  const recipientResponse = fakeResponse();
+  await updateTeacherActivityAssignmentHandler(
+    {method: 'POST', body: activityUpdateBody({
+      audience_type: 'individual_student',
+      recipient_ids: ['trainee-missing'],
+    })},
+    recipientResponse,
+    {
+      authenticate: async () => 'teacher',
+      databaseFactory: () => recipientDatabase,
+    },
+  );
+  assert.equal(recipientResponse.statusCode, 409);
+  assert.deepEqual(recipientResponse.body, {error: 'invalid_recipient'});
+});
 
 test('normalizes diacritics and whitespace for private directory search', () => {
   assert.equal(normalizeSearchText('  José   DELA Cruz '), 'jose dela cruz');

@@ -574,19 +574,21 @@ class TeacherClassworkController extends ChangeNotifier {
     });
   }
 
-  Future<void> updateAssignmentSettings(
+  Future<bool> updateAssignmentSettings(
     GroupAssignment assignment, {
     required DateTime? dueAt,
     int? maxScore,
     String? topic,
   }) {
-    return _runWrite(
-      () => assignmentRepository.updateAssignmentSettings(
-        teacherId: teacherId,
-        assignmentId: assignment.id,
-        dueAt: dueAt,
-        maxScore: maxScore,
-        topic: topic ?? assignment.topic,
+    return _runWriteWithResult(
+      () async => _replaceAssignment(
+        await assignmentRepository.updateAssignmentSettings(
+          teacherId: teacherId,
+          assignmentId: assignment.id,
+          dueAt: dueAt,
+          maxScore: maxScore,
+          topic: topic ?? assignment.topic,
+        ),
       ),
     );
   }
@@ -604,7 +606,7 @@ class TeacherClassworkController extends ChangeNotifier {
     );
   }
 
-  Future<void> updateTeacherActivityAssignment({
+  Future<bool> updateTeacherActivityAssignment({
     required GroupAssignment assignment,
     required String displayTitle,
     required String instructions,
@@ -616,20 +618,22 @@ class TeacherClassworkController extends ChangeNotifier {
     required AssignmentAttemptPolicy attemptPolicy,
     required TrainingProp requiredProp,
   }) {
-    return _runWrite(
-      () => assignmentRepository.updateTeacherActivityAssignment(
-        teacherId: teacherId,
-        assignmentId: assignment.id,
-        expectedConfigurationRevision: assignment.configurationRevision,
-        displayTitle: displayTitle,
-        instructions: instructions,
-        safetyGuidance: safetyGuidance,
-        topic: topic,
-        dueAt: dueAt,
-        audience: audience,
-        activityAssessment: activityAssessment,
-        attemptPolicy: attemptPolicy,
-        requiredProp: requiredProp,
+    return _runWriteWithResult(
+      () async => _replaceAssignment(
+        await assignmentRepository.updateTeacherActivityAssignment(
+          teacherId: teacherId,
+          assignmentId: assignment.id,
+          expectedConfigurationRevision: assignment.configurationRevision,
+          displayTitle: displayTitle,
+          instructions: instructions,
+          safetyGuidance: safetyGuidance,
+          topic: topic,
+          dueAt: dueAt,
+          audience: audience,
+          activityAssessment: activityAssessment,
+          attemptPolicy: attemptPolicy,
+          requiredProp: requiredProp,
+        ),
       ),
     );
   }
@@ -664,6 +668,17 @@ class TeacherClassworkController extends ChangeNotifier {
     _attemptsByAssignment[updated.assignmentId] = attempts;
   }
 
+  void _replaceAssignment(GroupAssignment updated) {
+    final index = assignments.indexWhere((item) => item.id == updated.id);
+    if (index == -1) {
+      assignments = [...assignments, updated]..sort(_compareAssignments);
+    } else {
+      final next = [...assignments];
+      next[index] = updated;
+      assignments = next..sort(_compareAssignments);
+    }
+  }
+
   Future<void> _reconcileExpired(List<AssignmentAttempt> attempts) async {
     try {
       await submissionRepository?.reconcileExpiredVideos(
@@ -676,19 +691,32 @@ class TeacherClassworkController extends ChangeNotifier {
   }
 
   Future<void> _runWrite(Future<void> Function() action) async {
-    if (busy || unauthorized) return;
+    await _runWriteWithResult(action);
+  }
+
+  Future<bool> _runWriteWithResult(Future<void> Function() action) async {
+    if (busy || unauthorized) {
+      errorMessage = busy
+          ? 'Another classwork action is still saving. Wait and try again.'
+          : 'You no longer have permission to change this classwork.';
+      if (!_disposed) notifyListeners();
+      return false;
+    }
     busy = true;
     errorMessage = null;
     notifyListeners();
     try {
       await action();
+      errorMessage = null;
+      return true;
     } on ClassroomException catch (error, stackTrace) {
       _logFailure('classwork write', error, stackTrace);
-      errorMessage =
-          error.message ?? 'That classwork action could not be saved.';
+      errorMessage = error.message ?? _messageForClassroomError(error.code);
+      return false;
     } catch (error, stackTrace) {
       _logFailure('classwork write', error, stackTrace);
       errorMessage = 'That classwork action could not be saved.';
+      return false;
     } finally {
       if (!_disposed) {
         busy = false;
@@ -696,6 +724,22 @@ class TeacherClassworkController extends ChangeNotifier {
       }
     }
   }
+
+  static String _messageForClassroomError(
+    ClassroomError error,
+  ) => switch (error) {
+    ClassroomError.conflict =>
+      'This assignment changed since you opened it. Reopen the editor and try again.',
+    ClassroomError.attemptLimitConflict =>
+      'The attempt limit is lower than attempts already used. Choose a higher limit or Unlimited.',
+    ClassroomError.invalidRecipient =>
+      'One or more selected students are no longer approved in this class. Refresh the roster and try again.',
+    ClassroomError.notFound => 'This assignment no longer exists.',
+    ClassroomError.forbidden =>
+      'You no longer have permission to change this assignment.',
+    ClassroomError.malformed => 'Check the assignment settings and try again.',
+    _ => 'That classwork action could not be saved.',
+  };
 
   int _compareAssignments(GroupAssignment a, GroupAssignment b) {
     if (a.isActive != b.isActive) return a.isActive ? -1 : 1;

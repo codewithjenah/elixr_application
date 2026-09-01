@@ -438,22 +438,40 @@ class _AssessmentDetails extends StatelessWidget {
       return Text(
         session.legacyScore == null
             ? 'No score recorded'
-            : 'Assessment V1 · ${session.legacyScore}% legacy percentage',
+            : 'Score: ${session.legacyScore}%',
         style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
       );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Assessment V2 · Rubric total ${rubric.total}/12 · ${rubric.performanceLevel.label}',
+          'Overall performance',
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          rubric.performanceLevel.label,
           style: AppTheme.body.copyWith(fontWeight: FontWeight.w700),
         ),
+        const SizedBox(height: 4),
+        Text('Score: ${rubric.total} out of 12', style: AppTheme.bodySecondary),
         const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Skill breakdown',
+          style: AppTheme.caption.copyWith(
+            color: context.elixTextSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
         for (final criterion in RubricCriterion.values)
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
-              '${criterion.label}: ${rubric.scoreFor(criterion)}/3',
+              '${_teacherCriterionLabel(criterion)}: ${rubric.scoreFor(criterion)}/3',
               style: AppTheme.bodySecondary,
             ),
           ),
@@ -461,6 +479,13 @@ class _AssessmentDetails extends StatelessWidget {
     );
   }
 }
+
+String _teacherCriterionLabel(RubricCriterion criterion) => switch (criterion) {
+  RubricCriterion.technique => 'Technique',
+  RubricCriterion.stability => 'Stability & control',
+  RubricCriterion.completion => 'Completion',
+  RubricCriterion.propPositioning => 'Prop positioning',
+};
 
 class _HistoryEvidence extends StatelessWidget {
   const _HistoryEvidence({required this.controller, required this.session});
