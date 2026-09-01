@@ -277,6 +277,47 @@ describe('Phase 2 groups', () => {
       }),
     );
   });
+
+  test('owning Teacher can unarchive a group without changing invite pointer', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const teacher = context('teacher').firestore();
+    await assertSucceeds(
+      updateDoc(doc(teacher, 'groups', GROUP_ID), {
+        status: 'archived',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(teacher, 'groups', GROUP_ID), {
+        status: 'active',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    const saved = await getDoc(doc(teacher, 'groups', GROUP_ID));
+    assert.equal(saved.data().invite_code, CODE);
+    assert.equal(saved.data().status, 'active');
+  });
+
+  test('unrelated Teacher cannot unarchive an owned group', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    await provisionGroupInvite();
+    const teacher = context('teacher').firestore();
+    await assertSucceeds(
+      updateDoc(doc(teacher, 'groups', GROUP_ID), {
+        status: 'archived',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(context('other').firestore(), 'groups', GROUP_ID), {
+        status: 'active',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
 });
 
 describe('invite code namespace', () => {

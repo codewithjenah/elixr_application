@@ -595,6 +595,22 @@ void main() {
       find.byKey(const Key('teacher_group_archived_assignments_message')),
       findsOneWidget,
     );
+
+    controller.setTab(TeacherGroupDetailTab.announcements);
+    await tester.pump();
+
+    final unarchive = tester.widget<Button>(
+      find.byKey(const Key('teacher_group_unarchive_classroom')),
+    );
+    expect(unarchive.onPressed, isNotNull);
+    await tester.tap(
+      find.byKey(const Key('teacher_group_unarchive_classroom')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Unarchive this classroom?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('teacher_group_confirm_unarchive')));
+    await tester.pumpAndSettle();
+    expect(repository.groups[active.id]?.status, ElixrGroupStatus.active);
   });
 
   testWidgets('classroom composer locks the opened group', (tester) async {

@@ -209,6 +209,17 @@ class FirebaseGroupRepository implements GroupRepository {
   }
 
   @override
+  Future<void> unarchiveGroup({
+    required String groupId,
+    required String teacherId,
+  }) async {
+    await _groups.doc(groupId).update({
+      'status': ElixrGroupStatus.active.name,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
   Future<GroupInvite> createOrRotateGroupInvite({
     required String groupId,
     required String teacherId,

@@ -400,12 +400,21 @@ class _GroupDetailBody extends StatelessWidget {
                           : () => _showRenameDialog(context, controller, group),
                       child: const Text('Rename'),
                     ),
-                    Button(
-                      onPressed: controller.busy || !group.isActive
-                          ? null
-                          : () => _confirmArchive(context, controller),
-                      child: const Text('Archive'),
-                    ),
+                    if (group.isActive)
+                      Button(
+                        onPressed: controller.busy
+                            ? null
+                            : () => _confirmArchive(context, controller),
+                        child: const Text('Archive'),
+                      )
+                    else
+                      Button(
+                        key: const Key('teacher_group_unarchive_classroom'),
+                        onPressed: controller.busy
+                            ? null
+                            : () => _confirmUnarchive(context, controller),
+                        child: const Text('Unarchive'),
+                      ),
                     Button(
                       key: const Key('teacher_group_delete_classroom'),
                       onPressed: controller.busy
@@ -2168,6 +2177,35 @@ Future<void> _confirmArchive(
       context.mounted) {
     context.go(AppRoutePaths.teacherGroups);
   }
+}
+
+Future<void> _confirmUnarchive(
+  BuildContext context,
+  TeacherGroupsController controller,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Unarchive this classroom?'),
+      content: const Text(
+        'This classroom will return to your active classrooms. Its students, '
+        'classwork, and existing class code will remain available.',
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          key: const Key('teacher_group_confirm_unarchive'),
+          child: const Text('Unarchive'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (accepted != true) return;
+  await controller.unarchiveSelectedGroup();
 }
 
 Future<void> _confirmPermanentlyDeleteClassroom(

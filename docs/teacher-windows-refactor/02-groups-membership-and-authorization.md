@@ -26,7 +26,7 @@ Replace the one-roster mental model with real Teacher-owned groups (classes): mu
 
 ## 3. User-visible outcome
 
-- Teacher Groups destination is a real list: create / rename / archive-or-deactivate (if implemented) / copy invite code.
+- Teacher Groups destination is a real list: create / rename / archive / unarchive / copy invite code.
 - Trainees join a **group** via code (Windows Trainee join UI updated from “one Teacher roster code” to “group invite code”).
 - Teacher sees pending join requests per group and can approve, reject, or remove members.
 - Progress Access and General Evidence Access remain **separate** Trainee-controlled consents (still on `teacher_student_links` unless inventory proves a better compatible home — see §14).
@@ -307,7 +307,7 @@ Phase 2 completion (2026-08-19)
   - `approvedCoachingLink` — unchanged (approved legacy link only)
 
 - Behavior implemented:
-  - Teacher Groups Fluent UI: create/rename/archive groups, per-group invite code display/copy/rotate, pending approve/reject, approved member remove.
+  - Teacher Groups Fluent UI: create/rename/archive/unarchive groups, per-group invite code display/copy/rotate, pending approve/reject, approved member remove.
   - Trainee join distinguishes `group_invites` vs legacy `teacher_invites` via typed `JoinCodeResolver`.
   - Approved `group_memberships` = Classroom Authorization only; no automatic `teacher_student_links` writes.
   - Dual legacy + group flows coexist; deep links (`elixr://join?code=`) unchanged.
@@ -596,6 +596,7 @@ The client now refreshes Teacher authorization automatically before privileged G
 - `createGroup`
 - `renameGroup`
 - `archiveGroup`
+- `unarchiveGroup`
 - `rotateInvite`
 - `approveMembership`
 - `rejectMembership`

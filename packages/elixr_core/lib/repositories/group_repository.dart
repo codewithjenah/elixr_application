@@ -53,6 +53,11 @@ abstract class GroupRepository {
     required String teacherId,
   });
 
+  Future<void> unarchiveGroup({
+    required String groupId,
+    required String teacherId,
+  });
+
   Future<GroupInvite> createOrRotateGroupInvite({
     required String groupId,
     required String teacherId,

@@ -2569,6 +2569,18 @@ service cloud.firestore {
               == resource.data.get('schedule', '')
             && request.resource.data.schema_version == resource.data.schema_version
           )
+          || (
+            resource.data.status == 'archived'
+            && request.resource.data.status == 'active'
+            && request.resource.data.name == resource.data.name
+            && request.resource.data.get('invite_code', '')
+              == resource.data.get('invite_code', '')
+            && request.resource.data.get('section', '')
+              == resource.data.get('section', '')
+            && request.resource.data.get('schedule', '')
+              == resource.data.get('schedule', '')
+            && request.resource.data.schema_version == resource.data.schema_version
+          )
           || validGroupInvitePointerUpdate(groupId)
         );
     }

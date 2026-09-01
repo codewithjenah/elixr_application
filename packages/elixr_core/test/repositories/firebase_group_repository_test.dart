@@ -373,6 +373,20 @@ void main() {
       expect(members.map((m) => m.id), ['group-1_trainee-1']);
     },
   );
+
+  test('unarchiveGroup restores the archived status', () async {
+    await firestore.collection(FirestoreCollections.groups).doc(groupId).update(
+      {'status': ElixrGroupStatus.archived.name},
+    );
+
+    await repository.unarchiveGroup(groupId: groupId, teacherId: teacherId);
+
+    final saved = await firestore
+        .collection(FirestoreCollections.groups)
+        .doc(groupId)
+        .get();
+    expect(saved.data()?['status'], ElixrGroupStatus.active.name);
+  });
 }
 
 Future<void> _seedActiveGroupAndInvite(FakeFirebaseFirestore firestore) async {

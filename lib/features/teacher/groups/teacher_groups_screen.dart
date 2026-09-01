@@ -271,6 +271,17 @@ class _GroupsGrid extends StatelessWidget {
                                         group,
                                       ),
                               ),
+                            if (!group.isActive)
+                              MenuFlyoutItem(
+                                text: const Text('Unarchive'),
+                                onPressed: controller.busy
+                                    ? null
+                                    : () => _confirmUnarchiveGroup(
+                                        context,
+                                        controller,
+                                        group,
+                                      ),
+                              ),
                             MenuFlyoutItem(
                               text: const Text('Delete permanently'),
                               onPressed: controller.busy
@@ -423,6 +434,35 @@ Future<void> _confirmArchiveGroup(
     ),
   );
   if (accepted == true) await controller.archiveGroup(group);
+}
+
+Future<void> _confirmUnarchiveGroup(
+  BuildContext context,
+  TeacherGroupsController controller,
+  ElixrGroup group,
+) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Unarchive this classroom?'),
+      content: const Text(
+        'This classroom will return to your active classrooms. Its students, '
+        'classwork, and existing class code will remain available.',
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+        FilledButton(
+          key: const Key('teacher_groups_confirm_unarchive'),
+          child: const Text('Unarchive'),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+      ],
+    ),
+  );
+  if (accepted == true) await controller.unarchiveGroup(group);
 }
 
 Future<void> _confirmPermanentlyDeleteGroup(

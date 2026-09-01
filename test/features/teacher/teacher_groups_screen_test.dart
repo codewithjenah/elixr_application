@@ -157,6 +157,49 @@ void main() {
     expect(find.text('detail:${groupA.id}'), findsOneWidget);
   });
 
+  testWidgets('archived classroom can be unarchived from its card menu', (
+    tester,
+  ) async {
+    final controller = TeacherGroupsController(
+      repository: repository,
+      teacherId: 'teacher',
+      teacherDisplayName: 'Grace Hopper',
+      ensureTeacherAuthorization: () async => true,
+    );
+    addTearDown(controller.dispose);
+    final group = await repository.createGroup(
+      teacherId: 'teacher',
+      teacherDisplayName: 'Grace Hopper',
+      name: 'BSIT-4A',
+    );
+    await repository.archiveGroup(groupId: group.id, teacherId: 'teacher');
+
+    await controller.start();
+    await pumpGroups(tester, controller: controller);
+
+    final filter = tester.widget<ComboBox<bool>>(
+      find.byKey(const Key('teacher_groups_status_filter')),
+    );
+    filter.onChanged!(true);
+    await tester.pump();
+
+    final more = find.byKey(Key('class_card_more_${group.id}'));
+    expect(more, findsOneWidget);
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    expect(find.text('Unarchive'), findsOneWidget);
+
+    await tester.tap(find.text('Unarchive'));
+    await tester.pumpAndSettle();
+    expect(find.text('Unarchive this classroom?'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('teacher_groups_confirm_unarchive')));
+    await tester.pumpAndSettle();
+
+    expect(repository.groups[group.id]?.status, ElixrGroupStatus.active);
+    expect(find.text('No archived classrooms.'), findsOneWidget);
+  });
+
   testWidgets('creating a group opens the new class page', (tester) async {
     final controller = TeacherGroupsController(
       repository: repository,

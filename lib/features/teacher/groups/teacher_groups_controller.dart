@@ -314,6 +314,26 @@ class TeacherGroupsController extends ChangeNotifier {
     return archiveGroup(group);
   }
 
+  Future<void> unarchiveGroup(ElixrGroup group) {
+    return _runTeacherAction(
+      operation: 'unarchiveGroup',
+      failureMessage: 'Could not unarchive that group.',
+      action: () async {
+        await repository.unarchiveGroup(
+          groupId: group.id,
+          teacherId: teacherId,
+        );
+        actionMessage = 'Unarchived ${group.name}.';
+      },
+    );
+  }
+
+  Future<void> unarchiveSelectedGroup() {
+    final group = selectedGroup;
+    if (group == null) return Future.value();
+    return unarchiveGroup(group);
+  }
+
   /// Permanently removes a classroom and its assignment data through the
   /// server-authoritative cascade.  The destructive confirmation is supplied
   /// only by the confirmation dialog, never by a caller-provided value.

@@ -384,6 +384,12 @@ class _FailingTeacherGroupsRepository implements GroupRepository {
   }) => inner.archiveGroup(groupId: groupId, teacherId: teacherId);
 
   @override
+  Future<void> unarchiveGroup({
+    required String groupId,
+    required String teacherId,
+  }) => inner.unarchiveGroup(groupId: groupId, teacherId: teacherId);
+
+  @override
   Future<GroupInvite> createOrRotateGroupInvite({
     required String groupId,
     required String teacherId,

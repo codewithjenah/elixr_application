@@ -275,6 +275,22 @@ class InMemoryGroupRepository implements GroupRepository {
   }
 
   @override
+  Future<void> unarchiveGroup({
+    required String groupId,
+    required String teacherId,
+  }) async {
+    final group = groups[groupId];
+    if (group == null || group.teacherId != teacherId) {
+      throw const GroupException(GroupError.notFound);
+    }
+    groups[groupId] = group.copyWith(
+      status: ElixrGroupStatus.active,
+      updatedAt: now,
+    );
+    _emitGroups();
+  }
+
+  @override
   Future<GroupInvite> createOrRotateGroupInvite({
     required String groupId,
     required String teacherId,

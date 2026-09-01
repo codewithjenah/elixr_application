@@ -117,6 +117,17 @@ class _SpyGroupRepository implements GroupRepository {
   }
 
   @override
+  Future<void> unarchiveGroup({
+    required String groupId,
+    required String teacherId,
+  }) {
+    return _record(
+      'unarchiveGroup',
+      () => inner.unarchiveGroup(groupId: groupId, teacherId: teacherId),
+    );
+  }
+
+  @override
   Future<GroupInvite> createOrRotateGroupInvite({
     required String groupId,
     required String teacherId,
@@ -533,6 +544,35 @@ void main() {
     expect(repository.privilegedCalls, isEmpty);
     expect(memory.groups[groupId]?.status, ElixrGroupStatus.active);
     expect(controller.selectedGroup?.id, groupId);
+    expect(
+      controller.errorMessage,
+      TeacherAuthMessages.teacherAuthorizationRefreshRequired,
+    );
+  });
+
+  test('unarchives a classroom and requires authorization refresh', () async {
+    await controller.start();
+    final group = await controller.createGroup('BSHM 4A');
+    await memory.archiveGroup(groupId: group!.id, teacherId: 'teacher-1');
+    final archived = memory.groups[group.id]!;
+
+    repository.privilegedCalls.clear();
+    await controller.unarchiveGroup(archived);
+
+    expect(memory.groups[group.id]?.status, ElixrGroupStatus.active);
+    expect(repository.privilegedCalls, contains('unarchiveGroup'));
+    expect(controller.actionMessage, 'Unarchived BSHM 4A.');
+
+    authorizationCalls = 0;
+    repository.privilegedCalls.clear();
+    authorizationOk = false;
+
+    await memory.archiveGroup(groupId: group.id, teacherId: 'teacher-1');
+    await controller.unarchiveGroup(memory.groups[group.id]!);
+
+    expect(authorizationCalls, 1);
+    expect(repository.privilegedCalls, isEmpty);
+    expect(memory.groups[group.id]?.status, ElixrGroupStatus.archived);
     expect(
       controller.errorMessage,
       TeacherAuthMessages.teacherAuthorizationRefreshRequired,
