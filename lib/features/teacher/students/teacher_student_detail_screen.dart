@@ -19,7 +19,11 @@ import '../../../core/widgets/movement_image.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/assessment_score_display.dart';
 import '../../../data/repositories/public_profile_repository.dart';
+import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../services/auth_service.dart';
+import '../../profile/widgets/completed_movements_section.dart';
+import '../../profile/widgets/profile_achievements_section.dart';
+import '../../profile/widgets/profile_stats_section.dart';
 import 'teacher_student_detail_controller.dart';
 
 /// Lightweight overview. Classwork streams only start after its entry opens.
@@ -29,10 +33,12 @@ class TeacherStudentDetailScreen extends StatefulWidget {
     required this.traineeId,
     this.preferredGroupId,
     this.evidenceRepository,
+    this.leaderboardRepository,
   });
   final String traineeId;
   final String? preferredGroupId;
   final TeacherEvidenceRepository? evidenceRepository;
+  final LeaderboardRepository? leaderboardRepository;
   @override
   State<TeacherStudentDetailScreen> createState() =>
       _TeacherStudentDetailScreenState();
@@ -57,7 +63,17 @@ class _TeacherStudentDetailScreenState
       preferredGroupId: widget.preferredGroupId,
       initialPracticePageSize: 3,
       evidenceRepository: widget.evidenceRepository ?? _maybeEvidence(context),
+      leaderboardRepository:
+          widget.leaderboardRepository ?? _maybeLeaderboard(context),
     )..start();
+  }
+
+  LeaderboardRepository? _maybeLeaderboard(BuildContext context) {
+    try {
+      return context.read<LeaderboardRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   TeacherEvidenceRepository? _maybeEvidence(BuildContext context) {
@@ -112,13 +128,6 @@ class _TeacherStudentDetailScreenState
                           },
                         ).toString(),
                       ),
-              ),
-              CommandBarButton(
-                icon: const Icon(FluentIcons.contact),
-                label: const Text('View public profile'),
-                onPressed: () => context.push(
-                  AppRoutePaths.teacherProfile(controller.traineeId),
-                ),
               ),
             ],
           ),
@@ -221,17 +230,14 @@ class _Body extends StatelessWidget {
     ),
     TeacherStudentDetailState.error => _Message(
       title: 'Something went wrong',
-      body: 'Practice history could not be loaded.',
+      body: 'History could not be loaded.',
       action: controller.refresh,
     ),
     _ => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (controller.isPrivateProfile) ...[
-          Text(
-            'Private public profile is locked. Classroom-authorized learning progress remains available while membership is approved.',
-            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
-          ),
+          const _LockedProfileNotice(),
           const SizedBox(height: AppSpacing.md),
         ],
         Text('Learning', style: AppTheme.headingMedium),
@@ -239,6 +245,10 @@ class _Body extends StatelessWidget {
         _LearningEntries(controller: controller),
         const SizedBox(height: AppSpacing.xl),
         _PracticePreview(controller: controller),
+        if (controller.profileRoot?.isPublic == true) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _ProfileHighlights(controller: controller),
+        ],
       ],
     ),
   };
@@ -271,9 +281,9 @@ class _LearningEntries extends StatelessWidget {
         _LearningEntry(
           key: const Key('teacher_student_practice_entry'),
           icon: FluentIcons.timeline,
-          title: 'Practice',
+          title: 'History',
           detail:
-              'Independent and Guided Practice history, separate from assigned work.',
+              'Independent and Guided Practice sessions, separate from assigned Classwork.',
           onOpen: () => context.push(
             AppRoutePaths.teacherStudentPracticeHistory(
               controller.traineeId,
@@ -372,21 +382,21 @@ class _PracticePreview extends StatelessWidget {
     final summary = controller.summary;
     if (controller.state == TeacherStudentDetailState.empty)
       return const _Message(
-        title: 'No practice history yet',
+        title: 'No history yet',
         body:
-            'Independent and Guided Practice will appear here when available.',
+            'Independent and Guided Practice sessions will appear here when available.',
       );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Recent Practice', style: AppTheme.headingMedium),
+        Text('Recent History', style: AppTheme.headingMedium),
         const SizedBox(height: AppSpacing.sm),
         if (summary != null)
           _Metrics(summary: summary, sessions: controller.sessions),
         const SizedBox(height: AppSpacing.md),
         if (controller.sessions.isEmpty)
           Text(
-            'No recent practice sessions.',
+            'No recent History sessions.',
             style: AppTheme.body.copyWith(color: context.elixTextSecondary),
           )
         else
@@ -408,11 +418,103 @@ class _PracticePreview extends StatelessWidget {
               groupId: controller.selectedGroupId,
             ),
           ),
-          child: const Text('View practice history'),
+          child: const Text('View full history'),
         ),
       ],
     );
   }
+}
+
+class _LockedProfileNotice extends StatelessWidget {
+  const _LockedProfileNotice();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      color: context.elixPanelSurface,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: context.elixColors.brandSecondary.withValues(alpha: .28),
+      ),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          FluentIcons.lock,
+          size: 16,
+          color: context.elixColors.brandSecondary,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        const Expanded(
+          child: Text(
+            'Profile locked. Public achievements and player details are hidden. Classroom-authorized History and Classwork remain available.',
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ProfileHighlights extends StatelessWidget {
+  const _ProfileHighlights({required this.controller});
+
+  final TeacherStudentDetailController controller;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text('Profile highlights', style: AppTheme.headingMedium),
+      const SizedBox(height: AppSpacing.sm),
+      if (controller.leaderboardEntry != null) ...[
+        ProfileStatsSection(
+          leaderboardEntry: controller.leaderboardEntry,
+          rank: controller.leaderboardRank,
+          summary: controller.summary,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+      ],
+      if (controller.profileHighlightsLoading)
+        const Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: ProgressRing(),
+        )
+      else
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final achievements = ProfileAchievementsSection(
+              achievements: controller.claimedAchievements,
+              showViewAll: false,
+            );
+            final movements = CompletedMovementsSection(
+              movementNames:
+                  controller.summary?.completedMovementNames ?? const [],
+            );
+            if (constraints.maxWidth < 760) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  achievements,
+                  const SizedBox(height: AppSpacing.lg),
+                  movements,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: achievements),
+                const SizedBox(width: AppSpacing.lg),
+                Expanded(child: movements),
+              ],
+            );
+          },
+        ),
+    ],
+  );
 }
 
 class _Metrics extends StatelessWidget {
@@ -427,7 +529,7 @@ class _Metrics extends StatelessWidget {
       runSpacing: AppSpacing.sm,
       children: [
         _Metric(
-          label: 'Total practice',
+          label: 'Total history',
           value: _humanDuration(summary.totalDurationSeconds),
         ),
         _Metric(
@@ -435,7 +537,7 @@ class _Metrics extends StatelessWidget {
           value: '${summary.completedMovementNames.length}',
         ),
         _Metric(
-          label: 'Last practice',
+          label: 'Last session',
           value: last == null ? 'Not yet recorded' : _date(last),
         ),
       ],

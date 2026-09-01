@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:elixr_application/core/router/app_route_paths.dart';
 import 'package:elixr_application/core/widgets/elix_status_panel.dart';
 import 'package:elixr_application/data/repositories/public_profile_repository.dart';
@@ -18,11 +20,13 @@ void main() {
   late TrackingTeacherProgressRepository progress;
   late FakePublicProfileRepository profiles;
   late AuthService auth;
+  late TrackingTeacherEvidenceRepository evidence;
 
   setUp(() {
     groups = InMemoryGroupRepository();
     progress = TrackingTeacherProgressRepository();
     profiles = FakePublicProfileRepository();
+    evidence = TrackingTeacherEvidenceRepository();
     auth = phase3TeacherAuth();
     groups.seedGroup(activeGroup());
     groups.seedMembership(
@@ -58,6 +62,7 @@ void main() {
           builder: (context, state) => TeacherStudentPracticeHistoryScreen(
             traineeId: state.pathParameters['traineeId']!,
             groupId: state.uri.queryParameters['groupId'],
+            evidenceRepository: evidence,
           ),
         ),
         GoRoute(
@@ -111,7 +116,7 @@ void main() {
     'shows empty and authorization-blocked states without a history list',
     (tester) async {
       await pumpScreen(tester);
-      expect(find.text('No practice history yet.'), findsOneWidget);
+      expect(find.text('No History yet.'), findsOneWidget);
 
       groups = InMemoryGroupRepository();
       groups.seedGroup(activeGroup());
@@ -120,4 +125,121 @@ void main() {
       expect(find.byType(ListView), findsNothing);
     },
   );
+
+  testWidgets('saved images load only after the teacher requests them', (
+    tester,
+  ) async {
+    final session = sampleSession(evidenceAvailable: true);
+    progress.inner.sessions['trainee'] = [session];
+    await pumpScreen(tester);
+
+    expect(evidence.downloads, isEmpty);
+    await tester.tap(
+      find.byKey(const Key('teacher_history_evidence_session-1')),
+    );
+    await tester.pumpAndSettle();
+    expect(evidence.downloads, ['trainee:session-1']);
+    expect(find.text('Saved image is unavailable.'), findsOneWidget);
+
+    evidence.responses[session.sessionId] = Uint8List.fromList(_tinyPng);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(evidence.downloads, ['trainee:session-1', 'trainee:session-1']);
+    expect(
+      find.byKey(const Key('teacher_history_evidence_preview_session-1')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('teacher_history_evidence_preview_session-1')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Hand Stall · Saved image'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+    'rows without retained evidence never offer or request an image',
+    (tester) async {
+      progress.inner.sessions['trainee'] = [sampleSession()];
+      await pumpScreen(tester, size: const Size(340, 720));
+
+      expect(find.text('View saved image'), findsNothing);
+      expect(evidence.downloads, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
+
+const _tinyPng = <int>[
+  137,
+  80,
+  78,
+  71,
+  13,
+  10,
+  26,
+  10,
+  0,
+  0,
+  0,
+  13,
+  73,
+  72,
+  68,
+  82,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  1,
+  8,
+  6,
+  0,
+  0,
+  0,
+  31,
+  21,
+  196,
+  137,
+  0,
+  0,
+  0,
+  13,
+  73,
+  68,
+  65,
+  84,
+  8,
+  153,
+  99,
+  248,
+  207,
+  192,
+  240,
+  31,
+  0,
+  5,
+  128,
+  2,
+  63,
+  73,
+  194,
+  238,
+  207,
+  0,
+  0,
+  0,
+  0,
+  73,
+  69,
+  78,
+  68,
+  174,
+  66,
+  96,
+  130,
+];

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:elixr_core/elixr_core.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -23,9 +25,11 @@ class TeacherStudentPracticeHistoryScreen extends StatefulWidget {
     super.key,
     required this.traineeId,
     this.groupId,
+    this.evidenceRepository,
   });
   final String traineeId;
   final String? groupId;
+  final TeacherEvidenceRepository? evidenceRepository;
   @override
   State<TeacherStudentPracticeHistoryScreen> createState() =>
       _TeacherStudentPracticeHistoryScreenState();
@@ -48,7 +52,16 @@ class _TeacherStudentPracticeHistoryScreenState
       traineeId: widget.traineeId,
       preferredGroupId: widget.groupId,
       initialPracticePageSize: TeacherProgressRepository.defaultPageSize,
+      evidenceRepository: widget.evidenceRepository ?? _maybeEvidence(context),
     )..start();
+  }
+
+  TeacherEvidenceRepository? _maybeEvidence(BuildContext context) {
+    try {
+      return context.read<TeacherEvidenceRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   @override
@@ -66,7 +79,7 @@ class _TeacherStudentPracticeHistoryScreenState
       builder: (context, _) => TeacherScaffoldPage(
         scrollable: false,
         header: const ElixEditorialPageHeader(
-          heading: 'Practice history',
+          heading: 'History',
           eyebrow: 'TEACHER WORKSPACE',
           variant: ElixEditorialHeaderVariant.compact,
         ),
@@ -106,19 +119,18 @@ class _HistoryBody extends StatelessWidget {
         controller.state == TeacherStudentDetailState.relationshipRemoved)
       return const ElixStatusPanel(
         isError: true,
-        message:
-            'Classroom authorization is required to view practice history.',
+        message: 'Classroom authorization is required to view History.',
       );
     if (controller.state == TeacherStudentDetailState.error ||
         controller.state == TeacherStudentDetailState.connectionRequired)
       return ElixStatusPanel(
         isError: true,
-        message: 'Practice history could not be loaded.',
+        message: 'History could not be loaded.',
         actionLabel: 'Retry',
         onAction: controller.refresh,
       );
     if (controller.sessions.isEmpty)
-      return const ElixStatusPanel(message: 'No practice history yet.');
+      return const ElixStatusPanel(message: 'No History yet.');
     return ListView(
       children: [
         for (final session in controller.sessions)
@@ -146,10 +158,11 @@ class _HistoryBody extends StatelessWidget {
                           ),
                         ),
                         if (session.evidenceAvailable == true)
-                          Text(
-                            'Saved evidence available',
-                            style: AppTheme.caption.copyWith(
-                              color: context.elixTextSecondary,
+                          Padding(
+                            padding: const EdgeInsets.only(top: AppSpacing.sm),
+                            child: _HistoryEvidence(
+                              controller: controller,
+                              session: session,
                             ),
                           ),
                       ],
@@ -176,6 +189,137 @@ class _HistoryBody extends StatelessWidget {
       ],
     );
   }
+}
+
+class _HistoryEvidence extends StatelessWidget {
+  const _HistoryEvidence({required this.controller, required this.session});
+
+  final TeacherStudentDetailController controller;
+  final PublicProfileSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.evidenceStateFor(session.sessionId);
+    final bytes = controller.evidenceFor(session.sessionId);
+    if (state == TeacherEvidenceState.idle) {
+      return Button(
+        key: Key('teacher_history_evidence_${session.sessionId}'),
+        onPressed: () => controller.loadEvidence(session),
+        child: const Text('View saved image'),
+      );
+    }
+    if (state == TeacherEvidenceState.loading) {
+      return const SizedBox(height: 72, child: Center(child: ProgressRing()));
+    }
+    if (state == TeacherEvidenceState.loaded && bytes != null) {
+      return _EvidencePreview(session: session, bytes: bytes);
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            state == TeacherEvidenceState.unavailable
+                ? 'Saved image is unavailable.'
+                : 'Saved image could not be loaded.',
+            style: AppTheme.caption.copyWith(color: context.elixTextSecondary),
+          ),
+        ),
+        Button(
+          onPressed: () => controller.retryEvidence(session),
+          child: const Text('Retry'),
+        ),
+      ],
+    );
+  }
+}
+
+class _EvidencePreview extends StatelessWidget {
+  const _EvidencePreview({required this.session, required this.bytes});
+
+  final PublicProfileSession session;
+  final Uint8List bytes;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: 'View saved image',
+    child: Semantics(
+      button: true,
+      label: 'View saved image for ${session.movementName}',
+      child: LayoutBuilder(
+        builder: (context, constraints) => SizedBox(
+          width: constraints.maxWidth < 220 ? constraints.maxWidth : 220,
+          height: 150,
+          child: Button(
+            onPressed: () => _showEvidence(context, session, bytes),
+            style: ButtonStyle(
+              padding: WidgetStateProperty.all(EdgeInsets.zero),
+            ),
+            child: Container(
+              key: Key('teacher_history_evidence_preview_${session.sessionId}'),
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.diagonal3Values(-1, 1, 1),
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
+                  const Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: ColoredBox(
+                      color: Color(0x8C000000),
+                      child: Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Text(
+                          'Click to enlarge',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+void _showEvidence(
+  BuildContext context,
+  PublicProfileSession session,
+  Uint8List bytes,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => ContentDialog(
+      title: Text('${session.movementName} · Saved image'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 520),
+        child: Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.diagonal3Values(-1, 1, 1),
+          child: Image.memory(bytes, fit: BoxFit.contain),
+        ),
+      ),
+      actions: [
+        Button(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }
 
 String _historyDuration(int seconds) {

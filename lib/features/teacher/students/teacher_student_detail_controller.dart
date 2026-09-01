@@ -4,6 +4,9 @@ import 'package:elixr_core/elixr_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/public_profile.dart';
+import '../../../data/models/achievement.dart';
+import '../../../data/models/leaderboard_entry.dart';
+import '../../../data/repositories/leaderboard_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
 
 enum TeacherStudentDetailState {
@@ -31,6 +34,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     this.preferredGroupId,
     this.initialPracticePageSize = 3,
     this.evidenceRepository,
+    this.leaderboardRepository,
   });
 
   final GroupRepository groupRepository;
@@ -41,6 +45,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
   final TeacherProgressRepository progressRepository;
   final PublicProfileRepository publicProfileRepository;
   final TeacherEvidenceRepository? evidenceRepository;
+  final LeaderboardRepository? leaderboardRepository;
   final String teacherId;
   final String traineeId;
   final String? preferredGroupId;
@@ -55,6 +60,10 @@ class TeacherStudentDetailController extends ChangeNotifier {
   List<ElixrGroup> teacherGroups = const [];
   String? selectedGroupId;
   PublicProfile? profileRoot;
+  LeaderboardEntry? leaderboardEntry;
+  int? leaderboardRank;
+  List<AchievementDefinition> claimedAchievements = const [];
+  bool profileHighlightsLoading = false;
   PublicProfileSummary? summary;
   List<PublicProfileSession> sessions = const [];
   TeacherProgressCursor? _cursor;
@@ -71,11 +80,13 @@ class TeacherStudentDetailController extends ChangeNotifier {
   StreamSubscription<List<ElixrGroup>>? _groupsSub;
   StreamSubscription<PublicProfile?>? _profileSub;
   StreamSubscription<PublicProfileSummary?>? _summarySub;
+  StreamSubscription<LeaderboardEntry?>? _leaderboardSub;
 
   int _classroomEpoch = 0;
   int _accessEpoch = 0;
   int _dataEpoch = 0;
   int _pageEpoch = 0;
+  int _profileHighlightsEpoch = 0;
   String? _preparingContextKey;
   String? _preparedContextKey;
   bool _firstSummarySettled = false;
@@ -159,6 +170,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     teacherGroups = const [];
     _teacherGroupsLoaded = false;
     profileRoot = null;
+    _clearProfileHighlights();
     selectedGroupId = preferredGroupId;
     _preparingContextKey = null;
     _preparedContextKey = null;
@@ -245,8 +257,74 @@ class TeacherStudentDetailController extends ChangeNotifier {
     ) {
       if (!_isCurrentClassroom(classroomEpoch)) return;
       profileRoot = value;
+      _refreshPublicHighlights();
       notifyListeners();
     }, onError: (_) {});
+  }
+
+  void _refreshPublicHighlights() {
+    final profile = profileRoot;
+    final epoch = ++_profileHighlightsEpoch;
+    unawaited(_leaderboardSub?.cancel() ?? Future<void>.value());
+    _leaderboardSub = null;
+    leaderboardEntry = null;
+    leaderboardRank = null;
+    claimedAchievements = const [];
+    profileHighlightsLoading = profile?.isPublic ?? false;
+    if (profile?.isPublic != true) return;
+
+    final leaderboard = leaderboardRepository;
+    if (leaderboard != null) {
+      _leaderboardSub = leaderboard.watchPlayer(traineeId).listen((entry) {
+        if (_disposed || epoch != _profileHighlightsEpoch) return;
+        leaderboardEntry = entry;
+        notifyListeners();
+      }, onError: (_) {});
+      unawaited(_loadLeaderboardRank(leaderboard, epoch));
+    }
+    unawaited(_loadClaimedAchievements(epoch));
+  }
+
+  Future<void> _loadLeaderboardRank(
+    LeaderboardRepository leaderboard,
+    int epoch,
+  ) async {
+    try {
+      final rank = await leaderboard.computeRankForUser(traineeId);
+      if (_disposed || epoch != _profileHighlightsEpoch) return;
+      leaderboardRank = rank;
+      notifyListeners();
+    } catch (_) {
+      // Rank is optional; the stat card still renders an unranked player.
+    }
+  }
+
+  Future<void> _loadClaimedAchievements(int epoch) async {
+    try {
+      final claimedIds = await publicProfileRepository
+          .fetchClaimedAchievementIds(traineeId);
+      if (_disposed || epoch != _profileHighlightsEpoch) return;
+      claimedAchievements = achievementCatalog
+          .where((definition) => claimedIds.contains(definition.id))
+          .toList(growable: false);
+    } catch (_) {
+      // Profile highlights are optional and must never block classroom access.
+    } finally {
+      if (!_disposed && epoch == _profileHighlightsEpoch) {
+        profileHighlightsLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _clearProfileHighlights() {
+    _profileHighlightsEpoch++;
+    unawaited(_leaderboardSub?.cancel() ?? Future<void>.value());
+    _leaderboardSub = null;
+    leaderboardEntry = null;
+    leaderboardRank = null;
+    claimedAchievements = const [];
+    profileHighlightsLoading = false;
   }
 
   Future<void> _prepareClassroomAccessAndBegin(int classroomEpoch) async {
@@ -467,6 +545,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     _profileSub?.cancel();
     _profileSub = null;
     profileRoot = null;
+    _clearProfileHighlights();
     _preparingContextKey = null;
     _preparedContextKey = null;
     summary = null;
@@ -487,10 +566,12 @@ class TeacherStudentDetailController extends ChangeNotifier {
     await _groupsSub?.cancel();
     await _profileSub?.cancel();
     await _summarySub?.cancel();
+    await _leaderboardSub?.cancel();
     _membershipsSub = null;
     _groupsSub = null;
     _profileSub = null;
     _summarySub = null;
+    _leaderboardSub = null;
   }
 
   Future<void> loadEvidence(PublicProfileSession session) async {

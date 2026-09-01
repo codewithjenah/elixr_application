@@ -66,6 +66,7 @@ class _ElixrAppState extends State<ElixrApp> {
   late final CameraDeviceService _cameraDeviceService;
   late final TutorialProgressService _tutorialProgressService;
   late final PublicProfileRepository _publicProfileRepository;
+  late final LeaderboardRepository _leaderboardRepository;
   late final TeacherRelationshipRepository _teacherRelationshipRepository;
   late final GroupRepository _groupRepository;
   late final TeacherEvidenceRepository _teacherEvidenceRepository;
@@ -79,6 +80,7 @@ class _ElixrAppState extends State<ElixrApp> {
   void initState() {
     super.initState();
     _publicProfileRepository = PublicProfileRepository();
+    _leaderboardRepository = LeaderboardRepository();
     _teacherRelationshipRepository = FirebaseTeacherRelationshipRepository();
     _groupRepository = FirebaseGroupRepository();
     _teacherEvidenceRepository = FirebaseTeacherEvidenceRepository();
@@ -86,7 +88,7 @@ class _ElixrAppState extends State<ElixrApp> {
     _joinLinkService = JoinLinkService();
     _chatRepository = FirebaseChatRepository();
     _authService = AuthService(
-      leaderboardRepository: LeaderboardRepository(),
+      leaderboardRepository: _leaderboardRepository,
       publicProfileRepository: _publicProfileRepository,
       joinLinkService: _joinLinkService,
     );
@@ -205,6 +207,7 @@ class _ElixrAppState extends State<ElixrApp> {
         Provider<TeacherProgressRepository>(
           create: (_) => FirebaseTeacherProgressRepository(),
         ),
+        Provider<LeaderboardRepository>.value(value: _leaderboardRepository),
         Provider<TeacherEvidenceRepository>.value(
           value: _teacherEvidenceRepository,
         ),

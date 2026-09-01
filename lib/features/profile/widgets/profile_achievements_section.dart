@@ -12,10 +12,12 @@ class ProfileAchievementsSection extends StatelessWidget {
     super.key,
     required this.achievements,
     this.maxVisible = 6,
+    this.showViewAll = true,
   });
 
   final List<AchievementDefinition> achievements;
   final int maxVisible;
+  final bool showViewAll;
 
   @override
   Widget build(BuildContext context) {
@@ -25,10 +27,12 @@ class ProfileAchievementsSection extends StatelessWidget {
 
     return ProfileSectionCard(
       title: 'Achievements',
-      trailing: HyperlinkButton(
-        onPressed: () => context.push('/achievements'),
-        child: const Text('View All'),
-      ),
+      trailing: showViewAll
+          ? HyperlinkButton(
+              onPressed: () => context.push('/achievements'),
+              child: const Text('View All'),
+            )
+          : null,
       child: achievements.isEmpty
           ? Text(
               'No claimed achievements yet.',

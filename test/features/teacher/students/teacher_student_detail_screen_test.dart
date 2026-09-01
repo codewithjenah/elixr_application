@@ -118,13 +118,13 @@ void main() {
       await pumpDetail(tester);
       await tester.pump();
 
-      expect(find.text('No practice history yet'), findsOneWidget);
+      expect(find.text('No history yet'), findsOneWidget);
       expect(
         find.textContaining('Classroom membership is required'),
         findsNothing,
       );
       expect(find.text('Not authorized'), findsNothing);
-      expect(find.textContaining('Private public profile'), findsNothing);
+      expect(find.textContaining('Profile locked'), findsNothing);
       expect(find.text('Hand Stall'), findsNothing);
     },
   );
@@ -155,9 +155,11 @@ void main() {
       await tester.pump();
 
       expect(find.text('Ada Lovelace'), findsWidgets);
-      expect(find.textContaining('Private public profile'), findsOneWidget);
-      expect(find.text('Recent Practice'), findsOneWidget);
+      expect(find.text('Profile locked'), findsOneWidget);
+      expect(find.text('Recent History'), findsOneWidget);
       expect(find.text('Hand Stall'), findsWidgets);
+      expect(find.text('Achievements'), findsNothing);
+      expect(find.text('Completed Movements'), findsNothing);
       expect(find.text('Not authorized'), findsNothing);
     },
   );
@@ -195,16 +197,47 @@ void main() {
   });
 
   testWidgets(
+    'public profile reuses highlights while classroom History stays local',
+    (tester) async {
+      groups.seedGroup(activeGroup());
+      groups.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+        ),
+      );
+      progress.inner.setSummary('trainee', sampleSummary());
+      await pumpDetail(tester);
+      profiles.emitProfile(
+        'trainee',
+        const PublicProfile(
+          userId: 'trainee',
+          displayName: 'Ada Lovelace',
+          visibility: ProfileVisibility.public,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Profile highlights'), findsOneWidget);
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.text('Completed Movements'), findsOneWidget);
+      expect(find.text('Recent History'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'unauthorized guessed uid hides progress, coaching, and protected profile details',
     (tester) async {
       await pumpDetail(tester);
 
       expect(find.text('Not authorized'), findsOneWidget);
       expect(find.textContaining('not in any of your groups'), findsOneWidget);
-      expect(find.text('Practice progress'), findsNothing);
+      expect(find.text('History'), findsNothing);
       expect(find.text('Add note'), findsNothing);
       expect(find.text('Hand Stall'), findsNothing);
-      expect(find.textContaining('Private public profile'), findsNothing);
+      expect(find.textContaining('Profile locked'), findsNothing);
     },
   );
 
@@ -246,31 +279,29 @@ void main() {
     await pumpDetail(tester);
     await tester.pump();
 
-    expect(find.text('No practice history yet'), findsOneWidget);
+    expect(find.text('No history yet'), findsOneWidget);
     expect(find.text('Hand Stall'), findsNothing);
   });
 
-  testWidgets('View public profile opens the teacher-shell profile page', (
-    tester,
-  ) async {
-    groups.seedGroup(activeGroup());
-    groups.seedMembership(
-      membership(
-        groupId: 'group-1',
-        teacherId: 'teacher',
-        traineeId: 'trainee',
-        traineeName: 'Ada Lovelace',
-      ),
-    );
-    await pumpDetail(tester);
-    await tester.pump();
+  testWidgets(
+    'approved details keeps messaging but removes public-profile detour',
+    (tester) async {
+      groups.seedGroup(activeGroup());
+      groups.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+          traineeName: 'Ada Lovelace',
+        ),
+      );
+      await pumpDetail(tester);
+      await tester.pump();
 
-    expect(find.text('View public profile'), findsOneWidget);
-    await tester.tap(find.text('View public profile'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('profile:trainee'), findsOneWidget);
-  });
+      expect(find.text('View public profile'), findsNothing);
+      expect(find.text('Message student'), findsOneWidget);
+    },
+  );
 
   testWidgets('back returns to the teacher students list', (tester) async {
     groups.seedGroup(activeGroup());
@@ -358,7 +389,7 @@ void main() {
               find.byKey(const Key('teacher_student_classwork_entry')),
             )
             .dy,
-        lessThan(tester.getTopLeft(find.text('No practice history yet')).dy),
+        lessThan(tester.getTopLeft(find.text('No history yet')).dy),
       );
     },
   );
@@ -399,6 +430,6 @@ void main() {
 
     expect(find.text('Not authorized'), findsOneWidget);
     expect(find.byKey(const Key('teacher_student_classwork')), findsNothing);
-    expect(find.text('Practice progress'), findsNothing);
+    expect(find.text('History'), findsNothing);
   });
 }
