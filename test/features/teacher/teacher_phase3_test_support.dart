@@ -332,6 +332,7 @@ class TrackingTeacherProgressRepository implements TeacherProgressRepository {
       InMemoryTeacherProgressRepository();
   final List<String> summaryWatches = [];
   final List<String> sessionFetches = [];
+  final List<int> sessionPageSizes = [];
 
   @override
   Stream<PublicProfileSummary?> watchSummary(String traineeId) {
@@ -346,6 +347,7 @@ class TrackingTeacherProgressRepository implements TeacherProgressRepository {
     TeacherProgressCursor? startAfter,
   }) {
     sessionFetches.add(traineeId);
+    sessionPageSizes.add(pageSize);
     return inner.fetchSessionsPage(
       traineeId: traineeId,
       pageSize: pageSize,

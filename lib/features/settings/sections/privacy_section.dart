@@ -333,8 +333,10 @@ class PrivacySectionState extends State<PrivacySection> {
               description:
                   'When locked, other signed-in Trainees and Teachers cannot see '
                   'your detailed stats, claimed achievements, completed movements, '
-                  'or practice history. Your basic leaderboard identity remains '
-                  'visible either way. Profile owners can see recent profile visitors.',
+                  'or practice history. Approved classroom Teachers can still view '
+                  'classroom-authorized learning progress while your membership is '
+                  'approved. Your basic leaderboard identity remains visible either '
+                  'way. Profile owners can see recent profile visitors.',
               checked: _visibility == ProfileVisibility.private,
               onChanged: _saving || _reconciling ? null : _setLocked,
             ),

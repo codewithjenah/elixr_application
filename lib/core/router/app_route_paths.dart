@@ -180,6 +180,31 @@ abstract final class AppRoutePaths {
     return '$base?groupId=${Uri.encodeQueryComponent(groupId)}';
   }
 
+  static String teacherStudentClasswork(
+    String traineeId, {
+    required String groupId,
+  }) =>
+      '/teacher/students/${Uri.encodeComponent(traineeId)}/classwork'
+      '?groupId=${Uri.encodeQueryComponent(groupId)}';
+
+  static String teacherStudentAssignmentReview(
+    String traineeId, {
+    required String groupId,
+    required String assignmentId,
+  }) =>
+      '/teacher/students/${Uri.encodeComponent(traineeId)}/classwork/'
+      '${Uri.encodeComponent(assignmentId)}?groupId=${Uri.encodeQueryComponent(groupId)}';
+
+  static String teacherStudentPracticeHistory(
+    String traineeId, {
+    String? groupId,
+  }) {
+    final base = '/teacher/students/${Uri.encodeComponent(traineeId)}/practice';
+    return groupId == null || groupId.isEmpty
+        ? base
+        : '$base?groupId=${Uri.encodeQueryComponent(groupId)}';
+  }
+
   static String teacherProfile(String userId) {
     return '$teacherProfilePrefix/${Uri.encodeComponent(userId)}';
   }

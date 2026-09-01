@@ -29,6 +29,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
     required this.teacherId,
     required this.traineeId,
     this.preferredGroupId,
+    this.initialPracticePageSize = 3,
     this.evidenceRepository,
   });
 
@@ -43,6 +44,10 @@ class TeacherStudentDetailController extends ChangeNotifier {
   final String teacherId;
   final String traineeId;
   final String? preferredGroupId;
+
+  /// Student Details only needs a short, readable preview. Dedicated history
+  /// uses the repository default and keeps paging independently scoped.
+  final int initialPracticePageSize;
 
   TeacherStudentDetailState state = TeacherStudentDetailState.loadingClassroom;
   List<GroupMembership> classroomMemberships = const [];
@@ -142,6 +147,7 @@ class TeacherStudentDetailController extends ChangeNotifier {
   }
 
   Future<void> start() async {
+    TeacherProgressRepository.validatePageSize(initialPracticePageSize);
     final epoch = ++_classroomEpoch;
     ++_accessEpoch;
     _dataEpoch++;
@@ -359,6 +365,9 @@ class TeacherStudentDetailController extends ChangeNotifier {
     try {
       final page = await progressRepository.fetchSessionsPage(
         traineeId: traineeId,
+        pageSize: firstPage
+            ? initialPracticePageSize
+            : TeacherProgressRepository.defaultPageSize,
         startAfter: _cursor,
       );
       if (!_isCurrent(classroomEpoch, accessEpoch, dataEpoch, pageEpoch)) {

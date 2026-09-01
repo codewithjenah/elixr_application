@@ -156,7 +156,7 @@ void main() {
 
       expect(find.text('Ada Lovelace'), findsWidgets);
       expect(find.textContaining('Private public profile'), findsOneWidget);
-      expect(find.text('Practice progress'), findsOneWidget);
+      expect(find.text('Recent Practice'), findsOneWidget);
       expect(find.text('Hand Stall'), findsWidgets);
       expect(find.text('Not authorized'), findsNothing);
     },
@@ -297,73 +297,71 @@ void main() {
     expect(find.text('students home'), findsOneWidget);
   });
 
-  testWidgets('class-scoped detail shows that classroom classwork first', (
-    tester,
-  ) async {
-    groups.seedGroup(activeGroup());
-    groups.seedMembership(
-      membership(
-        groupId: 'group-1',
-        teacherId: 'teacher',
-        traineeId: 'trainee',
-      ),
-    );
-    assignments.seedAssignment(
-      const GroupAssignment(
-        id: 'classwork-1',
-        teacherId: 'teacher',
-        groupId: 'group-1',
-        movementId: 'movement-1',
-        revisionId: 'revision-1',
-        origin: MovementOrigin.teacherCreated,
-        assessmentMode: AssessmentMode.teacherReviewed,
-        status: GroupAssignmentStatus.active,
-        displayTitle: 'Tin Balance',
-        teacherDisplayName: 'Grace Hopper',
-        groupName: 'BSHM 4A',
-        maxScore: 100,
-      ),
-    );
-    assignments.seedAssignment(
-      const GroupAssignment(
-        id: 'other-classwork',
-        teacherId: 'teacher',
-        groupId: 'group-2',
-        movementId: 'movement-2',
-        revisionId: 'revision-2',
-        origin: MovementOrigin.teacherCreated,
-        assessmentMode: AssessmentMode.teacherReviewed,
-        status: GroupAssignmentStatus.active,
-        displayTitle: 'Other Classroom Work',
-        teacherDisplayName: 'Grace Hopper',
-        groupName: 'Other class',
-        maxScore: 100,
-      ),
-    );
+  testWidgets(
+    'class-scoped detail offers lazy classwork instead of embedding it',
+    (tester) async {
+      groups.seedGroup(activeGroup());
+      groups.seedMembership(
+        membership(
+          groupId: 'group-1',
+          teacherId: 'teacher',
+          traineeId: 'trainee',
+        ),
+      );
+      assignments.seedAssignment(
+        const GroupAssignment(
+          id: 'classwork-1',
+          teacherId: 'teacher',
+          groupId: 'group-1',
+          movementId: 'movement-1',
+          revisionId: 'revision-1',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          status: GroupAssignmentStatus.active,
+          displayTitle: 'Tin Balance',
+          teacherDisplayName: 'Grace Hopper',
+          groupName: 'BSHM 4A',
+          maxScore: 100,
+        ),
+      );
+      assignments.seedAssignment(
+        const GroupAssignment(
+          id: 'other-classwork',
+          teacherId: 'teacher',
+          groupId: 'group-2',
+          movementId: 'movement-2',
+          revisionId: 'revision-2',
+          origin: MovementOrigin.teacherCreated,
+          assessmentMode: AssessmentMode.teacherReviewed,
+          status: GroupAssignmentStatus.active,
+          displayTitle: 'Other Classroom Work',
+          teacherDisplayName: 'Grace Hopper',
+          groupName: 'Other class',
+          maxScore: 100,
+        ),
+      );
 
-    await pumpDetail(tester, preferredGroupId: 'group-1');
-    await tester.pump();
-    await tester.pump();
+      await pumpDetail(tester, preferredGroupId: 'group-1');
+      await tester.pump();
+      await tester.pump();
 
-    expect(find.byKey(const Key('teacher_student_classwork')), findsOneWidget);
-    expect(find.text('Tin Balance'), findsOneWidget);
-    expect(find.text('Other Classroom Work'), findsNothing);
-    expect(
-      tester.getTopLeft(find.byKey(const Key('teacher_student_classwork'))).dy,
-      lessThan(tester.getTopLeft(find.text('No practice history yet')).dy),
-    );
-
-    await tester.tap(
-      find.byKey(const Key('teacher_student_classwork_classwork-1')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const Key('teacher_student_classwork_detail')),
-      findsOneWidget,
-    );
-    expect(find.text('Not turned in'), findsOneWidget);
-  });
+      expect(
+        find.byKey(const Key('teacher_student_classwork_entry')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('teacher_student_classwork')), findsNothing);
+      expect(find.text('Tin Balance'), findsNothing);
+      expect(find.text('Other Classroom Work'), findsNothing);
+      expect(
+        tester
+            .getTopLeft(
+              find.byKey(const Key('teacher_student_classwork_entry')),
+            )
+            .dy,
+        lessThan(tester.getTopLeft(find.text('No practice history yet')).dy),
+      );
+    },
+  );
 
   testWidgets('class-scoped back returns to the source classroom', (
     tester,

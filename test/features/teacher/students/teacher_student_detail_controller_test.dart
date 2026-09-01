@@ -126,6 +126,27 @@ void main() {
     expect(progress.sessionFetches, ['trainee']);
   });
 
+  test(
+    'overview requests only its configured recent-practice preview',
+    () async {
+      controller = TeacherStudentDetailController(
+        groupRepository: groups,
+        relationshipRepository: links,
+        progressRepository: progress,
+        evidenceRepository: evidence,
+        publicProfileRepository: profiles,
+        teacherId: 'teacher',
+        traineeId: 'trainee',
+        initialPracticePageSize: 3,
+      );
+      seedApprovedMembership();
+      await boot();
+
+      expect(progress.sessionPageSizes, contains(3));
+      expect(progress.sessionPageSizes, isNot(contains(20)));
+    },
+  );
+
   test('valid access with no data is empty', () async {
     seedApprovedMembership();
     progress.inner.setSummary('trainee', null);

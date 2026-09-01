@@ -34,6 +34,8 @@ import '../../features/teacher/groups/teacher_groups_screen.dart';
 import '../../features/teacher/leaderboard/teacher_leaderboard_screen.dart';
 import '../../features/teacher/movements/teacher_movements_screen.dart';
 import '../../features/teacher/students/teacher_student_detail_screen.dart';
+import '../../features/teacher/students/teacher_student_classwork_screen.dart';
+import '../../features/teacher/students/teacher_student_practice_history_screen.dart';
 import '../../features/teacher/students/teacher_students_screen.dart';
 import '../../features/settings/settings_section.dart';
 import '../../features/teacher/teacher_settings_screen.dart';
@@ -436,6 +438,50 @@ class AppRouter {
                       ),
                     );
                   },
+                  routes: [
+                    GoRoute(
+                      path: 'classwork',
+                      pageBuilder: (context, state) {
+                        final traineeId =
+                            state.pathParameters['traineeId'] ?? '';
+                        final groupId =
+                            state.uri.queryParameters['groupId'] ?? '';
+                        return fadeTransitionPage(
+                          key: state.pageKey,
+                          child: TeacherStudentClassworkScreen(
+                            traineeId: traineeId,
+                            groupId: groupId,
+                          ),
+                        );
+                      },
+                      routes: [
+                        GoRoute(
+                          path: ':assignmentId',
+                          pageBuilder: (context, state) => fadeTransitionPage(
+                            key: state.pageKey,
+                            child: TeacherStudentClassworkScreen(
+                              traineeId:
+                                  state.pathParameters['traineeId'] ?? '',
+                              groupId:
+                                  state.uri.queryParameters['groupId'] ?? '',
+                              assignmentId:
+                                  state.pathParameters['assignmentId'],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    GoRoute(
+                      path: 'practice',
+                      pageBuilder: (context, state) => fadeTransitionPage(
+                        key: state.pageKey,
+                        child: TeacherStudentPracticeHistoryScreen(
+                          traineeId: state.pathParameters['traineeId'] ?? '',
+                          groupId: state.uri.queryParameters['groupId'],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
