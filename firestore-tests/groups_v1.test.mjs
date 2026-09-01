@@ -318,6 +318,25 @@ describe('Phase 2 groups', () => {
       }),
     );
   });
+
+  test('unarchive cannot change protected classroom fields', async () => {
+    await seedUsers();
+    await createOwnedGroup();
+    const teacher = context('teacher').firestore();
+    await assertSucceeds(
+      updateDoc(doc(teacher, 'groups', GROUP_ID), {
+        status: 'archived',
+        updated_at: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(teacher, 'groups', GROUP_ID), {
+        status: 'active',
+        name: 'Hijacked classroom',
+        updated_at: serverTimestamp(),
+      }),
+    );
+  });
 });
 
 describe('invite code namespace', () => {

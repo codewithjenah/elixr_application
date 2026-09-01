@@ -280,16 +280,6 @@ service cloud.firestore {
         && (value == 5 || value == 10 || value == 15 || value == 20 || value == 30);
     }
 
-    function isPlanDifficulty(value) {
-      return value == 'Easy' || value == 'Medium' || value == 'Hard';
-    }
-
-    function isPlanPropType(value) {
-      return value == 'bottle'
-        || value == 'shaker'
-        || value == 'bottle_and_shaker';
-    }
-
     function isActionablePlanDayKey(dayKey) {
       return isManilaDayKeyFormat(dayKey)
         && dayKey >= manilaDayKey(request.time)
@@ -298,7 +288,6 @@ service cloud.firestore {
 
     function validRestTrainingPlan(data) {
       return data.keys().hasOnly(trainingPlanRestKeys())
-        && data.keys().hasAll(trainingPlanRestKeys())
         && data.user_id == request.auth.uid
         && data.plan_type == 'rest'
         && isActionablePlanDayKey(data.day_key)
@@ -308,7 +297,6 @@ service cloud.firestore {
 
     function validActiveTrainingPlan(data) {
       return data.keys().hasOnly(trainingPlanTrainingKeys())
-        && data.keys().hasAll(trainingPlanTrainingKeys())
         && data.user_id == request.auth.uid
         && data.plan_type == 'training'
         && isActionablePlanDayKey(data.day_key)
@@ -316,8 +304,8 @@ service cloud.firestore {
         && data.movement_name.size() > 0
         && data.movement_name.size() <= 80
         && data.movement_name in coachingMovementNames()
-        && isPlanDifficulty(data.difficulty)
-        && isPlanPropType(data.prop_type)
+        && data.difficulty in ['Easy', 'Medium', 'Hard']
+        && data.prop_type in ['bottle', 'shaker', 'bottle_and_shaker']
         && isAllowedPlanDuration(data.target_duration_minutes)
         && data.created_at is timestamp
         && data.updated_at is timestamp;
@@ -358,9 +346,6 @@ service cloud.firestore {
 
     function validRubricMap(rubric) {
       return rubric.keys().hasOnly([
-          'technique', 'stability', 'completion', 'prop_positioning'
-        ])
-        && rubric.keys().hasAll([
           'technique', 'stability', 'completion', 'prop_positioning'
         ])
         && isRubricCriterion(rubric.technique)
@@ -423,22 +408,11 @@ service cloud.firestore {
     // Completed-session identity is frozen after create. Historical
     // non-official movement_name values (Arm Stall, custom names, etc.) must
     // never be rewritten to an official catalog identity to gain XP.
-    function sessionIdentityValueUnchanged(key) {
-      return resource.data.get(key, '__elixr_absent__')
-        == request.resource.data.get(key, '__elixr_absent__');
-    }
-
     function sessionIdentityUnchanged() {
-      return sessionIdentityValueUnchanged('movement_name')
-        && sessionIdentityValueUnchanged('difficulty')
-        && sessionIdentityValueUnchanged('prop_type')
-        && sessionIdentityValueUnchanged('duration_seconds')
-        && sessionIdentityValueUnchanged('assessment_version')
-        && sessionIdentityValueUnchanged('assignment_context');
-    }
-
-    function isNonNegNumber(value) {
-      return value is number && value >= 0;
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'movement_name', 'difficulty', 'prop_type', 'duration_seconds',
+        'assessment_version', 'assignment_context'
+      ]);
     }
 
     // Firestore clients and the rules runtime can round the same repeating
@@ -540,13 +514,6 @@ service cloud.firestore {
            + (ids[3] in allowed ? 1 : 0) + (ids[4] in allowed ? 1 : 0);
     }
 
-    function allUnique5(ids) {
-      return ids[0] != ids[1] && ids[0] != ids[2] && ids[0] != ids[3] && ids[0] != ids[4]
-          && ids[1] != ids[2] && ids[1] != ids[3] && ids[1] != ids[4]
-          && ids[2] != ids[3] && ids[2] != ids[4]
-          && ids[3] != ids[4];
-    }
-
     // ---- Asia/Manila real-day window (server-time-anchored) ---------------
     // request.time is stamped by the Firestore server at commit time and is
     // never client-supplied, which is exactly why it is the only trustworthy
@@ -598,7 +565,8 @@ service cloud.firestore {
             && (data.equipped_border_id == ''
               || isKnownProfileBorderId(data.equipped_border_id))))
         && data.total_xp == data.sessions_completed * 25 + questXpOf(data)
-        && isNonNegNumber(data.score_sum)
+        && data.score_sum is number
+        && data.score_sum >= 0
         && data.average_score is number
         && data.average_score >= 0
         && data.average_score <= 100
@@ -797,8 +765,8 @@ service cloud.firestore {
     // quest, cosmetic, identity, and period state. Expressing that invariant
     // as the exact set of permitted changed keys avoids expanding both period
     // transition trees and stays below Firestore's 1,000-expression limit.
-    function validOlderSessionAwardChanges() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+    function sessionAwardMutableKeys() {
+      return [
         'display_name',
         'profile_picture_url',
         'total_xp',
@@ -809,34 +777,19 @@ service cloud.firestore {
         'last_session_at',
         'updated_at',
         'last_awarded_session_id'
-      ]);
+      ];
+    }
+
+    function validOlderSessionAwardChanges() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+        sessionAwardMutableKeys()
+      );
     }
 
     function validCurrentSessionAwardChanges() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'display_name',
-        'profile_picture_url',
-        'total_xp',
-        'sessions_completed',
-        'score_sum',
-        'average_score',
-        'best_score',
-        'last_session_at',
-        'updated_at',
-        'last_awarded_session_id',
-        'daily_key',
-        'daily_xp',
-        'daily_sessions_completed',
-        'daily_score_sum',
-        'daily_average_score',
-        'daily_best_score',
-        'monthly_key',
-        'monthly_xp',
-        'monthly_sessions_completed',
-        'monthly_score_sum',
-        'monthly_average_score',
-        'monthly_best_score'
-      ]);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+        sessionAwardMutableKeys().concat(periodLeaderboardKeys())
+      );
     }
 
     function scoreAggregatesUnchanged() {
@@ -1070,18 +1023,7 @@ service cloud.firestore {
     function validEquippedBorderUpdate() {
       let nextBorder = equippedBorderOf(request.resource.data);
       return resource.data.user_id == request.auth.uid
-        && request.resource.data.user_id == resource.data.user_id
-        && request.resource.data.display_name == resource.data.display_name
-        && request.resource.data.total_xp == resource.data.total_xp
-        && request.resource.data.sessions_completed == resource.data.sessions_completed
-        && request.resource.data.score_sum == resource.data.score_sum
-        && request.resource.data.average_score == resource.data.average_score
-        && request.resource.data.best_score == resource.data.best_score
-        && request.resource.data.last_awarded_session_id == resource.data.last_awarded_session_id
-        && request.resource.data.last_session_at == resource.data.last_session_at
-        && questXpOf(request.resource.data) == questXpOf(resource.data)
-        && lastClaimIdOf(request.resource.data) == lastClaimIdOf(resource.data)
-        && periodAggregatesUnchanged()
+        && aggregatesUnchanged()
         && profilePictureUnchanged()
         && nextBorder is string
         && (
@@ -1304,12 +1246,7 @@ service cloud.firestore {
 
     function validNewUserProfile() {
       let data = request.resource.data;
-      return data.keys().hasAll([
-          'first_name', 'last_name', 'full_name', 'email', 'role',
-          'created_at', 'privacy_consent_at', 'privacy_policy_version',
-          'terms_consent_at', 'terms_of_service_version'
-        ])
-        && data.keys().hasOnly([
+      return data.keys().hasOnly([
           'first_name', 'middle_name', 'last_name', 'full_name', 'email',
           'role', 'teacher_access_code', 'created_at', 'privacy_consent_at',
           'privacy_policy_version', 'terms_consent_at',
@@ -1553,7 +1490,7 @@ service cloud.firestore {
         && request.resource.data.day_start is timestamp
         && request.resource.data.quest_ids is list
         && request.resource.data.quest_ids.size() == 5
-        && allUnique5(request.resource.data.quest_ids)
+        && request.resource.data.quest_ids.toSet().size() == 5
         && request.resource.data.quest_ids[0] in questCatalogIds()
         && request.resource.data.quest_ids[1] in questCatalogIds()
         && request.resource.data.quest_ids[2] in questCatalogIds()
@@ -1595,7 +1532,6 @@ service cloud.firestore {
 
       allow create: if isSignedIn()
         && request.resource.data.keys().hasOnly(claimKeys())
-        && request.resource.data.keys().hasAll(claimKeys())
         && request.resource.data.user_id == request.auth.uid
         && request.resource.data.quest_id is string
         && isKnownQuestId(request.resource.data.quest_id)
@@ -1631,7 +1567,6 @@ service cloud.firestore {
 
       allow create: if isSignedIn()
         && request.resource.data.keys().hasOnly(achievementClaimKeys())
-        && request.resource.data.keys().hasAll(achievementClaimKeys())
         && request.resource.data.user_id == request.auth.uid
         && request.resource.data.achievement_id is string
         && isKnownAchievementId(request.resource.data.achievement_id)
@@ -1657,7 +1592,6 @@ service cloud.firestore {
 
       allow create: if isOwner(userId)
         && request.resource.data.keys().hasOnly(cosmeticsKeys())
-        && request.resource.data.keys().hasAll(cosmeticsKeys())
         && request.resource.data.user_id == request.auth.uid
         && request.resource.data.unlocked_border_ids is list
         && request.resource.data.unlocked_border_ids.size() == 1
@@ -1685,7 +1619,6 @@ service cloud.firestore {
       allow update: if isOwner(userId)
         && resource.data.user_id == request.auth.uid
         && request.resource.data.keys().hasOnly(cosmeticsKeys())
-        && request.resource.data.keys().hasAll(cosmeticsKeys())
         && request.resource.data.user_id == resource.data.user_id
         && request.resource.data.created_at == resource.data.created_at
         && request.resource.data.updated_at == request.time
@@ -2009,7 +1942,6 @@ service cloud.firestore {
         && isNormalizedCoachCode(inviteId)
         && !exists(groupInvitePath(inviteId))
         && data.keys().hasOnly(inviteKeys())
-        && data.keys().hasAll(inviteKeys())
         && data.teacher_id == request.auth.uid
         && isParticipantId(data.teacher_id)
         && isDisplayName(data.teacher_display_name)
@@ -2128,10 +2060,6 @@ service cloud.firestore {
         );
     }
 
-    function isLinkStatus(value) {
-      return value in ['pending', 'approved', 'rejected', 'cancelled', 'revoked'];
-    }
-
     function isLinkParticipant() {
       return isSignedIn()
         && (
@@ -2162,7 +2090,6 @@ service cloud.firestore {
     function validPendingLinkCreate(data, linkId) {
       return isSignedIn()
         && data.keys().hasOnly(linkAllowedKeys())
-        && data.keys().hasAll(linkKeys())
         && data.trainee_id == request.auth.uid
         && data.status == 'pending'
         && data.request_version == 2
@@ -2180,25 +2107,22 @@ service cloud.firestore {
     }
 
     function linkParticipantsUnchanged() {
-      return request.resource.data.teacher_id == resource.data.teacher_id
-        && request.resource.data.trainee_id == resource.data.trainee_id
-        && request.resource.data.created_at == resource.data.created_at;
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'teacher_id', 'trainee_id', 'created_at'
+      ]);
     }
 
     function linkIdentitySnapshotsUnchanged() {
-      return request.resource.data.teacher_display_name
-          == resource.data.teacher_display_name
-        && request.resource.data.trainee_display_name
-          == resource.data.trainee_display_name
-        && request.resource.data.invite_id == resource.data.invite_id
-        && request.resource.data.get('request_version', 0)
-          == resource.data.get('request_version', 0);
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'teacher_display_name', 'trainee_display_name', 'invite_id',
+        'request_version'
+      ]);
     }
 
     function validLinkUpdateShape(data) {
       return data.keys().hasOnly(linkAllowedKeys())
         && data.keys().hasAll(linkKeys())
-        && isLinkStatus(data.status)
+        && data.status in ['pending', 'approved', 'rejected', 'cancelled', 'revoked']
         && data.updated_at == request.time
         && validProgressAccessShape(data)
         && validEvidenceAccessShape(data);
@@ -2293,7 +2217,6 @@ service cloud.firestore {
         && data.consumed == false
         && data.created_by == request.auth.uid
         && data.created_at == request.time
-        && data.keys().hasAll(['consumed', 'created_at', 'created_by'])
         && data.keys().hasOnly(['consumed', 'created_at', 'created_by', 'note'])
         && (
           !data.keys().hasAny(['note'])
@@ -2396,7 +2319,6 @@ service cloud.firestore {
     function validClassroomAccessContextWrite(data, contextId) {
       return isVerifiedTeacher()
         && data.keys().hasOnly(classroomAccessContextKeys())
-        && data.keys().hasAll(classroomAccessContextKeys())
         && classroomAccessContextIdsMatch(data, contextId)
         && data.teacher_id == request.auth.uid
         && data.schema_version == 1
@@ -2454,10 +2376,6 @@ service cloud.firestore {
       return /databases/$(database)/documents/group_memberships/$(groupId + '_' + traineeId);
     }
 
-    function isGroupStatus(value) {
-      return value in ['active', 'archived'];
-    }
-
     function groupKeys() {
       return [
         'teacher_id',
@@ -2482,7 +2400,6 @@ service cloud.firestore {
     function validGroupCreate(data) {
       return isVerifiedTeacher()
         && data.keys().hasOnly(groupAllowedKeys())
-        && data.keys().hasAll(groupKeys())
         && data.teacher_id == request.auth.uid
         && isParticipantId(data.teacher_id)
         && isDisplayName(data.name)
@@ -2523,6 +2440,7 @@ service cloud.firestore {
     }
 
     function validGroupTeacherUpdate(groupId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
       return isVerifiedTeacher()
         && resource.data.teacher_id == request.auth.uid
         && request.resource.data.keys().hasOnly(groupAllowedKeys())
@@ -2536,7 +2454,7 @@ service cloud.firestore {
             && request.resource.data.schema_version == 2
           )
         )
-        && isGroupStatus(request.resource.data.status)
+        && request.resource.data.status in ['active', 'archived']
         && isDisplayName(request.resource.data.name)
         && (!request.resource.data.keys().hasAny(['section'])
           || isBoundedText(request.resource.data.section, 80))
@@ -2544,42 +2462,17 @@ service cloud.firestore {
           || isBoundedText(request.resource.data.schedule, 120))
         && request.resource.data.updated_at == request.time
         && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          changed.hasOnly([
             'name', 'section', 'schedule', 'schema_version', 'updated_at'
           ])
           || (
-            resource.data.status == 'active'
-            && request.resource.data.status == 'archived'
-            && request.resource.data.name == resource.data.name
-            && request.resource.data.invite_code == resource.data.get('invite_code', '')
-            && request.resource.data.get('section', '')
-              == resource.data.get('section', '')
-            && request.resource.data.get('schedule', '')
-              == resource.data.get('schedule', '')
-            && request.resource.data.schema_version == resource.data.schema_version
-          )
-          || (
-            resource.data.status == 'archived'
-            && request.resource.data.status == 'archived'
-            && request.resource.data.name == resource.data.name
-            && request.resource.data.invite_code == resource.data.get('invite_code', '')
-            && request.resource.data.get('section', '')
-              == resource.data.get('section', '')
-            && request.resource.data.get('schedule', '')
-              == resource.data.get('schedule', '')
-            && request.resource.data.schema_version == resource.data.schema_version
-          )
-          || (
-            resource.data.status == 'archived'
-            && request.resource.data.status == 'active'
-            && request.resource.data.name == resource.data.name
-            && request.resource.data.get('invite_code', '')
-              == resource.data.get('invite_code', '')
-            && request.resource.data.get('section', '')
-              == resource.data.get('section', '')
-            && request.resource.data.get('schedule', '')
-              == resource.data.get('schedule', '')
-            && request.resource.data.schema_version == resource.data.schema_version
+            changed.hasOnly(['status', 'updated_at'])
+            && (
+              (resource.data.status == 'active'
+                && request.resource.data.status == 'archived')
+              || (resource.data.status == 'archived'
+                && request.resource.data.status in ['archived', 'active'])
+            )
           )
           || validGroupInvitePointerUpdate(groupId)
         );
@@ -2608,7 +2501,6 @@ service cloud.firestore {
         && isNormalizedCoachCode(inviteId)
         && !exists(invitePath(inviteId))
         && data.keys().hasOnly(groupInviteKeys())
-        && data.keys().hasAll(groupInviteKeys())
         && data.teacher_id == request.auth.uid
         && isParticipantId(data.teacher_id)
         && isParticipantId(data.group_id)
@@ -2637,10 +2529,6 @@ service cloud.firestore {
 
     function membershipAllowedKeys() {
       return membershipKeys().concat(['request_version']);
-    }
-
-    function isMembershipStatus(value) {
-      return value in ['pending', 'approved', 'rejected', 'cancelled', 'removed'];
     }
 
     function membershipIdsMatchDocument(data, membershipId) {
@@ -2695,7 +2583,6 @@ service cloud.firestore {
     function validPendingMembershipCreate(data, membershipId) {
       return isSignedIn()
         && data.keys().hasOnly(membershipAllowedKeys())
-        && data.keys().hasAll(membershipKeys())
         && data.trainee_id == request.auth.uid
         && data.status == 'pending'
         && data.request_version == 1
@@ -2711,20 +2598,16 @@ service cloud.firestore {
     }
 
     function membershipParticipantsUnchanged() {
-      return request.resource.data.group_id == resource.data.group_id
-        && request.resource.data.teacher_id == resource.data.teacher_id
-        && request.resource.data.trainee_id == resource.data.trainee_id
-        && request.resource.data.created_at == resource.data.created_at;
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'group_id', 'teacher_id', 'trainee_id', 'created_at'
+      ]);
     }
 
     function membershipIdentitySnapshotsUnchanged() {
-      return request.resource.data.teacher_display_name
-          == resource.data.teacher_display_name
-        && request.resource.data.trainee_display_name
-          == resource.data.trainee_display_name
-        && request.resource.data.invite_id == resource.data.invite_id
-        && request.resource.data.get('request_version', 0)
-          == resource.data.get('request_version', 0);
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'teacher_display_name', 'trainee_display_name', 'invite_id',
+        'request_version'
+      ]);
     }
 
     function classroomAccessContextAfterMembership(data) {
@@ -2743,7 +2626,7 @@ service cloud.firestore {
     function validMembershipUpdateShape(data) {
       return data.keys().hasOnly(membershipAllowedKeys())
         && data.keys().hasAll(membershipKeys())
-        && isMembershipStatus(data.status)
+        && data.status in ['pending', 'approved', 'rejected', 'cancelled', 'removed']
         && data.updated_at == request.time;
     }
 
@@ -2855,7 +2738,6 @@ service cloud.firestore {
       return isAnnouncementOwner(groupId)
         && get(groupPath(groupId)).data.status == 'active'
         && data.keys().hasOnly(announcementKeys())
-        && data.keys().hasAll(announcementKeys())
         && data.group_id == groupId
         && isParticipantId(data.group_id)
         && isParticipantId(data.teacher_id)
@@ -2873,7 +2755,6 @@ service cloud.firestore {
       return isAnnouncementOwner(groupId)
         && get(groupPath(groupId)).data.status == 'active'
         && after.keys().hasOnly(announcementKeys())
-        && after.keys().hasAll(announcementKeys())
         && after.diff(before).affectedKeys().hasOnly([
           'title', 'body', 'edited_at'
         ])
@@ -2980,7 +2861,6 @@ service cloud.firestore {
     function validAssignmentContextMap(ctx) {
       return ctx is map
         && ctx.keys().hasOnly(assignmentContextKeys())
-        && ctx.keys().hasAll(assignmentContextKeys())
         && isClassroomDocId(ctx.assignment_id)
         && isClassroomDocId(ctx.group_id)
         && isClassroomDocId(ctx.teacher_id)
@@ -3038,85 +2918,86 @@ service cloud.firestore {
       return ['instructions', 'required_prop', 'capability'];
     }
     function validActivityReadiness(value) {
-      return value is map
-        && value.keys().hasOnly(['hands', 'body'])
-        && value.keys().hasAll(['hands', 'body'])
+      return value.keys().hasOnly(['hands', 'body'])
         && value.hands in ['none', 'one_hand', 'two_hands']
         && value.body in ['none', 'upper_body'];
     }
     function validLegacyActivityReadiness(value) {
-      return value is map
-        && value.keys().hasOnly(['prop', 'hands', 'body'])
-        && value.keys().hasAll(['prop', 'hands', 'body'])
+      return value.keys().hasOnly(['prop', 'hands', 'body'])
         && value.prop in ['none', 'one_bottle', 'one_shaker',
           'bottle_and_shaker', 'two_bottles']
         && value.hands in ['none', 'one_hand', 'two_hands']
         && value.body in ['none', 'upper_body'];
     }
     function validActivityAttemptPolicy(value) {
-      return value is map && (
-        (value.keys().hasOnly(['type']) && value.type == 'unlimited')
-        || (value.keys().hasOnly(['type', 'maximum_attempts'])
-          && value.type == 'finite'
-          && value.maximum_attempts in [1, 2, 3])
-      );
+      return value.type == 'unlimited'
+        ? value.keys().hasOnly(['type'])
+        : value.type == 'finite'
+          && value.keys().hasOnly(['type', 'maximum_attempts'])
+          && value.maximum_attempts in [1, 2, 3];
     }
     function validActivityRubric(value, maximumScore) {
-      return value is map
-        && value.keys().hasOnly(['template_id', 'maximum_score', 'criteria'])
-        && value.keys().hasAll(['template_id', 'maximum_score', 'criteria'])
+      let keys = value.keys();
+      let criteria = value.criteria;
+      let count = criteria.size();
+      let first = criteria[0];
+      let second = criteria[1];
+      let third = criteria[2];
+      let fourth = count >= 4 ? criteria[3] : null;
+      let fifth = count >= 5 ? criteria[4] : null;
+      return keys.hasOnly(['template_id', 'maximum_score', 'criteria'])
         && value.template_id in ['standard_technique', 'beginner_fundamentals',
           'control_consistency', 'performance_flow', 'custom']
         && value.maximum_score == maximumScore
-        && value.criteria is list
-        && value.criteria.size() >= 3 && value.criteria.size() <= 5
-        && validActivityCriterion(value.criteria[0], maximumScore)
-        && validActivityCriterion(value.criteria[1], maximumScore)
-        && validActivityCriterion(value.criteria[2], maximumScore)
-        && (value.criteria.size() < 4
-          || validActivityCriterion(value.criteria[3], maximumScore))
-        && (value.criteria.size() < 5
-          || validActivityCriterion(value.criteria[4], maximumScore))
-        && activityCriterionIdsUnique(value.criteria)
-        && activityCriterionTotal(value.criteria) == maximumScore;
+        && count >= 3 && count <= 5
+        && validActivityCriterion(first)
+        && validActivityCriterion(second)
+        && validActivityCriterion(third)
+        && (count < 4
+          || validActivityCriterion(fourth))
+        && (count < 5
+          || validActivityCriterion(fifth))
+        && activityCriterionIdsUnique(
+          first, second, third, fourth, fifth, count
+        )
+        && activityCriterionTotal(
+          first, second, third, fourth, fifth, count
+        ) == maximumScore;
     }
-    function validActivityCriterion(value, maximumScore) {
-      return value is map
-        && value.keys().hasAll(['id', 'label', 'description', 'maximum_points'])
-        && value.keys().hasOnly(['id', 'label', 'description', 'maximum_points', 'weight'])
-        && isClassroomDocId(value.id)
-        && isBoundedText(value.label, 80)
-        && isBoundedText(value.description, 500)
+    function validActivityCriterion(value) {
+      let keys = value.keys();
+      return keys.hasOnly(['id', 'label', 'description', 'maximum_points', 'weight'])
+        && value.id.matches('^[A-Za-z0-9_-]{1,128}$')
+        && value.label.matches('(?s).{1,80}')
+        && value.label.matches('.*[^[:space:]].*')
+        && value.description.matches('(?s).{1,500}')
+        && value.description.matches('.*[^[:space:]].*')
         && value.maximum_points is int
         && value.maximum_points >= 1
-        && value.maximum_points <= maximumScore
-        && (!value.keys().hasAny(['weight'])
+        && (!keys.hasAny(['weight'])
           || value.weight is int && value.weight >= 1 && value.weight <= 100);
     }
-    function activityCriterionIdsUnique(values) {
-      return values[0].id != values[1].id
-        && values[0].id != values[2].id
-        && values[1].id != values[2].id
-        && (values.size() < 4 || (
-          values[3].id != values[0].id && values[3].id != values[1].id
-          && values[3].id != values[2].id
-        ))
-        && (values.size() < 5 || (
-          values[4].id != values[0].id && values[4].id != values[1].id
-          && values[4].id != values[2].id && values[4].id != values[3].id
-        ));
+    function activityCriterionIdsUnique(
+      first, second, third, fourth, fifth, count
+    ) {
+      return count == 3
+        ? [first.id, second.id, third.id].toSet().size() == 3
+        : count == 4
+          ? [first.id, second.id, third.id, fourth.id]
+              .toSet().size() == 4
+          : [first.id, second.id, third.id, fourth.id, fifth.id]
+              .toSet().size() == 5;
     }
-    function activityCriterionTotal(values) {
-      return values[0].maximum_points + values[1].maximum_points
-        + values[2].maximum_points
-        + (values.size() >= 4 ? values[3].maximum_points : 0)
-        + (values.size() >= 5 ? values[4].maximum_points : 0);
+    function activityCriterionTotal(
+      first, second, third, fourth, fifth, count
+    ) {
+      return first.maximum_points + second.maximum_points
+        + third.maximum_points
+        + (count >= 4 ? fourth.maximum_points : 0)
+        + (count >= 5 ? fifth.maximum_points : 0);
     }
     function validActivityDemo(value) {
-      return value is map
-        && value.keys().hasOnly(['storage_path', 'content_type', 'size_bytes',
-          'duration_ms', 'source'])
-        && value.keys().hasAll(['storage_path', 'content_type', 'size_bytes',
+      return value.keys().hasOnly(['storage_path', 'content_type', 'size_bytes',
           'duration_ms', 'source'])
         && isBoundedText(value.storage_path, 1024)
         && value.content_type == 'video/mp4'
@@ -3127,28 +3008,23 @@ service cloud.firestore {
         && value.source in ['uploaded', 'recorded'];
     }
     function validActivityAssessment(value, maximumScore) {
-      return value is map
-        && ((value.schema_version == 3
-          && value.keys().hasAll(['schema_version', 'readiness', 'rubric',
-            'recording_duration_seconds'])
-          && value.keys().hasOnly(['schema_version', 'readiness', 'rubric',
+      let keys = value.keys();
+      return ((value.schema_version == 3
+          && keys.hasOnly(['schema_version', 'readiness', 'rubric',
             'recording_duration_seconds', 'demonstration_video'])
           && validActivityReadiness(value.readiness))
           || (value.schema_version == 2
-          && value.keys().hasAll(['schema_version', 'readiness', 'rubric',
-            'attempt_policy', 'recording_duration_seconds'])
-          && value.keys().hasOnly(['schema_version', 'readiness', 'rubric',
+          && keys.hasOnly(['schema_version', 'readiness', 'rubric',
             'attempt_policy', 'recording_duration_seconds', 'demonstration_video'])
           && validLegacyActivityReadiness(value.readiness)
           && validActivityAttemptPolicy(value.attempt_policy)))
         && value.recording_duration_seconds in [15, 30, 45, 60]
         && validActivityRubric(value.rubric, maximumScore)
-        && (!value.keys().hasAny(['demonstration_video'])
+        && (!keys.hasAny(['demonstration_video'])
           || validActivityDemo(value.demonstration_video));
     }
     function validTeacherReviewedSpec(spec) {
       return spec is map
-        && spec.keys().hasAll(teacherReviewedSpecKeys())
         && spec.keys().hasOnly(teacherReviewedSpecKeys().concat([
           'safety_guidance', 'activity_assessment'
         ]))
@@ -3171,7 +3047,6 @@ service cloud.firestore {
       return isVerifiedTeacher()
         && isClassroomDocId(movementId)
         && data.keys().hasOnly(teacherMovementRootKeys())
-        && data.keys().hasAll(teacherMovementRootKeys())
         && data.teacher_id == request.auth.uid
         && isParticipantId(data.teacher_id)
         && isBoundedText(data.title, 80)
@@ -3188,7 +3063,6 @@ service cloud.firestore {
     }
     function validTeacherMovementRootIdentity() {
       return request.resource.data.keys().hasOnly(teacherMovementRootKeys())
-        && request.resource.data.keys().hasAll(teacherMovementRootKeys())
         && request.resource.data.teacher_id == resource.data.teacher_id
         && request.resource.data.created_at == resource.data.created_at
         && request.resource.data.schema_version == resource.data.schema_version
@@ -3247,7 +3121,6 @@ service cloud.firestore {
         && isClassroomDocId(movementId)
         && isClassroomDocId(revisionId)
         && data.keys().hasOnly(teacherMovementRevisionKeys())
-        && data.keys().hasAll(teacherMovementRevisionKeys())
         && data.movement_id == movementId
         && data.teacher_id == request.auth.uid
         && data.schema_version in [1, 2]
@@ -3300,26 +3173,24 @@ service cloud.firestore {
         'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state',
       ]);
     }
+    function teacherCreatedAssignmentAllowedKeys() {
+      return groupAssignmentRequiredKeys().concat([
+        'display_instructions', 'display_safety_guidance', 'allowed_prop',
+        'due_at', 'max_score', 'grading_locked', 'audience_type', 'topic',
+        'configuration_revision', 'activity_assessment', 'attempt_policy',
+        'deletion_state'
+      ]);
+    }
     function isLegacyEntireClassAssignment(data) {
       return !data.keys().hasAny(['audience_type', 'target_trainee_ids']);
     }
     function validAssignmentAudienceShape(data) {
-      return data.keys().hasAll(['audience_type'])
-        && !data.keys().hasAny(['target_trainee_ids'])
+      let keys = data.keys();
+      return !keys.hasAny(['target_trainee_ids'])
         && data.audience_type in ['entire_class', 'selected_students', 'individual_student'];
     }
-    function validAssignmentAudienceCreate(data) {
-      // Targeted projections are created atomically by the Admin Function.
-      // Direct client creation remains only for compatibility whole-class work.
-      return validAssignmentAudienceShape(data)
-        && data.audience_type == 'entire_class';
-    }
     function validAssignmentRecipient(data, assignmentId, traineeId) {
-      return data.keys().hasAll([
-          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
-          'audience_type', 'schema_version', 'created_at'
-        ])
-        && data.keys().hasOnly([
+      return data.keys().hasOnly([
           'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
           'audience_type', 'schema_version', 'created_at'
         ])
@@ -3340,11 +3211,7 @@ service cloud.firestore {
       // expression budget; direct recipient reads still use the full shape
       // validator above.
       let recipient = get(assignmentRecipientPath(assignmentId, traineeId)).data;
-      return recipient.keys().hasAll([
-          'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
-          'audience_type', 'schema_version', 'created_at'
-        ])
-        && recipient.keys().hasOnly([
+      return recipient.keys().hasOnly([
           'assignment_id', 'group_id', 'teacher_id', 'trainee_id',
           'audience_type', 'schema_version', 'created_at'
         ])
@@ -3397,83 +3264,143 @@ service cloud.firestore {
         )
         && !data.keys().hasAny(['display_safety_guidance']);
     }
-    function validTeacherCreatedAssignmentCreate(data) {
-      let movement = get(teacherMovementPath(data.movement_id)).data;
+    function validTeacherCreatedAssignmentCreate(data, teacherId) {
+      let movementId = data.movement_id;
+      let revisionId = data.revision_id;
+      let movement = get(teacherMovementPath(movementId)).data;
       let revision = get(
-        teacherMovementRevisionPath(data.movement_id, data.revision_id)
+        teacherMovementRevisionPath(movementId, revisionId)
       ).data;
-      return data.origin == 'teacher_created'
-        && data.assessment_mode == 'teacher_reviewed'
-        && !data.keys().hasAny(['official_movement_name'])
-        && !data.keys().hasAny(['assessment_spec'])
-        && movement.teacher_id == request.auth.uid
+      let keys = data.keys();
+      let instructions = data.display_instructions;
+      let allowedProp = data.allowed_prop;
+      let spec = revision.spec;
+      return data.assessment_mode == 'teacher_reviewed'
+        && movement.teacher_id == teacherId
         && movement.status == 'active'
-        && movement.current_revision_id == data.revision_id
-        && revision.movement_id == data.movement_id
-        && revision.teacher_id == request.auth.uid
-        && revision.assessment_mode == 'teacher_reviewed'
+        && movement.current_revision_id == revisionId
+        && revision.movement_id == movementId
+        && revision.teacher_id == teacherId
         && data.display_title == movement.title
-        && isBoundedText(data.display_instructions, 2000)
+        && isBoundedText(instructions, 2000)
+        && instructions == spec.instructions
+        && isTrainingProp(allowedProp)
+        && allowedProp == spec.required_prop
+        && data.get('display_safety_guidance', '__elixr_absent__')
+          == spec.get('safety_guidance', '__elixr_absent__')
+        && (
+          !keys.hasAny(['display_safety_guidance'])
+          || isBoundedText(data.display_safety_guidance, 1000)
+        )
+        // Missing fields remain readable as legacy assignments created before
+        // the grading contract was introduced.
+        && (
+          !keys.hasAny(['max_score'])
+          || data.max_score is int && data.max_score >= 1 && data.max_score <= 100
+        )
+        && data.get('grading_locked', false) == false
+        ;
+    }
+    function validTeacherCreatedActivityAssignmentCreate(data) {
+      let groupId = data.group_id;
+      let movementId = data.movement_id;
+      let revisionId = data.revision_id;
+      let teacherId = request.auth.uid;
+      let maxScore = data.max_score;
+      let group = get(groupPath(groupId)).data;
+      let movement = get(teacherMovementPath(movementId)).data;
+      let revision = get(
+        teacherMovementRevisionPath(movementId, revisionId)
+      ).data;
+      let keys = data.keys();
+      // Movement/revision/profile writes validate the source snapshots; these
+      // equalities bind the assignment to those trusted values. Keep the
+      // inline shape checks shallow so five-criterion Activity writes fit.
+      return isVerifiedTeacher()
+        && keys.hasOnly(teacherCreatedAssignmentAllowedKeys())
+        && data.assessment_mode == 'teacher_reviewed'
+        && revision.assessment_mode == data.assessment_mode
+        && data.audience_type == 'entire_class'
+        && data.teacher_id == teacherId
+        && groupId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && movementId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && revisionId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && group.teacher_id == teacherId
+        && group.status == 'active'
+        && data.group_name == group.name
+        && data.teacher_display_name.matches('(?s).{1,80}')
+        && data.teacher_display_name == userFullName(teacherId)
+        && movement.teacher_id == teacherId
+        && movement.status == 'active'
+        && movement.current_revision_id == revisionId
+        && revision.movement_id == movementId
+        && revision.teacher_id == teacherId
+        && data.display_title.size() <= 80
+        && data.display_title.matches('.*[^[:space:]].*')
+        && data.display_title == movement.title
+        && data.display_instructions.size() <= 2000
+        && data.display_instructions.matches('.*[^[:space:]].*')
         && data.display_instructions == revision.spec.instructions
-        && data.keys().hasAny(['allowed_prop'])
         && isTrainingProp(data.allowed_prop)
         && data.allowed_prop == revision.spec.required_prop
         && data.get('display_safety_guidance', '__elixr_absent__')
           == revision.spec.get('safety_guidance', '__elixr_absent__')
-        && (
-          !data.keys().hasAny(['display_safety_guidance'])
-          || isBoundedText(data.display_safety_guidance, 1000)
-        )
-        // New Teacher-created assignments always carry an explicit maximum.
-        // Missing fields remain readable as legacy assignments created before
-        // the grading contract was introduced.
-        && (
-          !data.keys().hasAny(['max_score'])
-          || data.max_score is int && data.max_score >= 1 && data.max_score <= 100
-        )
-        && (
-          !data.keys().hasAny(['grading_locked'])
-          || data.grading_locked == false
-        )
-        && (
-          !data.keys().hasAny(['activity_assessment', 'configuration_revision'])
+        && (!keys.hasAny(['display_safety_guidance'])
           || (
-            data.configuration_revision == 1
-            && validActivityAssessment(data.activity_assessment, data.max_score)
-          )
+            data.display_safety_guidance.size() <= 1000
+            && data.display_safety_guidance.matches('.*[^[:space:]].*')
+          ))
+        && validActivityAttemptPolicy(data.attempt_policy)
+        && data.status == 'active'
+        && data.created_at == request.time
+        && data.updated_at == request.time
+        && data.configuration_revision == 1
+        && maxScore is int && maxScore <= 100
+        && (
+          !keys.hasAny(['due_at'])
+          || data.due_at is timestamp
         )
-        && !data.keys().hasAny(['grading_locked_at']);
+        && (!keys.hasAny(['topic']) || isBoundedText(data.topic, 80))
+        && data.get('grading_locked', false) == false
+        && validActivityAssessment(data.activity_assessment, maxScore);
     }
     function validGroupAssignmentCreate(data) {
       let group = get(groupPath(data.group_id)).data;
-      return isVerifiedTeacher()
-        && data.keys().hasAll(groupAssignmentRequiredKeys())
-        && data.keys().hasOnly(groupAssignmentAllowedKeys())
-        && validAssignmentAudienceCreate(data)
-        && data.teacher_id == request.auth.uid
+      let keys = data.keys();
+      let teacherId = request.auth.uid;
+      return !(
+          data.origin == 'teacher_created'
+          && keys.hasAny(['activity_assessment', 'configuration_revision'])
+        )
+        && isVerifiedTeacher()
+        && data.audience_type == 'entire_class'
+        && data.teacher_id == teacherId
         && isParticipantId(data.teacher_id)
         && isClassroomDocId(data.group_id)
         && isClassroomDocId(data.movement_id)
         && isClassroomDocId(data.revision_id)
-        && group.teacher_id == request.auth.uid
+        && group.teacher_id == teacherId
         && group.status == 'active'
         && data.group_name == group.name
         && isDisplayName(data.teacher_display_name)
-        && data.teacher_display_name == userFullName(request.auth.uid)
-        && data.keys().hasAll(['attempt_policy'])
+        && data.teacher_display_name == userFullName(teacherId)
         && validActivityAttemptPolicy(data.attempt_policy)
         && isBoundedText(data.display_title, 80)
         && data.status == 'active'
         && data.created_at == request.time
         && data.updated_at == request.time
         && (
-          !data.keys().hasAny(['due_at'])
+          !keys.hasAny(['due_at'])
           || data.due_at is timestamp
         )
-        && (!data.keys().hasAny(['topic']) || isBoundedText(data.topic, 80))
+        && (!keys.hasAny(['topic']) || isBoundedText(data.topic, 80))
         && (
-          validOfficialAssignmentCreate(data)
-          || validTeacherCreatedAssignmentCreate(data)
+          data.origin == 'official_elixr'
+            ? keys.hasOnly(groupAssignmentAllowedKeys())
+              && validOfficialAssignmentCreate(data)
+            : data.origin == 'teacher_created'
+              && keys.hasOnly(teacherCreatedAssignmentAllowedKeys())
+              && validTeacherCreatedAssignmentCreate(data, teacherId)
         );
     }
     function validGroupAssignmentUpdate() {
@@ -3482,29 +3409,6 @@ service cloud.firestore {
         && resource.data.assessment_mode != 'template_scored'
         && request.resource.data.keys().hasAll(groupAssignmentRequiredKeys())
         && request.resource.data.keys().hasOnly(groupAssignmentAllowedKeys())
-        && request.resource.data.teacher_id == resource.data.teacher_id
-        && request.resource.data.group_id == resource.data.group_id
-        && request.resource.data.movement_id == resource.data.movement_id
-        && request.resource.data.revision_id == resource.data.revision_id
-        && request.resource.data.origin == resource.data.origin
-        && request.resource.data.assessment_mode == resource.data.assessment_mode
-        && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.display_title == resource.data.display_title
-        && request.resource.data.teacher_display_name == resource.data.teacher_display_name
-        && request.resource.data.group_name == resource.data.group_name
-        && request.resource.data.get('official_movement_name', '__elixr_absent__')
-          == resource.data.get('official_movement_name', '__elixr_absent__')
-        && request.resource.data.get('attempt_policy', null)
-          == resource.data.get('attempt_policy', null)
-        && request.resource.data.get('allowed_prop', '__elixr_absent__')
-          == resource.data.get('allowed_prop', '__elixr_absent__')
-        && request.resource.data.get('display_instructions', '__elixr_absent__')
-          == resource.data.get('display_instructions', '__elixr_absent__')
-        && request.resource.data.get('display_safety_guidance', '__elixr_absent__')
-          == resource.data.get('display_safety_guidance', '__elixr_absent__')
-        && request.resource.data.get('audience_type', '__elixr_absent__')
-          == resource.data.get('audience_type', '__elixr_absent__')
-        && !request.resource.data.keys().hasAny(['target_trainee_ids'])
         && request.resource.data.status in ['active', 'archived']
         && request.resource.data.updated_at == request.time
         && (
@@ -3566,6 +3470,11 @@ service cloud.firestore {
           || traineeCanAccessAssignment(resource.data, assignmentId, request.auth.uid)
         );
       allow list: if isSignedIn() && resource.data.teacher_id == request.auth.uid;
+      allow create: if request.resource.data.origin == 'teacher_created'
+        && request.resource.data.keys().hasAny([
+          'activity_assessment', 'configuration_revision'
+        ])
+        && validTeacherCreatedActivityAssignmentCreate(request.resource.data);
       allow create: if validGroupAssignmentCreate(request.resource.data);
       allow update: if validGroupAssignmentUpdate();
       allow delete: if isSignedIn()
@@ -3601,9 +3510,6 @@ service cloud.firestore {
         allow list: if isSignedIn()
           && !exists(userPath(request.auth.uid))
           && resource.data.trainee_id == request.auth.uid;
-        allow list: if isSignedIn()
-          && !exists(userPath(request.auth.uid))
-          && resource.data.teacher_id == request.auth.uid;
         allow delete: if isSignedIn()
           && !exists(userPath(request.auth.uid))
           && (
@@ -3624,9 +3530,6 @@ service cloud.firestore {
       allow list: if isSignedIn()
         && !exists(userPath(request.auth.uid))
         && resource.data.trainee_id == request.auth.uid;
-      allow list: if isSignedIn()
-        && !exists(userPath(request.auth.uid))
-        && resource.data.teacher_id == request.auth.uid;
     }
 
     function assignmentAttemptIdentityKeys() {
@@ -3666,8 +3569,7 @@ service cloud.firestore {
     function teacherReviewSubmissionSubmittedKeys() {
       return teacherReviewSubmissionCreateKeys().concat([
         'video_storage_path', 'video_content_type', 'video_size_bytes',
-        'video_duration_ms', 'submitted_at', 'video_expires_at',
-        'supersedes_attempt_id'
+        'video_duration_ms', 'submitted_at', 'video_expires_at'
       ]);
     }
     function teacherReviewSubmissionAttachedDraftKeys() {
@@ -3759,7 +3661,6 @@ service cloud.firestore {
         && data.status == 'submitted'
         && data.origin == 'official_elixr'
         && data.assessment_mode == 'official_guided'
-        && data.keys().hasAll(officialPointerAllowedKeys())
         && data.keys().hasOnly(officialPointerAllowedKeys())
         && isClassroomDocId(data.source_session_id)
         && attemptId == officialAssignmentAttemptId(data.source_session_id)
@@ -3789,11 +3690,6 @@ service cloud.firestore {
         && data.origin == 'teacher_created'
         && data.assessment_mode == 'teacher_reviewed'
         && data.keys().hasOnly(teacherDraftAllowedKeys())
-        && data.keys().hasAll(teacherDraftAllowedKeys())
-        && !data.keys().hasAny(['source_session_id', 'rubric', 'rubric_total',
-          'performance_level', 'review_verdict', 'review_feedback',
-          'reviewed_at', 'video_storage_path', 'video_duration_ms',
-          'video_size_bytes'])
         && data.status != 'approved'
         && data.status != 'needs_retry';
     }
@@ -3817,7 +3713,6 @@ service cloud.firestore {
         && isReviewSubmissionAttemptId(attemptId)
         && data.origin == 'teacher_created'
         && data.assessment_mode == 'teacher_reviewed'
-        && data.keys().hasAll(assignmentAttemptIdentityKeys())
         && (
           (
             attemptId == 'review_sub_' + data.assignment_id + '_' + data.trainee_id
@@ -3828,12 +3723,6 @@ service cloud.firestore {
           || (
             data.status == 'draft'
             && data.keys().hasOnly(teacherReviewSubmissionCreateKeys())
-            && !data.keys().hasAny(['source_session_id', 'rubric',
-              'rubric_total', 'performance_level', 'review_verdict',
-              'review_feedback', 'reviewed_at', 'video_storage_path',
-              'video_content_type', 'video_size_bytes', 'video_duration_ms',
-              'submitted_at', 'video_expires_at', 'video_deleted_at',
-              'deletion_failed', 'abandoned_at'])
             && (
               !data.keys().hasAny(['supersedes_attempt_id'])
               || validSubmissionSupersedes(data)
@@ -3867,64 +3756,48 @@ service cloud.firestore {
               : validTeacherReviewSubmissionCreate(data, attemptId)
         );
     }
+    function assignmentAttemptFrozenKeys() {
+      return ['trainee_id', 'teacher_id', 'group_id', 'assignment_id',
+        'movement_id', 'revision_id', 'origin', 'assessment_mode',
+        'attempt_kind', 'awards_global_xp', 'created_at'];
+    }
+    function assignmentAttemptOptionalFrozenKeys() {
+      return ['source_session_id', 'supersedes_attempt_id',
+        'assignment_configuration_revision', 'activity_assessment_snapshot',
+        'attempt_number', 'reservation_request_id', 'recording_started_at'];
+    }
     function assignmentAttemptIdentityUnchanged() {
-      return request.resource.data.trainee_id == resource.data.trainee_id
-        && request.resource.data.teacher_id == resource.data.teacher_id
-        && request.resource.data.group_id == resource.data.group_id
-        && request.resource.data.assignment_id == resource.data.assignment_id
-        && request.resource.data.movement_id == resource.data.movement_id
-        && request.resource.data.revision_id == resource.data.revision_id
-        && request.resource.data.origin == resource.data.origin
-        && request.resource.data.assessment_mode == resource.data.assessment_mode
-        && request.resource.data.attempt_kind == resource.data.attempt_kind
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return resource.data.keys().hasAll(assignmentAttemptFrozenKeys())
+        && request.resource.data.keys().hasAll(assignmentAttemptFrozenKeys())
+        && !changed.hasAny(assignmentAttemptFrozenKeys().concat(
+          assignmentAttemptOptionalFrozenKeys()
+        ))
         && request.resource.data.awards_global_xp == false
-        && resource.data.awards_global_xp == false
-        && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.get('source_session_id', '__elixr_absent__')
-          == resource.data.get('source_session_id', '__elixr_absent__')
-        && request.resource.data.get('supersedes_attempt_id', '__elixr_absent__')
-          == resource.data.get('supersedes_attempt_id', '__elixr_absent__')
-        && request.resource.data.get('assignment_configuration_revision', '__elixr_absent__')
-          == resource.data.get('assignment_configuration_revision', '__elixr_absent__')
-        && request.resource.data.get('activity_assessment_snapshot', '__elixr_absent__')
-          == resource.data.get('activity_assessment_snapshot', '__elixr_absent__')
-        && request.resource.data.get('attempt_number', '__elixr_absent__')
-          == resource.data.get('attempt_number', '__elixr_absent__')
-        && request.resource.data.get('reservation_request_id', '__elixr_absent__')
-          == resource.data.get('reservation_request_id', '__elixr_absent__')
-        && request.resource.data.get('recording_started_at', '__elixr_absent__')
-          == resource.data.get('recording_started_at', '__elixr_absent__');
+        && resource.data.awards_global_xp == false;
     }
     function assignmentAttemptVideoIdentityUnchanged() {
-      return request.resource.data.get('video_storage_path', '__elixr_absent__')
-          == resource.data.get('video_storage_path', '__elixr_absent__')
-        && request.resource.data.get('video_content_type', '__elixr_absent__')
-          == resource.data.get('video_content_type', '__elixr_absent__')
-        && request.resource.data.get('video_size_bytes', '__elixr_absent__')
-          == resource.data.get('video_size_bytes', '__elixr_absent__')
-        && request.resource.data.get('video_duration_ms', '__elixr_absent__')
-          == resource.data.get('video_duration_ms', '__elixr_absent__')
-        && request.resource.data.get('submitted_at', '__elixr_absent__')
-          == resource.data.get('submitted_at', '__elixr_absent__');
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'video_storage_path', 'video_content_type', 'video_size_bytes',
+        'video_duration_ms', 'submitted_at'
+      ]);
     }
     function assignmentAttemptClipMetadataUnchanged() {
-      return request.resource.data.get('video_storage_path', '__elixr_absent__')
-          == resource.data.get('video_storage_path', '__elixr_absent__')
-        && request.resource.data.get('video_content_type', '__elixr_absent__')
-          == resource.data.get('video_content_type', '__elixr_absent__')
-        && request.resource.data.get('video_size_bytes', '__elixr_absent__')
-          == resource.data.get('video_size_bytes', '__elixr_absent__')
-        && request.resource.data.get('video_duration_ms', '__elixr_absent__')
-          == resource.data.get('video_duration_ms', '__elixr_absent__');
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'video_storage_path', 'video_content_type', 'video_size_bytes',
+        'video_duration_ms'
+      ]);
     }
     function assignmentAttemptReviewUnchanged() {
-      return request.resource.data.status == resource.data.status
-        && request.resource.data.get('review_verdict', '__elixr_absent__')
-          == resource.data.get('review_verdict', '__elixr_absent__')
-        && request.resource.data.get('review_feedback', '__elixr_absent__')
-          == resource.data.get('review_feedback', '__elixr_absent__')
-        && request.resource.data.get('reviewed_at', '__elixr_absent__')
-          == resource.data.get('reviewed_at', '__elixr_absent__');
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'status', 'review_verdict', 'review_feedback', 'reviewed_at'
+      ]);
+    }
+    function assignmentAttemptReviewableMetadataUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'video_content_type', 'video_size_bytes', 'video_duration_ms',
+        'submitted_at', 'video_expires_at'
+      ]);
     }
     function validTeacherDraftAttemptUpdate() {
       return resource.data.trainee_id == request.auth.uid
@@ -3950,7 +3823,6 @@ service cloud.firestore {
         && after.status == 'submitted'
         && !after.keys().hasAny(['abandoned_at'])
         && assignmentAttemptIdentityUnchanged()
-        && after.keys().hasAll(assignmentAttemptIdentityKeys())
         && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys())
         && validSubmittedVideoMetadata(after, attemptId)
         && (!resource.data.keys().hasAny(['draft_saved_at'])
@@ -4010,16 +3882,7 @@ service cloud.firestore {
         && after.status == 'in_progress'
         && assignmentSubmissionIsOpen(resource.data)
         && assignmentAttemptIdentityUnchanged()
-        && after.keys().hasOnly(assignmentAttemptIdentityKeys())
-        && !after.keys().hasAny([
-          'source_session_id', 'submitted_at', 'video_expires_at',
-          'video_storage_path', 'video_content_type', 'video_size_bytes',
-          'video_duration_ms', 'draft_saved_at', 'draft_cleanup_started_at',
-          'review_verdict', 'review_feedback',
-          'reviewed_at', 'grade_score', 'grade_max_score', 'checked_at',
-          'review_updated_at', 'review_revision', 'result_sent_revision',
-          'result_sent_at', 'result_message_id', 'deletion_failed',
-        ]);
+        && after.keys().hasOnly(assignmentAttemptIdentityKeys());
     }
     function validCanonicalTeacherReviewSubmissionBeginUnsubmit(attemptId) {
       let after = request.resource.data;
@@ -4035,12 +3898,6 @@ service cloud.firestore {
         && after.keys().hasOnly(teacherReviewSubmissionSubmittedKeys().concat([
           'deletion_failed', 'deletion_failed_at'
         ]))
-        && !after.keys().hasAny([
-          'review_verdict', 'review_feedback', 'reviewed_at', 'grade_score',
-          'grade_max_score', 'checked_at', 'review_updated_at',
-          'review_revision', 'result_sent_revision', 'result_sent_at',
-          'result_message_id', 'abandoned_at', 'video_deleted_at'
-        ])
         && after.deletion_failed == false
         && !after.keys().hasAny(['deletion_failed_at'])
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -4057,15 +3914,6 @@ service cloud.firestore {
         && assignmentAttemptIdentityUnchanged()
         && after.keys().hasOnly(teacherReviewSubmissionAnchorKeys())
         && after.deletion_failed == false
-        && !after.keys().hasAny([
-          'source_session_id', 'submitted_at', 'video_expires_at',
-          'video_storage_path', 'video_content_type', 'video_size_bytes',
-          'video_duration_ms', 'video_deleted_at', 'deletion_failed_at',
-          'review_verdict', 'review_feedback', 'reviewed_at', 'grade_score',
-          'grade_max_score', 'checked_at', 'review_updated_at',
-          'review_revision', 'result_sent_revision', 'result_sent_at',
-          'result_message_id', 'abandoned_at'
-        ])
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
             'status', 'video_storage_path', 'video_content_type',
@@ -4089,10 +3937,6 @@ service cloud.firestore {
         ]))
         && after.deletion_failed == true
         && after.deletion_failed_at == request.time
-        && !after.keys().hasAny(['video_deleted_at', 'review_verdict',
-          'review_feedback', 'reviewed_at', 'grade_score', 'grade_max_score',
-          'checked_at', 'review_updated_at', 'review_revision',
-          'result_sent_revision', 'result_sent_at', 'result_message_id'])
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['deletion_failed', 'deletion_failed_at']);
     }
@@ -4108,7 +3952,6 @@ service cloud.firestore {
         && assignment.get('max_score', 100) == maxScore
         && assignmentAttemptIdentityUnchanged()
         && assignmentAttemptVideoIdentityUnchanged()
-        && after.keys().hasAll(assignmentAttemptIdentityKeys())
         && after.keys().hasOnly(teacherReviewSubmissionCheckedKeys())
         && after.grade_score is int
         && after.grade_max_score is int
@@ -4180,9 +4023,6 @@ service cloud.firestore {
         && after.review_verdict == after.status
         && assignmentAttemptIdentityUnchanged()
         && assignmentAttemptVideoIdentityUnchanged()
-        && after.keys().hasAll(assignmentAttemptIdentityKeys())
-        && after.keys().hasAll(['review_verdict', 'reviewed_at',
-          'video_expires_at'])
         && after.keys().hasOnly(teacherReviewSubmissionReviewedKeys())
         && after.reviewed_at == request.time
         && isReviewedVideoExpiry(after.video_expires_at)
@@ -4207,16 +4047,7 @@ service cloud.firestore {
           || resource.data.teacher_id == request.auth.uid)
         && assignmentAttemptIdentityUnchanged()
         && assignmentAttemptReviewUnchanged()
-        && after.get('video_content_type', '__elixr_absent__')
-          == resource.data.get('video_content_type', '__elixr_absent__')
-        && after.get('video_size_bytes', '__elixr_absent__')
-          == resource.data.get('video_size_bytes', '__elixr_absent__')
-        && after.get('video_duration_ms', '__elixr_absent__')
-          == resource.data.get('video_duration_ms', '__elixr_absent__')
-        && after.get('submitted_at', '__elixr_absent__')
-          == resource.data.get('submitted_at', '__elixr_absent__')
-        && after.get('video_expires_at', '__elixr_absent__')
-          == resource.data.get('video_expires_at', '__elixr_absent__')
+        && assignmentAttemptReviewableMetadataUnchanged()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['video_storage_path', 'video_deleted_at',
             'deletion_failed', 'deletion_failed_at'])
@@ -4439,7 +4270,6 @@ service cloud.firestore {
     }
     function validChatSnapshot(snapshot, userId) {
       return snapshot is map
-        && snapshot.keys().hasAll(['id', 'display_name', 'role'])
         && snapshot.keys().hasOnly(['id', 'display_name', 'role', 'avatar_url'])
         && snapshot.id == userId
         && snapshot.display_name == get(userPath(userId)).data.full_name
@@ -4449,7 +4279,6 @@ service cloud.firestore {
     }
     function validChatSnapshots(data) {
       return data.participant_snapshots is map
-        && data.participant_snapshots.keys().hasAll(data.participant_ids)
         && data.participant_snapshots.keys().hasOnly(data.participant_ids)
         && validChatSnapshot(
           data.participant_snapshots[data.participant_ids[0]],
@@ -4467,14 +4296,7 @@ service cloud.firestore {
         && value.matches('.*[^[:space:]].*');
     }
     function validChatConversationKeys(data) {
-      return data.keys().hasAll([
-          'participant_ids', 'participant_a', 'participant_b',
-          'participant_snapshots', 'last_message_id',
-          'last_message_body', 'last_message_sender_id', 'last_message_at',
-          'unread_counts', 'read_at', 'status', 'created_at', 'updated_at',
-          'schema_version'
-        ])
-        && data.keys().hasOnly([
+      return data.keys().hasOnly([
           'participant_ids', 'participant_a', 'participant_b',
           'participant_snapshots', 'last_message_id',
           'last_message_body', 'last_message_sender_id', 'last_message_at',
@@ -4752,13 +4574,8 @@ service cloud.firestore {
         'Reverse Forearm Stall', 'Shoulder Stall', 'Double Hand Stall',
         'Bottle in a tin'];
     }
-    // Official catalog identities for new sessions and global XP. Reuses the
-    // coaching/training-plan allowlist so the 12 names are not duplicated.
-    function officialElixrMovementNames() {
-      return coachingMovementNames();
-    }
     function isOfficialElixrMovementName(name) {
-      return name is string && name in officialElixrMovementNames();
+      return name is string && name in coachingMovementNames();
     }
     function officialMovementIdForName(name) {
       return name == 'Normal Grip' ? 'official_normal_grip'

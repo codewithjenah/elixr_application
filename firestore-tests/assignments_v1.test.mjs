@@ -837,12 +837,66 @@ function teacherReviewedSpec({
   instructions = 'Hold the tin upright.',
   requiredProp = 'bottle',
   safetyGuidance,
+  activityAssessment,
 } = {}) {
   return {
     instructions,
     required_prop: requiredProp,
     capability: 'teacher_review_only',
     ...(safetyGuidance == null ? {} : { safety_guidance: safetyGuidance }),
+    ...(activityAssessment == null ? {} : { activity_assessment: activityAssessment }),
+  };
+}
+
+function teacherActivityAssessment({
+  technique = 45,
+  criterionCount = 5,
+  weighted = false,
+} = {}) {
+  const criteria = [
+    {
+      id: 'technique',
+      label: 'Technique',
+      description: 'Maintains controlled technique.',
+      maximum_points: technique,
+    },
+    {
+      id: 'stability',
+      label: 'Stability',
+      description: 'Keeps the prop stable.',
+      maximum_points: 20,
+    },
+    {
+      id: 'completion',
+      label: 'Completion',
+      description: 'Completes the required movement.',
+      maximum_points: 20,
+    },
+    {
+      id: 'control',
+      label: 'Control',
+      description: 'Maintains control throughout the movement.',
+      maximum_points: 10,
+    },
+    {
+      id: 'finish',
+      label: 'Finish',
+      description: 'Finishes with a stable position.',
+      maximum_points: 5,
+    },
+  ].slice(0, criterionCount).map((criterion) => ({
+    ...criterion,
+    ...(weighted ? {weight: 20} : {}),
+  }));
+  return {
+    schema_version: 3,
+    readiness: { hands: 'none', body: 'none' },
+    rubric: {
+      template_id: 'standard_technique',
+      maximum_score: 100,
+      criteria,
+    },
+    recording_duration_seconds: 30,
   };
 }
 
@@ -884,6 +938,7 @@ function teacherCreatedAssignmentDoc({
   revisionId = 'rev1',
   assessmentMode = 'teacher_reviewed',
   displayTitle = 'Tin Balance',
+  teacherDisplayName = 'Grace Hopper',
   displayInstructions = 'Hold the tin upright.',
   displaySafetyGuidance,
   allowedProp = 'bottle',
@@ -899,7 +954,7 @@ function teacherCreatedAssignmentDoc({
     assessment_mode: assessmentMode,
     status: 'active',
     display_title: displayTitle,
-    teacher_display_name: 'Grace Hopper',
+    teacher_display_name: teacherDisplayName,
     group_name: 'BSHM 4A',
     display_instructions: displayInstructions,
     ...(displaySafetyGuidance == null
@@ -907,6 +962,7 @@ function teacherCreatedAssignmentDoc({
       : { display_safety_guidance: displaySafetyGuidance }),
     allowed_prop: allowedProp,
     audience_type: audienceType,
+    attempt_policy: { type: 'unlimited' },
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   };
@@ -1272,6 +1328,187 @@ describe('Phase 5 integrity: assignment snapshots pin the current revision', () 
       ),
     );
   });
+
+  test('Teacher Activity assessment snapshots remain validated', async () => {
+    await seedClassroom();
+    await seedTeacherMovement();
+    const db = context('teacher').firestore();
+    const assessment = teacherActivityAssessment();
+    const base = {
+      ...teacherCreatedAssignmentDoc(),
+      max_score: 100,
+      configuration_revision: 1,
+      activity_assessment: assessment,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    };
+    await assertSucceeds(setDoc(doc(db, 'group_assignments', 'asgActivity'), base));
+    await assertSucceeds(
+      setDoc(doc(db, 'group_assignments', 'asgWeightedActivity'), {
+        ...base,
+        activity_assessment: teacherActivityAssessment({
+          technique: 50,
+          criterionCount: 4,
+          weighted: true,
+        }),
+      }),
+    );
+    const whitespace = teacherActivityAssessment();
+    whitespace.rubric = {
+      ...whitespace.rubric,
+      criteria: whitespace.rubric.criteria.map((criterion, index) =>
+        index === 0
+          ? {
+              ...criterion,
+              label: '  Technique  ',
+              description: '  Maintains controlled technique.  ',
+            }
+          : criterion,
+      ),
+    };
+    await assertSucceeds(
+      setDoc(doc(db, 'group_assignments', 'asgWhitespaceActivity'), {
+        ...base,
+        activity_assessment: whitespace,
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, 'group_assignments', 'asgForgedActivity'), {
+        ...base,
+        activity_assessment: teacherActivityAssessment({ technique: 24 }),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, 'group_assignments', 'asgForgedActivitySource'), {
+        ...base,
+        display_instructions: 'Forged instructions.',
+      }),
+    );
+    const duplicate = teacherActivityAssessment();
+    duplicate.rubric = {
+      ...duplicate.rubric,
+      criteria: duplicate.rubric.criteria.map((criterion, index) =>
+        index === 4 ? {...criterion, id: 'control'} : criterion,
+      ),
+    };
+    await assertFails(
+      setDoc(doc(db, 'group_assignments', 'asgDuplicateActivity'), {
+        ...base,
+        activity_assessment: duplicate,
+      }),
+    );
+  });
+
+  test('Teacher Activity snapshots reject malformed historical sources', async () => {
+    await seedClassroom();
+    await seedTeacherMovement();
+    const db = context('teacher').firestore();
+    const assessment = teacherActivityAssessment();
+    const create = (id, overrides = {}) => setDoc(
+      doc(db, 'group_assignments', id),
+      {
+        ...teacherCreatedAssignmentDoc(overrides),
+        max_score: 100,
+        configuration_revision: 1,
+        activity_assessment: assessment,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      },
+    );
+
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'teacher'), {
+        full_name: 'T'.repeat(81),
+        role: 'Teacher',
+      });
+    });
+    await assertFails(
+      create('asgMalformedProfile', {
+        teacherDisplayName: 'T'.repeat(81),
+      }),
+    );
+
+    await seedBypassingRules(async (admin) => {
+      await setDoc(doc(admin, 'users', 'teacher'), {
+        full_name: 'Grace Hopper',
+        role: 'Teacher',
+      });
+      await setDoc(
+        doc(admin, 'teacher_movements', 'tmLongTitle'),
+        teacherMovementRoot({
+          title: 'L'.repeat(81),
+          currentRevisionId: 'revLongTitle',
+        }),
+      );
+      await setDoc(
+        doc(admin, 'teacher_movements', 'tmLongTitle', 'revisions', 'revLongTitle'),
+        teacherMovementRevision({
+          movementId: 'tmLongTitle',
+          revisionId: 'revLongTitle',
+        }),
+      );
+      await setDoc(
+        doc(admin, 'teacher_movements', 'tmLongInstructions'),
+        teacherMovementRoot({
+          title: 'Long Instructions',
+          currentRevisionId: 'revLongInstructions',
+        }),
+      );
+      await setDoc(
+        doc(
+          admin,
+          'teacher_movements',
+          'tmLongInstructions',
+          'revisions',
+          'revLongInstructions',
+        ),
+        teacherMovementRevision({
+          movementId: 'tmLongInstructions',
+          revisionId: 'revLongInstructions',
+          spec: teacherReviewedSpec({instructions: 'I'.repeat(2001)}),
+        }),
+      );
+      await setDoc(
+        doc(admin, 'teacher_movements', 'tmLongSafety'),
+        teacherMovementRoot({
+          title: 'Long Safety',
+          currentRevisionId: 'revLongSafety',
+        }),
+      );
+      await setDoc(
+        doc(admin, 'teacher_movements', 'tmLongSafety', 'revisions', 'revLongSafety'),
+        teacherMovementRevision({
+          movementId: 'tmLongSafety',
+          revisionId: 'revLongSafety',
+          spec: teacherReviewedSpec({safetyGuidance: 'S'.repeat(1001)}),
+        }),
+      );
+    });
+
+    await assertFails(
+      create('asgMalformedTitle', {
+        movementId: 'tmLongTitle',
+        revisionId: 'revLongTitle',
+        displayTitle: 'L'.repeat(81),
+      }),
+    );
+    await assertFails(
+      create('asgMalformedInstructions', {
+        movementId: 'tmLongInstructions',
+        revisionId: 'revLongInstructions',
+        displayTitle: 'Long Instructions',
+        displayInstructions: 'I'.repeat(2001),
+      }),
+    );
+    await assertFails(
+      create('asgMalformedSafety', {
+        movementId: 'tmLongSafety',
+        revisionId: 'revLongSafety',
+        displayTitle: 'Long Safety',
+        displaySafetyGuidance: 'S'.repeat(1001),
+      }),
+    );
+  });
 });
 
 describe('Phase 5 integrity: assignment snapshots are immutable after create', () => {
@@ -1455,6 +1692,7 @@ describe('Phase 5 integrity: template_scored writes remain closed', () => {
         display_instructions: 'Hold the tin upright.',
         allowed_prop: 'bottle',
         audience_type: 'entire_class',
+        attempt_policy: { type: 'unlimited' },
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       }),
