@@ -465,7 +465,7 @@ void main() {
     );
   });
 
-  testWidgets('assignment settings edit and lock the maximum score', (
+  testWidgets('legacy teacher assignment opens the full Activity editor', (
     tester,
   ) async {
     final assignments = InMemoryClassroomAssignmentRepository();
@@ -506,28 +506,18 @@ void main() {
     await tester.ensureVisible(editAssignment);
     await tester.tap(editAssignment);
     await tester.pumpAndSettle();
+    expect(find.text('Edit Classroom Activity'), findsOneWidget);
+    expect(find.text('Assignment settings'), findsOneWidget);
     await tester.enterText(
-      find.byKey(const Key('teacher_assignment_edit_max_score')),
-      '75',
+      find.byKey(const ValueKey('builder-instructions')),
+      'Keep the bottle in view and submit a recording.',
     );
-    await tester.tap(find.byKey(const Key('teacher_assignment_save_changes')));
+    await tester.tap(find.byKey(const ValueKey('teacher-reviewed-save')));
     await tester.pumpAndSettle();
     final updated = await assignments.getAssignment(assignmentId: assignmentId);
-    expect(updated?.maxScore, 75);
-
-    assignments.seedAssignment(updated!.copyWith(gradingLocked: true));
-    await tester.pump();
-    await tester.ensureVisible(editAssignment);
-    await tester.tap(editAssignment);
-    await tester.pumpAndSettle();
-    final maximumField = tester.widget<TextBox>(
-      find.byKey(const Key('teacher_assignment_edit_max_score')),
-    );
-    expect(maximumField.enabled, isFalse);
-    expect(
-      find.textContaining('locked because this assignment already has'),
-      findsOneWidget,
-    );
+    expect(updated?.activityAssessment, isNotNull);
+    expect(updated?.maxScore, 100);
+    expect(updated?.allowedProp, TrainingProp.bottle);
   });
 
   testWidgets(

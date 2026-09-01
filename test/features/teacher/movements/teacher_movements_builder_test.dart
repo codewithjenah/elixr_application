@@ -201,12 +201,17 @@ void main() {
     expect(find.bySemanticsLabel('Instructions'), findsOneWidget);
     expect(find.bySemanticsLabel('Required prop'), findsOneWidget);
     expect(find.bySemanticsLabel('Guidance for trainees'), findsOneWidget);
-    expect(find.bySemanticsLabel('Prop readiness'), findsOneWidget);
     expect(find.bySemanticsLabel('Hand readiness'), findsOneWidget);
     expect(find.bySemanticsLabel('Body readiness'), findsOneWidget);
     expect(find.bySemanticsLabel('Rubric template'), findsOneWidget);
     expect(find.bySemanticsLabel('Maximum score'), findsOneWidget);
-    expect(find.bySemanticsLabel('Default attempts'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('builder-rubric-criteria-table')),
+      findsOneWidget,
+    );
+    expect(find.text('What the Teacher assesses'), findsOneWidget);
+    expect(find.text('Total'), findsOneWidget);
+    expect(find.bySemanticsLabel('Default attempts'), findsNothing);
     expect(find.bySemanticsLabel('Recording duration'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('builder-demo-media-placeholder')),
@@ -627,10 +632,7 @@ void main() {
     expect(find.text('Assign to class'), findsOneWidget);
     expect(find.text('Tin Balance'), findsAtLeastNWidgets(1));
     expect(find.byKey(const Key('teacher_assignment_source')), findsNothing);
-    expect(
-      find.byKey(const Key('teacher_assignment_max_score')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('teacher_assignment_max_score')), findsNothing);
   });
 
   testWidgets('Official ELIXR card lifts on hover', (tester) async {

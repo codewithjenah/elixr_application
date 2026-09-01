@@ -734,6 +734,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
     ? [...new Set(body.recipient_ids.map((value) => String(value).trim()))]
     : [];
   const maximum = body.activity_assessment?.rubric?.maximum_score;
+  const requiredProp = body.allowed_prop;
   if (!validId(body.assignment_id) || !Number.isInteger(body.expected_configuration_revision) ||
       body.expected_configuration_revision < 1 || !title || !instructions ||
       (body.display_safety_guidance && !safety) || (body.topic && !topic) ||
@@ -742,6 +743,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
       (audienceType === 'individual_student' && recipientIds.length !== 1) ||
       (audienceType === 'selected_students' && recipientIds.length < 1) ||
       recipientIds.some((id) => !validId(id)) ||
+      !['bottle', 'shaker', 'bottle_and_shaker'].includes(requiredProp) ||
       !Number.isInteger(maximum) || maximum < 1 || maximum > 100 ||
       !validAssignmentAttemptPolicy(body.attempt_policy) ||
       !validActivityAssessment(body.activity_assessment, maximum)) {
@@ -795,6 +797,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
         topic: topic || FieldValue.delete(), due_at: dueAt || FieldValue.delete(),
         audience_type: audienceType, activity_assessment: body.activity_assessment,
         attempt_policy: body.attempt_policy,
+        allowed_prop: requiredProp,
         max_score: maximum,
         configuration_revision: body.expected_configuration_revision + 1,
         updated_at: now,
@@ -816,6 +819,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
         ...(topic ? {topic} : {}), ...(dueAt ? {due_at: dueAt} : {}),
         audience_type: audienceType, activity_assessment: body.activity_assessment,
         attempt_policy: body.attempt_policy,
+        allowed_prop: requiredProp,
         max_score: maximum,
         configuration_revision: body.expected_configuration_revision + 1,
         updated_at: now,

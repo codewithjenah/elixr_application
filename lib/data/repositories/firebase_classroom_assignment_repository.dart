@@ -19,6 +19,7 @@ import '../models/group_assignment.dart';
 import '../models/phase6_submission_diagnostics.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
+import '../models/training_prop.dart';
 import 'classroom_assignment_repository.dart';
 
 class FirebaseClassroomAssignmentRepository
@@ -291,6 +292,7 @@ class FirebaseClassroomAssignmentRepository
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
     required AssignmentAttemptPolicy attemptPolicy,
+    required TrainingProp requiredProp,
   }) async {
     if (_auth.currentUser?.uid != teacherId || !activityAssessment.isValid) {
       throw const ClassroomException(ClassroomError.forbidden);
@@ -310,6 +312,7 @@ class FirebaseClassroomAssignmentRepository
               : audience.targetTraineeIds,
           'activity_assessment': activityAssessment.toMap(),
           'attempt_policy': attemptPolicy.toMap(),
+          'allowed_prop': requiredProp.protocolValue,
         });
     final raw = decoded['assignment'];
     if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);

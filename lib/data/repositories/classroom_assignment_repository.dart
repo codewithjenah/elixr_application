@@ -72,6 +72,7 @@ abstract class ClassroomAssignmentRepository {
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
     required AssignmentAttemptPolicy attemptPolicy,
+    required TrainingProp requiredProp,
   });
 
   Future<GroupAssignment> createOfficialAssignmentWithTopic({

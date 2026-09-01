@@ -13,6 +13,7 @@ import '../models/classroom_exceptions.dart';
 import '../models/group_assignment.dart';
 import '../models/teacher_movement.dart';
 import '../models/teacher_activity_assessment.dart';
+import '../models/training_prop.dart';
 import 'classroom_assignment_repository.dart';
 
 class InMemoryClassroomAssignmentRepository
@@ -331,6 +332,7 @@ class InMemoryClassroomAssignmentRepository
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
     required AssignmentAttemptPolicy attemptPolicy,
+    required TrainingProp requiredProp,
   }) async {
     final existing = assignments[assignmentId];
     if (existing == null ||
@@ -372,7 +374,7 @@ class InMemoryClassroomAssignmentRepository
       displaySafetyGuidance: safetyGuidance?.trim().isEmpty == true
           ? null
           : safetyGuidance?.trim(),
-      allowedProp: existing.allowedProp,
+      allowedProp: requiredProp,
       maxScore: activityAssessment.rubric.maximumScore,
       attemptPolicy: attemptPolicy,
       gradingLocked: existing.gradingLocked,

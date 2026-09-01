@@ -27,6 +27,7 @@ import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
+import '../../../data/models/training_prop.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/public_profile_repository.dart';
@@ -36,6 +37,7 @@ import '../classwork/teacher_classwork_controller.dart';
 import '../classwork/teacher_classwork_pane.dart';
 import '../movements/teacher_assignment_composer.dart';
 import '../movements/teacher_demo_recording_dialog.dart';
+import '../movements/teacher_movement_builder_dialog.dart';
 import '../../teacher_access/trainee_class_card.dart';
 import '../../classroom_announcements/classroom_announcements_controller.dart';
 import '../../classroom_announcements/classroom_announcements_pane.dart';
@@ -1061,12 +1063,8 @@ Future<void> _showEditAssignmentDialog(
       assignment;
   if (!context.mounted) return;
   assignment = currentAssignment;
-  if (assignment.activityAssessment != null) {
-    await _showTeacherActivityAssignmentEditDialog(
-      context,
-      controller,
-      assignment,
-    );
+  if (assignment.isTeacherCreated) {
+    await _showTeacherActivityAssignmentEditor(context, controller, assignment);
     return;
   }
   final initialScore = assignment.maxScore?.toString() ?? '';
@@ -1192,12 +1190,78 @@ Future<void> _showEditAssignmentDialog(
   );
 }
 
-Future<void> _showTeacherActivityAssignmentEditDialog(
+Future<void> _showTeacherActivityAssignmentEditor(
   BuildContext context,
   TeacherClassworkController controller,
   GroupAssignment assignment,
 ) async {
-  final original = assignment.activityAssessment!;
+  final movementRepository = _tryReadTeacherMovementRepository(context);
+  await Navigator.of(context).push<void>(
+    PageRouteBuilder<void>(
+      pageBuilder: (_, _, _) => TeacherMovementBuilderDialog(
+        assignment: assignment,
+        approvedMemberships: controller.approvedMemberships,
+        onCreateTeacherReviewed:
+            ({
+              required title,
+              required instructions,
+              required requiredProp,
+              safetyGuidance,
+            }) async {
+              throw StateError('Classroom Activities cannot be created here.');
+            },
+        onEditAssignment:
+            ({
+              required title,
+              required instructions,
+              required requiredProp,
+              required assessment,
+              required attemptPolicy,
+              required audience,
+              dueAt,
+              safetyGuidance,
+            }) async {
+              await controller.updateTeacherActivityAssignment(
+                assignment: assignment,
+                displayTitle: title,
+                instructions: instructions,
+                safetyGuidance: safetyGuidance,
+                topic: assignment.topic,
+                dueAt: dueAt,
+                audience: audience,
+                activityAssessment: assessment,
+                attemptPolicy: attemptPolicy,
+                requiredProp: requiredProp,
+              );
+              final errorMessage = controller.errorMessage;
+              if (errorMessage != null) {
+                throw StateError(errorMessage);
+              }
+            },
+        onUploadDemonstration: movementRepository == null
+            ? null
+            : ({required localFile, required duration, required source}) =>
+                  movementRepository.uploadActivityDemonstration(
+                    teacherId: controller.teacherId,
+                    localFile: localFile,
+                    duration: duration,
+                    source: source,
+                    assignmentId: assignment.id,
+                  ),
+      ),
+    ),
+  );
+}
+
+@Deprecated('Use the full-page Classroom Activity editor instead.')
+Future<void> showTeacherActivityAssignmentEditDialogLegacy(
+  BuildContext context,
+  TeacherClassworkController controller,
+  GroupAssignment assignment,
+) async {
+  final original =
+      assignment.activityAssessment ??
+      _legacyActivityAssessmentFromAssignment(assignment);
   final title = TextEditingController(text: assignment.displayTitle);
   final instructions = TextEditingController(
     text: assignment.displayInstructions ?? '',
@@ -1209,6 +1273,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
   var dueAt = assignment.dueAt;
   var hasDueDate = dueAt != null;
   var readiness = original.readiness;
+  var requiredProp = assignment.allowedProp ?? TrainingProp.bottle;
   var template = original.rubric.template;
   var maximumScore = original.rubric.maximumScore;
   final customMaximum = TextEditingController(text: '$maximumScore');
@@ -1298,6 +1363,15 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                     onChanged: (value) => setDialogState(() => dueAt = value),
                   ),
                 const SizedBox(height: AppSpacing.md),
+                _activityEditPicker<TrainingProp>(
+                  label: 'Required prop',
+                  value: requiredProp,
+                  values: TrainingProp.values,
+                  labelFor: (value) => value.displayLabel,
+                  onChanged: (value) =>
+                      setDialogState(() => requiredProp = value!),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 Text(
                   'Readiness',
                   style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
@@ -1334,6 +1408,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   child: ComboBox<TeacherActivityRubricTemplate>(
                     key: const Key('teacher_activity_edit_rubric_template'),
                     value: template,
+                    isExpanded: true,
                     items: [
                       for (final value in TeacherActivityRubricTemplate.values)
                         ComboBoxItem(
@@ -1400,6 +1475,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                                   .contains(maximumScore)
                               ? '$maximumScore'
                               : 'custom',
+                          isExpanded: true,
                           items: const [
                             ComboBoxItem(value: '30', child: Text('30 points')),
                             ComboBoxItem(value: '50', child: Text('50 points')),
@@ -1450,6 +1526,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                     value: attempts.isUnlimited
                         ? 'unlimited'
                         : '${attempts.maximumAttempts}',
+                    isExpanded: true,
                     items: const [
                       ComboBoxItem(value: '1', child: Text('1 attempt')),
                       ComboBoxItem(value: '2', child: Text('2 attempts')),
@@ -1472,6 +1549,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   child: ComboBox<int>(
                     key: const Key('teacher_activity_edit_duration'),
                     value: duration,
+                    isExpanded: true,
                     items: [
                       for (final seconds
                           in TeacherActivityAssessmentContract
@@ -1613,6 +1691,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   child: ComboBox<AssignmentAudienceType>(
                     key: const Key('teacher_activity_edit_audience'),
                     value: audienceType,
+                    isExpanded: true,
                     items: const [
                       ComboBoxItem(
                         value: AssignmentAudienceType.entireClass,
@@ -1738,6 +1817,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   audience: audience,
                   activityAssessment: assessment,
                   attemptPolicy: attempts,
+                  requiredProp: requiredProp,
                 );
                 if (context.mounted && controller.errorMessage == null) {
                   Navigator.pop(dialogContext, true);
@@ -1765,6 +1845,24 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
   if (saved == true && context.mounted) {
     // The assignment watcher supplies the updated configuration and revision.
   }
+}
+
+TeacherActivityAssessmentConfig _legacyActivityAssessmentFromAssignment(
+  GroupAssignment assignment,
+) {
+  final score = assignment.maxScore;
+  final maximumScore = score != null && score >= 1 && score <= 100
+      ? score
+      : TeacherActivityAssessmentContract.defaultMaximumScore;
+  return TeacherActivityAssessmentConfig(
+    readiness: const TeacherActivityReadinessSpec(),
+    rubric: TeacherActivityRubric.builtIn(
+      TeacherActivityRubricTemplate.standardTechnique,
+      maximumScore,
+    ),
+    recordingDurationSeconds:
+        TeacherActivityAssessmentContract.defaultRecordingDurationSeconds,
+  );
 }
 
 class _ActivityEditCriterionControllers {
@@ -1897,6 +1995,7 @@ Widget _activityEditPicker<T>({
   label: label,
   child: ComboBox<T>(
     value: value,
+    isExpanded: true,
     items: [
       for (final item in values)
         ComboBoxItem(value: item, child: Text(labelFor(item))),
