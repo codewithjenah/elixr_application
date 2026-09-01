@@ -239,24 +239,26 @@ function assignmentJsonValue(value) {
 }
 
 function validActivityAssessment(value, expectedMaximum) {
-  if (!value || typeof value !== 'object' || value.schema_version !== 2 ||
-      !value.readiness || !value.rubric || !value.attempt_policy ||
+  if (!value || typeof value !== 'object' ||
+      ![2, 3].includes(value.schema_version) ||
+      !value.readiness || !value.rubric ||
       ![15, 30, 45, 60].includes(value.recording_duration_seconds)) return false;
-  const allowedKeys = new Set([
+  const isV2 = value.schema_version === 2;
+  const allowedKeys = new Set(isV2 ? [
     'schema_version', 'readiness', 'rubric', 'attempt_policy',
+    'recording_duration_seconds', 'demonstration_video',
+  ] : [
+    'schema_version', 'readiness', 'rubric',
     'recording_duration_seconds', 'demonstration_video',
   ]);
   if (Object.keys(value).some((key) => !allowedKeys.has(key))) return false;
   const readiness = value.readiness;
-  if (Object.keys(readiness).sort().join(',') !== 'body,hands,prop') return false;
-  if (!['none', 'one_bottle', 'one_shaker', 'bottle_and_shaker', 'two_bottles'].includes(readiness.prop) ||
+  if (Object.keys(readiness).sort().join(',') !==
+      (isV2 ? 'body,hands,prop' : 'body,hands')) return false;
+  if ((isV2 && !['none', 'one_bottle', 'one_shaker', 'bottle_and_shaker', 'two_bottles'].includes(readiness.prop)) ||
       !['none', 'one_hand', 'two_hands'].includes(readiness.hands) ||
       !['none', 'upper_body'].includes(readiness.body)) return false;
-  const policy = value.attempt_policy;
-  if (!(policy.type === 'unlimited' ||
-      (policy.type === 'finite' && [1, 2, 3].includes(policy.maximum_attempts)))) return false;
-  if (policy.type === 'unlimited' && Object.keys(policy).length !== 1) return false;
-  if (policy.type === 'finite' && Object.keys(policy).sort().join(',') !== 'maximum_attempts,type') return false;
+  if (isV2 && !validAssignmentAttemptPolicy(value.attempt_policy)) return false;
   const rubric = value.rubric;
   if (!['standard_technique', 'beginner_fundamentals', 'control_consistency',
     'performance_flow', 'custom'].includes(rubric.template_id) ||
@@ -282,6 +284,24 @@ function validActivityAssessment(value, expectedMaximum) {
     demo.duration_ms > 60000 || !['uploaded', 'recorded'].includes(demo.source)
   )) return false;
   return total === expectedMaximum;
+}
+
+function validAssignmentAttemptPolicy(policy) {
+  return !!policy && typeof policy === 'object' && (
+    (policy.type === 'unlimited' && Object.keys(policy).length === 1) ||
+    (policy.type === 'finite' && [1, 2, 3].includes(policy.maximum_attempts) &&
+      Object.keys(policy).sort().join(',') === 'maximum_attempts,type')
+  );
+}
+
+function assignmentAttemptPolicy(assignment) {
+  if (validAssignmentAttemptPolicy(assignment.attempt_policy)) {
+    return assignment.attempt_policy;
+  }
+  // Existing v2 Activity assignments carried this delivery policy inside the
+  // snapshot. Read it only as a compatibility fallback; new writes never do.
+  const legacy = assignment.activity_assessment?.attempt_policy;
+  return validAssignmentAttemptPolicy(legacy) ? legacy : {type: 'unlimited'};
 }
 
 async function deleteQueryDocuments(firestore, query) {
@@ -536,7 +556,7 @@ async function reserveTeacherActivityAttemptHandler(request, response, {
         const error = new Error('attempt_in_progress'); error.code = 'attempt_in_progress'; throw error;
       }
       const consumed = Number.isInteger(state.consumed_count) ? state.consumed_count : 0;
-      const policy = assignment.activity_assessment.attempt_policy;
+      const policy = assignmentAttemptPolicy(assignment);
       if (policy.type === 'finite' && consumed >= policy.maximum_attempts) {
         const error = new Error('attempts_exhausted'); error.code = 'attempts_exhausted'; throw error;
       }
@@ -610,7 +630,6 @@ async function consumeTeacherActivityAttemptHandler(request, response, {
       const attempt = attemptSnapshot.data();
       if (assignment.status !== 'active' || assignment.deletion_state === 'deleting' ||
           stateSnapshot.get('graded') === true || assignment.grading_locked === true ||
-          assignment.configuration_revision !== attempt.assignment_configuration_revision ||
           !validActivityAssessment(assignment.activity_assessment, assignment.max_score)) {
         const error = new Error('forbidden'); error.code = 'forbidden'; throw error;
       }
@@ -724,6 +743,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
       (audienceType === 'selected_students' && recipientIds.length < 1) ||
       recipientIds.some((id) => !validId(id)) ||
       !Number.isInteger(maximum) || maximum < 1 || maximum > 100 ||
+      !validAssignmentAttemptPolicy(body.attempt_policy) ||
       !validActivityAssessment(body.activity_assessment, maximum)) {
     return response.status(400).json({error: 'invalid_payload'});
   }
@@ -754,8 +774,8 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
       );
       for (const currentState of currentStates.docs) {
         const consumed = currentState.get('consumed_count') || 0;
-        if (body.activity_assessment.attempt_policy.type === 'finite' &&
-            consumed > body.activity_assessment.attempt_policy.maximum_attempts) {
+        if (body.attempt_policy.type === 'finite' &&
+            consumed > body.attempt_policy.maximum_attempts) {
           const error = new Error('attempt_limit_conflict'); error.code = 'attempt_limit_conflict'; throw error;
         }
       }
@@ -774,6 +794,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
         display_safety_guidance: safety || FieldValue.delete(),
         topic: topic || FieldValue.delete(), due_at: dueAt || FieldValue.delete(),
         audience_type: audienceType, activity_assessment: body.activity_assessment,
+        attempt_policy: body.attempt_policy,
         max_score: maximum,
         configuration_revision: body.expected_configuration_revision + 1,
         updated_at: now,
@@ -794,6 +815,7 @@ async function updateTeacherActivityAssignmentHandler(request, response, {
         ...(safety ? {display_safety_guidance: safety} : {}),
         ...(topic ? {topic} : {}), ...(dueAt ? {due_at: dueAt} : {}),
         audience_type: audienceType, activity_assessment: body.activity_assessment,
+        attempt_policy: body.attempt_policy,
         max_score: maximum,
         configuration_revision: body.expected_configuration_revision + 1,
         updated_at: now,
@@ -1109,13 +1131,17 @@ async function createClassroomAssignmentHandler(request, response, {
   const body = request.body && typeof request.body === 'object' ? request.body : {};
   const audienceType = body.audience_type;
   const recipientIds = body.recipient_ids;
+  const attemptPolicy = body.attempt_policy == null
+    ? {type: 'unlimited'}
+    : body.attempt_policy;
   if (!validId(body.group_id) ||
       !['entire_class', 'selected_students', 'individual_student'].includes(audienceType) ||
       !Array.isArray(recipientIds) || recipientIds.some((id) => !validId(id)) ||
       new Set(recipientIds).size !== recipientIds.length ||
       (audienceType === 'entire_class' && recipientIds.length !== 0) ||
       (audienceType === 'selected_students' && recipientIds.length < 1) ||
-      (audienceType === 'individual_student' && recipientIds.length !== 1)) {
+      (audienceType === 'individual_student' && recipientIds.length !== 1) ||
+      !validAssignmentAttemptPolicy(attemptPolicy)) {
     return response.status(400).json({error: 'invalid_audience'});
   }
   const dueAt = body.due_at == null ? null : new Date(body.due_at);
@@ -1155,6 +1181,7 @@ async function createClassroomAssignmentHandler(request, response, {
       const common = {
         teacher_id: token.uid, group_id: body.group_id, audience_type: audienceType,
         status: 'active', teacher_display_name: teacherDisplayName, group_name: groupName,
+        attempt_policy: attemptPolicy,
         created_at: now, updated_at: now,
         ...(dueAt ? {due_at: dueAt} : {}),
         ...(topic ? {topic} : {}),
@@ -1310,8 +1337,11 @@ exports.syncTeacherActivityAttemptState = onDocumentWritten(
     });
 
     const previousLatestId = transition.previousLatestId;
+    const assignmentSnapshot = await firestore.collection('group_assignments')
+      .doc(after.assignment_id).get();
     const unlimited = after.status === 'submitted' &&
-      after.activity_assessment_snapshot?.attempt_policy?.type === 'unlimited';
+      assignmentAttemptPolicy(assignmentSnapshot.exists ? assignmentSnapshot.data() : {})
+        .type === 'unlimited';
     if (transition.accepted && unlimited && previousLatestId &&
         previousLatestId !== event.params.attemptId) {
       const previousRef = firestore.collection('assignment_attempts').doc(previousLatestId);

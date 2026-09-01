@@ -1,34 +1,16 @@
-import 'training_prop.dart';
+import 'assignment_attempt_policy.dart';
 
 /// Versioned, portable assessment contract used by Teacher Activity revisions,
 /// published Assignments, and immutable assessment-attempt snapshots.
 abstract final class TeacherActivityAssessmentContract {
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
+  static const legacySchemaVersion = 2;
   static const defaultMaximumScore = 50;
   static const supportedMaximumScores = <int>{30, 50, 100};
   static const supportedRecordingDurations = <int>{15, 30, 45, 60};
   static const defaultRecordingDurationSeconds = 30;
   static const maximumRecordingDurationSeconds = 60;
   static const maximumVideoSizeBytes = 50 * 1024 * 1024;
-}
-
-enum ActivityPropRequirement {
-  none('none', 'No prop'),
-  oneBottle('one_bottle', 'One bottle'),
-  oneShaker('one_shaker', 'One shaker'),
-  bottleAndShaker('bottle_and_shaker', 'Bottle + shaker'),
-  twoBottles('two_bottles', 'Two bottles');
-
-  const ActivityPropRequirement(this.wireValue, this.displayLabel);
-  final String wireValue;
-  final String displayLabel;
-
-  static ActivityPropRequirement? tryParse(Object? value) {
-    for (final item in values) {
-      if (item.wireValue == value) return item;
-    }
-    return null;
-  }
 }
 
 enum ActivityHandRequirement {
@@ -66,22 +48,18 @@ enum ActivityBodyRequirement {
 
 class TeacherActivityReadinessSpec {
   const TeacherActivityReadinessSpec({
-    this.prop = ActivityPropRequirement.none,
     this.hands = ActivityHandRequirement.none,
     this.body = ActivityBodyRequirement.none,
   });
 
-  final ActivityPropRequirement prop;
   final ActivityHandRequirement hands;
   final ActivityBodyRequirement body;
 
   bool get isCameraOnly =>
-      prop == ActivityPropRequirement.none &&
       hands == ActivityHandRequirement.none &&
       body == ActivityBodyRequirement.none;
 
   Map<String, dynamic> toMap() => {
-    'prop': prop.wireValue,
     'hands': hands.wireValue,
     'body': body.wireValue,
   };
@@ -89,59 +67,29 @@ class TeacherActivityReadinessSpec {
   static TeacherActivityReadinessSpec? tryFrom(Object? raw) {
     if (raw is! Map) return null;
     final map = Map<String, dynamic>.from(raw);
+    if (map.keys.toSet().difference({'hands', 'body'}).isNotEmpty) {
+      return null;
+    }
+    final hands = ActivityHandRequirement.tryParse(map['hands']);
+    final body = ActivityBodyRequirement.tryParse(map['body']);
+    if (hands == null || body == null) return null;
+    return TeacherActivityReadinessSpec(hands: hands, body: body);
+  }
+
+  /// Reads an old v2 payload without retaining its duplicated prop state.
+  static TeacherActivityReadinessSpec? tryFromLegacyV2(Object? raw) {
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
     if (map.keys.toSet().difference({'prop', 'hands', 'body'}).isNotEmpty) {
       return null;
     }
-    final prop = ActivityPropRequirement.tryParse(map['prop']);
+    // `prop` was validated by the v2 compatibility adapter but is deliberately
+    // discarded: required_prop is now the only canonical prop requirement.
+    if (!_legacyPropRequirement(map['prop'])) return null;
     final hands = ActivityHandRequirement.tryParse(map['hands']);
     final body = ActivityBodyRequirement.tryParse(map['body']);
-    if (prop == null || hands == null || body == null) return null;
-    return TeacherActivityReadinessSpec(prop: prop, hands: hands, body: body);
-  }
-
-  factory TeacherActivityReadinessSpec.legacy(TrainingProp prop) {
-    return TeacherActivityReadinessSpec(
-      prop: switch (prop) {
-        TrainingProp.bottle => ActivityPropRequirement.oneBottle,
-        TrainingProp.shaker => ActivityPropRequirement.oneShaker,
-        TrainingProp.bottleAndShaker => ActivityPropRequirement.bottleAndShaker,
-      },
-    );
-  }
-}
-
-class TeacherActivityAttemptPolicy {
-  const TeacherActivityAttemptPolicy.finite(int maximumAttempts)
-    : maximumAttempts = maximumAttempts,
-      assert(maximumAttempts >= 1 && maximumAttempts <= 3);
-  const TeacherActivityAttemptPolicy.unlimited() : maximumAttempts = null;
-
-  static const defaultPolicy = TeacherActivityAttemptPolicy.finite(3);
-  final int? maximumAttempts;
-  bool get isUnlimited => maximumAttempts == null;
-  String get displayLabel => isUnlimited ? 'Unlimited' : '$maximumAttempts';
-
-  Map<String, dynamic> toMap() => {
-    'type': isUnlimited ? 'unlimited' : 'finite',
-    if (!isUnlimited) 'maximum_attempts': maximumAttempts,
-  };
-
-  static TeacherActivityAttemptPolicy? tryFrom(Object? raw) {
-    if (raw is! Map) return null;
-    final map = Map<String, dynamic>.from(raw);
-    final type = map['type'];
-    if (type == 'unlimited' && map.length == 1) {
-      return const TeacherActivityAttemptPolicy.unlimited();
-    }
-    final maximum = map['maximum_attempts'];
-    if (type == 'finite' &&
-        map.length == 2 &&
-        maximum is int &&
-        maximum >= 1 &&
-        maximum <= 3) {
-      return TeacherActivityAttemptPolicy.finite(maximum);
-    }
-    return null;
+    if (hands == null || body == null) return null;
+    return TeacherActivityReadinessSpec(hands: hands, body: body);
   }
 }
 
@@ -461,7 +409,6 @@ class TeacherActivityAssessmentConfig {
   const TeacherActivityAssessmentConfig({
     required this.readiness,
     required this.rubric,
-    this.attemptPolicy = TeacherActivityAttemptPolicy.defaultPolicy,
     this.recordingDurationSeconds =
         TeacherActivityAssessmentContract.defaultRecordingDurationSeconds,
     this.demonstrationVideo,
@@ -471,7 +418,6 @@ class TeacherActivityAssessmentConfig {
   final int schemaVersion;
   final TeacherActivityReadinessSpec readiness;
   final TeacherActivityRubric rubric;
-  final TeacherActivityAttemptPolicy attemptPolicy;
   final int recordingDurationSeconds;
   final TeacherActivityVideoMetadata? demonstrationVideo;
 
@@ -488,7 +434,6 @@ class TeacherActivityAssessmentConfig {
       'schema_version': schemaVersion,
       'readiness': readiness.toMap(),
       'rubric': rubric.toMap(),
-      'attempt_policy': attemptPolicy.toMap(),
       'recording_duration_seconds': recordingDurationSeconds,
       if (demonstrationVideo != null)
         'demonstration_video': demonstrationVideo!.toMap(),
@@ -498,15 +443,19 @@ class TeacherActivityAssessmentConfig {
   static TeacherActivityAssessmentConfig? tryFrom(Object? raw) {
     if (raw is! Map) return null;
     final map = Map<String, dynamic>.from(raw);
-    if (map['schema_version'] !=
-        TeacherActivityAssessmentContract.schemaVersion) {
-      return null;
-    }
-    final readiness = TeacherActivityReadinessSpec.tryFrom(map['readiness']);
+    final version = map['schema_version'];
+    final isCurrent =
+        version == TeacherActivityAssessmentContract.schemaVersion;
+    final isLegacy =
+        version == TeacherActivityAssessmentContract.legacySchemaVersion;
+    if (!isCurrent && !isLegacy) return null;
+    final readiness = isCurrent
+        ? TeacherActivityReadinessSpec.tryFrom(map['readiness'])
+        : TeacherActivityReadinessSpec.tryFromLegacyV2(map['readiness']);
     final rubric = TeacherActivityRubric.tryFrom(map['rubric']);
-    final attempts = TeacherActivityAttemptPolicy.tryFrom(
-      map['attempt_policy'],
-    );
+    final attempts = isLegacy
+        ? AssignmentAttemptPolicy.tryFrom(map['attempt_policy'])
+        : null;
     final duration = map['recording_duration_seconds'];
     TeacherActivityVideoMetadata? demo;
     if (map.containsKey('demonstration_video')) {
@@ -515,30 +464,51 @@ class TeacherActivityAssessmentConfig {
     }
     if (readiness == null ||
         rubric == null ||
-        attempts == null ||
+        (isLegacy && attempts == null) ||
         duration is! int) {
       return null;
     }
     final config = TeacherActivityAssessmentConfig(
       readiness: readiness,
       rubric: rubric,
-      attemptPolicy: attempts,
       recordingDurationSeconds: duration,
       demonstrationVideo: demo,
     );
     return config.isValid ? config : null;
   }
 
-  static TeacherActivityAssessmentConfig newActivityDefaults({
-    TrainingProp legacyProp = TrainingProp.bottle,
-  }) => TeacherActivityAssessmentConfig(
-    readiness: TeacherActivityReadinessSpec.legacy(legacyProp),
-    rubric: TeacherActivityRubric.builtIn(
-      TeacherActivityRubricTemplate.standardTechnique,
-      TeacherActivityAssessmentContract.defaultMaximumScore,
-    ),
-  );
+  /// Compatibility-only extraction used to seed an Assignment policy when an
+  /// old Activity v2 document is first assigned. It never becomes Activity
+  /// state and all new writes use the assignment-level field.
+  static AssignmentAttemptPolicy? legacyAttemptPolicyFrom(Object? raw) {
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
+    if (map['schema_version'] !=
+        TeacherActivityAssessmentContract.legacySchemaVersion) {
+      return null;
+    }
+    return AssignmentAttemptPolicy.tryFrom(map['attempt_policy']);
+  }
+
+  static TeacherActivityAssessmentConfig newActivityDefaults() =>
+      TeacherActivityAssessmentConfig(
+        readiness: const TeacherActivityReadinessSpec(),
+        rubric: TeacherActivityRubric.builtIn(
+          TeacherActivityRubricTemplate.standardTechnique,
+          TeacherActivityAssessmentContract.defaultMaximumScore,
+        ),
+      );
 }
+
+bool _legacyPropRequirement(Object? value) =>
+    value is String &&
+    const {
+      'none',
+      'one_bottle',
+      'one_shaker',
+      'bottle_and_shaker',
+      'two_bottles',
+    }.contains(value);
 
 List<int> _scaleWeights(List<int> weights, int total) {
   final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);

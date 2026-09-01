@@ -400,27 +400,24 @@ def _camera_only_profile() -> ReadinessProfile:
     return _profile(_camera_req())
 
 
-def readiness_profile_from_activity_spec(spec: dict) -> ReadinessProfile:
+def readiness_profile_from_activity_spec(
+    spec: dict, prop_type: str = "bottle"
+) -> ReadinessProfile:
     """Build a visibility-only profile from a Teacher Activity contract."""
-    prop = spec.get("prop", "none")
     hands = spec.get("hands", "none")
     body = spec.get("body", "none")
-    if prop not in {
-        "none", "one_bottle", "one_shaker", "bottle_and_shaker", "two_bottles"
-    } or hands not in {"none", "one_hand", "two_hands"} or body not in {
+    if prop_type not in {"bottle", "shaker", "bottle_and_shaker"} or hands not in {"none", "one_hand", "two_hands"} or body not in {
         "none", "upper_body"
     }:
         raise ValueError("invalid_readiness_spec")
 
     requirements = [_camera_req()]
-    if prop == "one_bottle":
+    if prop_type == "bottle":
         requirements.append(_bottle_req())
-    elif prop == "one_shaker":
+    elif prop_type == "shaker":
         requirements.append(_shaker_req())
-    elif prop == "bottle_and_shaker":
+    elif prop_type == "bottle_and_shaker":
         requirements.extend((_bottle_req(), _shaker_req()))
-    elif prop == "two_bottles":
-        requirements.append(_two_props_req())
 
     if hands == "one_hand":
         requirements.append(_supporting_hand_req())
@@ -477,7 +474,7 @@ def readiness_profile_for(
 ) -> ReadinessProfile:
     """Return the authoritative readiness profile for a movement."""
     if readiness_spec is not None:
-        return readiness_profile_from_activity_spec(readiness_spec)
+        return readiness_profile_from_activity_spec(readiness_spec, prop_type)
     return _build_profile(movement, prop_type)
 
 

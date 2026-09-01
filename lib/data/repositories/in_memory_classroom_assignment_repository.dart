@@ -5,6 +5,7 @@ import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/repositories/group_repository.dart';
 
 import '../models/assessment_mode.dart';
+import '../models/assignment_attempt_policy.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
@@ -69,6 +70,8 @@ class InMemoryClassroomAssignmentRepository
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createOfficialAssignmentWithTopic(
     teacherId: teacherId,
@@ -77,6 +80,7 @@ class InMemoryClassroomAssignmentRepository
     officialMovementName: officialMovementName,
     dueAt: dueAt,
     displayInstructions: displayInstructions,
+    attemptPolicy: attemptPolicy,
     audience: audience,
   );
 
@@ -89,6 +93,8 @@ class InMemoryClassroomAssignmentRepository
     DateTime? dueAt,
     String? displayInstructions,
     String? topic,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -110,6 +116,7 @@ class InMemoryClassroomAssignmentRepository
       dueAt: dueAt,
       topic: topic,
       audience: audience,
+      attemptPolicy: attemptPolicy,
       createdAt: created,
       updatedAt: created,
     );
@@ -137,6 +144,8 @@ class InMemoryClassroomAssignmentRepository
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -150,6 +159,7 @@ class InMemoryClassroomAssignmentRepository
     revision: revision,
     maxScore: maxScore,
     activityAssessment: activityAssessment,
+    attemptPolicy: attemptPolicy,
     displayTitle: displayTitle,
     displayInstructions: displayInstructions,
     displaySafetyGuidance: displaySafetyGuidance,
@@ -171,6 +181,8 @@ class InMemoryClassroomAssignmentRepository
     String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -191,6 +203,7 @@ class InMemoryClassroomAssignmentRepository
       revision: revision,
       maxScore: maxScore,
       activityAssessment: activityAssessment,
+      attemptPolicy: attemptPolicy,
       displayTitle: displayTitle,
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
@@ -249,6 +262,9 @@ class InMemoryClassroomAssignmentRepository
       allowedProp: existing.allowedProp,
       assessmentSpec: existing.assessmentSpec,
       maxScore: existing.maxScore,
+      attemptPolicy: existing.attemptPolicy,
+      configurationRevision: existing.configurationRevision,
+      activityAssessment: existing.activityAssessment,
       gradingLocked: existing.gradingLocked,
       gradingLockedAt: existing.gradingLockedAt,
       dueAt: existing.dueAt,
@@ -314,6 +330,7 @@ class InMemoryClassroomAssignmentRepository
     DateTime? dueAt,
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
+    required AssignmentAttemptPolicy attemptPolicy,
   }) async {
     final existing = assignments[assignmentId];
     if (existing == null ||
@@ -333,7 +350,7 @@ class InMemoryClassroomAssignmentRepository
         );
       }
     }
-    final maximum = activityAssessment.attemptPolicy.maximumAttempts;
+    final maximum = attemptPolicy.maximumAttempts;
     if (maximum != null &&
         consumedByTrainee.values.any((count) => count > maximum)) {
       throw const ClassroomException(ClassroomError.invalidState);
@@ -357,6 +374,7 @@ class InMemoryClassroomAssignmentRepository
           : safetyGuidance?.trim(),
       allowedProp: existing.allowedProp,
       maxScore: activityAssessment.rubric.maximumScore,
+      attemptPolicy: attemptPolicy,
       gradingLocked: existing.gradingLocked,
       gradingLockedAt: existing.gradingLockedAt,
       dueAt: dueAt,
@@ -526,7 +544,7 @@ class InMemoryClassroomAssignmentRepository
               consumedTeacherActivityAttemptIds.contains(attempt.id),
         )
         .length;
-    final maximum = config.attemptPolicy.maximumAttempts;
+    final maximum = assignment.attemptPolicy.maximumAttempts;
     if (maximum != null && consumed >= maximum) {
       throw const ClassroomException(ClassroomError.invalidState);
     }

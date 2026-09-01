@@ -2,6 +2,7 @@ import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import 'assessment_mode.dart';
 import 'assessment_spec.dart';
+import 'assignment_attempt_policy.dart';
 import 'movement_origin.dart';
 import 'teacher_reviewed_movement_spec.dart';
 import 'teacher_activity_assessment.dart';
@@ -177,6 +178,7 @@ class GroupAssignment {
     this.allowedProp,
     this.assessmentSpec,
     this.maxScore,
+    this.attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
     this.configurationRevision = 1,
     this.activityAssessment,
     this.gradingLocked = false,
@@ -213,6 +215,9 @@ class GroupAssignment {
   /// as `/100` for compatibility, while all new Teacher-created assignments
   /// write the explicit field.
   final int? maxScore;
+  /// Submission allowance belongs to this classroom delivery, never an
+  /// Activity template. Missing historical values retain unlimited behavior.
+  final AssignmentAttemptPolicy attemptPolicy;
   final int configurationRevision;
 
   /// Resolved, assignment-owned Teacher Activity configuration. Null means a
@@ -241,6 +246,7 @@ class GroupAssignment {
   GroupAssignment copyWith({
     GroupAssignmentStatus? status,
     int? maxScore,
+    AssignmentAttemptPolicy? attemptPolicy,
     int? configurationRevision,
     TeacherActivityAssessmentConfig? activityAssessment,
     bool? gradingLocked,
@@ -271,6 +277,7 @@ class GroupAssignment {
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
       maxScore: maxScore ?? this.maxScore,
+      attemptPolicy: attemptPolicy ?? this.attemptPolicy,
       configurationRevision:
           configurationRevision ?? this.configurationRevision,
       activityAssessment: activityAssessment ?? this.activityAssessment,
@@ -378,6 +385,7 @@ class GroupAssignment {
     }
 
     int? maxScore;
+    var attemptPolicy = AssignmentAttemptPolicy.legacyDefault;
     var configurationRevision = 1;
     TeacherActivityAssessmentConfig? activityAssessment;
     var gradingLocked = false;
@@ -405,6 +413,13 @@ class GroupAssignment {
             activityAssessment.rubric.maximumScore != maxScore) {
           return null;
         }
+        // v2 Activity payloads carried a delivery policy. Preserve it only
+        // as the compatibility default for this existing Assignment.
+        attemptPolicy =
+            TeacherActivityAssessmentConfig.legacyAttemptPolicyFrom(
+              map['activity_assessment'],
+            ) ??
+            attemptPolicy;
       }
       if (map.containsKey('grading_locked')) {
         if (map['grading_locked'] is! bool) return null;
@@ -423,6 +438,11 @@ class GroupAssignment {
           key == 'grading_locked_at',
     )) {
       return null;
+    }
+    if (map.containsKey('attempt_policy')) {
+      final parsedPolicy = AssignmentAttemptPolicy.tryFrom(map['attempt_policy']);
+      if (parsedPolicy == null) return null;
+      attemptPolicy = parsedPolicy;
     }
 
     return GroupAssignment(
@@ -456,6 +476,7 @@ class GroupAssignment {
       allowedProp: allowedProp,
       assessmentSpec: assessmentSpec,
       maxScore: maxScore,
+      attemptPolicy: attemptPolicy,
       configurationRevision: configurationRevision,
       activityAssessment: activityAssessment,
       gradingLocked: gradingLocked,

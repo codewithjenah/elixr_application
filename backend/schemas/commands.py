@@ -42,9 +42,6 @@ class _CommandBase(BaseModel):
 
 class TeacherActivityReadinessSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    prop: Literal[
-        "none", "one_bottle", "one_shaker", "bottle_and_shaker", "two_bottles"
-    ]
     hands: Literal["none", "one_hand", "two_hands"]
     body: Literal["none", "upper_body"]
 

@@ -144,22 +144,27 @@ class _TeacherMovementBuilderDialogState
   }
 
   TeacherActivityAssessmentConfig? _buildAssessment() {
-    if (!_draft.hasValidMaximumScore) return null;
     TeacherActivityRubric rubric;
     if (_draft.rubricTemplate == TeacherActivityRubricTemplate.custom) {
       final criteria = _customCriteria
           .map((item) => item.toCriterion())
           .whereType<TeacherActivityRubricCriterion>()
           .toList(growable: false);
+      final total = criteria.fold<int>(
+        0,
+        (sum, criterion) => sum + criterion.maximumPoints,
+      );
+      _draft.maximumScore = total;
       rubric = TeacherActivityRubric(
         template: TeacherActivityRubricTemplate.custom,
-        maximumScore: _draft.maximumScore,
+        maximumScore: total,
         criteria: criteria,
       );
       if (criteria.length != _customCriteria.length || !rubric.isValid) {
         return null;
       }
     } else {
+      if (!_draft.hasValidMaximumScore) return null;
       rubric = TeacherActivityRubric.builtIn(
         _draft.rubricTemplate,
         _draft.maximumScore,
@@ -168,7 +173,6 @@ class _TeacherMovementBuilderDialogState
     return TeacherActivityAssessmentConfig(
       readiness: _draft.readiness,
       rubric: rubric,
-      attemptPolicy: _draft.attemptPolicy,
       recordingDurationSeconds: _draft.recordingDurationSeconds,
       demonstrationVideo: _draft.demonstrationVideo,
     );
@@ -460,7 +464,8 @@ class _TeacherMovementBuilderDialogState
                         compact: true,
                         child: _BuilderField(
                           label: 'Required prop',
-                          helperText: 'Required before recording begins.',
+                          helperText:
+                              'ELIXR checks that this prop is visible before recording begins.',
                           child: SizedBox(
                             width: double.infinity,
                             child: ComboBox<TrainingProp>(
@@ -531,42 +536,12 @@ class _TeacherMovementBuilderDialogState
                   const SizedBox(height: AppSpacing.lg),
                   _FormSection(
                     icon: FluentIcons.heart,
-                    title: 'Readiness requirements',
+                    title: 'Practice requirements',
                     description:
-                        'Independently choose what must be visible before a trainee records.',
+                        'ELIXR checks the required prop plus these visibility requirements before recording.',
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final fields = [
-                          _BuilderField(
-                            label: 'Prop readiness',
-                            helperText: 'What prop, if any, must be detected.',
-                            child: ComboBox<ActivityPropRequirement>(
-                              key: const ValueKey('builder-readiness-prop'),
-                              value: _draft.readiness.prop,
-                              isExpanded: true,
-                              items: [
-                                for (final value
-                                    in ActivityPropRequirement.values)
-                                  ComboBoxItem(
-                                    value: value,
-                                    child: Text(value.displayLabel),
-                                  ),
-                              ],
-                              onChanged: fieldsEnabled
-                                  ? (value) {
-                                      if (value == null) return;
-                                      setState(() {
-                                        _draft.readiness =
-                                            TeacherActivityReadinessSpec(
-                                              prop: value,
-                                              hands: _draft.readiness.hands,
-                                              body: _draft.readiness.body,
-                                            );
-                                      });
-                                    }
-                                  : null,
-                            ),
-                          ),
                           _BuilderField(
                             label: 'Hand readiness',
                             helperText: 'How many hands must be visible.',
@@ -588,7 +563,6 @@ class _TeacherMovementBuilderDialogState
                                       setState(() {
                                         _draft.readiness =
                                             TeacherActivityReadinessSpec(
-                                              prop: _draft.readiness.prop,
                                               hands: value,
                                               body: _draft.readiness.body,
                                             );
@@ -619,7 +593,6 @@ class _TeacherMovementBuilderDialogState
                                       setState(() {
                                         _draft.readiness =
                                             TeacherActivityReadinessSpec(
-                                              prop: _draft.readiness.prop,
                                               hands: _draft.readiness.hands,
                                               body: value,
                                             );
@@ -665,9 +638,9 @@ class _TeacherMovementBuilderDialogState
                   const SizedBox(height: AppSpacing.lg),
                   _FormSection(
                     icon: FluentIcons.clipboard_list,
-                    title: 'Assessment settings',
+                    title: 'Scoring & rubric',
                     description:
-                        'Use a built-in rubric or define 3–5 transparent criteria, then set the default recording policy.',
+                        'Use a built-in rubric or define 3–5 transparent criteria.',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -737,6 +710,8 @@ class _TeacherMovementBuilderDialogState
                             child: const Text('Add criterion'),
                           ),
                         ],
+                        if (_draft.rubricTemplate !=
+                            TeacherActivityRubricTemplate.custom) ...[
                         const SizedBox(height: AppSpacing.md),
                         _BuilderField(
                           label: 'Maximum score',
@@ -802,52 +777,18 @@ class _TeacherMovementBuilderDialogState
                             ],
                           ),
                         ),
+                        ] else ...[
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            'Total: ${_customCriteria.fold<int>(0, (sum, item) => sum + (int.tryParse(item.maximumPoints.text.trim()) ?? 0))} points',
+                            style: AppTheme.label(
+                              color: context.elixTextPrimary,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: AppSpacing.md),
                         LayoutBuilder(
                           builder: (context, constraints) {
-                            final attemptField = _BuilderField(
-                              label: 'Default attempts',
-                              helperText:
-                                  'Trainees can use this many submissions by default.',
-                              child: ComboBox<String>(
-                                key: const ValueKey('builder-attempt-policy'),
-                                value: _draft.attemptPolicy.isUnlimited
-                                    ? 'unlimited'
-                                    : '${_draft.attemptPolicy.maximumAttempts}',
-                                isExpanded: true,
-                                items: const [
-                                  ComboBoxItem(
-                                    value: '1',
-                                    child: Text('1 attempt'),
-                                  ),
-                                  ComboBoxItem(
-                                    value: '2',
-                                    child: Text('2 attempts'),
-                                  ),
-                                  ComboBoxItem(
-                                    value: '3',
-                                    child: Text('3 attempts'),
-                                  ),
-                                  ComboBoxItem(
-                                    value: 'unlimited',
-                                    child: Text('Unlimited attempts'),
-                                  ),
-                                ],
-                                onChanged: fieldsEnabled
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setState(() {
-                                          _draft.attemptPolicy =
-                                              value == 'unlimited'
-                                              ? const TeacherActivityAttemptPolicy.unlimited()
-                                              : TeacherActivityAttemptPolicy.finite(
-                                                  int.parse(value),
-                                                );
-                                        });
-                                      }
-                                    : null,
-                              ),
-                            );
                             final durationField = _BuilderField(
                               label: 'Recording duration',
                               helperText:
@@ -879,24 +820,7 @@ class _TeacherMovementBuilderDialogState
                                     : null,
                               ),
                             );
-                            if (constraints.maxWidth >= 620) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(child: attemptField),
-                                  const SizedBox(width: AppSpacing.md),
-                                  Expanded(child: durationField),
-                                ],
-                              );
-                            }
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                attemptField,
-                                const SizedBox(height: AppSpacing.md),
-                                durationField,
-                              ],
-                            );
+                            return durationField;
                           },
                         ),
                       ],

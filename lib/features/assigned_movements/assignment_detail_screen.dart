@@ -459,8 +459,8 @@ class _TeacherActivityOverview extends StatelessWidget {
     final consumed = attempts
         .where((attempt) => attempt.recordingStartedAt != null)
         .length;
-    final maximum = assessment.attemptPolicy.maximumAttempts;
-    final attemptSummary = assessment.attemptPolicy.isUnlimited
+    final maximum = assignment.attemptPolicy.maximumAttempts;
+    final attemptSummary = assignment.attemptPolicy.isUnlimited
         ? '$consumed used · Unlimited attempts'
         : '$consumed used · ${maximum! - consumed < 0 ? 0 : maximum - consumed} remaining of $maximum';
     return Column(
@@ -483,7 +483,7 @@ class _TeacherActivityOverview extends StatelessWidget {
         Text('Camera readiness', style: AppTheme.headingMedium),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Prop: ${readiness.prop.displayLabel}\n'
+          'Required prop: ${assignment.allowedProp?.displayLabel ?? 'Selected prop'}\n'
           'Hands: ${readiness.hands.displayLabel}\n'
           'Body: ${readiness.body.displayLabel}',
           style: AppTheme.body,
@@ -545,8 +545,7 @@ class _YourWork extends StatelessWidget {
         ? controller.currentSubmission
         : selected;
     final isTeacherActivity = assignment.activityAssessment != null;
-    final maximumAttempts =
-        assignment.activityAssessment?.attemptPolicy.maximumAttempts;
+    final maximumAttempts = assignment.attemptPolicy.maximumAttempts;
     final consumedAttempts = controller.attempts
         .where((attempt) => attempt.recordingStartedAt != null)
         .length;

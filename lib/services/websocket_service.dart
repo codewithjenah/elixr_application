@@ -702,9 +702,10 @@ class WebSocketService extends ChangeNotifier {
       'movement': movement,
       'difficulty': difficulty,
       'prop_type': prop.protocolValue,
-      'bottle_detection_enabled':
-          readinessSpec == null ||
-          readinessSpec.prop != ActivityPropRequirement.none,
+      // The Activity readiness contract now describes camera visibility only;
+      // expected prop detection always derives from the canonical assignment
+      // allowed prop passed as [prop].
+      'bottle_detection_enabled': true,
     };
 
     // Prefer stable device identity. Only while a one-time settings migration

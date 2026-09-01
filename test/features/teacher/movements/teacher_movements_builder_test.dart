@@ -267,7 +267,6 @@ void main() {
 
     expect(saved, isNotNull);
     expect(saved!.rubric.maximumScore, 50);
-    expect(saved!.attemptPolicy.maximumAttempts, 3);
     expect(saved!.recordingDurationSeconds, 30);
   });
 

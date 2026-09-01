@@ -3,6 +3,7 @@ import 'package:elixr_core/models/elixr_group.dart';
 import 'package:elixr_core/models/group_membership.dart';
 
 import '../models/assessment_mode.dart';
+import '../models/assignment_attempt_policy.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
@@ -22,6 +23,7 @@ abstract class ClassroomAssignmentRepository {
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   });
 
@@ -33,6 +35,7 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -68,6 +71,7 @@ abstract class ClassroomAssignmentRepository {
     DateTime? dueAt,
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
+    required AssignmentAttemptPolicy attemptPolicy,
   });
 
   Future<GroupAssignment> createOfficialAssignmentWithTopic({
@@ -78,6 +82,7 @@ abstract class ClassroomAssignmentRepository {
     DateTime? dueAt,
     String? displayInstructions,
     String? topic,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createOfficialAssignment(
     teacherId: teacherId,
@@ -86,6 +91,7 @@ abstract class ClassroomAssignmentRepository {
     officialMovementName: officialMovementName,
     dueAt: dueAt,
     displayInstructions: displayInstructions,
+    attemptPolicy: attemptPolicy,
     audience: audience,
   );
 
@@ -97,6 +103,7 @@ abstract class ClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -111,6 +118,7 @@ abstract class ClassroomAssignmentRepository {
     revision: revision,
     maxScore: maxScore,
     activityAssessment: activityAssessment,
+    attemptPolicy: attemptPolicy,
     displayTitle: displayTitle,
     displayInstructions: displayInstructions,
     displaySafetyGuidance: displaySafetyGuidance,
@@ -369,6 +377,7 @@ Map<String, dynamic> officialAssignmentPayload({
   required String displayInstructions,
   DateTime? dueAt,
   String? topic,
+  AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
   AssignmentAudience audience = const AssignmentAudience.entireClass(),
   required Object createdAt,
   required Object updatedAt,
@@ -393,6 +402,7 @@ Map<String, dynamic> officialAssignmentPayload({
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
     ...audience.toMap(),
+    'attempt_policy': attemptPolicy.toMap(),
     'created_at': createdAt,
     'updated_at': updatedAt,
     if (displayInstructions.trim().isNotEmpty)
@@ -410,6 +420,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
   required TeacherMovementRevision revision,
   int maxScore = 100,
   TeacherActivityAssessmentConfig? activityAssessment,
+  AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
   String? displayTitle,
   String? displayInstructions,
   String? displaySafetyGuidance,
@@ -461,7 +472,6 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
         resolvedAssessment.rubric.template,
         maxScore,
       ),
-      attemptPolicy: resolvedAssessment.attemptPolicy,
       recordingDurationSeconds: resolvedAssessment.recordingDurationSeconds,
       demonstrationVideo: resolvedAssessment.demonstrationVideo,
     );
@@ -486,6 +496,7 @@ Map<String, dynamic> teacherCreatedAssignmentPayload({
     'teacher_display_name': teacherDisplayName.trim(),
     'group_name': group.name,
     ...audience.toMap(),
+    'attempt_policy': attemptPolicy.toMap(),
     if (includeGradingFields) ...{
       'max_score': maxScore,
       'configuration_revision': 1,

@@ -12,6 +12,7 @@ import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
+import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 
@@ -611,6 +612,7 @@ class TeacherClassworkController extends ChangeNotifier {
     DateTime? dueAt,
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
+    required AssignmentAttemptPolicy attemptPolicy,
   }) {
     return _runWrite(
       () => assignmentRepository.updateTeacherActivityAssignment(
@@ -624,6 +626,7 @@ class TeacherClassworkController extends ChangeNotifier {
         dueAt: dueAt,
         audience: audience,
         activityAssessment: activityAssessment,
+        attemptPolicy: attemptPolicy,
       ),
     );
   }

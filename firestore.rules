@@ -3027,6 +3027,13 @@ service cloud.firestore {
     }
     function validActivityReadiness(value) {
       return value is map
+        && value.keys().hasOnly(['hands', 'body'])
+        && value.keys().hasAll(['hands', 'body'])
+        && value.hands in ['none', 'one_hand', 'two_hands']
+        && value.body in ['none', 'upper_body'];
+    }
+    function validLegacyActivityReadiness(value) {
+      return value is map
         && value.keys().hasOnly(['prop', 'hands', 'body'])
         && value.keys().hasAll(['prop', 'hands', 'body'])
         && value.prop in ['none', 'one_bottle', 'one_shaker',
@@ -3109,13 +3116,19 @@ service cloud.firestore {
     }
     function validActivityAssessment(value, maximumScore) {
       return value is map
-        && value.keys().hasAll(['schema_version', 'readiness', 'rubric',
-          'attempt_policy', 'recording_duration_seconds'])
-        && value.keys().hasOnly(['schema_version', 'readiness', 'rubric',
-          'attempt_policy', 'recording_duration_seconds', 'demonstration_video'])
-        && value.schema_version == 2
-        && validActivityReadiness(value.readiness)
-        && validActivityAttemptPolicy(value.attempt_policy)
+        && ((value.schema_version == 3
+          && value.keys().hasAll(['schema_version', 'readiness', 'rubric',
+            'recording_duration_seconds'])
+          && value.keys().hasOnly(['schema_version', 'readiness', 'rubric',
+            'recording_duration_seconds', 'demonstration_video'])
+          && validActivityReadiness(value.readiness))
+          || (value.schema_version == 2
+          && value.keys().hasAll(['schema_version', 'readiness', 'rubric',
+            'attempt_policy', 'recording_duration_seconds'])
+          && value.keys().hasOnly(['schema_version', 'readiness', 'rubric',
+            'attempt_policy', 'recording_duration_seconds', 'demonstration_video'])
+          && validLegacyActivityReadiness(value.readiness)
+          && validActivityAttemptPolicy(value.attempt_policy)))
         && value.recording_duration_seconds in [15, 30, 45, 60]
         && validActivityRubric(value.rubric, maximumScore)
         && (!value.keys().hasAny(['demonstration_video'])
@@ -3272,7 +3285,7 @@ service cloud.firestore {
         'official_movement_name', 'display_instructions',
         'display_safety_guidance', 'allowed_prop', 'due_at', 'max_score',
         'grading_locked', 'grading_locked_at', 'audience_type', 'topic',
-        'configuration_revision', 'activity_assessment', 'deletion_state',
+        'configuration_revision', 'activity_assessment', 'attempt_policy', 'deletion_state',
       ]);
     }
     function isLegacyEntireClassAssignment(data) {
@@ -3435,6 +3448,8 @@ service cloud.firestore {
         && data.group_name == group.name
         && isDisplayName(data.teacher_display_name)
         && data.teacher_display_name == userFullName(request.auth.uid)
+        && data.keys().hasAll(['attempt_policy'])
+        && validActivityAttemptPolicy(data.attempt_policy)
         && isBoundedText(data.display_title, 80)
         && data.status == 'active'
         && data.created_at == request.time
@@ -3467,6 +3482,8 @@ service cloud.firestore {
         && request.resource.data.group_name == resource.data.group_name
         && request.resource.data.get('official_movement_name', '__elixr_absent__')
           == resource.data.get('official_movement_name', '__elixr_absent__')
+        && request.resource.data.get('attempt_policy', null)
+          == resource.data.get('attempt_policy', null)
         && request.resource.data.get('allowed_prop', '__elixr_absent__')
           == resource.data.get('allowed_prop', '__elixr_absent__')
         && request.resource.data.get('display_instructions', '__elixr_absent__')
@@ -3527,7 +3544,7 @@ service cloud.firestore {
         )
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'due_at', 'updated_at', 'max_score',
-            'grading_locked', 'grading_locked_at', 'topic']);
+          'grading_locked', 'grading_locked_at', 'topic']);
     }
 
     match /group_assignments/{assignmentId} {

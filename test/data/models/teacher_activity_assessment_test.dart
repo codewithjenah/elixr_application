@@ -1,23 +1,18 @@
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('Teacher Activity readiness', () {
-    test('supports camera-only and every initial requirement value', () {
+    test('supports camera-only hand and body visibility requirements', () {
       expect(const TeacherActivityReadinessSpec().isCameraOnly, isTrue);
-      for (final prop in ActivityPropRequirement.values) {
-        for (final hands in ActivityHandRequirement.values) {
-          for (final body in ActivityBodyRequirement.values) {
-            final value = TeacherActivityReadinessSpec(
-              prop: prop,
-              hands: hands,
-              body: body,
-            );
-            expect(
-              TeacherActivityReadinessSpec.tryFrom(value.toMap())?.toMap(),
-              value.toMap(),
-            );
-          }
+      for (final hands in ActivityHandRequirement.values) {
+        for (final body in ActivityBodyRequirement.values) {
+          final value = TeacherActivityReadinessSpec(hands: hands, body: body);
+          expect(
+            TeacherActivityReadinessSpec.tryFrom(value.toMap())?.toMap(),
+            value.toMap(),
+          );
         }
       }
     });
@@ -25,7 +20,6 @@ void main() {
     test('rejects unknown readiness keys and values', () {
       expect(
         TeacherActivityReadinessSpec.tryFrom({
-          'prop': 'one_bottle',
           'hands': 'one_hand',
           'body': 'upper_body',
           'technique': true,
@@ -34,8 +28,7 @@ void main() {
       );
       expect(
         TeacherActivityReadinessSpec.tryFrom({
-          'prop': 'glass',
-          'hands': 'none',
+          'hands': 'three_hands',
           'body': 'none',
         }),
         isNull,
@@ -93,20 +86,20 @@ void main() {
   group('attempt and recording contracts', () {
     test('accepts finite 1-3 and Unlimited policies', () {
       for (final maximum in const [1, 2, 3]) {
-        final policy = TeacherActivityAttemptPolicy.finite(maximum);
+        final policy = AssignmentAttemptPolicy.finite(maximum);
         expect(
-          TeacherActivityAttemptPolicy.tryFrom(policy.toMap())?.maximumAttempts,
+          AssignmentAttemptPolicy.tryFrom(policy.toMap())?.maximumAttempts,
           maximum,
         );
       }
       expect(
-        TeacherActivityAttemptPolicy.tryFrom(
-          const TeacherActivityAttemptPolicy.unlimited().toMap(),
+        AssignmentAttemptPolicy.tryFrom(
+          const AssignmentAttemptPolicy.unlimited().toMap(),
         )?.isUnlimited,
         isTrue,
       );
       expect(
-        TeacherActivityAttemptPolicy.tryFrom({
+        AssignmentAttemptPolicy.tryFrom({
           'type': 'finite',
           'maximum_attempts': 4,
         }),

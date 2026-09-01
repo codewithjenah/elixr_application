@@ -16,6 +16,7 @@ import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/movement_image.dart';
 import '../../../data/models/assessment_mode.dart';
+import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/assignment_submission_limits.dart';
 import '../../../data/models/classroom_exceptions.dart';
 import '../../../data/models/group_assignment.dart';
@@ -62,6 +63,8 @@ class TeacherAssignmentCreationService {
     TeacherMovement? teacherCreatedMovement,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -107,6 +110,7 @@ class TeacherAssignmentCreationService {
           officialMovementName: official.name,
           dueAt: dueAt,
           displayInstructions: official.description,
+          attemptPolicy: attemptPolicy,
           audience: audience,
         );
       }
@@ -118,6 +122,7 @@ class TeacherAssignmentCreationService {
         dueAt: dueAt,
         displayInstructions: official.description,
         topic: normalizedTopic,
+        attemptPolicy: attemptPolicy,
         audience: audience,
       );
     }
@@ -159,6 +164,7 @@ class TeacherAssignmentCreationService {
         revision: revision,
         maxScore: maxScore,
         activityAssessment: activityAssessment,
+        attemptPolicy: attemptPolicy,
         displayTitle: displayTitle,
         displayInstructions: displayInstructions,
         displaySafetyGuidance: displaySafetyGuidance,
@@ -174,6 +180,7 @@ class TeacherAssignmentCreationService {
       revision: revision,
       maxScore: maxScore,
       activityAssessment: activityAssessment,
+      attemptPolicy: attemptPolicy,
       displayTitle: displayTitle,
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
@@ -357,13 +364,13 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   List<GroupMembership> _eligibleTrainees = const [];
   bool _loadingRoster = false;
   String? _rosterLoadError;
-  ActivityPropRequirement _readinessProp = ActivityPropRequirement.oneBottle;
+  bool _customizeActivity = false;
   ActivityHandRequirement _readinessHands = ActivityHandRequirement.none;
   ActivityBodyRequirement _readinessBody = ActivityBodyRequirement.none;
   TeacherActivityRubricTemplate _rubricTemplate =
       TeacherActivityRubricTemplate.standardTechnique;
-  TeacherActivityAttemptPolicy _attemptPolicy =
-      TeacherActivityAttemptPolicy.defaultPolicy;
+  AssignmentAttemptPolicy _attemptPolicy =
+      AssignmentAttemptPolicy.legacyDefault;
   int _recordingDurationSeconds =
       TeacherActivityAssessmentContract.defaultRecordingDurationSeconds;
   TeacherActivityVideoMetadata? _demonstrationVideo;
@@ -389,8 +396,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   bool get _isTeacherCreated =>
       _origin == _AssignmentOriginSelection.teacherCreated;
 
+  TeacherReviewedMovementSpec? get _selectedActivitySpec {
+    final movement = _selectedTeacherCreatedMovement;
+    final revision = movement == null
+        ? null
+        : _teacherMovementRevisions[movement.id];
+    final spec = revision?.spec;
+    return spec is TeacherReviewedMovementSpec ? spec : null;
+  }
+
   bool get _hasValidMaxScore {
     if (!_isTeacherCreated) return true;
+    if (!_customizeActivity) return _selectedActivitySpec != null;
+    if (_rubricTemplate == TeacherActivityRubricTemplate.custom) return true;
     final value = int.tryParse(_maxScoreController.text.trim());
     return value != null && value >= 1 && value <= 100;
   }
@@ -398,9 +416,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
   int? get _maximumScore => int.tryParse(_maxScoreController.text.trim());
 
   TeacherActivityRubric? get _activityRubric {
-    final maximum = _maximumScore;
-    if (maximum == null || maximum < 1 || maximum > 100) return null;
     if (_rubricTemplate != TeacherActivityRubricTemplate.custom) {
+      final maximum = _maximumScore;
+      if (maximum == null || maximum < 1 || maximum > 100) return null;
       return TeacherActivityRubric.builtIn(_rubricTemplate, maximum);
     }
     final criteria = <TeacherActivityRubricCriterion>[];
@@ -429,7 +447,10 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     }
     final rubric = TeacherActivityRubric(
       template: TeacherActivityRubricTemplate.custom,
-      maximumScore: maximum,
+      maximumScore: criteria.fold<int>(
+        0,
+        (total, criterion) => total + criterion.maximumPoints,
+      ),
       criteria: criteria,
     );
     return rubric.isValid ? rubric : null;
@@ -437,16 +458,15 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   TeacherActivityAssessmentConfig? get _activityAssessment {
     if (!_isTeacherCreated) return null;
+    if (!_customizeActivity) return _selectedActivitySpec?.effectiveAssessment;
     final rubric = _activityRubric;
     if (rubric == null) return null;
     final config = TeacherActivityAssessmentConfig(
       readiness: TeacherActivityReadinessSpec(
-        prop: _readinessProp,
         hands: _readinessHands,
         body: _readinessBody,
       ),
       rubric: rubric,
-      attemptPolicy: _attemptPolicy,
       recordingDurationSeconds: _recordingDurationSeconds,
       demonstrationVideo: _demonstrationVideo,
     );
@@ -458,6 +478,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   String? get _activityDetailsValidation {
     if (!_isTeacherCreated) return null;
+    if (!_customizeActivity) return null;
     if (TeacherReviewedMovementSpec.validateTitle(
           _assignmentTitleController.text,
         ) !=
@@ -806,7 +827,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       maximumScore: int.tryParse(_maxScoreController.text.trim()),
       audienceLabel: _audienceSummaryLabel,
       readinessLabel: _isTeacherCreated ? _readinessSummaryLabel : null,
-      attemptsLabel: _isTeacherCreated ? _attemptPolicy.displayLabel : null,
+      attemptsLabel: _attemptPolicy.displayLabel,
       recordingDurationSeconds: _isTeacherCreated
           ? _recordingDurationSeconds
           : null,
@@ -937,63 +958,97 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
           const SizedBox(height: AppSpacing.md),
           const _AutomaticScoringCard(),
         ],
+        if ((_isTeacherCreated && _hasValidTeacherMovement) ||
+            _selectedOfficialMovement != null) ...[
+          const SizedBox(height: AppSpacing.xl),
+          _ComposerSectionHeading(
+            icon: FluentIcons.clock,
+            eyebrow: 'SUBMISSION RULES',
+            title: 'Attempt allowance',
+            description:
+                'Choose how many completed attempts this classroom receives.',
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _attemptAllowanceField(),
+        ],
         if (_isTeacherCreated && _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
           _ComposerSectionHeading(
-            icon: FluentIcons.edit,
-            eyebrow: 'ASSIGNMENT DETAILS',
-            title: 'Adapt the activity for this class',
-            description:
-                'These fields are captured on the Assignment; your reusable Teacher Activity stays unchanged.',
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          _ComposerField(
-            label: 'Assignment title',
-            hint: 'Required · up to 80 characters',
-            child: TextBox(
-              key: const Key('teacher_assignment_title'),
-              controller: _assignmentTitleController,
-              maxLength: TeacherReviewedMovementSpec.titleMaxLength,
-              enabled: !_submitting,
-              onChanged: (_) => setState(() => _validationError = null),
-            ),
+            icon: FluentIcons.completed,
+            eyebrow: 'SELECTED ACTIVITY',
+            title: _selectedTeacherCreatedMovement!.title,
+            description: _activityInheritanceSummary,
           ),
           const SizedBox(height: AppSpacing.md),
-          _ComposerField(
-            label: 'Instructions',
-            hint: 'Required · explain what the trainee should practice.',
-            child: TextBox(
-              key: const Key('teacher_assignment_instructions'),
-              controller: _instructionsController,
-              maxLines: 4,
-              maxLength: TeacherReviewedMovementSpec.instructionsMaxLength,
-              enabled: !_submitting,
-              onChanged: (_) => setState(() => _validationError = null),
+          ToggleSwitch(
+            key: const Key('teacher_assignment_customize_activity'),
+            checked: _customizeActivity,
+            content: const Text('Customize for this assignment'),
+            onChanged: _submitting
+                ? null
+                : (value) => setState(() {
+                    _customizeActivity = value;
+                    if (value) _initializeCustomizationFromActivity();
+                  }),
+          ),
+          if (_customizeActivity) ...[
+            const SizedBox(height: AppSpacing.xl),
+            _ComposerSectionHeading(
+              icon: FluentIcons.edit,
+              eyebrow: 'ASSIGNMENT DETAILS',
+              title: 'Adapt the activity for this class',
+              description:
+                  'These fields are captured on the Assignment; your reusable Teacher Activity stays unchanged.',
             ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          _ComposerField(
-            label: 'Safety guidance',
-            hint: 'Optional · visible before the trainee starts an attempt.',
-            child: TextBox(
-              key: const Key('teacher_assignment_safety_guidance'),
-              controller: _safetyGuidanceController,
-              maxLines: 3,
-              maxLength: TeacherReviewedMovementSpec.safetyGuidanceMaxLength,
-              enabled: !_submitting,
-              onChanged: (_) => setState(() => _validationError = null),
+            const SizedBox(height: AppSpacing.lg),
+            _ComposerField(
+              label: 'Assignment title',
+              hint: 'Required · up to 80 characters',
+              child: TextBox(
+                key: const Key('teacher_assignment_title'),
+                controller: _assignmentTitleController,
+                maxLength: TeacherReviewedMovementSpec.titleMaxLength,
+                enabled: !_submitting,
+                onChanged: (_) => setState(() => _validationError = null),
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          _ComposerSectionHeading(
-            icon: FluentIcons.calculator,
-            eyebrow: 'ASSESSMENT',
-            title: 'Configure this activity assignment',
-            description:
-                'These settings override the reusable Teacher Activity defaults for this classroom only.',
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          _activityAssessmentFields(context),
+            const SizedBox(height: AppSpacing.md),
+            _ComposerField(
+              label: 'Instructions',
+              hint: 'Required · explain what the trainee should practice.',
+              child: TextBox(
+                key: const Key('teacher_assignment_instructions'),
+                controller: _instructionsController,
+                maxLines: 4,
+                maxLength: TeacherReviewedMovementSpec.instructionsMaxLength,
+                enabled: !_submitting,
+                onChanged: (_) => setState(() => _validationError = null),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            _ComposerField(
+              label: 'Safety guidance',
+              hint: 'Optional · visible before the trainee starts an attempt.',
+              child: TextBox(
+                key: const Key('teacher_assignment_safety_guidance'),
+                controller: _safetyGuidanceController,
+                maxLines: 3,
+                maxLength: TeacherReviewedMovementSpec.safetyGuidanceMaxLength,
+                enabled: !_submitting,
+                onChanged: (_) => setState(() => _validationError = null),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            _ComposerSectionHeading(
+              icon: FluentIcons.calculator,
+              eyebrow: 'ASSESSMENT',
+              title: 'Configure this activity assignment',
+              description:
+                  'These settings override the reusable Teacher Activity defaults for this classroom only.',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _activityAssessmentFields(context),
+          ],
         ],
         if (!_isTeacherCreated || _hasValidTeacherMovement) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -1069,43 +1124,47 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ComposerField(
-          label: 'Maximum score',
-          hint: 'Use a preset or enter a custom maximum from 1 to 100.',
-          child: ComboBox<String>(
-            key: const Key('teacher_assignment_maximum_preset'),
-            value: isPreset ? '$maximum' : 'custom',
-            isExpanded: true,
-            items: const [
-              ComboBoxItem(value: '30', child: Text('30 points')),
-              ComboBoxItem(value: '50', child: Text('50 points')),
-              ComboBoxItem(value: '100', child: Text('100 points')),
-              ComboBoxItem(value: 'custom', child: Text('Custom maximum')),
-            ],
-            onChanged: _submitting
-                ? null
-                : (value) {
-                    if (value == null) return;
-                    setState(() {
-                      if (value != 'custom') _maxScoreController.text = value;
-                      _validationError = null;
-                    });
-                  },
+        if (_rubricTemplate != TeacherActivityRubricTemplate.custom) ...[
+          _ComposerField(
+            label: 'Maximum score',
+            hint: 'Use a preset or enter a custom maximum from 1 to 100.',
+            child: ComboBox<String>(
+              key: const Key('teacher_assignment_maximum_preset'),
+              value: isPreset ? '$maximum' : 'custom',
+              isExpanded: true,
+              items: const [
+                ComboBoxItem(value: '30', child: Text('30 points')),
+                ComboBoxItem(value: '50', child: Text('50 points')),
+                ComboBoxItem(value: '100', child: Text('100 points')),
+                ComboBoxItem(value: 'custom', child: Text('Custom maximum')),
+              ],
+              onChanged: _submitting
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() {
+                        if (value != 'custom') _maxScoreController.text = value;
+                        _validationError = null;
+                      });
+                    },
+            ),
           ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        _ComposerField(
-          label: isPreset ? 'Score maximum override' : 'Custom maximum score',
-          hint: 'Enter a value from 1 to 100.',
-          child: TextBox(
-            key: const Key('teacher_assignment_max_score'),
-            controller: _maxScoreController,
-            keyboardType: TextInputType.number,
-            maxLength: 3,
-            enabled: !_submitting,
-            onChanged: (_) => setState(() => _validationError = null),
-          ),
-        ),
+          if (!isPreset) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _ComposerField(
+              label: 'Custom maximum score',
+              hint: 'Enter a value from 1 to 100.',
+              child: TextBox(
+                key: const Key('teacher_assignment_max_score'),
+                controller: _maxScoreController,
+                keyboardType: TextInputType.number,
+                maxLength: 3,
+                enabled: !_submitting,
+                onChanged: (_) => setState(() => _validationError = null),
+              ),
+            ),
+          ],
+        ],
         const SizedBox(height: AppSpacing.md),
         _ComposerField(
           label: 'Readiness requirements',
@@ -1113,14 +1172,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
               'Visibility is checked before recording; it does not score technique.',
           child: Column(
             children: [
-              _activityOptionPicker<ActivityPropRequirement>(
-                key: const Key('teacher_assignment_readiness_prop'),
-                value: _readinessProp,
-                values: ActivityPropRequirement.values,
-                label: (value) => value.displayLabel,
-                onChanged: (value) => setState(() => _readinessProp = value),
-              ),
-              const SizedBox(height: AppSpacing.sm),
               _activityOptionPicker<ActivityHandRequirement>(
                 key: const Key('teacher_assignment_readiness_hands'),
                 value: _readinessHands,
@@ -1137,40 +1188,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 onChanged: (value) => setState(() => _readinessBody = value),
               ),
             ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _ComposerField(
-          label: 'Attempt allowance',
-          hint:
-              'A finite attempt is used only after recording genuinely starts.',
-          child: ComboBox<String>(
-            key: const Key('teacher_assignment_attempt_policy'),
-            value: _attemptPolicy.isUnlimited
-                ? 'unlimited'
-                : '${_attemptPolicy.maximumAttempts}',
-            isExpanded: true,
-            items: const [
-              ComboBoxItem(value: '1', child: Text('1 attempt')),
-              ComboBoxItem(value: '2', child: Text('2 attempts')),
-              ComboBoxItem(value: '3', child: Text('3 attempts')),
-              ComboBoxItem(
-                value: 'unlimited',
-                child: Text('Unlimited attempts'),
-              ),
-            ],
-            onChanged: _submitting
-                ? null
-                : (value) {
-                    if (value == null) return;
-                    setState(() {
-                      _attemptPolicy = value == 'unlimited'
-                          ? const TeacherActivityAttemptPolicy.unlimited()
-                          : TeacherActivityAttemptPolicy.finite(
-                              int.parse(value),
-                            );
-                    });
-                  },
           ),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -1229,6 +1246,34 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       ],
     );
   }
+
+  Widget _attemptAllowanceField() => _ComposerField(
+    label: 'Attempt allowance',
+    hint: 'A finite attempt is counted only when recording genuinely starts.',
+    child: ComboBox<String>(
+      key: const Key('teacher_assignment_attempt_policy'),
+      value: _attemptPolicy.isUnlimited
+          ? 'unlimited'
+          : '${_attemptPolicy.maximumAttempts}',
+      isExpanded: true,
+      items: const [
+        ComboBoxItem(value: '1', child: Text('1 attempt')),
+        ComboBoxItem(value: '2', child: Text('2 attempts')),
+        ComboBoxItem(value: '3', child: Text('3 attempts')),
+        ComboBoxItem(value: 'unlimited', child: Text('Unlimited attempts')),
+      ],
+      onChanged: _submitting
+          ? null
+          : (value) {
+              if (value == null) return;
+              setState(() {
+                _attemptPolicy = value == 'unlimited'
+                    ? const AssignmentAttemptPolicy.unlimited()
+                    : AssignmentAttemptPolicy.finite(int.parse(value));
+              });
+            },
+    ),
+  );
 
   Widget _activityOptionPicker<T>({
     required Key key,
@@ -1290,6 +1335,11 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
                 ),
           child: const Text('Add criterion'),
         ),
+      const SizedBox(height: AppSpacing.sm),
+      Text(
+        'Total: ${_customCriteria.fold<int>(0, (total, draft) => total + (int.tryParse(draft.maximumPoints.text.trim()) ?? 0))} points',
+        style: AppTheme.label(color: context.elixTextPrimary),
+      ),
       if (_activityRubric == null)
         Padding(
           padding: const EdgeInsets.only(top: AppSpacing.xs),
@@ -1310,9 +1360,6 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
 
   String get _readinessSummaryLabel {
     final requirements = <String>[];
-    if (_readinessProp != ActivityPropRequirement.none) {
-      requirements.add(_readinessProp.displayLabel);
-    }
     if (_readinessHands != ActivityHandRequirement.none) {
       requirements.add(_readinessHands.displayLabel);
     }
@@ -1320,6 +1367,47 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       requirements.add(_readinessBody.displayLabel);
     }
     return requirements.isEmpty ? 'Camera only' : requirements.join(' · ');
+  }
+
+  String get _activityInheritanceSummary {
+    final spec = _selectedActivitySpec;
+    final assessment = spec?.effectiveAssessment;
+    if (spec == null || assessment == null) return 'Loading Activity settings…';
+    final demo = assessment.demonstrationVideo == null
+        ? 'no demonstration'
+        : 'demonstration attached';
+    return '${spec.requiredProp.displayLabel} · '
+        '${assessment.readiness.hands.displayLabel} · '
+        '${assessment.readiness.body.displayLabel} · '
+        '${assessment.rubric.template.displayLabel}, '
+        '${assessment.rubric.maximumScore} points · '
+        '${assessment.recordingDurationSeconds}s · $demo';
+  }
+
+  void _initializeCustomizationFromActivity() {
+    final movement = _selectedTeacherCreatedMovement;
+    final spec = _selectedActivitySpec;
+    if (movement == null || spec == null) return;
+    final assessment = spec.effectiveAssessment;
+    for (final draft in _customCriteria) {
+      draft.dispose();
+    }
+    _assignmentTitleController.text = movement.title;
+    _instructionsController.text = spec.instructions;
+    _safetyGuidanceController.text = spec.safetyGuidance ?? '';
+    _maxScoreController.text = '${assessment.rubric.maximumScore}';
+    _readinessHands = assessment.readiness.hands;
+    _readinessBody = assessment.readiness.body;
+    _rubricTemplate = assessment.rubric.template;
+    _recordingDurationSeconds = assessment.recordingDurationSeconds;
+    _demonstrationVideo = assessment.demonstrationVideo;
+    _customCriteria =
+        assessment.rubric.template == TeacherActivityRubricTemplate.custom
+        ? [
+            for (final criterion in assessment.rubric.criteria)
+              _CustomCriterionDraft.fromCriterion(criterion),
+          ]
+        : [];
   }
 
   String get _audienceSummaryLabel {
@@ -1517,6 +1605,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _origin = value;
       _validationError = null;
       if (value == _AssignmentOriginSelection.official) {
+        _customizeActivity = false;
         _selectedTeacherCreatedMovement = null;
         _selectedOfficialMovement ??= _enabledOfficialMovements.firstOrNull;
       } else {
@@ -1707,6 +1796,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       if (movement.id == value) {
         setState(() {
           _selectedTeacherCreatedMovement = movement;
+          _customizeActivity = false;
           _validationError = null;
         });
         unawaited(_prefillActivityDefaultsForSelectedMovement());
@@ -1850,6 +1940,7 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
       _origin = _AssignmentOriginSelection.teacherCreated;
       _selectedOfficialMovement = null;
       _selectedTeacherCreatedMovement = movement;
+      _customizeActivity = false;
       _movementLoadError = null;
       _validationError = null;
     });
@@ -1877,31 +1968,9 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         revision?.spec is! TeacherReviewedMovementSpec) {
       return;
     }
-    final spec = revision!.spec as TeacherReviewedMovementSpec;
-    final assessment = spec.effectiveAssessment;
-    for (final draft in _customCriteria) {
-      draft.dispose();
-    }
-    final isCustom =
-        assessment.rubric.template == TeacherActivityRubricTemplate.custom;
     setState(() {
-      _assignmentTitleController.text = movement.title;
-      _instructionsController.text = spec.instructions;
-      _safetyGuidanceController.text = spec.safetyGuidance ?? '';
-      _maxScoreController.text = '${assessment.rubric.maximumScore}';
-      _readinessProp = assessment.readiness.prop;
-      _readinessHands = assessment.readiness.hands;
-      _readinessBody = assessment.readiness.body;
-      _rubricTemplate = assessment.rubric.template;
-      _attemptPolicy = assessment.attemptPolicy;
-      _recordingDurationSeconds = assessment.recordingDurationSeconds;
-      _demonstrationVideo = assessment.demonstrationVideo;
-      _customCriteria = isCustom
-          ? [
-              for (final criterion in assessment.rubric.criteria)
-                _CustomCriterionDraft.fromCriterion(criterion),
-            ]
-          : [];
+      _customizeActivity = false;
+      _attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault;
       _validationError = null;
     });
   }
@@ -1963,15 +2032,19 @@ class _TeacherAssignmentComposerState extends State<TeacherAssignmentComposer> {
         teacherCreatedMovement: _isTeacherCreated
             ? _selectedTeacherCreatedMovement
             : null,
-        maxScore: int.tryParse(_maxScoreController.text.trim()) ?? 100,
+        maxScore:
+            _activityAssessment?.rubric.maximumScore ??
+            int.tryParse(_maxScoreController.text.trim()) ??
+            100,
         activityAssessment: _activityAssessment,
-        displayTitle: _isTeacherCreated
+        attemptPolicy: _attemptPolicy,
+        displayTitle: _isTeacherCreated && _customizeActivity
             ? _assignmentTitleController.text.trim()
             : null,
-        displayInstructions: _isTeacherCreated
+        displayInstructions: _isTeacherCreated && _customizeActivity
             ? _instructionsController.text.trim()
             : null,
-        displaySafetyGuidance: _isTeacherCreated
+        displaySafetyGuidance: _isTeacherCreated && _customizeActivity
             ? _safetyGuidanceController.text.trim()
             : null,
         dueAt: _dueAt,

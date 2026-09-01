@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:elixr_application/data/models/assessment_mode.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/assignment_attempt.dart';
 import 'package:elixr_application/data/models/assignment_attempt_ids.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
@@ -33,7 +34,6 @@ const _assignment = GroupAssignment(
 
 const _activityAssessment = TeacherActivityAssessmentConfig(
   readiness: TeacherActivityReadinessSpec(
-    prop: ActivityPropRequirement.oneBottle,
     hands: ActivityHandRequirement.twoHands,
     body: ActivityBodyRequirement.upperBody,
   ),
@@ -61,7 +61,6 @@ const _activityAssessment = TeacherActivityAssessmentConfig(
       ),
     ],
   ),
-  attemptPolicy: TeacherActivityAttemptPolicy.finite(2),
   recordingDurationSeconds: 45,
 );
 
@@ -80,6 +79,7 @@ const _activityAssignment = GroupAssignment(
   allowedProp: TrainingProp.bottle,
   maxScore: 30,
   activityAssessment: _activityAssessment,
+  attemptPolicy: AssignmentAttemptPolicy.finite(2),
 );
 
 class _GatedRecordSocket extends WebSocketService {

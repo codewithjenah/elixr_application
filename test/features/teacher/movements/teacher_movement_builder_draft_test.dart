@@ -11,7 +11,6 @@ void main() {
     expect(draft.instructions, isEmpty);
     expect(draft.safetyGuidance, isEmpty);
     expect(draft.requiredProp, TrainingProp.bottle);
-    expect(draft.readiness.prop, ActivityPropRequirement.oneBottle);
     expect(draft.readiness.hands, ActivityHandRequirement.none);
     expect(draft.readiness.body, ActivityBodyRequirement.none);
     expect(
@@ -19,7 +18,6 @@ void main() {
       TeacherActivityRubricTemplate.standardTechnique,
     );
     expect(draft.maximumScore, 50);
-    expect(draft.attemptPolicy.maximumAttempts, 3);
     expect(draft.recordingDurationSeconds, 30);
     expect(draft.buildAssessment(), isNotNull);
   });

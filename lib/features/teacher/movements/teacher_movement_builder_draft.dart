@@ -8,10 +8,9 @@ class TeacherMovementBuilderDraft {
       instructions = '',
       safetyGuidance = '',
       requiredProp = TrainingProp.bottle,
-      readiness = TeacherActivityReadinessSpec.legacy(TrainingProp.bottle),
+      readiness = const TeacherActivityReadinessSpec(),
       rubricTemplate = TeacherActivityRubricTemplate.standardTechnique,
       maximumScore = TeacherActivityAssessmentContract.defaultMaximumScore,
-      attemptPolicy = TeacherActivityAttemptPolicy.defaultPolicy,
       recordingDurationSeconds =
           TeacherActivityAssessmentContract.defaultRecordingDurationSeconds;
 
@@ -24,16 +23,13 @@ class TeacherMovementBuilderDraft {
   }) : safetyGuidance = safetyGuidance ?? '',
        readiness =
            assessment?.readiness ??
-           TeacherActivityReadinessSpec.legacy(requiredProp),
+           const TeacherActivityReadinessSpec(),
        rubricTemplate =
            assessment?.rubric.template ??
            TeacherActivityRubricTemplate.standardTechnique,
        maximumScore =
            assessment?.rubric.maximumScore ??
            TeacherActivityAssessmentContract.defaultMaximumScore,
-       attemptPolicy =
-           assessment?.attemptPolicy ??
-           TeacherActivityAttemptPolicy.defaultPolicy,
        recordingDurationSeconds =
            assessment?.recordingDurationSeconds ??
            TeacherActivityAssessmentContract.defaultRecordingDurationSeconds,
@@ -46,7 +42,6 @@ class TeacherMovementBuilderDraft {
   TeacherActivityReadinessSpec readiness;
   TeacherActivityRubricTemplate rubricTemplate;
   int maximumScore;
-  TeacherActivityAttemptPolicy attemptPolicy;
   int recordingDurationSeconds;
   TeacherActivityVideoMetadata? demonstrationVideo;
 
@@ -64,7 +59,6 @@ class TeacherMovementBuilderDraft {
     return TeacherActivityAssessmentConfig(
       readiness: readiness,
       rubric: TeacherActivityRubric.builtIn(rubricTemplate, maximumScore),
-      attemptPolicy: attemptPolicy,
       recordingDurationSeconds: recordingDurationSeconds,
       demonstrationVideo: demonstrationVideo,
     );

@@ -10,6 +10,7 @@ import 'package:elixr_core/models/group_membership.dart';
 import 'package:elixr_core/models/teacher_roster_invite.dart';
 
 import '../models/assessment_mode.dart';
+import '../models/assignment_attempt_policy.dart';
 import '../models/assignment_attempt.dart';
 import '../models/assignment_attempt_ids.dart';
 import '../models/assignment_submission_limits.dart';
@@ -61,6 +62,7 @@ class FirebaseClassroomAssignmentRepository
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) => createOfficialAssignmentWithTopic(
     teacherId: teacherId,
@@ -69,6 +71,7 @@ class FirebaseClassroomAssignmentRepository
     officialMovementName: officialMovementName,
     dueAt: dueAt,
     displayInstructions: displayInstructions,
+    attemptPolicy: attemptPolicy,
     audience: audience,
   );
 
@@ -81,6 +84,7 @@ class FirebaseClassroomAssignmentRepository
     DateTime? dueAt,
     String? displayInstructions,
     String? topic,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -98,6 +102,7 @@ class FirebaseClassroomAssignmentRepository
       dueAt: dueAt,
       topic: topic,
       audience: audience,
+      attemptPolicy: attemptPolicy,
       createdAt: DateTime.now().toUtc(),
       updatedAt: DateTime.now().toUtc(),
     );
@@ -113,6 +118,7 @@ class FirebaseClassroomAssignmentRepository
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -126,6 +132,7 @@ class FirebaseClassroomAssignmentRepository
     revision: revision,
     maxScore: maxScore,
     activityAssessment: activityAssessment,
+    attemptPolicy: attemptPolicy,
     displayTitle: displayTitle,
     displayInstructions: displayInstructions,
     displaySafetyGuidance: displaySafetyGuidance,
@@ -147,6 +154,7 @@ class FirebaseClassroomAssignmentRepository
     String? displaySafetyGuidance,
     DateTime? dueAt,
     String? topic,
+    AssignmentAttemptPolicy attemptPolicy = AssignmentAttemptPolicy.teacherActivityDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     ensureTeacherOwnsActiveGroup(teacherId: teacherId, group: group);
@@ -163,6 +171,7 @@ class FirebaseClassroomAssignmentRepository
       revision: revision,
       maxScore: maxScore,
       activityAssessment: activityAssessment,
+      attemptPolicy: attemptPolicy,
       displayTitle: displayTitle,
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
@@ -281,6 +290,7 @@ class FirebaseClassroomAssignmentRepository
     DateTime? dueAt,
     required AssignmentAudience audience,
     required TeacherActivityAssessmentConfig activityAssessment,
+    required AssignmentAttemptPolicy attemptPolicy,
   }) async {
     if (_auth.currentUser?.uid != teacherId || !activityAssessment.isValid) {
       throw const ClassroomException(ClassroomError.forbidden);
@@ -299,6 +309,7 @@ class FirebaseClassroomAssignmentRepository
               ? const <String>[]
               : audience.targetTraineeIds,
           'activity_assessment': activityAssessment.toMap(),
+          'attempt_policy': attemptPolicy.toMap(),
         });
     final raw = decoded['assignment'];
     if (raw is! Map) throw const ClassroomException(ClassroomError.malformed);

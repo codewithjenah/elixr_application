@@ -98,10 +98,7 @@ TeacherReviewedMovementSpec buildTeacherReviewedSpec({
       return trimmed;
     }(),
     assessment:
-        assessment ??
-        TeacherActivityAssessmentConfig.newActivityDefaults(
-          legacyProp: requiredProp,
-        ),
+        assessment ?? TeacherActivityAssessmentConfig.newActivityDefaults(),
   );
 }
 

@@ -4,6 +4,7 @@ import 'package:elixr_application/core/constants/movements.dart';
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
 import 'package:elixr_application/data/models/group_assignment.dart';
+import 'package:elixr_application/data/models/assignment_attempt_policy.dart';
 import 'package:elixr_application/data/models/movement.dart';
 import 'package:elixr_application/data/models/teacher_movement.dart';
 import 'package:elixr_application/data/models/teacher_activity_assessment.dart';
@@ -39,6 +40,8 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     required String officialMovementName,
     DateTime? dueAt,
     String? displayInstructions,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.legacyDefault,
     AssignmentAudience audience = const AssignmentAudience.entireClass(),
   }) async {
     officialCalls++;
@@ -52,6 +55,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       officialMovementName: officialMovementName,
       dueAt: dueAt,
       displayInstructions: displayInstructions,
+      attemptPolicy: attemptPolicy,
       audience: audience,
     );
   }
@@ -65,6 +69,8 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
     required TeacherMovementRevision revision,
     int maxScore = 100,
     TeacherActivityAssessmentConfig? activityAssessment,
+    AssignmentAttemptPolicy attemptPolicy =
+        AssignmentAttemptPolicy.teacherActivityDefault,
     String? displayTitle,
     String? displayInstructions,
     String? displaySafetyGuidance,
@@ -87,6 +93,7 @@ class _TrackingAssignments extends InMemoryClassroomAssignmentRepository {
       revision: revision,
       maxScore: maxScore,
       activityAssessment: activityAssessment,
+      attemptPolicy: attemptPolicy,
       displayTitle: displayTitle,
       displayInstructions: displayInstructions,
       displaySafetyGuidance: displaySafetyGuidance,
@@ -414,7 +421,6 @@ void main() {
     (tester) async {
       final defaults = TeacherActivityAssessmentConfig(
         readiness: TeacherActivityReadinessSpec(
-          prop: ActivityPropRequirement.oneShaker,
           hands: ActivityHandRequirement.twoHands,
           body: ActivityBodyRequirement.upperBody,
         ),
@@ -422,7 +428,6 @@ void main() {
           TeacherActivityRubricTemplate.controlConsistency,
           50,
         ),
-        attemptPolicy: TeacherActivityAttemptPolicy.finite(2),
         recordingDurationSeconds: 45,
       );
       final activity = await movements.createMovement(
@@ -443,19 +448,11 @@ void main() {
       expect(find.text('Shaker control'), findsWidgets);
       expect(
         tester
-            .widget<ComboBox<ActivityPropRequirement>>(
-              find.byKey(const Key('teacher_assignment_readiness_prop')),
-            )
-            .value,
-        ActivityPropRequirement.oneShaker,
-      );
-      expect(
-        tester
             .widget<ComboBox<String>>(
               find.byKey(const Key('teacher_assignment_attempt_policy')),
             )
             .value,
-        '2',
+        'unlimited',
       );
       expect(find.text('Control & Consistency'), findsWidgets);
 

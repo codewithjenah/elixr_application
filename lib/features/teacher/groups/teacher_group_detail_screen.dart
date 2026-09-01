@@ -25,6 +25,7 @@ import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/group_assignment.dart';
+import '../../../data/models/assignment_attempt_policy.dart';
 import '../../../data/models/teacher_activity_assessment.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../data/repositories/assignment_submission_repository.dart';
@@ -1216,7 +1217,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
       _ActivityEditCriterionControllers.fromCriterion(criterion),
   ];
   var nextCriterionId = customCriteria.length + 1;
-  var attempts = original.attemptPolicy;
+  var attempts = assignment.attemptPolicy;
   var duration = original.recordingDurationSeconds;
   var audienceType = assignment.audience.type;
   final targets = <String>{...assignment.audience.targetTraineeIds};
@@ -1302,20 +1303,6 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: AppSpacing.xs),
-                _activityEditPicker<ActivityPropRequirement>(
-                  label: 'Prop',
-                  value: readiness.prop,
-                  values: ActivityPropRequirement.values,
-                  labelFor: (value) => value.displayLabel,
-                  onChanged: (value) => setDialogState(
-                    () => readiness = TeacherActivityReadinessSpec(
-                      prop: value!,
-                      hands: readiness.hands,
-                      body: readiness.body,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
                 _activityEditPicker<ActivityHandRequirement>(
                   label: 'Hands',
                   value: readiness.hands,
@@ -1323,7 +1310,6 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   labelFor: (value) => value.displayLabel,
                   onChanged: (value) => setDialogState(
                     () => readiness = TeacherActivityReadinessSpec(
-                      prop: readiness.prop,
                       hands: value!,
                       body: readiness.body,
                     ),
@@ -1337,7 +1323,6 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   labelFor: (value) => value.displayLabel,
                   onChanged: (value) => setDialogState(
                     () => readiness = TeacherActivityReadinessSpec(
-                      prop: readiness.prop,
                       hands: readiness.hands,
                       body: value!,
                     ),
@@ -1366,22 +1351,8 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                 ),
                 if (template == TeacherActivityRubricTemplate.custom) ...[
                   const SizedBox(height: AppSpacing.sm),
-                  InfoLabel(
-                    label: 'Custom maximum score',
-                    child: TextBox(
-                      key: const Key(
-                        'teacher_activity_edit_custom_maximum_score',
-                      ),
-                      controller: customMaximum,
-                      placeholder: '1–100',
-                      onChanged: (value) => setDialogState(
-                        () => maximumScore = int.tryParse(value.trim()) ?? 0,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Use 3–5 complete criteria whose points total $maximumScore.',
+                    'Use 3–5 complete criteria. The maximum score is derived from their total.',
                     style: AppTheme.caption.copyWith(
                       color: context.elixTextSecondary,
                     ),
@@ -1490,10 +1461,8 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                     ],
                     onChanged: (value) => setDialogState(
                       () => attempts = value == 'unlimited'
-                          ? const TeacherActivityAttemptPolicy.unlimited()
-                          : TeacherActivityAttemptPolicy.finite(
-                              int.parse(value!),
-                            ),
+                          ? const AssignmentAttemptPolicy.unlimited()
+                          : AssignmentAttemptPolicy.finite(int.parse(value!)),
                     ),
                   ),
                 ),
@@ -1737,6 +1706,10 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   if (resolvedCriteria.length != customCriteria.length) {
                     throw StateError('incomplete rubric');
                   }
+                  maximumScore = resolvedCriteria.fold<int>(
+                    0,
+                    (total, criterion) => total + criterion.maximumPoints,
+                  );
                   rubric = TeacherActivityRubric(
                     template: TeacherActivityRubricTemplate.custom,
                     maximumScore: maximumScore,
@@ -1751,7 +1724,6 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                 final assessment = TeacherActivityAssessmentConfig(
                   readiness: readiness,
                   rubric: rubric,
-                  attemptPolicy: attempts,
                   recordingDurationSeconds: duration,
                   demonstrationVideo: demonstrationVideo,
                 );
@@ -1765,6 +1737,7 @@ Future<void> _showTeacherActivityAssignmentEditDialog(
                   dueAt: hasDueDate ? dueAt : null,
                   audience: audience,
                   activityAssessment: assessment,
+                  attemptPolicy: attempts,
                 );
                 if (context.mounted && controller.errorMessage == null) {
                   Navigator.pop(dialogContext, true);
