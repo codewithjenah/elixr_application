@@ -611,6 +611,8 @@ void main() {
     await tester.tap(find.byKey(const Key('teacher_group_confirm_unarchive')));
     await tester.pumpAndSettle();
     expect(repository.groups[active.id]?.status, ElixrGroupStatus.active);
+    expect(find.byKey(const Key('elix_toast')), findsOneWidget);
+    expect(find.text('Unarchived BSIT-4A.'), findsOneWidget);
   });
 
   testWidgets('classroom composer locks the opened group', (tester) async {

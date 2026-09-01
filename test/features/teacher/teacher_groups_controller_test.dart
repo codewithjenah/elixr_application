@@ -562,6 +562,14 @@ void main() {
     expect(memory.groups[group.id]?.status, ElixrGroupStatus.active);
     expect(repository.privilegedCalls, contains('unarchiveGroup'));
     expect(controller.actionMessage, 'Unarchived BSHM 4A.');
+    final firstRevision = controller.actionMessageRevision;
+    expect(controller.consumeActionMessage(), 'Unarchived BSHM 4A.');
+    expect(controller.actionMessage, isNull);
+
+    await memory.archiveGroup(groupId: group.id, teacherId: 'teacher-1');
+    await controller.unarchiveGroup(memory.groups[group.id]!);
+    expect(controller.actionMessage, 'Unarchived BSHM 4A.');
+    expect(controller.actionMessageRevision, greaterThan(firstRevision));
 
     authorizationCalls = 0;
     repository.privilegedCalls.clear();

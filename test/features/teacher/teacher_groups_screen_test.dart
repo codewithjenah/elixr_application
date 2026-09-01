@@ -198,6 +198,8 @@ void main() {
 
     expect(repository.groups[group.id]?.status, ElixrGroupStatus.active);
     expect(find.text('No archived classrooms.'), findsOneWidget);
+    expect(find.byKey(const Key('elix_toast')), findsOneWidget);
+    expect(find.text('Unarchived BSIT-4A.'), findsOneWidget);
   });
 
   testWidgets('creating a group opens the new class page', (tester) async {

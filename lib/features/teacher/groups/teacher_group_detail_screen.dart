@@ -23,6 +23,7 @@ import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_panel_card.dart';
 import '../../../core/widgets/elix_primary_button.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../core/widgets/profile_avatar.dart';
 import '../../../data/models/group_assignment.dart';
 import '../../../data/models/assignment_attempt_policy.dart';
@@ -72,6 +73,7 @@ class TeacherGroupDetailScreen extends StatefulWidget {
 
 class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
   TeacherGroupsController? _owned;
+  TeacherGroupsController? _feedbackController;
   TeacherClassworkController? _ownedClasswork;
   ClassroomAnnouncementsController? _ownedAnnouncements;
   late final bool _ownsController;
@@ -176,6 +178,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
 
   @override
   void dispose() {
+    _feedbackController?.removeListener(_showActionMessage);
     if (_ownsController) {
       _owned?.dispose();
     }
@@ -188,6 +191,7 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _listenForFeedback();
     final controller = _controller;
     final classwork = _classworkController;
     if (controller == null || classwork == null) {
@@ -303,6 +307,20 @@ class _TeacherGroupDetailScreenState extends State<TeacherGroupDetailScreen> {
       },
     );
   }
+
+  void _listenForFeedback() {
+    final controller = _controller;
+    if (identical(_feedbackController, controller)) return;
+    _feedbackController?.removeListener(_showActionMessage);
+    _feedbackController = controller;
+    _feedbackController?.addListener(_showActionMessage);
+  }
+
+  void _showActionMessage() {
+    if (!mounted) return;
+    final message = _feedbackController?.consumeActionMessage();
+    if (message != null) ElixToast.showSuccess(context, message: message);
+  }
 }
 
 TeacherGroupDetailTab _teacherTabFromQuery(String? value) {
@@ -378,10 +396,6 @@ class _GroupDetailBody extends StatelessWidget {
         ],
         if (controller.errorMessage != null) ...[
           ElixStatusPanel(message: controller.errorMessage!, isError: true),
-          const SizedBox(height: AppSpacing.md),
-        ],
-        if (controller.actionMessage != null) ...[
-          ElixStatusPanel(message: controller.actionMessage!),
           const SizedBox(height: AppSpacing.md),
         ],
         if (showStreamContext)
@@ -2171,7 +2185,7 @@ Future<void> _confirmArchive(
     ),
   );
   if (accepted != true) return;
-  await controller.archiveSelectedGroup();
+  await controller.archiveSelectedGroup(showSuccess: false);
   if (controller.selectedGroup == null &&
       controller.errorMessage == null &&
       context.mounted) {
@@ -2263,7 +2277,7 @@ Future<void> _confirmPermanentlyDeleteClassroom(
   );
   confirmation.dispose();
   if (accepted != true) return;
-  await controller.permanentlyDeleteClassroom(group);
+  await controller.permanentlyDeleteClassroom(group, showSuccess: false);
   if (controller.selectedGroup == null && context.mounted) {
     context.go(AppRoutePaths.teacherGroups);
   }

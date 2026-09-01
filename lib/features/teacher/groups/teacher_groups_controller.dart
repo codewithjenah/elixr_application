@@ -45,6 +45,7 @@ class TeacherGroupsController extends ChangeNotifier {
   bool unauthorized = false;
   String? errorMessage;
   String? actionMessage;
+  int actionMessageRevision = 0;
   TeacherGroupDetailTab tab = TeacherGroupDetailTab.classwork;
   bool _closed = false;
 
@@ -245,7 +246,8 @@ class TeacherGroupsController extends ChangeNotifier {
           section: section,
           schedule: schedule,
         );
-        actionMessage = 'Created ${created!.name}.';
+        // Creation immediately opens the new classroom, which is its own
+        // useful confirmation. Do not leave feedback to surface after routing.
       },
     );
     return created;
@@ -263,7 +265,7 @@ class TeacherGroupsController extends ChangeNotifier {
           section: group.section,
           schedule: group.schedule,
         );
-        actionMessage = 'Renamed group.';
+        _setActionMessage('Renamed group.');
       },
     );
   }
@@ -284,7 +286,7 @@ class TeacherGroupsController extends ChangeNotifier {
         section: section,
         schedule: schedule,
       );
-      actionMessage = 'Updated classroom details.';
+      _setActionMessage('Updated classroom details.');
     },
   );
 
@@ -294,13 +296,13 @@ class TeacherGroupsController extends ChangeNotifier {
     return renameGroup(group, name);
   }
 
-  Future<void> archiveGroup(ElixrGroup group) {
+  Future<void> archiveGroup(ElixrGroup group, {bool showSuccess = true}) {
     return _runTeacherAction(
       operation: 'archiveGroup',
       failureMessage: 'Could not archive that group.',
       action: () async {
         await repository.archiveGroup(groupId: group.id, teacherId: teacherId);
-        actionMessage = 'Archived ${group.name}.';
+        if (showSuccess) _setActionMessage('Archived ${group.name}.');
         if (selectedGroup?.id == group.id) {
           clearSelection();
         }
@@ -308,10 +310,10 @@ class TeacherGroupsController extends ChangeNotifier {
     );
   }
 
-  Future<void> archiveSelectedGroup() {
+  Future<void> archiveSelectedGroup({bool showSuccess = true}) {
     final group = selectedGroup;
     if (group == null) return Future.value();
-    return archiveGroup(group);
+    return archiveGroup(group, showSuccess: showSuccess);
   }
 
   Future<void> unarchiveGroup(ElixrGroup group) {
@@ -323,7 +325,7 @@ class TeacherGroupsController extends ChangeNotifier {
           groupId: group.id,
           teacherId: teacherId,
         );
-        actionMessage = 'Unarchived ${group.name}.';
+        _setActionMessage('Unarchived ${group.name}.');
       },
     );
   }
@@ -337,7 +339,10 @@ class TeacherGroupsController extends ChangeNotifier {
   /// Permanently removes a classroom and its assignment data through the
   /// server-authoritative cascade.  The destructive confirmation is supplied
   /// only by the confirmation dialog, never by a caller-provided value.
-  Future<void> permanentlyDeleteClassroom(ElixrGroup group) {
+  Future<void> permanentlyDeleteClassroom(
+    ElixrGroup group, {
+    bool showSuccess = true,
+  }) {
     final assignments = assignmentRepository;
     if (assignments == null) {
       errorMessage = 'Classroom deletion is unavailable right now.';
@@ -353,7 +358,9 @@ class TeacherGroupsController extends ChangeNotifier {
           groupId: group.id,
           confirmation: 'DELETE CLASSROOM',
         );
-        actionMessage = 'Deleted ${group.name} and its classroom data.';
+        if (showSuccess) {
+          _setActionMessage('Deleted ${group.name} and its classroom data.');
+        }
         if (selectedGroup?.id == group.id) clearSelection();
       },
     );
@@ -371,7 +378,7 @@ class TeacherGroupsController extends ChangeNotifier {
           teacherId: teacherId,
           teacherDisplayName: teacherDisplayName,
         );
-        actionMessage = 'New class code is ready.';
+        _setActionMessage('New class code is ready.');
       },
     );
   }
@@ -485,6 +492,21 @@ class TeacherGroupsController extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
+  }
+
+  void _setActionMessage(String message) {
+    actionMessage = message;
+    actionMessageRevision++;
+  }
+
+  /// Consumes one presentation-layer acknowledgement after it has been shown.
+  /// Persistent loading and error state deliberately remain untouched.
+  String? consumeActionMessage() {
+    final message = actionMessage;
+    if (message == null) return null;
+    actionMessage = null;
+    notifyListeners();
+    return message;
   }
 
   Future<bool> _ensureAuthorizationFresh(String operation) async {

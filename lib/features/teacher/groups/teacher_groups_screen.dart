@@ -11,6 +11,7 @@ import '../../../core/shell/teacher_shell.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/elix_editorial_header.dart';
 import '../../../core/widgets/elix_status_panel.dart';
+import '../../../core/widgets/elix_toast.dart';
 import '../../../data/repositories/classroom_assignment_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../teacher_access/trainee_class_card.dart';
@@ -30,6 +31,7 @@ class TeacherGroupsScreen extends StatefulWidget {
 
 class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
   TeacherGroupsController? _owned;
+  TeacherGroupsController? _feedbackController;
   late final bool _ownsController;
   bool _showArchived = false;
 
@@ -57,10 +59,26 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
           .ensureTeacherAuthorizationFresh,
       assignmentRepository: _maybeRead<ClassroomAssignmentRepository>(context),
     )..start();
+    _listenForFeedback();
+  }
+
+  void _listenForFeedback() {
+    final controller = _controller;
+    if (identical(_feedbackController, controller)) return;
+    _feedbackController?.removeListener(_showActionMessage);
+    _feedbackController = controller;
+    _feedbackController?.addListener(_showActionMessage);
+  }
+
+  void _showActionMessage() {
+    if (!mounted) return;
+    final message = _feedbackController?.consumeActionMessage();
+    if (message != null) ElixToast.showSuccess(context, message: message);
   }
 
   @override
   void dispose() {
+    _feedbackController?.removeListener(_showActionMessage);
     if (_ownsController) {
       _owned?.dispose();
     }
@@ -69,6 +87,7 @@ class _TeacherGroupsScreenState extends State<TeacherGroupsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _listenForFeedback();
     final controller = _controller;
     if (controller == null) {
       return const TeacherScaffoldPage(
@@ -143,10 +162,6 @@ class _GroupsGrid extends StatelessWidget {
             message: controller.errorMessage!,
             isError: true,
           ),
-          const SizedBox(height: AppSpacing.md),
-        ],
-        if (controller.actionMessage != null) ...[
-          ElixStatusPanel(message: controller.actionMessage!),
           const SizedBox(height: AppSpacing.md),
         ],
         if (controller.groups.isEmpty)
